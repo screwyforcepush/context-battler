@@ -90,6 +90,21 @@ export const CONSUMABLES: Record<
  */
 export const MIN_DAMAGE_FLOOR = 5;
 
+/**
+ * Per-character starting HP and max HP — phase-1 tuning value (NOT a
+ * concept-spec invariant). `concept-spec.md` §12 defines deterministic
+ * damage and the minimum-floor formula but does not pin a global max HP.
+ * `mental-model.md` §10 explicitly allows bounded value tuning to clear
+ * the report signal, and the Gate-2.5 review (2026-05-07) ratified
+ * lowering this from 100 to 50 to compress time-to-kill in armed combat.
+ *
+ * Single source of truth: imported by `convex/matches.ts` (initial
+ * `characters.hp` seed) and `convex/runMatch.ts` (`maxHp` on the in-memory
+ * `MatchState` — the schema does not store maxHp). New-match invariant:
+ * `hp === maxHp === CHARACTER_MAX_HP` at turn 0.
+ */
+export const CHARACTER_MAX_HP = 50;
+
 // ─── ItemRef discriminated union (mirrors `convex/schema.ts`) ────────────────
 
 /** Discriminated union over the three item categories.

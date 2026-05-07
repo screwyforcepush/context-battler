@@ -26,13 +26,17 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildHeardForObserver,
   buildAgentLlmRecord,
+  buildMatchState,
+  MAX_HP,
 } from "../convex/runMatch.js";
 import { callDecisionTool } from "../convex/llm/azure.js";
+import { CHARACTER_MAX_HP } from "../convex/engine/types.js";
 import type {
   CharacterState,
   FailureReason,
   ParsedDecision,
 } from "../convex/engine/types.js";
+import type { Doc } from "../convex/_generated/dataModel.js";
 
 // ─── A4: heard-speech direct read ───────────────────────────────────────────
 
@@ -283,5 +287,101 @@ describe("WP10.5 B.3 — validatorReason persists into agent-llm trace record", 
 
     expect(record.failureReason).toBe("schema_validation_failed");
     expect("validatorReason" in record).toBe(false);
+  });
+});
+
+// ─── Gate-2.5 Path A — CHARACTER_MAX_HP shared-source-of-truth invariant ───
+//
+// Background: the Gate-2.5 review (2026-05-07) ratified lowering the per-
+// character starting HP from 100 to 50 to compress armed-combat time-to-
+// kill. The review flagged that HP was previously seeded in TWO places —
+// `convex/matches.ts` (initial `characters.hp`) and `convex/runMatch.ts`
+// (in-memory `MatchState.maxHp` at every turn) — so a one-line change to
+// only one site would create the bug `hp=100, maxHp=50`. The fix is a
+// single shared exported `CHARACTER_MAX_HP` in `convex/engine/types.ts`,
+// imported by BOTH sites.
+//
+// These tests pin the invariant. They are intentionally dual-pinned:
+//   1. The constant equals 50 (locked phase-1 tuning value; if a future
+//      pass tunes it, this assertion is the single line that needs to
+//      move + the failure narrative tells the next contributor exactly
+//      where to look).
+//   2. Both consumers (`matches.ts` initial `hp`, `runMatch.ts` `MAX_HP`)
+//      derive from the same constant — verified by `MAX_HP ===
+//      CHARACTER_MAX_HP` and by `buildMatchState` returning `maxHp ===
+//      CHARACTER_MAX_HP` for a freshly-seeded character row.
+//   3. A character row inserted with `hp: CHARACTER_MAX_HP` (the
+//      `matches.start` shape) round-trips through `buildMatchState` to
+//      satisfy `hp === maxHp === CHARACTER_MAX_HP` — the new-match
+//      invariant the review asked us to test.
+
+describe("Gate-2.5 Path A — CHARACTER_MAX_HP shared-source-of-truth invariant", () => {
+  it("CHARACTER_MAX_HP is the phase-1 tuning value (50)", () => {
+    // If a future pass re-tunes max HP, update this assertion + the
+    // export in convex/engine/types.ts together.
+    expect(CHARACTER_MAX_HP).toBe(50);
+  });
+
+  it("runMatch.MAX_HP is a re-export of CHARACTER_MAX_HP (no drift)", () => {
+    // The dual-init bug from the original Gate-2.5 review: hp=100 in
+    // matches.ts, maxHp=50 in runMatch.ts because they were two separate
+    // literals. Pin parity to prevent regression.
+    expect(MAX_HP).toBe(CHARACTER_MAX_HP);
+  });
+
+  it("a fresh-match character row (hp: CHARACTER_MAX_HP) yields hp === maxHp === CHARACTER_MAX_HP after buildMatchState", () => {
+    // Mirror the row shape that `matches.start` inserts at turn 0:
+    // `hp: CHARACTER_MAX_HP`, alive=true, no diedAtTurn / extractedAtTurn.
+    // `buildMatchState` populates `maxHp` from the shared constant.
+    const matchRow = {
+      _id: "m1" as Doc<"matches">["_id"],
+      _creationTime: 0,
+      status: "running" as const,
+      turn: 1,
+      startedAt: 0,
+      completedAt: null,
+      mapId: "reference",
+      rngSeed: "seed-test",
+      outcome: { extracted: [], pointsByCharacter: [] },
+    } as unknown as Doc<"matches">;
+
+    const charRow = {
+      _id: "c1" as Doc<"characters">["_id"],
+      _creationTime: 0,
+      matchId: matchRow._id,
+      personaId: "duelist" as const,
+      spawnIndex: 0,
+      displayName: "Player_1",
+      hp: CHARACTER_MAX_HP, // ← the matches.start seed value
+      pos: { x: 28, y: 28 },
+      equipped: {},
+      scratchpad: "",
+      hidden: false,
+      alive: true,
+      lastKnown: [],
+    } as unknown as Doc<"characters">;
+
+    const worldRow = {
+      _id: "w1",
+      _creationTime: 0,
+      matchId: matchRow._id,
+      walls: [],
+      coverTiles: [],
+      chests: [],
+      corpses: [],
+      evac: { centre: { x: 48, y: 48 }, revealedAtTurn: null },
+    } as unknown as Doc<"worldState">;
+
+    const state = buildMatchState(matchRow, [charRow], worldRow, {
+      w: 100,
+      h: 100,
+    });
+
+    expect(state.characters).toHaveLength(1);
+    const c = state.characters[0]!;
+    // The new-match invariant: full HP = max HP = the shared constant.
+    expect(c.hp).toBe(CHARACTER_MAX_HP);
+    expect(c.maxHp).toBe(CHARACTER_MAX_HP);
+    expect(c.hp).toBe(c.maxHp);
   });
 });

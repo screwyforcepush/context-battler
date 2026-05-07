@@ -724,3 +724,324 @@ describe("WP10.5 Pass F — HTTP 400 body persistence on non-OK responses", () =
     expect(result.raw.httpBodyExcerpt).not.toContain("first transient");
   });
 });
+
+// ─── Gate-2.5 medium-severity — sanitiser hardening ─────────────────────────
+//
+// Per `gate-2-5-review.md` (Medium-severity: Trace hygiene), the existing
+// sanitiser scrubs LABELLED token shapes (api-key:, Bearer, Authorization)
+// but does NOT handle:
+//   (a) the configured `AZURE_API_KEY` value appearing UNLABELLED in body
+//       text (e.g., if Azure ever echoed prompt metadata back),
+//   (b) PII — emails and phone numbers.
+//
+// Invariants pinned by these tests:
+//   1. The configured `azureApiKey` value is replaced by `[REDACTED:api-key]`
+//      anywhere in the body, even without a label, BEFORE truncation.
+//   2. Email addresses are replaced with `[REDACTED:email]`.
+//   3. Common phone-number formats are replaced with `[REDACTED:phone]`.
+//   4. Phone redaction is CONSERVATIVE — bare numeric strings (timestamps,
+//      IDs) must not be redacted.
+//   5. The 2KB cap is preserved AFTER redaction.
+//   6. Order is redact-then-truncate — a marker can never be split mid-token
+//      by truncation (the redaction substitution happens before slice).
+
+describe("Gate-2.5 — httpBodyExcerpt sanitisation hardening", () => {
+  describe("(a) unlabelled AZURE_API_KEY value scrub", () => {
+    it("redacts a verbatim AZURE_API_KEY value occurring without a label", async () => {
+      const apiKey = "Sk-Verbatim-Secret-Value-1234567890abcdef";
+      // Body containing the raw key value with no `api-key:` / `Bearer`
+      // label preceding it. The existing labelled-pattern scrub doesn't
+      // catch this; the new unlabelled-value scrub must.
+      const body = `Some Azure error envelope mentioning ${apiKey} inline; rest of body.`;
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        azureApiKey: apiKey,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      expect(result.failureReason).toBe("http_non_200");
+      const excerpt = result.raw.httpBodyExcerpt!;
+      expect(typeof excerpt).toBe("string");
+      // The raw key value is gone.
+      expect(excerpt).not.toContain(apiKey);
+      // The redaction marker is present.
+      expect(excerpt).toContain("[REDACTED:api-key]");
+      // Surrounding context is preserved.
+      expect(excerpt).toContain("Some Azure error envelope mentioning");
+      expect(excerpt).toContain("rest of body");
+    });
+
+    it("does not redact unrelated content when AZURE_API_KEY is unset (env-only path)", async () => {
+      // Snapshot + clear env to drive the wrapper through the env-only
+      // path with no configured key. Because we still pass `azureApiKey`
+      // via input, the wrapper's read in this test is the input value;
+      // we test the SKIP semantic by setting the input key to empty.
+      // The dirty body contains a long token-like string that COULD be
+      // a key but isn't the configured one.
+      const body =
+        "Body with a long pseudo-token QQQ-Long-Random-Value-NOT-A-KEY-987654321 inline.";
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        // azureApiKey is required for the wrapper not to short-circuit on
+        // missing-env; use a value that does NOT appear in the body.
+        azureApiKey: "different-key-not-in-body-xxxxxxxxxxxxxxxxx",
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      expect(result.failureReason).toBe("http_non_200");
+      const excerpt = result.raw.httpBodyExcerpt!;
+      // The pseudo-token survives because it isn't the configured key
+      // and has no token label preceding it.
+      expect(excerpt).toContain("QQQ-Long-Random-Value-NOT-A-KEY-987654321");
+    });
+
+    it("redacts ALL occurrences of the configured key value in the body", async () => {
+      const apiKey = "MultiHitSecret-abcdef0123456789";
+      const body = `${apiKey} appears here, again here ${apiKey}, and here ${apiKey}.`;
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        azureApiKey: apiKey,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      const excerpt = result.raw.httpBodyExcerpt!;
+      expect(excerpt).not.toContain(apiKey);
+      // Three occurrences should have produced three markers.
+      const markerCount = (excerpt.match(/\[REDACTED:api-key\]/g) ?? []).length;
+      expect(markerCount).toBe(3);
+    });
+  });
+
+  describe("(b) email redaction", () => {
+    it("redacts a basic email address", async () => {
+      const body = "Contact john.doe@example.com for support.";
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      const excerpt = result.raw.httpBodyExcerpt!;
+      expect(excerpt).not.toContain("john.doe@example.com");
+      expect(excerpt).toContain("[REDACTED:email]");
+      expect(excerpt).toContain("Contact ");
+      expect(excerpt).toContain(" for support.");
+    });
+
+    it("redacts a plus-tagged email address", async () => {
+      const body = "User: alice+tag@sub.example.co.uk did the thing.";
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      const excerpt = result.raw.httpBodyExcerpt!;
+      expect(excerpt).not.toContain("alice+tag@sub.example.co.uk");
+      expect(excerpt).toContain("[REDACTED:email]");
+    });
+
+    it("redacts emails with subdomains", async () => {
+      const body = "From: ops-team@internal.staging.example.com logged out.";
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      const excerpt = result.raw.httpBodyExcerpt!;
+      expect(excerpt).not.toContain("ops-team@internal.staging.example.com");
+      expect(excerpt).toContain("[REDACTED:email]");
+    });
+
+    it("redacts multiple emails in the same body", async () => {
+      const body = "CC: a@b.com, c.d@e-f.org, plus+only@x.io";
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      const excerpt = result.raw.httpBodyExcerpt!;
+      expect(excerpt).not.toContain("a@b.com");
+      expect(excerpt).not.toContain("c.d@e-f.org");
+      expect(excerpt).not.toContain("plus+only@x.io");
+      const markerCount = (excerpt.match(/\[REDACTED:email\]/g) ?? []).length;
+      expect(markerCount).toBe(3);
+    });
+  });
+
+  describe("(c) phone redaction (conservative)", () => {
+    it("redacts a +country-coded dash-separated phone", async () => {
+      const body = "Call +1-555-123-4567 for help.";
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      const excerpt = result.raw.httpBodyExcerpt!;
+      expect(excerpt).not.toContain("+1-555-123-4567");
+      expect(excerpt).toContain("[REDACTED:phone]");
+      expect(excerpt).toContain("Call ");
+      expect(excerpt).toContain(" for help.");
+    });
+
+    it("redacts a US (NPA) parens phone", async () => {
+      const body = "Reach us at (555) 123-4567 anytime.";
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      const excerpt = result.raw.httpBodyExcerpt!;
+      expect(excerpt).not.toContain("(555) 123-4567");
+      expect(excerpt).toContain("[REDACTED:phone]");
+    });
+
+    it("redacts a dot-separated phone", async () => {
+      const body = "Hotline: 555.123.4567 — please call.";
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      const excerpt = result.raw.httpBodyExcerpt!;
+      expect(excerpt).not.toContain("555.123.4567");
+      expect(excerpt).toContain("[REDACTED:phone]");
+    });
+
+    it("does NOT redact bare numeric content (timestamps, IDs)", async () => {
+      // Critical conservative-regex test: timestamps, request IDs, and
+      // long digit runs without phone-shaped separators MUST survive.
+      const body =
+        "Timestamp 1714694400 traceId 1234567890123 requestId 9876543210 turn 42 hp 50";
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      const excerpt = result.raw.httpBodyExcerpt!;
+      // Every numeric ID-shape survives.
+      expect(excerpt).toContain("1714694400");
+      expect(excerpt).toContain("1234567890123");
+      expect(excerpt).toContain("9876543210");
+      expect(excerpt).toContain("turn 42");
+      expect(excerpt).toContain("hp 50");
+      // No marker was emitted.
+      expect(excerpt).not.toContain("[REDACTED:phone]");
+    });
+  });
+
+  describe("(d) 2KB cap preserved after redactions, redact-then-truncate order", () => {
+    it("truncates to <= 2048 chars even when body has redactable content", async () => {
+      // 5 KB body with a leading email; final length must still be <= 2048.
+      const head = "Contact john.doe@example.com immediately. ";
+      const filler = "y".repeat(5 * 1024);
+      const body = head + filler;
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      const excerpt = result.raw.httpBodyExcerpt!;
+      expect(typeof excerpt).toBe("string");
+      expect(excerpt.length).toBeLessThanOrEqual(2048);
+      // Email was redacted (head sits at offset 0; well under the cap).
+      expect(excerpt).not.toContain("john.doe@example.com");
+      expect(excerpt).toContain("[REDACTED:email]");
+    });
+
+    it("redact-then-truncate: an email straddling the 2KB boundary is fully redacted, not partially leaked", async () => {
+      // Place an email so that, if truncation ran FIRST at 2048 chars,
+      // the email would be sliced mid-string and the partial (e.g.
+      // `alice.long.local@examp`) would not match the email regex —
+      // leaking a partial PII fragment in the persisted excerpt.
+      //
+      // With the correct order (redact-then-truncate) the sanitiser runs
+      // against the FULL body, the email is matched intact and replaced
+      // with `[REDACTED:email]`, and only THEN is the cap applied. The
+      // resulting excerpt contains zero local-part residue.
+      //
+      // The leading whitespace before the email gives the email regex
+      // a clean left boundary so the prefix x's aren't swallowed.
+      const prefix = "x".repeat(2040) + " ";
+      const body = prefix + "alice.long.local@example.com" + "tail";
+      const fetchImpl = vi.fn(
+        async () => new Response(body, { status: 400 }),
+      );
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      const excerpt = result.raw.httpBodyExcerpt!;
+      expect(excerpt.length).toBeLessThanOrEqual(2048);
+      // The full email is gone.
+      expect(excerpt).not.toContain("alice.long.local@example.com");
+      // No partial-email leak: even the head of the local-part is absent,
+      // proving the regex matched the whole email BEFORE the cap fired.
+      expect(excerpt).not.toContain("alice.long.local@");
+      expect(excerpt).not.toContain("alice.long.local");
+      // The pre-email prefix is preserved up to the boundary.
+      expect(excerpt.startsWith(prefix)).toBe(true);
+    });
+  });
+});

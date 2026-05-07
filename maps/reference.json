@@ -52,17 +52,20 @@
     { "x": 66, "y": 33, "lootTable": "weapons-light" },
     { "x": 33, "y": 66, "lootTable": "weapons-heavy" },
     { "x": 66, "y": 66, "lootTable": "weapons-heavy" },
-    { "x": 50, "y": 25, "lootTable": "consumables" }
+    { "x": 50, "y": 25, "lootTable": "consumables" },
+    { "x": 47, "y": 46, "lootTable": "weapons-light" },
+    { "x": 49, "y": 52, "lootTable": "weapons-light" },
+    { "x": 53, "y": 54, "lootTable": "weapons-heavy" }
   ],
   "spawns": [
-    { "x": 20, "y": 20 },
-    { "x": 48, "y": 20 },
-    { "x": 77, "y": 20 },
-    { "x": 77, "y": 48 },
-    { "x": 77, "y": 78 },
-    { "x": 48, "y": 78 },
-    { "x": 20, "y": 78 },
-    { "x": 20, "y": 48 }
+    { "x": 28, "y": 28 },
+    { "x": 48, "y": 28 },
+    { "x": 68, "y": 28 },
+    { "x": 68, "y": 48 },
+    { "x": 68, "y": 68 },
+    { "x": 48, "y": 68 },
+    { "x": 28, "y": 68 },
+    { "x": 28, "y": 48 }
   ],
   "evac": { "x": 48, "y": 48 }
 }

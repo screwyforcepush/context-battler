@@ -9,8 +9,9 @@
 //
 // Per-turn pipeline (mirrors concept-spec.md §23 + WP10 acceptance):
 //   1. Read matches/characters/worldState rows.
-//   2. Build engine `MatchState` from db rows (set `maxHp=100` per the v0
-//      invariant — characters table doesn't store maxHp).
+//   2. Build engine `MatchState` from db rows (set `maxHp` from the shared
+//      `CHARACTER_MAX_HP` phase-1 tuning constant — characters table
+//      doesn't store maxHp).
 //   3. Build heard-last-turn per agent by reading the persisted
 //      `trace.speech[].heardBy` audience from the prior turn's resolver
 //      output (concept-spec.md §16 + WP8 contract — `resolution.ts` is the
@@ -47,6 +48,7 @@ import { api } from "./_generated/api.js";
 import { resolveTurn, type ResolutionTrace } from "./engine/resolution.js";
 import { validateDecision } from "./engine/validation.js";
 import {
+  CHARACTER_MAX_HP,
   SAFE_DEFAULT_DECISION,
   type ArmourName,
   type CharacterState,
@@ -68,9 +70,15 @@ import { loadPersonas } from "./llm/personas.js";
 
 // ─── Tunables (locked) ─────────────────────────────────────────────────────
 
-/** v0 max HP for every character. The schema doesn't store maxHp; the
- *  engine uses 100 by invariant per ADR §6 / concept-spec §12. */
-const MAX_HP = 100;
+/** Phase-1 max HP for every character. The schema doesn't store maxHp; the
+ *  engine reads it from the shared `CHARACTER_MAX_HP` constant in
+ *  `engine/types.ts` so `matches.start` (initial `hp`) and
+ *  `runMatch.buildMatchState` (`maxHp`) cannot drift. This is a tuning
+ *  value (Gate-2.5 review 2026-05-07), NOT a `concept-spec.md` invariant
+ *  — §12 specifies the damage formula and minimum floor only.
+ *  Exported (read-only re-export of `CHARACTER_MAX_HP`) so tests can
+ *  pin the source-of-truth parity with `matches.ts`'s initial `hp` seed. */
+export const MAX_HP = CHARACTER_MAX_HP;
 /** Total turn count before forced termination — concept-spec §15. */
 const FINAL_TURN = 50;
 /** Default reasoning effort when the matches row has none persisted (legacy
@@ -173,10 +181,16 @@ function narrowEquipped(slots: EquippedSlots): NarrowedEquipped {
 
 /**
  * Build the in-memory engine `MatchState` from Convex rows. The engine uses
- * plain string `characterId`s and a runtime `maxHp` of 100; both round-trip
- * with the schema (Convex Id values ARE strings at runtime).
+ * plain string `characterId`s and a runtime `maxHp` of `CHARACTER_MAX_HP`
+ * (the shared phase-1 tuning constant); both round-trip with the schema
+ * (Convex Id values ARE strings at runtime).
+ *
+ * Exported for unit testing the new-match HP invariant
+ * (`hp === maxHp === CHARACTER_MAX_HP`) without standing up a Convex
+ * runtime; the `Doc<...>` row shapes are structural and accept plain
+ * test fixtures.
  */
-function buildMatchState(
+export function buildMatchState(
   matchRow: Doc<"matches">,
   characters: Doc<"characters">[],
   worldRow: Doc<"worldState">,

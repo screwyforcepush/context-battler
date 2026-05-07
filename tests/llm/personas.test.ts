@@ -62,7 +62,17 @@ function approxTokenCount(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-const TOKEN_BUDGET = 80;
+// Token budget: WP9 originally locked this at 80 tokens per body (chars/4
+// proxy). Gate-2.5 review (docs/project/phases/01-engine-and-harness/
+// gate-2-5-review.md "Reviewer Spot-Check Addendum") ratified a narrow
+// paranoid append for evac-corner overwatch as bundled with Path A; the
+// appended sentence alone is <80 tokens (≈30 by chars/4 proxy), but the
+// combined paranoid body lands at ≈103 tokens. The bump to 105 absorbs that
+// ratified addition without softening prompt-economy intent: every persona
+// body is still short, and the camper edit (also Gate-2.5-bundled) stays
+// well under 80 tokens (≈75). mental-model.md §10 "prompt economy"
+// remains qualitative; the 80→105 lift is bounded to this Path A pass.
+const TOKEN_BUDGET = 105;
 const EXPECTED_IDS_SORTED = [...PERSONA_IDS].sort() as readonly PersonaId[];
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

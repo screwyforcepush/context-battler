@@ -27,7 +27,7 @@ import { api } from "./_generated/api.js";
 import { reasoningEffortValidator } from "./schema.js";
 // loot.ts is fs-free; safe to import from default-runtime module.
 import { makeRng, rollLoot } from "./engine/loot.js";
-import { PERSONA_IDS } from "./engine/types.js";
+import { CHARACTER_MAX_HP, PERSONA_IDS } from "./engine/types.js";
 import type {
   ChestState,
   EvacZone,
@@ -170,10 +170,11 @@ function assignPersonasToSpawnsInline(
  *      with `rngSeed` (deterministic per ADR §5).
  *   3. Compute persona-to-spawn permutation via the inline mirror of
  *      `assignPersonasToSpawns(rngSeed, PERSONA_IDS)`.
- *   4. Insert 8 `characters` rows (one per persona), seeded with HP 100,
- *      empty equipped slots (concept-spec §13 — no starter gear), empty
- *      scratchpad, hidden=false (start in the open per concept-spec §7),
- *      alive=true, lastKnown=[].
+ *   4. Insert 8 `characters` rows (one per persona), seeded with HP =
+ *      `CHARACTER_MAX_HP` (the shared phase-1 tuning constant; see
+ *      `convex/engine/types.ts`), empty equipped slots (concept-spec §13
+ *      — no starter gear), empty scratchpad, hidden=false (start in the
+ *      open per concept-spec §7), alive=true, lastKnown=[].
  *   5. Schedule `runMatch.advanceTurn` for turn 1 via
  *      `scheduler.runAfter(0, ...)` — kicks off the per-turn chain.
  *
@@ -252,7 +253,11 @@ export const start = mutation({
         personaId,
         spawnIndex,
         displayName: `Player_${spawnIndex + 1}`,
-        hp: 100,
+        // Phase-1 tuning: shared HP constant (NOT a spec invariant).
+        // `runMatch.buildMatchState` reads the same `CHARACTER_MAX_HP`
+        // when populating in-memory `maxHp`, so new characters satisfy
+        // `hp === maxHp === CHARACTER_MAX_HP` at turn 0.
+        hp: CHARACTER_MAX_HP,
         pos: { x: spawn.x, y: spawn.y },
         equipped: {},
         scratchpad: "",

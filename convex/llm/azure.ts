@@ -220,40 +220,97 @@ function safeDefaultResult(args: {
  *  while bounding worst-case storage on a 50-run × 50-turn × 8-agent trace. */
 const HTTP_BODY_EXCERPT_MAX_LEN = 2048;
 
+/** Escape a string so it can be embedded as a regex literal. */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Scrub anything that looks like an api-key / bearer token / authorization
- * header value out of a string. Replaces each match with `[redacted]`.
+ * header value, the configured AZURE_API_KEY value (verbatim, even
+ * unlabelled), email addresses, or common phone-number formats out of a
+ * string. Replaces matches with structured `[redacted]` / `[REDACTED:<kind>]`
+ * markers.
  *
  * Defence-in-depth: production Azure 400 bodies generally do NOT echo our
- * credentials back, but if a future Azure response shape (or an accidental
- * persona-prompt embed) ever did, the trace stays clean. This sanitiser
- * runs BEFORE truncation so the redaction marker can't be split.
+ * credentials or any PII back, but the trace pipeline is durable so the
+ * cost of false negatives compounds. This sanitiser runs BEFORE truncation
+ * so the redaction marker can't be split mid-token.
  *
  * Patterns matched (case-insensitive on the leading label):
- *   - `api-key="..."` / `api-key: ...` / `apiKey: ...` (Azure-style header)
- *   - `Authorization: Bearer ...` (JWT/bearer header value)
- *   - Long hex / base64 token-shaped substrings (≥ 24 chars) appearing
- *     after one of the labels above.
+ *   1. The CONFIGURED `azureApiKey` value, verbatim, anywhere — labelled or
+ *      unlabelled. Skipped if no key is configured. Replaced with
+ *      `[REDACTED:api-key]`. Per Gate-2.5 medium-severity finding.
+ *   2. `api-key="..."` / `api-key: ...` / `apiKey: ...` (Azure-style header).
+ *      Replaced with `<label>=[redacted]`.
+ *   3. `Authorization: Bearer ...` (JWT/bearer header value).
+ *   4. Bare `Bearer <token>` (≥ 16-char token) that didn't have an
+ *      Authorization label.
+ *   5. Email addresses (RFC-5322 conservative subset). Replaced with
+ *      `[REDACTED:email]`.
+ *   6. Common phone-number formats (CONSERVATIVE — separators required to
+ *      avoid eating timestamps / request IDs):
+ *        - `+<1-3 digit cc>[-.\s]NXX[-.\s]NXX[-.\s]XXXX`  (+1-555-123-4567)
+ *        - `(NXX) NXX-XXXX`                               ((555) 123-4567)
+ *        - `NXX.NXX.XXXX`                                 (555.123.4567)
+ *      Replaced with `[REDACTED:phone]`.
  */
-function sanitiseHttpBody(body: string): string {
+function sanitiseHttpBody(body: string, azureApiKey?: string): string {
   let scrubbed = body;
-  // 1. `api-key` / `apiKey` / `api_key` quoted-or-bare values.
+
+  // 1. Verbatim AZURE_API_KEY value (Gate-2.5 medium-severity). Runs FIRST
+  //    so a labelled occurrence (`api-key="<key>"`) gets the structured
+  //    [REDACTED:api-key] marker rather than the generic [redacted] from
+  //    step 2. Skipped if env is unset (no key configured) or key is short
+  //    enough to risk false positives in the body (< 8 chars).
+  if (typeof azureApiKey === "string" && azureApiKey.length >= 8) {
+    scrubbed = scrubbed.replace(
+      new RegExp(escapeRegex(azureApiKey), "g"),
+      "[REDACTED:api-key]",
+    );
+  }
+
+  // 2. `api-key` / `apiKey` / `api_key` quoted-or-bare values.
   //    Greedy-match the value up to a quote, semicolon, comma, or whitespace.
   scrubbed = scrubbed.replace(
     /(api[-_]?key)\s*[:=]\s*"?[A-Za-z0-9._\-+/=]{8,}"?/gi,
     "$1=[redacted]",
   );
-  // 2. Authorization: Bearer <token>
+  // 3. Authorization: Bearer <token>
   scrubbed = scrubbed.replace(
     /(authorization)\s*:\s*bearer\s+[A-Za-z0-9._\-+/=]{8,}/gi,
     "$1: Bearer [redacted]",
   );
-  // 3. Bare bearer-style references (e.g. `Bearer eyJ...`) that didn't
+  // 4. Bare bearer-style references (e.g. `Bearer eyJ...`) that didn't
   //    have an Authorization label.
   scrubbed = scrubbed.replace(
     /\bbearer\s+[A-Za-z0-9._\-+/=]{16,}/gi,
     "Bearer [redacted]",
   );
+
+  // 5. Email addresses — conservative RFC-5322 subset.
+  scrubbed = scrubbed.replace(
+    /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
+    "[REDACTED:email]",
+  );
+
+  // 6. Phone numbers — conservative. Separators (dash/dot/space + optional
+  //    parens or `+` prefix) are REQUIRED. Bare 10+ digit runs (timestamps,
+  //    IDs, traceIds) are deliberately NOT matched.
+  //    Order matters: the +<cc> form is broadest, then parens, then dots.
+  scrubbed = scrubbed.replace(
+    /\+\d{1,3}[-.\s]\d{3}[-.\s]\d{3,4}[-.\s]\d{4}\b/g,
+    "[REDACTED:phone]",
+  );
+  scrubbed = scrubbed.replace(
+    /\(\d{3}\)\s?\d{3}[-.\s]\d{4}\b/g,
+    "[REDACTED:phone]",
+  );
+  scrubbed = scrubbed.replace(
+    /\b\d{3}\.\d{3}\.\d{4}\b/g,
+    "[REDACTED:phone]",
+  );
+
   return scrubbed;
 }
 
@@ -268,10 +325,18 @@ async function readBodySafe(response: Response): Promise<string | null> {
 
 /** Sanitise + truncate a captured response body for trace persistence.
  *  Returns `undefined` on a null/empty input so callers can pass through
- *  the value to the conditional-spread on `safeDefaultResult`. */
-function buildHttpBodyExcerpt(raw: string | null): string | undefined {
+ *  the value to the conditional-spread on `safeDefaultResult`.
+ *
+ *  Order is REDACT-then-TRUNCATE: the sanitisation pass runs first against
+ *  the full raw body so a redaction marker can never be split by the 2 KB
+ *  cap (a partial token leak at the boundary). The 2 KB cap is preserved
+ *  AFTER all redactions land — see Gate-2.5 sanitisation tests. */
+function buildHttpBodyExcerpt(
+  raw: string | null,
+  azureApiKey?: string,
+): string | undefined {
   if (raw === null || raw.length === 0) return undefined;
-  const sanitised = sanitiseHttpBody(raw);
+  const sanitised = sanitiseHttpBody(raw, azureApiKey);
   if (sanitised.length <= HTTP_BODY_EXCERPT_MAX_LEN) return sanitised;
   return sanitised.slice(0, HTTP_BODY_EXCERPT_MAX_LEN);
 }
@@ -478,7 +543,10 @@ export async function callDecisionTool(
       // embed the policy / category that tripped). Sanitised + truncated
       // before persistence; we still always release the connection.
       const rawBody = await readBodySafe(response);
-      const httpBodyExcerpt = buildHttpBodyExcerpt(rawBody);
+      // Pass the configured api-key value so sanitiseHttpBody can scrub
+      // any UNLABELLED verbatim occurrences (Gate-2.5 medium-severity
+      // hardening). Labelled scrubs run regardless.
+      const httpBodyExcerpt = buildHttpBodyExcerpt(rawBody, azureApiKey);
       return safeDefaultResult({
         failureReason: "http_non_200",
         latencyMs: Date.now() - start,

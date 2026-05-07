@@ -283,7 +283,11 @@ function buildAffordanceLines(
  * mirroring §7 closely. Sections (in order):
  *
  *   1. `Turn: N/50`
- *   2. `You are at X/100 HP.`
+ *   2. `You are at X/maxHp HP.` (max HP is the shared phase-1 tuning
+ *      constant `CHARACTER_MAX_HP` from `convex/engine/types.ts`; the
+ *      digest renders `${observer.hp}/${observer.maxHp}` directly, so a
+ *      tuning change in `CHARACTER_MAX_HP` flows through without edits
+ *      here.)
  *   3. `Equipped: weapon / armour / consumable`
  *   4. `Visible:` ≤ 8 bullets (Chebyshev-ascending)
  *   5. `Heard (last turn):` ≤ 5 bullets (omit section when empty)
