@@ -452,13 +452,15 @@ export function resolveTurn(
           });
           break;
         }
+        // Queue the equip side-effect for phase-5 application below. The
+        // success trace (`result: "opened"`) is emitted inside the phase-5
+        // inner loop AFTER the `chest.opened || chest.contents === null`
+        // short-circuit — so `result: "opened"` is one-to-one with the
+        // equip side-effect actually running. This closes two failure modes
+        // (dud chests, same-turn collisions) where the action-build emission
+        // would inflate the aggregator's equip counter (Gate-2 fix #1,
+        // resolves runStats.ts:28-34 ground-truth contract).
         interacts.push({ actorId: id, chestId });
-        trace.actions.push({
-          characterId: id,
-          kind: "interact",
-          target: chestId,
-          result: "opened",
-        });
         break;
       }
       case "loot": {
@@ -484,13 +486,12 @@ export function resolveTurn(
           });
           break;
         }
+        // Queue the loot side-effect for phase-5 application below. The
+        // success trace (`result: "looted"`) is emitted inside the phase-5
+        // inner loop AFTER the corpse-empty / drained-corpse short-circuit
+        // — same ground-truth contract as the chest path above (Gate-2
+        // fix #1).
         loots.push({ actorId: id, corpseId });
-        trace.actions.push({
-          characterId: id,
-          kind: "loot",
-          target: corpseId,
-          result: "looted",
-        });
         break;
       }
       default: {
@@ -520,7 +521,12 @@ export function resolveTurn(
   }
 
   // Apply chest interactions (open chest, equip contents into matching slot,
-  // discard previous; flip opened=true, contents=null).
+  // discard previous; flip opened=true, contents=null). Emit `result: "opened"`
+  // ONLY for the actor whose equip side-effect actually runs (Gate-2 fix #1):
+  // dud chests (`contents === null`) and same-turn collisions (a chest opened
+  // by an earlier actor in this same loop) are silently skipped — the
+  // aggregator at convex/engine/runStats.ts:200-212 keys equip counts off
+  // `result === "opened"`, so this keeps `equips` ground-truth.
   for (const ev of interacts) {
     const chest = working.world.chests.find((c) => c.id === ev.chestId);
     if (!chest || chest.opened || chest.contents === null) continue;
@@ -534,10 +540,20 @@ export function resolveTurn(
       ...working,
       world: { ...working.world, chests: newChests },
     };
+    trace.actions.push({
+      characterId: ev.actorId,
+      kind: "interact",
+      target: ev.chestId,
+      result: "opened",
+    });
   }
 
   // Apply corpse loots (one item per loot in priority order: weapon →
   // armour → consumable; equip into matching slot; remove from corpse).
+  // Emit `result: "looted"` ONLY for the actor whose loot side-effect
+  // actually runs (Gate-2 fix #1): empty / drained corpses (no remaining
+  // slot to pick) are silently skipped — the aggregator keys equip counts
+  // off `result === "looted"`.
   for (const ev of loots) {
     const corpse = working.world.corpses.find(
       (c) => c.characterId === ev.corpseId,
@@ -562,6 +578,13 @@ export function resolveTurn(
       ...working,
       world: { ...working.world, corpses: newCorpses },
     };
+
+    trace.actions.push({
+      characterId: ev.actorId,
+      kind: "loot",
+      target: ev.corpseId,
+      result: "looted",
+    });
 
     // Reveal looter.
     const looter = working.characters.find((c) => c.characterId === ev.actorId);

@@ -26,12 +26,19 @@
 //          their final state. Per-persona bucket is 0/1 per character.
 //
 //   equips: count of trace actions where the equip side-effect succeeded —
-//          `(kind="interact", result="opened")` (the resolver emits
-//          `result="opened"` only when the chest had non-null contents and
-//          the equip side-effect ran — see resolution.ts:455-461) plus
-//          `(kind="loot", result="looted")` (corpse-loot equipped one
-//          slot). Failed interacts (`already_opened` / `out_of_range` /
-//          `no_chest`) and failed loots are NOT counted.
+//          `(kind="interact", result="opened")` plus `(kind="loot",
+//          result="looted")`. Ground-truth contract (Gate-2 fix #1): the
+//          resolver pushes the success result ONLY from inside the phase-5
+//          equip / loot APPLICATION loops, AFTER each short-circuit
+//          (chests: `chest.opened || chest.contents === null`; corpses:
+//          no remaining slot to pick) — so `result="opened"` /
+//          `result="looted"` is one-to-one with the equip side-effect
+//          actually running. Same-turn collisions (multiple actors target
+//          the same chest/corpse) only credit the one actor whose
+//          side-effect runs; dud chests with null contents and drained
+//          corpses produce zero equip events. Failed action-build attempts
+//          (`already_opened` / `out_of_range` / `no_chest` / `no_corpse`)
+//          are emitted as those non-success results and are NOT counted.
 //
 //   speechEvents: total `trace.speech.length` across all turns. Per-persona
 //          bucket attributes each utterance to its speaker's persona.
@@ -183,11 +190,17 @@ export function aggregateRunStats(
     if (deathSet.size > 0) {
       // For each landed attack against a dead character this turn, credit
       // the attacker's persona with one kill. Multi-attacker scenarios
-      // share credit (concept-spec §12). Filter to attacks with `result`
-      // starting "dmg " — that's the resolver's marker for a landed hit
-      // (see convex/engine/resolution.ts:419-422).
+      // share credit (concept-spec §12: "if three agents attack one
+      // target, all valid attacks land"). BOTH stationary attacks
+      // (`kind === "attack"`) AND overwatch hits (`kind === "overwatch"`,
+      // concept-spec §11) qualify; the resolver emits the same
+      // `result = "dmg N"` marker for both. Filter to actions with
+      // `result` starting "dmg " against a target whose id appears in
+      // this turn's `trace.deaths` (Gate-2 fix #2: previously only
+      // `kind === "attack"` was credited, which under-counted per-persona
+      // kills for overwatch lethal hits).
       for (const a of t.resolution.actions) {
-        if (a.kind !== "attack") continue;
+        if (a.kind !== "attack" && a.kind !== "overwatch") continue;
         if (!a.result.startsWith("dmg ")) continue;
         if (!deathSet.has(a.target)) continue;
         const attackerPersona = personaIndex.get(a.characterId);

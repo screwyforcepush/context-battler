@@ -248,6 +248,15 @@ const agentLlmValidator = v.object({
   // Optional + additive: existing rows without this field validate cleanly;
   // no migration needed.
   validatorReason: v.optional(v.string()),
+  // WP10.5 Pass F — captured non-OK HTTP response body (sanitised +
+  // truncated to ≤ 2 KB by `convex/llm/azure.ts`). Set ONLY when
+  // `failureReason === "http_non_200"`; the wrapper drains the body on
+  // every other path. Diagnostic purpose: Azure 400s typically embed the
+  // moderation policy / category that tripped (e.g. `ResponsibleAIPolicyViolation`).
+  // Without this field, fallback debugging is "moderated by elimination"
+  // guesswork — the Phase E.1 cautionary tale.
+  // Optional + additive: existing rows validate cleanly; no migration.
+  httpBodyExcerpt: v.optional(v.string()),
 });
 
 const agentRecordValidator = v.object({

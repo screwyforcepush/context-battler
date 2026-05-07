@@ -485,6 +485,11 @@ describe("WP10.5 Pass D — minimal retry on transient HTTP failures", () => {
     expect(result.failureReason).toBe("http_non_200");
     expect(result.raw.retried).toBe(false);
     expect(result.raw.httpStatus).toBe(400);
+    // Pass F: even when the body is short, it MUST be captured into
+    // `httpBodyExcerpt` so trace consumers see the actual error shape
+    // (Azure 400 bodies typically embed the policy/category that was
+    // tripped — see `azure-llm.md` §2.6 / WP10.5 Phase E.1 cautionary tale).
+    expect(result.raw.httpBodyExcerpt).toBe("bad request");
   });
 
   it("does NOT retry on a non-retryable HTTP 401 (auth)", async () => {
@@ -548,5 +553,174 @@ describe("WP10.5 Pass D — minimal retry on transient HTTP failures", () => {
     expect(timestamps).toHaveLength(2);
     // Allow a small scheduler-jitter slack (4 ms) below the nominal delay.
     expect(timestamps[1]! - timestamps[0]!).toBeGreaterThanOrEqual(delayMs - 4);
+  });
+});
+
+// ─── WP10.5 Pass F — HTTP non-OK response body persistence ─────────────────
+//
+// On any non-OK HTTP response (after retry policy is exhausted), the
+// wrapper MUST capture the response body string into
+// `CallResult.raw.httpBodyExcerpt` so post-mortem analysis can see the
+// actual Azure error shape (typically a content-moderation 400 with the
+// tripped policy/category embedded). Without this, fallback rate
+// debugging is "moderated by elimination" guesswork — the Phase E.1
+// cautionary tale documented in WP10.5 findings.
+//
+// Invariants pinned by these tests:
+//   1. The captured string is set on `failureReason: "http_non_200"`.
+//   2. The string is truncated to ≤ 2 KB (defensive against pathological
+//      Azure responses).
+//   3. Any token-shaped substring (api-key, bearer, authorization header
+//      value) is scrubbed to `[redacted]` before persistence.
+//   4. Happy path (200 OK) does NOT set the field (stays undefined).
+
+describe("WP10.5 Pass F — HTTP 400 body persistence on non-OK responses", () => {
+  it("captures the response body string into raw.httpBodyExcerpt on a content-moderation HTTP 400", async () => {
+    const moderationBody = JSON.stringify({
+      error: {
+        code: "content_filter",
+        message:
+          "The response was filtered due to the prompt triggering Azure OpenAI's content management policy. Please modify your prompt and retry.",
+        innererror: {
+          code: "ResponsibleAIPolicyViolation",
+          content_filter_result: {
+            violence: { filtered: true, severity: "medium" },
+          },
+        },
+      },
+    });
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(moderationBody, {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+
+    const result = await callDecisionTool({
+      ...baseInput,
+      fetchImpl,
+      retryDelayMs: 5,
+    });
+
+    // Behaviour regression: the existing wrapper invariants are unchanged.
+    expect(result.fellBackToSafeDefault).toBe(true);
+    expect(result.failureReason).toBe("http_non_200");
+    expect(result.raw.httpStatus).toBe(400);
+
+    // Pass F: the body string is persisted verbatim (no JSON re-parse
+    // needed — we want the raw string the trace can grep).
+    expect(typeof result.raw.httpBodyExcerpt).toBe("string");
+    expect(result.raw.httpBodyExcerpt!).toBe(moderationBody);
+    // Sanity-check it actually contains the diagnostic substring callers
+    // care about — this is the bit Phase E.1 was missing.
+    expect(result.raw.httpBodyExcerpt!).toContain("ResponsibleAIPolicyViolation");
+  });
+
+  it("truncates the captured body to <= 2 KB on pathological response sizes", async () => {
+    // 10 KB of payload — well over the 2 KB cap. Use a known tail
+    // sentinel; if truncation kept the head, the sentinel must be gone.
+    const head = "AZURE_BODY_HEAD_";
+    const tail = "_AZURE_BODY_TAIL";
+    const filler = "x".repeat(10 * 1024);
+    const huge = head + filler + tail;
+    const fetchImpl = vi.fn(
+      async () => new Response(huge, { status: 400 }),
+    );
+
+    const result = await callDecisionTool({
+      ...baseInput,
+      fetchImpl,
+      retryDelayMs: 5,
+    });
+
+    expect(result.fellBackToSafeDefault).toBe(true);
+    expect(result.failureReason).toBe("http_non_200");
+    expect(typeof result.raw.httpBodyExcerpt).toBe("string");
+    // ≤ 2 KB. We allow up to 2048 chars (the truncation budget).
+    expect(result.raw.httpBodyExcerpt!.length).toBeLessThanOrEqual(2048);
+    // Head is present, tail is gone (truncation keeps the prefix —
+    // Azure's diagnostic info is at the start of error bodies).
+    expect(result.raw.httpBodyExcerpt!.startsWith(head)).toBe(true);
+    expect(result.raw.httpBodyExcerpt!.includes(tail)).toBe(false);
+  });
+
+  it("scrubs api-key / bearer / authorization tokens from the captured body", async () => {
+    // Body that contains every token shape we sanitise. Production Azure
+    // 400 bodies generally don't echo our credentials back, but this is
+    // free defence-in-depth: if the persona prompt ever embeds an
+    // accidental key (it doesn't — but this is the trace-stays-safe
+    // invariant), the trace stays clean.
+    const dirty =
+      'Error: api-key="abcd1234SECRETKEY5678ZZZ"; ' +
+      'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payloadpayloadpayload.sigsig; ' +
+      'apiKey: 0123456789ABCDEFFEDCBA9876543210; ' +
+      "the rest of the body is fine";
+    const fetchImpl = vi.fn(
+      async () => new Response(dirty, { status: 400 }),
+    );
+
+    const result = await callDecisionTool({
+      ...baseInput,
+      fetchImpl,
+      retryDelayMs: 5,
+    });
+
+    expect(result.fellBackToSafeDefault).toBe(true);
+    expect(result.failureReason).toBe("http_non_200");
+    const excerpt = result.raw.httpBodyExcerpt!;
+    expect(typeof excerpt).toBe("string");
+
+    // None of the secret values survive.
+    expect(excerpt).not.toContain("abcd1234SECRETKEY5678ZZZ");
+    expect(excerpt).not.toContain(
+      "eyJhbGciOiJIUzI1NiJ9.payloadpayloadpayload.sigsig",
+    );
+    expect(excerpt).not.toContain("0123456789ABCDEFFEDCBA9876543210");
+    // Redaction marker is present.
+    expect(excerpt).toContain("[redacted]");
+    // Non-secret tail of the body is preserved (sanitisation is local,
+    // not nuke-the-string).
+    expect(excerpt).toContain("the rest of the body is fine");
+  });
+
+  it("does NOT set httpBodyExcerpt on a 200 OK happy path", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(happyResponseBody()));
+    const result = await callDecisionTool({ ...baseInput, fetchImpl });
+
+    expect(result.fellBackToSafeDefault).toBe(false);
+    // Field is absent (or explicitly undefined) on the success path —
+    // present-but-undefined and absent are equivalent at the trace shape
+    // boundary because the schema validator is `v.optional(...)`.
+    expect(result.raw.httpBodyExcerpt).toBeUndefined();
+  });
+
+  it("captures the body of the SECOND attempt when a retryable status is followed by another non-OK", async () => {
+    // First attempt: 503 (retryable). Second attempt: 400 with a
+    // moderation-style body. The captured excerpt must reflect the
+    // SECOND attempt — that's the response that drove the fallback.
+    const secondBody =
+      '{"error":{"code":"content_filter","message":"second attempt body"}}';
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) return new Response("first transient", { status: 503 });
+      return new Response(secondBody, { status: 400 });
+    });
+
+    const result = await callDecisionTool({
+      ...baseInput,
+      fetchImpl,
+      retryDelayMs: 5,
+    });
+
+    expect(calls).toBe(2);
+    expect(result.fellBackToSafeDefault).toBe(true);
+    expect(result.failureReason).toBe("http_non_200");
+    expect(result.raw.retried).toBe(true);
+    expect(result.raw.httpStatus).toBe(400);
+    // The persisted excerpt is the SECOND-attempt body, not the first.
+    expect(result.raw.httpBodyExcerpt).toBe(secondBody);
+    expect(result.raw.httpBodyExcerpt).not.toContain("first transient");
   });
 });

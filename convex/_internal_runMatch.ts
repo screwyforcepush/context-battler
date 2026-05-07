@@ -143,6 +143,9 @@ const agentLlmValidator = v.object({
   // WP10.5 Pass B.3 — mirrors `convex/schema.ts` agentLlmValidator. Engine
   // validator rejection reason; optional so legacy rows validate cleanly.
   validatorReason: v.optional(v.string()),
+  // WP10.5 Pass F — mirrors `convex/schema.ts` agentLlmValidator. Captured
+  // non-OK HTTP body (sanitised+truncated). Optional+additive.
+  httpBodyExcerpt: v.optional(v.string()),
 });
 
 const agentRecordValidator = v.object({

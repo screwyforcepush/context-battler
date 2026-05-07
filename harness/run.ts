@@ -31,15 +31,31 @@
 //   {"event":"run_end","matchId":"...","status":"failed","turn":N,"reason":"..."}
 //   {"event":"run_end","matchId":"...","status":"timeout"}
 //   {"event":"summary","completed":X,"failed":Y,"total":N,"durationMs":...}
+//   {"event":"harness_error","reason":"runs_row_missing","count":N,"matchIds":[..]}
 //
-// Exit code: 0 if every run reaches "completed"; 1 if ANY run failed or
-// hit the wall-clock cap. Stage-1 = "any failure → exit 1" per WP11.
+// Exit code semantics (post fix #3):
+//   - 0 if every run reached "completed" AND every completed match got a
+//     `runs` aggregate row within the poll window.
+//   - 1 if ANY run failed/timed out, OR if any completed match ended without
+//     an aggregate row (silent partial summaries are unsafe for Gate-3).
+//
+// Testability seam:
+//   The orchestrator body is exported as `runHarness(args, deps)` — a pure-
+//   ish function returning `{ exitCode, ... }`. The CLI entry point `main()`
+//   wires real deps (Convex client, real stdout/stderr) and forwards the
+//   exit code to `process.exitCode`. Tests inject a fake `client`,
+//   `emitEvent`, `writeStderr`, and `sleep` to drive scenarios in-process
+//   without spawning a child.
 
 import "dotenv/config";
 import { parseArgs } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
-import { makeFunctionReference } from "convex/server";
-import type { ConvexHttpClient } from "convex/browser";
+import {
+  makeFunctionReference,
+  type FunctionReference,
+  type FunctionReturnType,
+  type OptionalRestArgs,
+} from "convex/server";
 import { makeConvexClient } from "./client.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,7 +139,7 @@ const runsByMatch = makeFunctionReference<
 const REASONING_LEVELS = ["low", "medium", "high"] as const;
 type ReasoningEffort = (typeof REASONING_LEVELS)[number];
 
-type CliArgs = {
+export type CliArgs = {
   runs: number;
   concurrency: number;
   reasoning: ReasoningEffort;
@@ -181,7 +197,7 @@ function isReasoningEffort(value: string): value is ReasoningEffort {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// JSONL output.
+// JSONL output contract.
 //
 // Centralised so future events stay shape-compatible. stdout is the contract
 // per WP11 ("machine-readable JSONL preferred so reviewing agents can grep").
@@ -196,7 +212,7 @@ type PerPersonaSummary = {
   speechEvents: number;
 };
 
-type Event =
+export type HarnessEvent =
   | { event: "run_start"; matchId: MatchId; run: number; runs: number }
   | { event: "poll"; matchId: MatchId; status: MatchStatus; turn: number }
   | {
@@ -237,11 +253,17 @@ type Event =
       equips: number;
       speechEvents: number;
       perPersona: PerPersonaSummary[];
+    }
+  // Fix #3 — aggregate signal that one or more completed matches ended
+  // without their `runs.aggregate` row materialising. This event is the
+  // authoritative downstream-queryable counterpart to the per-match
+  // `fatal` stderr emission (which is preserved for human debugging).
+  | {
+      event: "harness_error";
+      reason: "runs_row_missing";
+      count: number;
+      matchIds: MatchId[];
     };
-
-function emit(ev: Event): void {
-  process.stdout.write(JSON.stringify(ev) + "\n");
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Polling loop for a single match.
@@ -260,8 +282,10 @@ type RunOutcome =
   | { kind: "timeout"; matchId: MatchId };
 
 async function pollUntilTerminal(
-  client: ConvexHttpClient,
+  client: HarnessClient,
   matchId: MatchId,
+  emitEvent: (ev: HarnessEvent) => void,
+  sleepImpl: (ms: number) => Promise<void>,
 ): Promise<RunOutcome> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < MATCH_WALL_CLOCK_CAP_MS) {
@@ -278,7 +302,7 @@ async function pollUntilTerminal(
         reason: "matches.status returned null",
       };
     }
-    emit({
+    emitEvent({
       event: "poll",
       matchId,
       status: status.status,
@@ -295,7 +319,7 @@ async function pollUntilTerminal(
         reason: status.failure?.reason ?? "unknown",
       };
     }
-    await sleep(POLL_INTERVAL_MS);
+    await sleepImpl(POLL_INTERVAL_MS);
   }
   return { kind: "timeout", matchId };
 }
@@ -305,10 +329,12 @@ async function pollUntilTerminal(
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function runOne(
-  client: ConvexHttpClient,
+  client: HarnessClient,
   runIndex: number,
   totalRuns: number,
   reasoningEffort: ReasoningEffort,
+  emitEvent: (ev: HarnessEvent) => void,
+  sleepImpl: (ms: number) => Promise<void>,
 ): Promise<RunOutcome> {
   // WP10.5 A5 — `--reasoning` is plumbed end-to-end: harness validates the
   // literal, forwards it to `matches.start`, which persists it on the
@@ -317,14 +343,14 @@ async function runOne(
   const matchId: MatchId = await client.mutation(matchesStart, {
     reasoningEffort,
   });
-  emit({
+  emitEvent({
     event: "run_start",
     matchId,
     run: runIndex + 1,
     runs: totalRuns,
   });
-  const outcome = await pollUntilTerminal(client, matchId);
-  emit({
+  const outcome = await pollUntilTerminal(client, matchId, emitEvent, sleepImpl);
+  emitEvent({
     event: "run_end",
     matchId: outcome.matchId,
     status: outcome.kind,
@@ -346,10 +372,12 @@ async function runOne(
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function runAll(
-  client: ConvexHttpClient,
+  client: HarnessClient,
   totalRuns: number,
   concurrency: number,
   reasoningEffort: ReasoningEffort,
+  emitEvent: (ev: HarnessEvent) => void,
+  sleepImpl: (ms: number) => Promise<void>,
 ): Promise<RunOutcome[]> {
   const outcomes: RunOutcome[] = new Array(totalRuns);
   let cursor = 0;
@@ -358,7 +386,14 @@ async function runAll(
       const i = cursor;
       cursor += 1;
       if (i >= totalRuns) return;
-      outcomes[i] = await runOne(client, i, totalRuns, reasoningEffort);
+      outcomes[i] = await runOne(
+        client,
+        i,
+        totalRuns,
+        reasoningEffort,
+        emitEvent,
+        sleepImpl,
+      );
     }
   };
   const workerCount = Math.min(concurrency, totalRuns);
@@ -384,44 +419,121 @@ const RUN_ROW_POLL_INTERVAL_MS = 1_000;
 const RUN_ROW_POLL_TIMEOUT_MS = 30_000;
 
 async function waitForRunRow(
-  client: ConvexHttpClient,
+  client: HarnessClient,
   matchId: MatchId,
+  sleepImpl: (ms: number) => Promise<void>,
+  intervalMs: number,
+  timeoutMs: number,
 ): Promise<RunSummaryRow> {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < RUN_ROW_POLL_TIMEOUT_MS) {
+  while (Date.now() - startedAt < timeoutMs) {
     const row = await client.query(runsByMatch, { matchId });
     if (row !== null) return row;
-    await sleep(RUN_ROW_POLL_INTERVAL_MS);
+    await sleepImpl(intervalMs);
   }
   return null;
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Entry point.
+// Dependency-injection seam.
+//
+// `runHarness` is the orchestrator body without process I/O concerns. The
+// CLI entry point (`main()`) wires real deps; tests inject fakes. Each
+// dep is small and orthogonal:
+//
+//   - `client`     — Convex (or fake) client with `query` + `mutation`.
+//   - `emitEvent`  — JSONL stdout writer (test capture or real writer).
+//   - `writeStderr`— stderr writer (the per-match `fatal` line).
+//   - `sleep`      — `setTimeout`-based sleep (collapsed to 0ms in tests).
+//
+// Returning `{ exitCode }` rather than calling `process.exit` is what makes
+// the orchestrator unit-testable in-process: the caller is responsible for
+// translating the result to a process exit. This also means a future
+// embedder (e.g. a long-running watcher) can call `runHarness` repeatedly
+// without crashing the host.
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function main(): Promise<void> {
-  const args = parseCliArgs(process.argv.slice(2));
-  // Reasoning is validated above and now plumbed end-to-end (WP10.5 A5):
-  // harness → matches.start → matches row → runMatch.advanceTurn →
-  // callDecisionTool. The telemetry line below is the same shape as Stage-1.
-  process.stderr.write(
-    JSON.stringify({
-      event: "config",
-      runs: args.runs,
-      concurrency: args.concurrency,
-      reasoning: args.reasoning,
-    }) + "\n",
-  );
+/**
+ * Minimal client surface the harness uses. Reduced from `ConvexHttpClient`
+ * to its two methods (`query`, `mutation`) so tests can implement it
+ * directly without instantiating a real HTTP client.
+ *
+ * The `query`/`mutation` overloads mirror `ConvexHttpClient`'s typed
+ * versions when called with a `FunctionReference` (precise return type),
+ * and fall back to `unknown` when called with a raw string name (rare —
+ * only used by tests that exercise the dispatch path). This means the
+ * harness body keeps full type safety even though tests can swap in a
+ * minimal fake.
+ */
+export interface HarnessClient {
+  query<Q extends FunctionReference<"query">>(
+    ref: Q,
+    args: FunctionReturnType<Q> extends never ? never : OptionalRestArgs<Q>[0],
+  ): Promise<FunctionReturnType<Q>>;
+  query(ref: string, args?: Record<string, unknown>): Promise<unknown>;
+  mutation<M extends FunctionReference<"mutation">>(
+    ref: M,
+    args: FunctionReturnType<M> extends never ? never : OptionalRestArgs<M>[0],
+  ): Promise<FunctionReturnType<M>>;
+  mutation(ref: string, args?: Record<string, unknown>): Promise<unknown>;
+}
 
-  const client = makeConvexClient();
+export type HarnessDeps = {
+  client: HarnessClient;
+  emitEvent: (ev: HarnessEvent) => void;
+  writeStderr: (line: string) => void;
+  sleep: (ms: number) => Promise<void>;
+  /**
+   * Optional override of the `runs.aggregate` row poll budget. Production
+   * keeps the WP12 default (30 s wall-clock cap with 1 s cadence). Tests
+   * shrink both to keep the suite fast — and to deterministically drive
+   * the "row never materialises" branch without burning wall-clock.
+   */
+  runRowPoll?: {
+    intervalMs: number;
+    timeoutMs: number;
+  };
+};
+
+export type HarnessResult = {
+  exitCode: 0 | 1;
+  completed: number;
+  failed: number;
+  missingRunsRowCount: number;
+  missingRunsMatchIds: MatchId[];
+};
+
+/**
+ * Run the harness end-to-end against an injected client and emit/sleep
+ * surface. Returns a structured result with the intended process exit code
+ * — the caller is responsible for translating to `process.exitCode`.
+ *
+ * Exit code rules (post fix #3):
+ *   - 1 if `failed > 0` (any match failed/timed out — stage-1 fail-loud
+ *     threshold per WP11).
+ *   - 1 if `missingRunsRowCount > 0` (a completed match never got a `runs`
+ *     aggregate row within the poll window — silent partial summaries
+ *     would produce an invalid Gate-3 report).
+ *   - 0 otherwise.
+ */
+export async function runHarness(
+  args: CliArgs,
+  deps: HarnessDeps,
+): Promise<HarnessResult> {
+  const { client, emitEvent, writeStderr, sleep: sleepImpl } = deps;
+  const runRowPollIntervalMs =
+    deps.runRowPoll?.intervalMs ?? RUN_ROW_POLL_INTERVAL_MS;
+  const runRowPollTimeoutMs =
+    deps.runRowPoll?.timeoutMs ?? RUN_ROW_POLL_TIMEOUT_MS;
+
   const startedAt = Date.now();
   const outcomes = await runAll(
     client,
     args.runs,
     args.concurrency,
     args.reasoning,
+    emitEvent,
+    sleepImpl,
   );
   const durationMs = Date.now() - startedAt;
 
@@ -431,7 +543,7 @@ async function main(): Promise<void> {
     if (o.kind === "completed") completed += 1;
     else failed += 1;
   }
-  emit({
+  emitEvent({
     event: "summary",
     completed,
     failed,
@@ -451,17 +563,28 @@ async function main(): Promise<void> {
     .map((o) => o.matchId);
 
   const rows = await Promise.all(
-    completedMatchIds.map((id) => waitForRunRow(client, id)),
+    completedMatchIds.map((id) =>
+      waitForRunRow(
+        client,
+        id,
+        sleepImpl,
+        runRowPollIntervalMs,
+        runRowPollTimeoutMs,
+      ),
+    ),
   );
 
-  // Emit per-match aggregate events for each completed run.
+  // Emit per-match aggregate events for each completed run; track ids
+  // missing the `runs.aggregate` row for the post-loop `harness_error`
+  // event (fix #3 — strict accounting for Gate-3).
   const collectedRows: RunSummary[] = [];
+  const missingRunsMatchIds: MatchId[] = [];
   for (let i = 0; i < completedMatchIds.length; i++) {
     const matchId = completedMatchIds[i] as MatchId;
     const row = rows[i] ?? null;
     if (row) {
       collectedRows.push(row);
-      emit({
+      emitEvent({
         event: "run_aggregate",
         matchId,
         kills: row.kills,
@@ -472,9 +595,12 @@ async function main(): Promise<void> {
       });
     } else {
       // Defensive: the scheduler hasn't fired the aggregator within the
-      // poll window. Surface as JSONL fatal-line so the reviewing agent
-      // can see why the multi-run summary excludes this match.
-      process.stderr.write(
+      // poll window. Surface as JSONL fatal-line on stderr so a reviewing
+      // human can see why the multi-run summary excludes this match. The
+      // authoritative aggregate signal is the `harness_error` event
+      // emitted below.
+      missingRunsMatchIds.push(matchId);
+      writeStderr(
         JSON.stringify({
           event: "fatal",
           reason: "run_row_missing",
@@ -517,7 +643,7 @@ async function main(): Promise<void> {
     }
   }
 
-  emit({
+  emitEvent({
     event: "multi_run_summary",
     matchIds: completedMatchIds,
     runIds: collectedRows.map((r) => r._id),
@@ -529,15 +655,80 @@ async function main(): Promise<void> {
     perPersona: [...personaTotals.values()],
   });
 
-  // Stage-1 fail-loud threshold: any failure → exit 1.
-  process.exit(failed > 0 ? 1 : 0);
+  // Fix #3 — emit the authoritative aggregate signal AFTER the multi-run
+  // summary so downstream consumers can correlate the missing-rows count
+  // with the partial summary they just received. Only fire when there is
+  // something to report (no event on the happy path).
+  if (missingRunsMatchIds.length > 0) {
+    emitEvent({
+      event: "harness_error",
+      reason: "runs_row_missing",
+      count: missingRunsMatchIds.length,
+      matchIds: missingRunsMatchIds,
+    });
+  }
+
+  // Exit-code rules (fix #3): failed > 0 OR missing > 0 → 1, else 0.
+  const exitCode: 0 | 1 =
+    failed > 0 || missingRunsMatchIds.length > 0 ? 1 : 0;
+  return {
+    exitCode,
+    completed,
+    failed,
+    missingRunsRowCount: missingRunsMatchIds.length,
+    missingRunsMatchIds,
+  };
 }
 
-main().catch((err: unknown) => {
-  const message = err instanceof Error ? err.message : String(err);
+// ─────────────────────────────────────────────────────────────────────────────
+// CLI entry point.
+//
+// Wires real deps (Convex client, real stdout/stderr writers, real sleep)
+// and translates `runHarness`'s structured result into `process.exitCode`.
+// We deliberately set `process.exitCode` instead of calling
+// `process.exit(...)` so any pending Promise / writable buffer gets to
+// flush naturally before the script returns (per the task brief).
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  const args = parseCliArgs(process.argv.slice(2));
+  // Reasoning is validated above and now plumbed end-to-end (WP10.5 A5):
+  // harness → matches.start → matches row → runMatch.advanceTurn →
+  // callDecisionTool. The telemetry line below is the same shape as Stage-1.
   process.stderr.write(
-    JSON.stringify({ event: "fatal", reason: "unhandled_error", message }) +
-      "\n",
+    JSON.stringify({
+      event: "config",
+      runs: args.runs,
+      concurrency: args.concurrency,
+      reasoning: args.reasoning,
+    }) + "\n",
   );
-  process.exit(1);
-});
+
+  const client = makeConvexClient();
+  const result = await runHarness(args, {
+    client: client as unknown as HarnessClient,
+    emitEvent: (ev) => process.stdout.write(JSON.stringify(ev) + "\n"),
+    writeStderr: (line) => process.stderr.write(line),
+    sleep: (ms) => sleep(ms),
+  });
+
+  process.exitCode = result.exitCode;
+}
+
+// Only run when this module is invoked as a script (i.e. `tsx harness/run.ts`).
+// When imported by the test suite, `main()` must NOT execute on import — the
+// tests own the harness lifecycle via `runHarness(...)` directly.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === `file://${process.argv[1]}`;
+
+if (invokedDirectly) {
+  main().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      JSON.stringify({ event: "fatal", reason: "unhandled_error", message }) +
+        "\n",
+    );
+    process.exitCode = 1;
+  });
+}

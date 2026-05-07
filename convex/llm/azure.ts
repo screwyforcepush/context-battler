@@ -64,6 +64,23 @@ export type CallResult = {
      * `wp10-5-phase-a-findings.md` Bucket 3.
      */
     retried: boolean;
+    /**
+     * WP10.5 Pass F — captured response-body string from a non-OK HTTP
+     * response (the response that DROVE the fallback; on retried calls
+     * this is the second-attempt body). Sanitised (api-keys / bearer
+     * tokens scrubbed to `[redacted]`) and truncated to ≤ 2 KB.
+     *
+     * Set ONLY when `failureReason === "http_non_200"`. Absent on the
+     * happy path and on every other failure mode (the 200-OK body is
+     * already JSON-decoded into other trace fields).
+     *
+     * Diagnostic purpose: Azure 400s typically embed the moderation
+     * policy / category that tripped (e.g. `ResponsibleAIPolicyViolation`).
+     * Without this field, fallback debugging is "moderated by elimination"
+     * guesswork — the Phase E.1 cautionary tale documented in
+     * `wp10-5-phase-a-findings.md`.
+     */
+    httpBodyExcerpt?: string;
   };
 };
 
@@ -171,6 +188,9 @@ function safeDefaultResult(args: {
   latencyMs: number;
   httpStatus: number | null;
   retried?: boolean;
+  /** WP10.5 Pass F — captured non-OK HTTP body (sanitised+truncated). Only
+   *  set on `failureReason: "http_non_200"`; absent on every other path. */
+  httpBodyExcerpt?: string;
 }): CallResult {
   return {
     decision: SAFE_DEFAULT_DECISION,
@@ -184,8 +204,76 @@ function safeDefaultResult(args: {
       latencyMs: args.latencyMs,
       httpStatus: args.httpStatus,
       retried: args.retried ?? false,
+      // Conditional spread — `v.optional(...)` accepts absence but never
+      // `undefined` as a value (mirrors the `failureReason` pattern).
+      ...(args.httpBodyExcerpt !== undefined
+        ? { httpBodyExcerpt: args.httpBodyExcerpt }
+        : {}),
     },
   };
+}
+
+// ─── WP10.5 Pass F — non-OK body capture (sanitise + truncate) ───────────────
+
+/** Maximum bytes (chars; we truncate the JS string by code units) of the
+ *  captured non-OK response body. 2 KB is plenty for an Azure error envelope
+ *  while bounding worst-case storage on a 50-run × 50-turn × 8-agent trace. */
+const HTTP_BODY_EXCERPT_MAX_LEN = 2048;
+
+/**
+ * Scrub anything that looks like an api-key / bearer token / authorization
+ * header value out of a string. Replaces each match with `[redacted]`.
+ *
+ * Defence-in-depth: production Azure 400 bodies generally do NOT echo our
+ * credentials back, but if a future Azure response shape (or an accidental
+ * persona-prompt embed) ever did, the trace stays clean. This sanitiser
+ * runs BEFORE truncation so the redaction marker can't be split.
+ *
+ * Patterns matched (case-insensitive on the leading label):
+ *   - `api-key="..."` / `api-key: ...` / `apiKey: ...` (Azure-style header)
+ *   - `Authorization: Bearer ...` (JWT/bearer header value)
+ *   - Long hex / base64 token-shaped substrings (≥ 24 chars) appearing
+ *     after one of the labels above.
+ */
+function sanitiseHttpBody(body: string): string {
+  let scrubbed = body;
+  // 1. `api-key` / `apiKey` / `api_key` quoted-or-bare values.
+  //    Greedy-match the value up to a quote, semicolon, comma, or whitespace.
+  scrubbed = scrubbed.replace(
+    /(api[-_]?key)\s*[:=]\s*"?[A-Za-z0-9._\-+/=]{8,}"?/gi,
+    "$1=[redacted]",
+  );
+  // 2. Authorization: Bearer <token>
+  scrubbed = scrubbed.replace(
+    /(authorization)\s*:\s*bearer\s+[A-Za-z0-9._\-+/=]{8,}/gi,
+    "$1: Bearer [redacted]",
+  );
+  // 3. Bare bearer-style references (e.g. `Bearer eyJ...`) that didn't
+  //    have an Authorization label.
+  scrubbed = scrubbed.replace(
+    /\bbearer\s+[A-Za-z0-9._\-+/=]{16,}/gi,
+    "Bearer [redacted]",
+  );
+  return scrubbed;
+}
+
+/** Defensively read response.text(); returns null on any throw. */
+async function readBodySafe(response: Response): Promise<string | null> {
+  try {
+    return await response.text();
+  } catch {
+    return null;
+  }
+}
+
+/** Sanitise + truncate a captured response body for trace persistence.
+ *  Returns `undefined` on a null/empty input so callers can pass through
+ *  the value to the conditional-spread on `safeDefaultResult`. */
+function buildHttpBodyExcerpt(raw: string | null): string | undefined {
+  if (raw === null || raw.length === 0) return undefined;
+  const sanitised = sanitiseHttpBody(raw);
+  if (sanitised.length <= HTTP_BODY_EXCERPT_MAX_LEN) return sanitised;
+  return sanitised.slice(0, HTTP_BODY_EXCERPT_MAX_LEN);
 }
 
 // ─── WP10.5 Pass D — minimal retry policy ────────────────────────────────────
@@ -385,19 +473,18 @@ export async function callDecisionTool(
     httpStatus = response.status;
 
     if (!response.ok) {
-      // Drain body for trace excerpt; we don't currently surface the body
-      // text on `CallResult` (`raw` only carries httpStatus), but we read
-      // it to release the connection cleanly.
-      try {
-        await response.text();
-      } catch {
-        // ignore
-      }
+      // WP10.5 Pass F — capture body for trace excerpt. The body is the
+      // most diagnostically valuable signal on an HTTP failure (Azure 400s
+      // embed the policy / category that tripped). Sanitised + truncated
+      // before persistence; we still always release the connection.
+      const rawBody = await readBodySafe(response);
+      const httpBodyExcerpt = buildHttpBodyExcerpt(rawBody);
       return safeDefaultResult({
         failureReason: "http_non_200",
         latencyMs: Date.now() - start,
         httpStatus,
         retried,
+        httpBodyExcerpt,
       });
     }
 

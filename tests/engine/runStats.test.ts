@@ -30,6 +30,15 @@
 
 import { describe, expect, it } from "vitest";
 import { aggregateRunStats, type AggregatorTurnRow, type AggregatorCharacterRow } from "../../convex/engine/runStats.js";
+import { resolveTurn, type ResolutionTrace } from "../../convex/engine/resolution.js";
+import type {
+  CharacterState,
+  ItemRef,
+  MatchState,
+  ParsedDecision,
+  Tile,
+  WorldState,
+} from "../../convex/engine/types.js";
 import { PERSONA_IDS, type PersonaId } from "../../convex/engine/types.js";
 
 // ─── Test fixtures ────────────────────────────────────────────────────────
@@ -303,5 +312,433 @@ describe("WP12 — runs.aggregate WP12 acceptance scenario", () => {
     expect(result.kills).toBe(2);
     expect(result.equips).toBe(3);
     expect(result.extractions).toBe(1);
+  });
+});
+
+// ─── Integration: resolveTurn → aggregator ground-truth contract ──────────
+//
+// Surgical-correctness fixes (Gate-2 review consensus, batch-1):
+//   Fix #1 — equip trace-emission must be ground-truth: `result="opened"` /
+//            `result="looted"` is emitted ONLY when the equip side-effect
+//            actually ran. Two failure modes the previous emission shape
+//            mishandled:
+//              (a) Dud chest (chest.contents === null / opened === true) →
+//                  no equip side-effect → no success trace.
+//              (b) Same-turn collision (two actors target same un-opened
+//                  chest) → only the first actor's equip runs → only that
+//                  one gets a success trace.
+//            Same shape applies to the corpse-loot path (empty / drained
+//            corpse → no looted trace).
+//
+//   Fix #2 — `(kind="overwatch", result="dmg N")` whose target appears in
+//            same-turn `trace.deaths` must credit the attacker's persona
+//            with one kill (concept-spec §11/§12).
+//
+// These tests drive `resolveTurn` end-to-end, then feed its trace into the
+// aggregator — that's the only level at which "what does the engine emit"
+// can be asserted. Top-level kills/equips and per-persona attribution are
+// both verified.
+
+function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
+  return {
+    size: { w: 100, h: 100 },
+    walls: [],
+    coverTiles: [],
+    chests: [],
+    corpses: [],
+    evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
+    ...overrides,
+  };
+}
+
+function makeCharacter(opts: {
+  id: string;
+  pos: Tile;
+  personaId?: PersonaId;
+  hp?: number;
+  weapon?: ItemRef;
+  armour?: ItemRef;
+}): CharacterState {
+  return {
+    characterId: opts.id,
+    personaId: opts.personaId ?? "rat",
+    spawnIndex: 0,
+    displayName: opts.id,
+    hp: opts.hp ?? 100,
+    maxHp: 100,
+    pos: opts.pos,
+    equipped: { weapon: opts.weapon, armour: opts.armour },
+    scratchpad: "",
+    hidden: false,
+    alive: true,
+    lastKnown: [],
+  };
+}
+
+function makeState(opts: {
+  characters: CharacterState[];
+  world?: Partial<WorldState>;
+  turn?: number;
+}): MatchState {
+  return {
+    matchId: "m",
+    turn: opts.turn ?? 1,
+    world: makeWorld(opts.world),
+    characters: opts.characters,
+    rngSeed: "seed",
+  };
+}
+
+function nullDecision(overrides: Partial<ParsedDecision> = {}): ParsedDecision {
+  return {
+    consume: "none",
+    primary: "stationary_action",
+    move: { kind: "none" },
+    action: { kind: "none" },
+    say: null,
+    overwatch_priority: null,
+    scratchpad_update: null,
+    ...overrides,
+  };
+}
+
+/** Build a single turn-row from a resolveTurn trace. The aggregator only
+ *  reads `agentRecords[].personaId` (for the personaIndex via characters)
+ *  and `resolution.{actions,deaths,speech}` so we minimally fill those. */
+function turnRowFromTrace(
+  turn: number,
+  trace: ResolutionTrace,
+): AggregatorTurnRow {
+  return {
+    turn,
+    agentRecords: [],
+    resolution: {
+      consumed: trace.consumed.map((c) => ({
+        characterId: c.characterId,
+        item: { category: "consumable" as const, name: c.item },
+      })),
+      speech: trace.speech,
+      moves: trace.moves,
+      actions: trace.actions,
+      deaths: trace.deaths,
+      visibilityUpdates: trace.visibilityUpdates,
+    },
+  };
+}
+
+function rosterFromState(state: MatchState): AggregatorCharacterRow[] {
+  return state.characters.map((c) => ({
+    _id: c.characterId,
+    personaId: c.personaId,
+    alive: c.alive,
+    diedAtTurn: c.diedAtTurn,
+    extractedAtTurn: c.extractedAtTurn,
+  }));
+}
+
+describe("Fix #1 — equip ground-truth (chest)", () => {
+  it("two actors target the same un-opened chest same turn → equips counter increments by exactly 1, not 2", () => {
+    // Two actors A (rat) and B (duelist) both adjacent to chest_001 and both
+    // commit `interact` against it the same turn. Phase 5 only equips ONE of
+    // them (whichever runs first in sorted order). Aggregator must count the
+    // equip exactly once — top-level + per-persona.
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      personaId: "rat",
+      weapon: { category: "weapon", name: "rusty_blade" },
+    });
+    const b = makeCharacter({
+      id: "B",
+      pos: { x: 2, y: 0 },
+      personaId: "duelist",
+      weapon: { category: "weapon", name: "rusty_blade" },
+    });
+    const state = makeState({
+      characters: [a, b],
+      world: {
+        chests: [
+          {
+            id: "chest_001",
+            pos: { x: 1, y: 0 },
+            contents: { category: "weapon", name: "axe" },
+            opened: false,
+            lootTable: "weapons-heavy",
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", nullDecision({ action: { kind: "interact", targetObjectId: "chest_001" } })],
+      ["B", nullDecision({ action: { kind: "interact", targetObjectId: "chest_001" } })],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    // Sanity: chest is opened, exactly one of A/B has axe equipped.
+    const chest = next.world.chests.find((c) => c.id === "chest_001")!;
+    expect(chest.opened).toBe(true);
+    const aWeap = next.characters.find((c) => c.characterId === "A")!.equipped.weapon;
+    const bWeap = next.characters.find((c) => c.characterId === "B")!.equipped.weapon;
+    const equippedAxe = [aWeap, bWeap].filter(
+      (w) => w?.category === "weapon" && w?.name === "axe",
+    );
+    expect(equippedAxe).toHaveLength(1);
+
+    // Aggregator must reflect ground truth: ONE equip, not two.
+    const result = aggregateRunStats(
+      [turnRowFromTrace(1, trace)],
+      rosterFromState(next),
+    );
+    expect(result.equips).toBe(1);
+
+    const eBy = Object.fromEntries(result.perPersona.map((p) => [p.personaId, p.equips]));
+    expect((eBy.rat ?? 0) + (eBy.duelist ?? 0)).toBe(1);
+    expect(eBy.trader).toBe(0);
+  });
+
+  it("dud chest (contents === null) → no equip; aggregator equips counter is 0", () => {
+    // Action-build previously pushed `result="opened"` for the actor's claim
+    // even when the chest had null contents (phase 5 short-circuits without
+    // running the equip side-effect). Post-fix: the ground-truth contract
+    // requires no `result="opened"` action when no equip ran.
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      personaId: "rat",
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        chests: [
+          {
+            id: "chest_dud",
+            pos: { x: 1, y: 0 },
+            contents: null,
+            opened: false,
+            lootTable: "weapons-heavy",
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", nullDecision({ action: { kind: "interact", targetObjectId: "chest_dud" } })],
+    ]);
+    const { trace, state: next } = resolveTurn(state, decisions);
+
+    // No success trace was emitted (it may have a non-success result OR be
+    // absent entirely — both are acceptable per the fix).
+    const successOpens = trace.actions.filter(
+      (act) => act.kind === "interact" && act.result === "opened",
+    );
+    expect(successOpens).toHaveLength(0);
+
+    const result = aggregateRunStats(
+      [turnRowFromTrace(1, trace)],
+      rosterFromState(next),
+    );
+    expect(result.equips).toBe(0);
+    const eBy = Object.fromEntries(result.perPersona.map((p) => [p.personaId, p.equips]));
+    expect(eBy.rat).toBe(0);
+  });
+});
+
+describe("Fix #1 — equip ground-truth (corpse-loot)", () => {
+  it("two actors loot the same single-slot corpse same turn → equips counter increments by exactly 1, not 2", () => {
+    // Corpse holds ONE item (weapon only). Two looters in range; only the
+    // first actor's loot side-effect runs. Aggregator must count one equip.
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      personaId: "rat",
+    });
+    const b = makeCharacter({
+      id: "B",
+      pos: { x: 2, y: 0 },
+      personaId: "duelist",
+    });
+    const state = makeState({
+      characters: [a, b],
+      world: {
+        corpses: [
+          {
+            characterId: "deadGuy",
+            pos: { x: 1, y: 0 },
+            contents: { weapon: { category: "weapon", name: "axe" } },
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", nullDecision({ action: { kind: "loot", targetCorpseId: "deadGuy" } })],
+      ["B", nullDecision({ action: { kind: "loot", targetCorpseId: "deadGuy" } })],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    // Sanity: exactly one of A/B has the axe equipped.
+    const aWeap = next.characters.find((c) => c.characterId === "A")!.equipped.weapon;
+    const bWeap = next.characters.find((c) => c.characterId === "B")!.equipped.weapon;
+    const got = [aWeap, bWeap].filter(
+      (w) => w?.category === "weapon" && w?.name === "axe",
+    );
+    expect(got).toHaveLength(1);
+
+    const result = aggregateRunStats(
+      [turnRowFromTrace(1, trace)],
+      rosterFromState(next),
+    );
+    expect(result.equips).toBe(1);
+    const eBy = Object.fromEntries(result.perPersona.map((p) => [p.personaId, p.equips]));
+    expect((eBy.rat ?? 0) + (eBy.duelist ?? 0)).toBe(1);
+  });
+
+  it("looting an empty corpse (no slots) → no equip; aggregator equips counter is 0", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      personaId: "rat",
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        corpses: [
+          {
+            characterId: "emptyCorpse",
+            pos: { x: 1, y: 0 },
+            contents: {},
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", nullDecision({ action: { kind: "loot", targetCorpseId: "emptyCorpse" } })],
+    ]);
+    const { trace, state: next } = resolveTurn(state, decisions);
+
+    const successLoots = trace.actions.filter(
+      (act) => act.kind === "loot" && act.result === "looted",
+    );
+    expect(successLoots).toHaveLength(0);
+
+    const result = aggregateRunStats(
+      [turnRowFromTrace(1, trace)],
+      rosterFromState(next),
+    );
+    expect(result.equips).toBe(0);
+  });
+});
+
+describe("Fix #2 — overwatch kill attribution (T42 scenario)", () => {
+  it("overwatch lethal hit credits the attacker's persona with one kill (top-level + perPersona)", () => {
+    // T42 scenario verbatim: trader fires overwatch, target dies same turn.
+    // Pre-fix: per-persona kills under-counted because the aggregator filter
+    // only credited `kind === "attack"`. Post-fix: `attack || overwatch`
+    // both qualify.
+    //
+    // A is the trader on overwatch with greatsword (40 dmg). B is the rat
+    // at low HP, walking into A's vision/range. Phase 5 overwatch fires; B
+    // dies; phase 6 records the death.
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      personaId: "trader",
+      weapon: { category: "weapon", name: "greatsword" },
+    });
+    const b = makeCharacter({
+      id: "B",
+      pos: { x: 1, y: 0 },
+      personaId: "rat",
+      hp: 5,
+    });
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", nullDecision({ primary: "overwatch" })],
+      ["B", nullDecision()],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    // Sanity: B died, trace records the overwatch hit and the death.
+    expect(next.characters.find((c) => c.characterId === "B")!.alive).toBe(false);
+    expect(trace.deaths).toContain("B");
+    expect(
+      trace.actions.some(
+        (a) => a.kind === "overwatch" && a.target === "B" && a.result.startsWith("dmg "),
+      ),
+    ).toBe(true);
+
+    const result = aggregateRunStats(
+      [turnRowFromTrace(1, trace)],
+      rosterFromState(next),
+    );
+    expect(result.kills).toBe(1);
+    const kBy = Object.fromEntries(result.perPersona.map((p) => [p.personaId, p.kills]));
+    expect(kBy.trader).toBe(1);
+    expect(kBy.rat).toBe(0);
+  });
+
+  it("synthetic overwatch trace (no resolveTurn): aggregator credits overwatch lethal hits", () => {
+    // Pure aggregator-level test guarding the kill-filter contract.
+    const roster: AggregatorCharacterRow[] = [
+      { _id: "c0", personaId: "rat", alive: true },
+      { _id: "c1", personaId: "duelist", alive: false, diedAtTurn: 42 },
+      { _id: "c2", personaId: "trader", alive: true },
+      { _id: "c3", personaId: "opportunist", alive: true },
+      { _id: "c4", personaId: "paranoid", alive: true },
+      { _id: "c5", personaId: "camper", alive: true },
+      { _id: "c6", personaId: "sprinter", alive: true },
+      { _id: "c7", personaId: "vulture", alive: true },
+    ];
+    const turns: AggregatorTurnRow[] = [
+      turn({
+        turn: 42,
+        resolution: {
+          consumed: [],
+          speech: [],
+          moves: [],
+          visibilityUpdates: [],
+          deaths: ["c1"],
+          actions: [
+            // c2 = trader fires overwatch; lands lethal hit on c1 (duelist).
+            { characterId: "c2", kind: "overwatch", target: "c1", result: "dmg 40" },
+          ],
+        },
+      }),
+    ];
+    const result = aggregateRunStats(turns, roster);
+    expect(result.kills).toBe(1);
+    const kBy = Object.fromEntries(result.perPersona.map((p) => [p.personaId, p.kills]));
+    expect(kBy.trader).toBe(1);
+  });
+
+  it("overwatch + concurrent attack on same dying target → both attackers credited (multi-attacker §12)", () => {
+    // Two attackers contribute to one death same turn: one stationary attack
+    // and one overwatch. Top-level kills=1; both personas credited.
+    const roster: AggregatorCharacterRow[] = [
+      { _id: "c0", personaId: "rat", alive: true },
+      { _id: "c1", personaId: "duelist", alive: false, diedAtTurn: 7 },
+      { _id: "c2", personaId: "trader", alive: true },
+      { _id: "c3", personaId: "opportunist", alive: true },
+      { _id: "c4", personaId: "paranoid", alive: true },
+      { _id: "c5", personaId: "camper", alive: true },
+      { _id: "c6", personaId: "sprinter", alive: true },
+      { _id: "c7", personaId: "vulture", alive: true },
+    ];
+    const turns: AggregatorTurnRow[] = [
+      turn({
+        turn: 7,
+        resolution: {
+          consumed: [], speech: [], moves: [], visibilityUpdates: [],
+          deaths: ["c1"],
+          actions: [
+            { characterId: "c0", kind: "attack", target: "c1", result: "dmg 30" },     // rat
+            { characterId: "c2", kind: "overwatch", target: "c1", result: "dmg 40" }, // trader
+          ],
+        },
+      }),
+    ];
+    const result = aggregateRunStats(turns, roster);
+    expect(result.kills).toBe(1);
+    const kBy = Object.fromEntries(result.perPersona.map((p) => [p.personaId, p.kills]));
+    expect(kBy.rat).toBe(1);
+    expect(kBy.trader).toBe(1);
   });
 });

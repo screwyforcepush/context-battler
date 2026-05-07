@@ -387,6 +387,8 @@ turns: {
       httpStatus: number | null,
       fellBackToSafeDefault: boolean,
       failureReason?: FailureReason,       // see ADR §4
+      validatorReason?: string,            // WP10.5 Pass B.3 — engine-validator rejection reason
+      httpBodyExcerpt?: string,            // WP10.5 Pass F — sanitised+truncated (≤2KB) non-OK HTTP body; set only when failureReason==="http_non_200"
     },
   }>,
   // per-phase resolution outputs (compact)

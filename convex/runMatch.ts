@@ -309,6 +309,9 @@ export function buildAgentLlmRecord(r: {
   wrapperFellBack: boolean;
   failureReason: FailureReason | undefined;
   validatorReason: string | undefined;
+  /** WP10.5 Pass F — captured non-OK HTTP body excerpt (already sanitised
+   *  + truncated by the wrapper). Set only on `failureReason: "http_non_200"`. */
+  httpBodyExcerpt?: string | undefined;
 }): {
   responseId: string | null;
   callId: string | null;
@@ -319,6 +322,7 @@ export function buildAgentLlmRecord(r: {
   fellBackToSafeDefault: boolean;
   failureReason?: FailureReason;
   validatorReason?: string;
+  httpBodyExcerpt?: string;
 } {
   return {
     responseId: r.responseId,
@@ -330,6 +334,12 @@ export function buildAgentLlmRecord(r: {
     fellBackToSafeDefault: r.wrapperFellBack,
     ...(r.failureReason ? { failureReason: r.failureReason } : {}),
     ...(r.validatorReason ? { validatorReason: r.validatorReason } : {}),
+    // WP10.5 Pass F — conditional spread (same pattern as failureReason /
+    // validatorReason). The Convex `v.optional(...)` validator accepts
+    // absent OR present, but never `undefined` as a value.
+    ...(r.httpBodyExcerpt !== undefined
+      ? { httpBodyExcerpt: r.httpBodyExcerpt }
+      : {}),
   };
 }
 
@@ -552,6 +562,9 @@ export const advanceTurn = action({
         usage: AzureUsage | null;
         latencyMs: number;
         httpStatus: number | null;
+        /** WP10.5 Pass F — non-OK HTTP body excerpt (sanitised+truncated
+         *  by the wrapper). Set only on `failureReason: "http_non_200"`. */
+        httpBodyExcerpt: string | undefined;
       };
 
       const resolved: AgentResolved[] = perAgent.map((entry, i) => {
@@ -591,6 +604,10 @@ export const advanceTurn = action({
           usage: result.raw.usage,
           latencyMs: result.raw.latencyMs,
           httpStatus: result.raw.httpStatus,
+          // WP10.5 Pass F — pass-through of the captured non-OK body
+          // excerpt. Wrapper sets it only on http_non_200; absent/undefined
+          // on every other path.
+          httpBodyExcerpt: result.raw.httpBodyExcerpt,
         };
       });
 
@@ -633,6 +650,8 @@ export const advanceTurn = action({
         // Pass B.3 — `validatorReason` threaded via the pure helper so the
         // engine-validator rejection reason (computed at line ~512) is
         // visible from the persisted trace, not just a local var.
+        // Pass F — `httpBodyExcerpt` threaded similarly so HTTP-error
+        // bodies (Azure 400 moderation, etc.) land in the trace.
         llm: buildAgentLlmRecord({
           responseId: r.responseId,
           callId: r.callId,
@@ -643,6 +662,7 @@ export const advanceTurn = action({
           wrapperFellBack: r.wrapperFellBack,
           failureReason: r.failureReason,
           validatorReason: r.validatorReason,
+          httpBodyExcerpt: r.httpBodyExcerpt,
         }),
       }));
 
