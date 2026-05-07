@@ -83,6 +83,35 @@ const matchesStatus = makeFunctionReference<
   StatusResponse
 >("matches:status");
 
+// WP12 — `runs.byMatch` returns the per-match aggregated stats row written
+// by the scheduled `runs.aggregate` mutation. The harness post-run hook
+// polls this until the row materialises (the scheduler fires shortly after
+// `match.status` flips to "completed").
+type RunSummary = {
+  _id: string;
+  matchId: MatchId;
+  kills: number;
+  extractions: number;
+  equips: number;
+  speechEvents: number;
+  perPersona: Array<{
+    personaId: string;
+    survivedTurns: number;
+    kills: number;
+    extracted: number;
+    equips: number;
+    speechEvents: number;
+  }>;
+};
+
+type RunSummaryRow = RunSummary | null;
+
+const runsByMatch = makeFunctionReference<
+  "query",
+  { matchId: MatchId },
+  RunSummaryRow
+>("runs:byMatch");
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Argument parsing.
 //
@@ -158,6 +187,15 @@ function isReasoningEffort(value: string): value is ReasoningEffort {
 // per WP11 ("machine-readable JSONL preferred so reviewing agents can grep").
 // ─────────────────────────────────────────────────────────────────────────────
 
+type PerPersonaSummary = {
+  personaId: string;
+  survivedTurns: number;
+  kills: number;
+  extracted: number;
+  equips: number;
+  speechEvents: number;
+};
+
 type Event =
   | { event: "run_start"; matchId: MatchId; run: number; runs: number }
   | { event: "poll"; matchId: MatchId; status: MatchStatus; turn: number }
@@ -168,12 +206,37 @@ type Event =
       turn?: number;
       reason?: string;
     }
+  // WP12 per-match aggregate event — emitted after `runs.aggregate` writes
+  // the row. Failed/timeout matches won't have one.
+  | {
+      event: "run_aggregate";
+      matchId: MatchId;
+      kills: number;
+      extractions: number;
+      equips: number;
+      speechEvents: number;
+      perPersona: PerPersonaSummary[];
+    }
   | {
       event: "summary";
       completed: number;
       failed: number;
       total: number;
       durationMs: number;
+    }
+  // WP12 Stage-2 multi-run aggregate — emitted after every match has had
+  // its `runs.aggregate` row written. Sums the per-match counts and
+  // produces a per-persona breakdown summed across runs.
+  | {
+      event: "multi_run_summary";
+      matchIds: MatchId[];
+      runIds: string[];
+      runs: number;
+      kills: number;
+      extractions: number;
+      equips: number;
+      speechEvents: number;
+      perPersona: PerPersonaSummary[];
     };
 
 function emit(ev: Event): void {
@@ -304,6 +367,37 @@ async function runAll(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// WP12 — post-run aggregate hook.
+//
+// After a match transitions to `completed`, `runMatch.advanceTurn` schedules
+// `runs.aggregate(matchId)` via `scheduler.runAfter(0, ...)`. The aggregate
+// row materialises shortly after the harness sees the terminal status. We
+// poll `runs.byMatch` for up to 30 s with a 1-second cadence — fast enough
+// for stage-2 (10 matches × 8 agents × 50 turns) but bounded so a missing
+// row surfaces as a diagnostic rather than a hang.
+//
+// Failed/timeout matches return `null` and are excluded from the multi-run
+// summary (per WP12 acceptance: "Failed matches do NOT get a `runs` row").
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RUN_ROW_POLL_INTERVAL_MS = 1_000;
+const RUN_ROW_POLL_TIMEOUT_MS = 30_000;
+
+async function waitForRunRow(
+  client: ConvexHttpClient,
+  matchId: MatchId,
+): Promise<RunSummaryRow> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < RUN_ROW_POLL_TIMEOUT_MS) {
+    const row = await client.query(runsByMatch, { matchId });
+    if (row !== null) return row;
+    await sleep(RUN_ROW_POLL_INTERVAL_MS);
+  }
+  return null;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Entry point.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -344,6 +438,97 @@ async function main(): Promise<void> {
     total: args.runs,
     durationMs,
   });
+
+  // ── WP12 post-run aggregate hook ───────────────────────────────────────
+  //
+  // For every completed match, poll `runs.byMatch` until the WP12-owned
+  // row is written by the scheduled `runs.aggregate` mutation. Then sum
+  // across runs and emit the multi-run summary as JSON to stdout. The
+  // harness emits this regardless of `--runs` count so single-match
+  // smokes also produce a stable summary line.
+  const completedMatchIds: MatchId[] = outcomes
+    .filter((o): o is RunOutcome & { kind: "completed" } => o.kind === "completed")
+    .map((o) => o.matchId);
+
+  const rows = await Promise.all(
+    completedMatchIds.map((id) => waitForRunRow(client, id)),
+  );
+
+  // Emit per-match aggregate events for each completed run.
+  const collectedRows: RunSummary[] = [];
+  for (let i = 0; i < completedMatchIds.length; i++) {
+    const matchId = completedMatchIds[i] as MatchId;
+    const row = rows[i] ?? null;
+    if (row) {
+      collectedRows.push(row);
+      emit({
+        event: "run_aggregate",
+        matchId,
+        kills: row.kills,
+        extractions: row.extractions,
+        equips: row.equips,
+        speechEvents: row.speechEvents,
+        perPersona: row.perPersona,
+      });
+    } else {
+      // Defensive: the scheduler hasn't fired the aggregator within the
+      // poll window. Surface as JSONL fatal-line so the reviewing agent
+      // can see why the multi-run summary excludes this match.
+      process.stderr.write(
+        JSON.stringify({
+          event: "fatal",
+          reason: "run_row_missing",
+          matchId,
+          note:
+            "runs.aggregate row did not materialise within poll window",
+        }) + "\n",
+      );
+    }
+  }
+
+  // Aggregate the per-match rows into a multi-run summary. Per-persona
+  // sums collapse to a single PerPersonaSummary per persona by keeping
+  // a running total across rows. survivedTurns is summed (not averaged)
+  // so the consumer can compute mean = sum / runCount externally —
+  // mean across N runs may not be the right summary metric if a persona
+  // is absent from some runs (it isn't in phase-1, but the choice should
+  // be the consumer's, not ours).
+  const personaTotals = new Map<string, PerPersonaSummary>();
+  let totalKills = 0;
+  let totalExtractions = 0;
+  let totalEquips = 0;
+  let totalSpeech = 0;
+  for (const row of collectedRows) {
+    totalKills += row.kills;
+    totalExtractions += row.extractions;
+    totalEquips += row.equips;
+    totalSpeech += row.speechEvents;
+    for (const p of row.perPersona) {
+      const existing = personaTotals.get(p.personaId);
+      if (existing) {
+        existing.survivedTurns += p.survivedTurns;
+        existing.kills += p.kills;
+        existing.extracted += p.extracted;
+        existing.equips += p.equips;
+        existing.speechEvents += p.speechEvents;
+      } else {
+        personaTotals.set(p.personaId, { ...p });
+      }
+    }
+  }
+
+  emit({
+    event: "multi_run_summary",
+    matchIds: completedMatchIds,
+    runIds: collectedRows.map((r) => r._id),
+    runs: collectedRows.length,
+    kills: totalKills,
+    extractions: totalExtractions,
+    equips: totalEquips,
+    speechEvents: totalSpeech,
+    perPersona: [...personaTotals.values()],
+  });
+
   // Stage-1 fail-loud threshold: any failure → exit 1.
   process.exit(failed > 0 ? 1 : 0);
 }

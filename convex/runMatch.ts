@@ -747,9 +747,20 @@ export const advanceTurn = action({
         outcome,
       });
 
-      // ── 9. Schedule next turn (or stop). ─────────────────────────────────
+      // ── 9. Schedule next turn (or stop) + aggregate on terminal. ─────────
       if (!isTerminal) {
         await ctx.scheduler.runAfter(0, api.runMatch.advanceTurn, { matchId });
+      } else {
+        // WP12 boundary contract (ADR §6 / WP10 acceptance): on terminal
+        // completion, schedule `runs.aggregate(matchId)` to write the per-
+        // match `runs` row. WP10 does NOT compute the aggregate inline —
+        // that ownership belongs to WP12. The aggregator is idempotent
+        // (re-firing on the same matchId is a no-op) so even if this
+        // schedule is re-attempted by chain replay the result is stable.
+        // Failed matches are NOT aggregated (the catch branch below halts
+        // the chain without entering this branch, and `runs.aggregate`
+        // also defensively bails on non-completed status).
+        await ctx.scheduler.runAfter(0, api.runs.aggregate, { matchId });
       }
       return null;
     } catch (e) {

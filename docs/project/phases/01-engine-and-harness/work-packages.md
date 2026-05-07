@@ -50,7 +50,7 @@ WP1 lands first (it owns the bootstrap stub `convex/schema.ts` + `convex/_genera
 
 **Scope.**
 - Replace WP1's bootstrap stub `convex/schema.ts` with the full schema per `architecture-decisions.md` §6 (six tables: `matches`, `characters`, `turns`, `worldState`, `runs`, `reports`).
-- Include the `PersonaId` literal kebab-case union (`"rat" | "duelist" | "trader" | "betrayer" | "paranoid" | "camper" | "sprinter" | "vulture"`) in the validators for `characters.personaId`, `turns.agentRecords[].personaId`, and `runs.perPersona` keys.
+- Include the `PersonaId` literal kebab-case union (`"rat" | "duelist" | "trader" | "opportunist" | "paranoid" | "camper" | "sprinter" | "vulture"`) in the validators for `characters.personaId`, `turns.agentRecords[].personaId`, and `runs.perPersona` keys.
 - Include the `agentRecords[].input` fuller-shape and `agentRecords[].llm` failure-aware shape per ADR §7.
 - Indexes: `matches.by_status`, `turns.by_match_turn`, `characters.by_match`, `runs.by_match`, `reports.by_generatedAt`.
 - Add a tiny mutation `matches.create` (no logic; just `insert`) and a query `matches.get(matchId)` to validate the write/read path against the deployment.
@@ -266,19 +266,19 @@ Affordances:
 
 **Scope.** Eight short behavioural prompts in `personas/*.md`, one per persona. Brief = target ≤ 80 tokens each. The roster *content* (what each persona pushes the agent toward) is illustrative per `mental-model.md` §10 — engineer may rewrite each persona's prompt body. The roster *ids* are **locked to a kebab-case literal union** (per ADR §6) so the schema, loader, aggregator, and report all share one source of truth. Files MUST be exactly:
 
-- `personas/rat.md`, `personas/duelist.md`, `personas/trader.md`, `personas/betrayer.md`, `personas/paranoid.md`, `personas/camper.md`, `personas/sprinter.md`, `personas/vulture.md`.
+- `personas/rat.md`, `personas/duelist.md`, `personas/trader.md`, `personas/opportunist.md`, `personas/paranoid.md`, `personas/camper.md`, `personas/sprinter.md`, `personas/vulture.md`.
 
 Prompts must:
 - Be sufficiently differentiated to register on the simulation report (extraction-rate spread ≥ 15 pp at Gate 3).
-- Encourage at least *some* speech in 50 % of runs (so trader / paranoid / betrayer carry the "say" signal).
+- Encourage at least *some* speech in 50 % of runs (so trader / paranoid carry the "say" signal).
 - Encourage chest interaction (so vulture / camper / rat carry the "equip" signal).
-- Vary aggression (so duelist / vulture / betrayer carry the "kill" signal).
+- Vary aggression (so duelist / vulture carry the "kill" signal).
 
 `convex/llm/personas.ts` exports `loadPersonas(): Record<PersonaId, string>` returning a record whose keys are exactly the 8 literals above.
 
 **Acceptance.**
 - 8 files exist with exactly the locked filenames; each ≤ 80 tokens (`tiktoken` count test or documented char-count proxy).
-- `loadPersonas()` returns a record with **exactly** the 8 literal ids — `Object.keys(loadPersonas()).sort()` deep-equals `["betrayer","camper","duelist","paranoid","rat","sprinter","trader","vulture"]`. No 9th key, no missing key, no `.md` extension on the keys.
+- `loadPersonas()` returns a record with **exactly** the 8 literal ids — `Object.keys(loadPersonas()).sort()` deep-equals `["camper","duelist","opportunist","paranoid","rat","sprinter","trader","vulture"]`. No 9th key, no missing key, no `.md` extension on the keys.
 - A "smoke read" test runs `callDecisionTool` against each persona on the same synthetic state (with `VITEST_LLM=1`, otherwise mocked) and asserts the 8 decisions are not byte-identical (cheap diversity smoke; signal-strength is measured at Gate 3).
 
 **Test strategy.** Token-budget + literal-id assertion + non-identical-output. Real diversity is observed at Gate 2 / Gate 3 stats.

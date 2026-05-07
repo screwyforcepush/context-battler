@@ -38,7 +38,7 @@ export const PERSONA_IDS = [
   "rat",
   "duelist",
   "trader",
-  "betrayer",
+  "opportunist",
   "paranoid",
   "camper",
   "sprinter",

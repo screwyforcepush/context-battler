@@ -38,7 +38,7 @@ export const personaIdValidator = v.union(
   v.literal("rat"),
   v.literal("duelist"),
   v.literal("trader"),
-  v.literal("betrayer"),
+  v.literal("opportunist"),
   v.literal("paranoid"),
   v.literal("camper"),
   v.literal("sprinter"),

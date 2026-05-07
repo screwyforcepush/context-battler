@@ -19,6 +19,7 @@ import type * as engine_loot from "../engine/loot.js";
 import type * as engine_map from "../engine/map.js";
 import type * as engine_movement from "../engine/movement.js";
 import type * as engine_resolution from "../engine/resolution.js";
+import type * as engine_runStats from "../engine/runStats.js";
 import type * as engine_types from "../engine/types.js";
 import type * as engine_validation from "../engine/validation.js";
 import type * as engine_vision from "../engine/vision.js";
@@ -29,6 +30,7 @@ import type * as llm_personas from "../llm/personas.js";
 import type * as llm_systemPrompt from "../llm/systemPrompt.js";
 import type * as matches from "../matches.js";
 import type * as runMatch from "../runMatch.js";
+import type * as runs from "../runs.js";
 import type * as spike from "../spike.js";
 import type * as turns from "../turns.js";
 
@@ -50,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   "engine/map": typeof engine_map;
   "engine/movement": typeof engine_movement;
   "engine/resolution": typeof engine_resolution;
+  "engine/runStats": typeof engine_runStats;
   "engine/types": typeof engine_types;
   "engine/validation": typeof engine_validation;
   "engine/vision": typeof engine_vision;
@@ -60,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   "llm/systemPrompt": typeof llm_systemPrompt;
   matches: typeof matches;
   runMatch: typeof runMatch;
+  runs: typeof runs;
   spike: typeof spike;
   turns: typeof turns;
 }>;

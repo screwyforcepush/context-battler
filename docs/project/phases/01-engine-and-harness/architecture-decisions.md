@@ -327,7 +327,7 @@ The engine expands the descriptor into a tile grid at match start.
 // 8 prompts in personas/. Every consumer (schema, loader, aggregator, report)
 // uses this same literal union.
 type PersonaId =
-  | "rat" | "duelist" | "trader" | "betrayer"
+  | "rat" | "duelist" | "trader" | "opportunist"
   | "paranoid" | "camper" | "sprinter" | "vulture";
 
 // matches — one per match

@@ -165,7 +165,7 @@ describe("WP9 — diversity smoke", () => {
     rat: ["hide", "sneak"],
     duelist: ["hunt", "fight"],
     trader: ["negotiate", "truce"],
-    betrayer: ["strike", "stab", "betray"],
+    opportunist: ["gather", "loot", "flee"],
     paranoid: ["bait", "trust"],
     camper: ["overwatch", "cover"],
     sprinter: ["sprint", "race", "speed"],
