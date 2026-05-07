@@ -91,13 +91,36 @@ function refName(ref: unknown): string {
   }
 }
 
+/**
+ * Captured `reports:create` mutation call shape — exposed so tests can pin
+ * exactly what the harness sent (matchIds + reportType + return shape).
+ * `reportsCreate` (below) defaults to a synthetic happy-path response if
+ * no override is supplied, mirroring the real mutation's
+ * `{ _id, payload, missingRunsForMatchIds }` return type from
+ * `convex/reports.ts:runReportCreate`.
+ */
+type ReportsCreateCall = {
+  matchIds: string[];
+  reportType: string;
+};
+
 function makeFakeClient(args: {
   status?: Record<string, ReadonlyArray<unknown>>;
   runs?: Record<string, ReadonlyArray<unknown>>;
+  /**
+   * Optional override for `reports:create` mutation behaviour. When omitted
+   * the fake returns a happy-path-shaped response (id, empty payload-shape
+   * sentinel, no missing matches). Tests that need to assert the harness
+   * captured the response correctly can supply a custom one.
+   */
+  reportsCreate?: (call: ReportsCreateCall) => unknown;
+  /** Captured reports:create call list — useful for assertions. */
+  reportsCreateCalls?: ReportsCreateCall[];
 }): HarnessClient {
   const startedMatchIds: string[] = [];
   const statusCursors = new Map<string, number>();
   const runsCursors = new Map<string, number>();
+  const reportsCreateCalls = args.reportsCreateCalls ?? [];
   // Implementation type — looser than the public `HarnessClient` interface
   // so the test fake can dispatch on a single function regardless of which
   // overload the harness body picks at the call site. Cast to
@@ -107,12 +130,28 @@ function makeFakeClient(args: {
     query: (ref: unknown, args?: unknown) => Promise<unknown>;
   };
   const impl: AnyClient = {
-    mutation: async (ref) => {
+    mutation: async (ref, mutationArgs) => {
       const name = refName(ref);
       if (name === "matches:start") {
         const id = `match_${startedMatchIds.length + 1}`;
         startedMatchIds.push(id);
         return id;
+      }
+      if (name === "reports:create") {
+        const call = mutationArgs as ReportsCreateCall;
+        reportsCreateCalls.push(call);
+        if (args.reportsCreate) return args.reportsCreate(call);
+        // Default happy-path response shape — matches `runReportCreate`'s
+        // return type from convex/reports.ts (the harness only reads `_id`
+        // and `payload.meetsAllThresholds` for telemetry).
+        return {
+          _id: `report_${reportsCreateCalls.length}`,
+          payload: {
+            runCount: call.matchIds.length,
+            meetsAllThresholds: false,
+          },
+          missingRunsForMatchIds: [] as string[],
+        };
       }
       throw new Error(`unexpected mutation ref: ${name}`);
     },
@@ -294,5 +333,175 @@ describe("harness reliability — fix #3 (missing runs row + failed-match exit c
       count: 1,
       matchIds: ["match_2"],
     });
+  });
+});
+
+// ─── Stage-3 wiring — reports.create persistence (D45) ─────────────────────
+//
+// Per `docs/project/phases/01-engine-and-harness/gate-2-5-review.md` and
+// the WP14 brief, the harness must persist the closing report payload via
+// `convex/reports.ts:create` after the multi-run summary is computed, so
+// the Cucumber Scenario 3 threshold checks read off a Convex row rather
+// than re-aggregating client-side. Three scenarios pin the contract:
+//
+//   1. Happy-path — N completed matches with `runs` rows → harness fires
+//      ONE `reports:create` mutation with the completed matchIds + the
+//      `closing-${runs}` reportType, and emits a `report_created` JSONL
+//      event carrying the returned `_id` so a reviewing agent can grep
+//      the log and run `npx convex run reports:byId --id=<id>`.
+//
+//   2. No-completed-matches — every match failed, runs aggregate skipped,
+//      multi_run_summary has runCount=0. The harness MUST NOT fire
+//      `reports:create` (the empty-set hash is reserved for explicit
+//      callers; a 50-failed-run dispatch is a diagnostic event, not a
+//      report). No `report_created` event emitted.
+//
+//   3. reportType literal — the reportType string is `closing-${args.runs}`,
+//      so a 10-run probe gets `closing-10` and a 50-run dispatch gets
+//      `closing-50`. This makes the (matchIdsHash, reportType) idempotency
+//      tuple distinguish probes from closing dispatches even when they
+//      happen to share matchIds.
+
+describe("harness Stage-3 wiring — reports.create persistence (D45)", () => {
+  it("happy path: N completed matches with runs rows → 1 reports:create call + report_created JSONL event", async () => {
+    const reportsCreateCalls: ReportsCreateCall[] = [];
+    const { captured, deps } = makeCapture();
+    const client = makeFakeClient({
+      status: {
+        match_1: [COMPLETED_STATUS()],
+        match_2: [COMPLETED_STATUS()],
+        match_3: [COMPLETED_STATUS()],
+      },
+      runs: {
+        match_1: [RUN_ROW("match_1")],
+        match_2: [RUN_ROW("match_2")],
+        match_3: [RUN_ROW("match_3")],
+      },
+      reportsCreateCalls,
+      reportsCreate: (_call) => ({
+        _id: "report_synthetic_1",
+        payload: {
+          runCount: 3,
+          meetsAllThresholds: false,
+          meetsExtractionThreshold: false,
+          meetsKillThreshold: false,
+          meetsEquipThreshold: false,
+          meetsSpeechThreshold: false,
+          meetsPersonaSpreadThreshold: false,
+        },
+        missingRunsForMatchIds: [] as string[],
+      }),
+    });
+
+    const result = await runHarness(
+      { runs: 3, concurrency: 3, reasoning: "low" },
+      { ...deps, client } as HarnessDeps,
+    );
+
+    expect(result.exitCode).toBe(0);
+
+    // 1. Exactly ONE reports:create call.
+    expect(reportsCreateCalls).toHaveLength(1);
+    expect(reportsCreateCalls[0]).toMatchObject({
+      matchIds: ["match_1", "match_2", "match_3"],
+      reportType: "closing-3",
+    });
+
+    // 2. report_created JSONL event emitted with the returned id +
+    //    threshold flags so a reviewing agent can grep.
+    const reportCreated = captured.stdoutEvents.find(
+      (e) => e.event === "report_created",
+    );
+    expect(reportCreated).toBeDefined();
+    expect(reportCreated).toMatchObject({
+      event: "report_created",
+      reportId: "report_synthetic_1",
+      reportType: "closing-3",
+      runCount: 3,
+      meetsAllThresholds: false,
+    });
+  });
+
+  it("no completed matches → NO reports:create call, NO report_created event", async () => {
+    const reportsCreateCalls: ReportsCreateCall[] = [];
+    const { captured, deps } = makeCapture();
+    const client = makeFakeClient({
+      status: { match_1: [FAILED_STATUS()] },
+      runs: { match_1: [] },
+      reportsCreateCalls,
+    });
+
+    const result = await runHarness(
+      { runs: 1, concurrency: 1, reasoning: "low" },
+      { ...deps, client } as HarnessDeps,
+    );
+
+    expect(result.exitCode).toBe(1); // failed match → exit 1
+    expect(reportsCreateCalls).toHaveLength(0);
+    const reportCreated = captured.stdoutEvents.find(
+      (e) => e.event === "report_created",
+    );
+    expect(reportCreated).toBeUndefined();
+  });
+
+  it("reportType literal is `closing-${runs}` (matches Stage-3 dispatch convention)", async () => {
+    const reportsCreateCalls: ReportsCreateCall[] = [];
+    const { deps } = makeCapture();
+    const client = makeFakeClient({
+      status: {
+        match_1: [COMPLETED_STATUS()],
+        match_2: [COMPLETED_STATUS()],
+      },
+      runs: {
+        match_1: [RUN_ROW("match_1")],
+        match_2: [RUN_ROW("match_2")],
+      },
+      reportsCreateCalls,
+    });
+
+    await runHarness(
+      { runs: 2, concurrency: 1, reasoning: "low" },
+      { ...deps, client } as HarnessDeps,
+    );
+
+    expect(reportsCreateCalls[0]?.reportType).toBe("closing-2");
+  });
+
+  it("missing-runs-row partial: 2 completed-with-row + 1 completed-without-row → reports:create called with 2 matchIds (the present-rows set)", async () => {
+    // Per WP14 contract: `reports.create` tolerates missing `runs` rows
+    // and lists them in `missingRunsForMatchIds`. The harness should pass
+    // ALL completed matchIds (let the mutation decide what's missing) so
+    // the report row's `missingRunsForMatchIds` field is populated with
+    // the right diagnostic info.
+    const reportsCreateCalls: ReportsCreateCall[] = [];
+    const { deps } = makeCapture();
+    const client = makeFakeClient({
+      status: {
+        match_1: [COMPLETED_STATUS()],
+        match_2: [COMPLETED_STATUS()],
+        match_3: [COMPLETED_STATUS()],
+      },
+      runs: {
+        match_1: [RUN_ROW("match_1")],
+        match_2: [null], // missing
+        match_3: [RUN_ROW("match_3")],
+      },
+      reportsCreateCalls,
+    });
+
+    const result = await runHarness(
+      { runs: 3, concurrency: 1, reasoning: "low" },
+      { ...deps, client } as HarnessDeps,
+    );
+
+    expect(result.exitCode).toBe(1); // missing row → exit 1
+    // The harness should have STILL fired reports:create with all 3
+    // completed matchIds — the mutation will mark match_2 as missing.
+    expect(reportsCreateCalls).toHaveLength(1);
+    expect(reportsCreateCalls[0]?.matchIds.sort()).toEqual([
+      "match_1",
+      "match_2",
+      "match_3",
+    ]);
   });
 });

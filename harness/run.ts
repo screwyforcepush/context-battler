@@ -128,6 +128,37 @@ const runsByMatch = makeFunctionReference<
   RunSummaryRow
 >("runs:byMatch");
 
+// WP14 / D45 — `reports.create` persistence wiring. After the multi-run
+// summary is emitted the harness fires a single mutation to persist the
+// closing-report payload to Convex. The mutation is idempotent on
+// (matchIdsHash, reportType) so re-runs over the same set are no-op
+// inserts (the existing row's id is returned).
+//
+// Return shape mirrors `runReportCreate` in convex/reports.ts: we only
+// read `_id` and `payload.{ runCount, meets* }` for telemetry — the full
+// payload is fetched downstream via `reports.byId` if needed.
+type ReportCreatePayload = {
+  runCount: number;
+  meetsExtractionThreshold?: boolean;
+  meetsKillThreshold?: boolean;
+  meetsEquipThreshold?: boolean;
+  meetsSpeechThreshold?: boolean;
+  meetsPersonaSpreadThreshold?: boolean;
+  meetsAllThresholds: boolean;
+};
+
+type ReportCreateResult = {
+  _id: string;
+  payload: ReportCreatePayload;
+  missingRunsForMatchIds: MatchId[];
+};
+
+const reportsCreate = makeFunctionReference<
+  "mutation",
+  { matchIds: MatchId[]; reportType: string },
+  ReportCreateResult
+>("reports:create");
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Argument parsing.
 //
@@ -263,6 +294,25 @@ export type HarnessEvent =
       reason: "runs_row_missing";
       count: number;
       matchIds: MatchId[];
+    }
+  // WP14 / D45 — emitted after `reports.create` persists the closing-
+  // report payload to Convex. Carries the report row's `_id` (so a
+  // reviewing agent can `npx convex run reports:byId --id=<id>` from
+  // the log line) plus the §10 done-bar threshold flags for at-a-glance
+  // pass/fail. Only emitted when the harness had at least one completed
+  // match — a fully-failed dispatch is a diagnostic event, not a report.
+  | {
+      event: "report_created";
+      reportId: string;
+      reportType: string;
+      runCount: number;
+      meetsAllThresholds: boolean;
+      meetsExtractionThreshold?: boolean;
+      meetsKillThreshold?: boolean;
+      meetsEquipThreshold?: boolean;
+      meetsSpeechThreshold?: boolean;
+      meetsPersonaSpreadThreshold?: boolean;
+      missingRunsForMatchIds: MatchId[];
     };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -654,6 +704,45 @@ export async function runHarness(
     speechEvents: totalSpeech,
     perPersona: [...personaTotals.values()],
   });
+
+  // ── WP14 / D45 — persist the closing-report payload to Convex ─────────
+  //
+  // The §10 done-bar Cucumber Scenario 3 thresholds are checked off the
+  // persisted `reports` row, not the in-memory multi_run_summary. We pass
+  // ALL completed matchIds (NOT only those with `runs` rows) so the
+  // mutation's `missingRunsForMatchIds` field captures the diagnostic
+  // gap explicitly — re-running the harness over the same matchIds is
+  // idempotent (sort-then-comma SHA-256 of matchIds + reportType is the
+  // deduplication key per `convex/reports.ts:hashMatchIds`).
+  //
+  // ReportType convention: `closing-${runs}` so a 10-run probe writes a
+  // distinct row from a 50-run dispatch even when matchIds happen to
+  // overlap. Stage-3 dispatch produces `closing-50`.
+  //
+  // Skipped on the all-failed path (completedMatchIds empty): a fully-
+  // failed dispatch is a diagnostic event, not a closing report — no
+  // row is written. The exit code already carries the failure signal.
+  if (completedMatchIds.length > 0) {
+    const reportType = `closing-${args.runs}`;
+    const reportResult: ReportCreateResult = await client.mutation(
+      reportsCreate,
+      { matchIds: completedMatchIds, reportType },
+    );
+    emitEvent({
+      event: "report_created",
+      reportId: reportResult._id,
+      reportType,
+      runCount: reportResult.payload.runCount,
+      meetsAllThresholds: reportResult.payload.meetsAllThresholds,
+      meetsExtractionThreshold: reportResult.payload.meetsExtractionThreshold,
+      meetsKillThreshold: reportResult.payload.meetsKillThreshold,
+      meetsEquipThreshold: reportResult.payload.meetsEquipThreshold,
+      meetsSpeechThreshold: reportResult.payload.meetsSpeechThreshold,
+      meetsPersonaSpreadThreshold:
+        reportResult.payload.meetsPersonaSpreadThreshold,
+      missingRunsForMatchIds: reportResult.missingRunsForMatchIds,
+    });
+  }
 
   // Fix #3 — emit the authoritative aggregate signal AFTER the multi-run
   // summary so downstream consumers can correlate the missing-rows count

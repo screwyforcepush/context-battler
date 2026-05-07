@@ -367,3 +367,25 @@ export const byId = query({
     return await ctx.db.get(id);
   },
 });
+
+/**
+ * `reports.byMatchIdsHash({ matchIdsHash, reportType })` — idempotency
+ * lookup. Stage-3 verification fetches the persisted closing-report row
+ * by recomputing the hash from the dispatched matchIds set + reportType
+ * and looking it up here. Returns null if no row exists.
+ *
+ * The (matchIdsHash, reportType) tuple uniquely identifies a report row
+ * via the `by_matchIdsHash_reportType` index — re-running `reports.create`
+ * with the same key is a no-op insert.
+ */
+export const byMatchIdsHash = query({
+  args: { matchIdsHash: v.string(), reportType: v.string() },
+  handler: async (ctx, { matchIdsHash, reportType }) => {
+    return await ctx.db
+      .query("reports")
+      .withIndex("by_matchIdsHash_reportType", (q) =>
+        q.eq("matchIdsHash", matchIdsHash).eq("reportType", reportType),
+      )
+      .unique();
+  },
+});
