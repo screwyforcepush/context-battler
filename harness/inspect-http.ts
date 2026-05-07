@@ -27,8 +27,15 @@ for (const turn of turns) {
     const key = `${fb} status=${status}`;
     const b = buckets.get(key) ?? { count: 0, samples: [] };
     b.count++;
-    if (b.samples.length < 3 && llm.errorBody) {
-      b.samples.push(`T${turn.turn} ${persona} retried=${retried}: ${String(llm.errorBody).slice(0, 200)}`);
+    if (b.samples.length < 3) {
+      // `errorBody` is not persisted on `agent-llm`; use `rawArguments`
+      // (the un-validated tool-call JSON, when available) as the failure
+      // context proxy. For HTTP 400s there is no parsed body — fall back
+      // to a marker so the per-bucket sample line still emits.
+      const sample = llm.rawArguments
+        ? String(llm.rawArguments).slice(0, 200)
+        : "(no body persisted on this row)";
+      b.samples.push(`T${turn.turn} ${persona} retried=${retried}: ${sample}`);
     }
     buckets.set(key, b);
     if (fb === "http_non_200") {
