@@ -21,6 +21,11 @@ const turns: any[] = await client.query(api.turns.byMatch, {
 let total = 0;
 let fellBack = 0;
 const failureReasons: Record<string, number> = {};
+// WP10.5 Pass B.3 — validator-rejection sub-bucket. When fallback type is
+// "validator-rejection" (no wrapper failureReason but fellBackToSafeDefault),
+// group by the engine's `validatorReason` text so the diagnostic key is
+// visible per-cluster. Cross-ref `wp10-5-phase-a-findings.md` §Bucket 2.
+const validatorReasons: Record<string, number> = {};
 const moveKinds: Record<string, number> = {};
 const actionKinds: Record<string, number> = {};
 const primaries: Record<string, number> = {};
@@ -59,8 +64,18 @@ for (const t of turns) {
       (actionKinds[r.decision.action.kind] ?? 0) + 1;
     if (r.llm.fellBackToSafeDefault) {
       fellBack += 1;
-      const reason = r.llm.failureReason ?? "unknown";
+      // Bucket fallback type: wrapper failureReason wins; absent → it's a
+      // validator-rejection (engine validator rejected the wrapper's decision).
+      const reason =
+        r.llm.failureReason ??
+        (r.llm.validatorReason ? "validator-rejection" : "unknown");
       failureReasons[reason] = (failureReasons[reason] ?? 0) + 1;
+      // Sub-bucket validator-rejection by validatorReason text — this is the
+      // diagnostic key (e.g. "interact target 'chest_001' is already opened").
+      if (!r.llm.failureReason && r.llm.validatorReason) {
+        const vReason = r.llm.validatorReason;
+        validatorReasons[vReason] = (validatorReasons[vReason] ?? 0) + 1;
+      }
       const persona = r.personaId;
       sampleRawByPersona[persona] ??= [];
       if (sampleRawByPersona[persona].length < 3 && r.llm.rawArguments) {
@@ -86,6 +101,17 @@ console.log(
   `(${(fallbackRate * 100).toFixed(1)}%)`,
 );
 console.log("failureReasons:", failureReasons);
+// WP10.5 Pass B.3 — surface validator-rejection sub-buckets (cluster key =
+// validatorReason text). Sorted desc by count for at-a-glance triage.
+const sortedValidatorReasons = Object.entries(validatorReasons).sort(
+  (a, b) => b[1] - a[1],
+);
+if (sortedValidatorReasons.length > 0) {
+  console.log("validator-rejection by reason:");
+  for (const [reason, count] of sortedValidatorReasons) {
+    console.log(`  ${count}× ${reason}`);
+  }
+}
 console.log("primaries:", primaries);
 console.log("move.kind:", moveKinds);
 console.log("action.kind:", actionKinds);

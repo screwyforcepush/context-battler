@@ -141,7 +141,15 @@ function renderVisibleBullet(
       return `- ${parts.join(", ")}`;
     }
     case "chest": {
-      return `- Chest ${entity.objectId}, ${distFragment}`;
+      // WP10.5 Pass B.2 — append `[opened]` marker for chests that have
+      // already been opened. The chest stays in the digest so the model
+      // retains last-known-position memory (concept-spec §13 — chests are
+      // one-shot but their *presence* is durable map information), but the
+      // marker flags it as no-longer-actionable so personas don't keep
+      // emitting `interact: <chestId>` against it. Phase A finding —
+      // `wp10-5-phase-a-findings.md` Bucket 2 (62.2% of fallbacks).
+      const openedSuffix = entity.opened ? " [opened]" : "";
+      return `- Chest ${entity.objectId}, ${distFragment}${openedSuffix}`;
     }
     case "corpse": {
       const name = resolveDisplayName(state, entity.objectId);

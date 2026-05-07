@@ -225,4 +225,53 @@ describe("WP5 — localAffordances (concept-spec §22)", () => {
     // Dead actor has no actions; overwatch only when alive.
     expect(aff.actions).not.toContain("overwatch");
   });
+
+  // WP10.5 Pass B.1 — opened chests must NOT appear in movement affordances.
+  // Phase A finding: 62.2% of fallbacks were validator-rejections caused by
+  // personas hammering already-opened chests. The action arm at
+  // affordances.ts:145-147 already filters opened chests; the movement arm
+  // must mirror that filter so personas don't keep walking toward consumed
+  // chests turn after turn. (concept-spec §13 — chests are one-shot.)
+  it("WP10.5 B.1 — opened chest does NOT emit a 'toward_object: <chestId>' movement affordance", () => {
+    const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const openedChest: ChestState = {
+      ...makeChest("chest_001", { x: 8, y: 8 }),
+      opened: true,
+    };
+    const state = makeState({
+      characters: [me],
+      world: { chests: [openedChest] },
+    });
+    const aff = localAffordances(state, "A");
+    expect(aff.movement).not.toContain("toward_object: chest_001");
+    // Sanity: the action arm already filters opened chests; re-verify.
+    expect(aff.actions).not.toContain("interact: chest_001");
+  });
+
+  it("WP10.5 B.1 — closed chest still emits 'toward_object: <chestId>' movement affordance", () => {
+    const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const closedChest = makeChest("chest_002", { x: 8, y: 8 });
+    const state = makeState({
+      characters: [me],
+      world: { chests: [closedChest] },
+    });
+    const aff = localAffordances(state, "A");
+    expect(aff.movement).toContain("toward_object: chest_002");
+  });
+
+  it("WP10.5 B.1 — mixed opened+closed chests: only closed chest emits movement affordance", () => {
+    const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const opened: ChestState = {
+      ...makeChest("chest_001", { x: 7, y: 7 }),
+      opened: true,
+    };
+    const closed = makeChest("chest_002", { x: 8, y: 8 });
+    const state = makeState({
+      characters: [me],
+      world: { chests: [opened, closed] },
+    });
+    const aff = localAffordances(state, "A");
+    expect(aff.movement).not.toContain("toward_object: chest_001");
+    expect(aff.movement).toContain("toward_object: chest_002");
+  });
 });

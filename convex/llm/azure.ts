@@ -55,6 +55,15 @@ export type CallResult = {
     usage: AzureUsage | null;
     latencyMs: number;
     httpStatus: number | null;
+    /**
+     * WP10.5 Pass D — `true` when the wrapper made a second HTTP attempt
+     * after a transient retryable status ({429, 500, 502, 503, 504}); the
+     * value of `httpStatus` then reflects the SECOND attempt. Surfaced on
+     * every successful and failed return so harness/analyze-match.ts can
+     * count retried calls. See `de-risking.md` Measurement C / WP13 and
+     * `wp10-5-phase-a-findings.md` Bucket 3.
+     */
+    retried: boolean;
   };
 };
 
@@ -67,6 +76,14 @@ export type CallDecisionToolInput = {
   reasoningEffort: "low" | "medium" | "high";
   maxOutputTokens: number;
   abortTimeoutMs?: number;
+  /**
+   * WP10.5 Pass D — milliseconds to wait between the original HTTP attempt
+   * and the single retry on transient retryable statuses. Production
+   * default is 1000 ms (per `de-risking.md` Measurement C "minimal backoff
+   * — base 1 s"). Test callers override this with a small value to keep
+   * the suite fast.
+   */
+  retryDelayMs?: number;
   // Test injection points — production callers should leave these unset.
   fetchImpl?: typeof fetch;
   azureUri?: string;
@@ -153,6 +170,7 @@ function safeDefaultResult(args: {
   usage?: AzureUsage | null;
   latencyMs: number;
   httpStatus: number | null;
+  retried?: boolean;
 }): CallResult {
   return {
     decision: SAFE_DEFAULT_DECISION,
@@ -165,8 +183,45 @@ function safeDefaultResult(args: {
       usage: args.usage ?? null,
       latencyMs: args.latencyMs,
       httpStatus: args.httpStatus,
+      retried: args.retried ?? false,
     },
   };
+}
+
+// ─── WP10.5 Pass D — minimal retry policy ────────────────────────────────────
+//
+// One retry on transient HTTP statuses. Per `de-risking.md` Measurement C
+// / WP13 derisking-md: the policy is *minimal* — single retry, 1 s
+// exponential delay (i.e. just 1 s; no jitter, no token bucket, no
+// >1 retry). Larger retry machinery is explicitly out of scope until
+// rate-limit characterisation justifies it.
+
+/** HTTP statuses we retry once on. Everything else falls through. */
+const RETRYABLE_HTTP_STATUSES: ReadonlySet<number> = new Set([
+  429, 500, 502, 503, 504,
+]);
+
+/**
+ * Sleep for `ms` milliseconds, but resolve immediately if `signal` aborts.
+ * We honour the wrapper-internal AbortController so a long retry delay
+ * cannot keep a per-turn call alive past the 60 s timeout.
+ */
+function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 // ─── Main entry ──────────────────────────────────────────────────────────────
@@ -188,6 +243,7 @@ export async function callDecisionTool(
   const azureApiKey = input.azureApiKey ?? process.env.AZURE_API_KEY;
   const azureModel = input.azureModel ?? process.env.AZURE_MODEL;
   const abortTimeoutMs = input.abortTimeoutMs ?? 60_000;
+  const retryDelayMs = input.retryDelayMs ?? 1_000;
 
   // Defensive: missing env or fetch implementation is surfaced as
   // http_non_200 (no HTTP call happened, but the caller's "request did not
@@ -197,6 +253,7 @@ export async function callDecisionTool(
       failureReason: "http_non_200",
       latencyMs: Date.now() - start,
       httpStatus: null,
+      retried: false,
     });
   }
   if (typeof fetchImpl !== "function") {
@@ -204,6 +261,7 @@ export async function callDecisionTool(
       failureReason: "http_non_200",
       latencyMs: Date.now() - start,
       httpStatus: null,
+      retried: false,
     });
   }
 
@@ -233,39 +291,97 @@ export async function callDecisionTool(
   };
 
   let httpStatus: number | null = null;
+  // WP10.5 Pass D — true once a retry has been attempted. Surfaced on
+  // every return path (success, http_non_200 fallback, abort) so the
+  // harness can later count retried calls.
+  let retried = false;
   try {
-    let response: Response;
-    try {
-      response = await fetchImpl(azureUri, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "api-key": azureApiKey,
-        },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      });
-    } catch (e) {
-      // Distinguish abort from network/sync-throw. Abort wins because the
-      // wrapper-internal timeout is the dominant failure shape under load.
-      if (
-        controller.signal.aborted ||
-        (e instanceof Error && e.name === "AbortError")
-      ) {
+    // ── Inner: one fetch attempt. Returns the Response or signals the
+    // failure mode the caller should surface.
+    type AttemptOutcome =
+      | { kind: "response"; response: Response }
+      | { kind: "abort" }
+      | { kind: "network_error" };
+
+    const attemptFetch = async (): Promise<AttemptOutcome> => {
+      try {
+        const response = await fetchImpl(azureUri, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "api-key": azureApiKey,
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        });
+        return { kind: "response", response };
+      } catch (e) {
+        // Distinguish abort from network/sync-throw. Abort wins because
+        // the wrapper-internal timeout is the dominant failure shape
+        // under load.
+        if (
+          controller.signal.aborted ||
+          (e instanceof Error && e.name === "AbortError")
+        ) {
+          return { kind: "abort" };
+        }
+        return { kind: "network_error" };
+      }
+    };
+
+    // First attempt.
+    let outcome = await attemptFetch();
+
+    // WP10.5 Pass D — minimal retry on transient retryable HTTP statuses.
+    // ONE retry only; any non-retryable status (or success) falls through
+    // unchanged. Non-`response` outcomes (abort, network error) are NOT
+    // retried — the existing fallback paths handle them.
+    if (
+      outcome.kind === "response" &&
+      !outcome.response.ok &&
+      RETRYABLE_HTTP_STATUSES.has(outcome.response.status)
+    ) {
+      // Drain the first response body so the connection is released
+      // before we sleep + retry.
+      try {
+        await outcome.response.text();
+      } catch {
+        // ignore
+      }
+      // Sleep with abort awareness — a long retry delay must not block
+      // past the wrapper-internal timeout.
+      await sleepWithAbort(retryDelayMs, controller.signal);
+      // If abort fired during the sleep, surface as abort_timeout below.
+      if (controller.signal.aborted) {
         return safeDefaultResult({
           failureReason: "abort_timeout",
           latencyMs: Date.now() - start,
-          httpStatus: null,
+          httpStatus: outcome.response.status,
+          retried: true,
         });
       }
-      // Generic network error — treat as http_non_200 with null status.
+      retried = true;
+      outcome = await attemptFetch();
+    }
+
+    if (outcome.kind === "abort") {
+      return safeDefaultResult({
+        failureReason: "abort_timeout",
+        latencyMs: Date.now() - start,
+        httpStatus: null,
+        retried,
+      });
+    }
+    if (outcome.kind === "network_error") {
       return safeDefaultResult({
         failureReason: "http_non_200",
         latencyMs: Date.now() - start,
         httpStatus: null,
+        retried,
       });
     }
 
+    const response = outcome.response;
     httpStatus = response.status;
 
     if (!response.ok) {
@@ -281,6 +397,7 @@ export async function callDecisionTool(
         failureReason: "http_non_200",
         latencyMs: Date.now() - start,
         httpStatus,
+        retried,
       });
     }
 
@@ -295,6 +412,7 @@ export async function callDecisionTool(
         failureReason: "http_non_200",
         latencyMs: Date.now() - start,
         httpStatus,
+        retried,
       });
     }
 
@@ -320,6 +438,7 @@ export async function callDecisionTool(
         usage,
         latencyMs: Date.now() - start,
         httpStatus,
+        retried,
       });
     }
 
@@ -330,6 +449,7 @@ export async function callDecisionTool(
         usage,
         latencyMs: Date.now() - start,
         httpStatus,
+        retried,
       });
     }
 
@@ -340,6 +460,7 @@ export async function callDecisionTool(
         usage,
         latencyMs: Date.now() - start,
         httpStatus,
+        retried,
       });
     }
 
@@ -353,6 +474,7 @@ export async function callDecisionTool(
         usage,
         latencyMs: Date.now() - start,
         httpStatus,
+        retried,
       });
     }
 
@@ -375,6 +497,7 @@ export async function callDecisionTool(
         usage,
         latencyMs: Date.now() - start,
         httpStatus,
+        retried,
       });
     }
 
@@ -392,6 +515,7 @@ export async function callDecisionTool(
         usage,
         latencyMs: Date.now() - start,
         httpStatus,
+        retried,
       });
     }
 
@@ -408,6 +532,7 @@ export async function callDecisionTool(
         usage,
         latencyMs: Date.now() - start,
         httpStatus,
+        retried,
       },
     };
   } catch (e) {
@@ -422,12 +547,14 @@ export async function callDecisionTool(
         failureReason: "abort_timeout",
         latencyMs: Date.now() - start,
         httpStatus,
+        retried,
       });
     }
     return safeDefaultResult({
       failureReason: "http_non_200",
       latencyMs: Date.now() - start,
       httpStatus,
+      retried,
     });
   } finally {
     clearTimeout(timer);

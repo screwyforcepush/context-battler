@@ -95,7 +95,18 @@ export function localAffordances(
   }
 
   // Movement — visible chests (schema-aligned: `toward_object` literal).
+  // WP10.5 Pass B.1: exclude *opened* chests. Phase A finding — 62.2% of
+  // safe-default fallbacks were validator-rejections caused by personas
+  // hammering `move:toward_object/action:interact` against already-opened
+  // chests. The action arm at line ~145 already filters opened chests; this
+  // mirrors that filter on the movement arm so the model never receives a
+  // "walk toward this consumed chest" affordance. Per concept-spec §13
+  // chests are one-shot. The chest still appears in the visible-state digest
+  // (with an `[opened]` marker — see `inputBuilder.ts`) so last-known-position
+  // memory is preserved.
   for (const chest of visibleChests) {
+    const fresh = state.world.chests.find((c) => c.id === chest.id);
+    if (fresh && fresh.opened) continue;
     movement.push(`toward_object: ${chest.id}`);
   }
 

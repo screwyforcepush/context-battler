@@ -499,6 +499,37 @@ describe("WP8 — SYSTEM_PROMPT", () => {
   });
 });
 
+// ─── Test 9b — WP10.5 Pass C cheat-sheet edge-case constraints ───────────────
+//
+// Three model-emission patterns the Decision schema correctly rejected on the
+// Phase A smoke (`docs/project/phases/01-engine-and-harness/wp10-5-phase-a-findings.md`
+// Bucket 1 — schema_validation_failed, 17.8% of fallbacks). Pass C adds three
+// constraint lines to the cheat-sheet so the model stops emitting them.
+//
+// These assertions lock the *constraint content* into the rendered prompt;
+// surrounding prose may be retuned, but the three constraint strings below
+// must remain present verbatim.
+
+describe("WP10.5 Pass C — Decision-schema cheat-sheet edge cases", () => {
+  it("constrains relative.dx and relative.dy to integers in [-12, 12]", () => {
+    expect(SYSTEM_PROMPT).toContain(
+      "relative.dx and relative.dy must be integers in [-12, 12].",
+    );
+  });
+
+  it("warns that overwatch is a primary value, NOT an action.kind", () => {
+    expect(SYSTEM_PROMPT).toContain(
+      "overwatch is a primary value, NOT an action.kind — set primary:overwatch and leave action.kind:none.",
+    );
+  });
+
+  it("explains that loot requires targetCorpseId, not targetObjectId, and chests use interact", () => {
+    expect(SYSTEM_PROMPT).toContain(
+      "loot requires targetCorpseId (a dead character id like Player_3), NOT targetObjectId. Use interact for chests.",
+    );
+  });
+});
+
 // ─── Test 10 — Affordances rendering ────────────────────────────────────────
 
 describe("WP8 — affordances rendering", () => {
@@ -714,6 +745,161 @@ describe("WP8 — buildAgentInput composition", () => {
     expect(built.systemPrompt).toBe(SYSTEM_PROMPT);
     expect(built.visibleStateDigest).toContain("Turn:");
     expect(built.visibleStateDigest).toContain("You are at");
+  });
+});
+
+// ─── WP10.5 Pass B.2 — [opened] chest marker in digest ─────────────────────
+//
+// Phase A finding (`wp10-5-phase-a-findings.md` Bucket 2): personas kept
+// hammering already-opened chests because the digest didn't surface that the
+// chest was consumed. Per concept-spec §13 chests are one-shot; the
+// spec-honest answer (per Phase A reviewer note) is to KEEP the chest in the
+// visible-state digest so the model retains last-known-position memory, but
+// FLAG it as no-longer-actionable via an `[opened]` marker on the bullet.
+describe("WP10.5 Pass B.2 — opened chest digest marker", () => {
+  it("opened chest renders with '[opened]' marker on its visible bullet", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const opened: ChestState = {
+      ...makeChest("chest_001", { x: 53, y: 50 }),
+      opened: true,
+    };
+    const state = makeState({
+      characters: [me],
+      world: { chests: [opened] },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", []);
+    const visibleBlock = extractSection(digest, "Visible:");
+    // The bullet should still be present (last-known-position memory) and
+    // carry the [opened] marker.
+    expect(visibleBlock).toContain("chest_001");
+    expect(visibleBlock).toContain("[opened]");
+    // The single chest line carries the marker — assert the marker appears
+    // on the same line as the chest id.
+    const chestLine = visibleBlock
+      .split("\n")
+      .find((l) => l.includes("chest_001"));
+    expect(chestLine).toBeDefined();
+    expect(chestLine).toContain("[opened]");
+  });
+
+  it("closed chest renders without the '[opened]' marker", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const closed = makeChest("chest_002", { x: 54, y: 50 });
+    const state = makeState({
+      characters: [me],
+      world: { chests: [closed] },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", []);
+    const visibleBlock = extractSection(digest, "Visible:");
+    expect(visibleBlock).toContain("chest_002");
+    expect(visibleBlock).not.toContain("[opened]");
+  });
+
+  it("mixed chests: opened carries marker, closed does not", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const opened: ChestState = {
+      ...makeChest("chest_001", { x: 52, y: 50 }),
+      opened: true,
+    };
+    const closed = makeChest("chest_002", { x: 54, y: 50 });
+    const state = makeState({
+      characters: [me],
+      world: { chests: [opened, closed] },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", []);
+    const visibleBlock = extractSection(digest, "Visible:");
+    const openedLine = visibleBlock
+      .split("\n")
+      .find((l) => l.includes("chest_001"));
+    const closedLine = visibleBlock
+      .split("\n")
+      .find((l) => l.includes("chest_002"));
+    expect(openedLine).toBeDefined();
+    expect(closedLine).toBeDefined();
+    expect(openedLine).toContain("[opened]");
+    expect(closedLine).not.toContain("[opened]");
+  });
+
+  it("token-budget cap (≤ 1200 tokens via chars/4) holds with all chests opened (worst-case marker overhead)", () => {
+    // Mirror the saturated mid-game state from the existing token-budget test
+    // but flip every chest to opened so the [opened] marker is present on
+    // both chest bullets. Re-verify the chars/4 ≤ 1200-token cap holds.
+    const observerLastKnown: LastKnownEntry[] = [
+      { characterId: "Q1", pos: { x: 10, y: 10 }, atTurn: 30 },
+      { characterId: "Q2", pos: { x: 12, y: 12 }, atTurn: 31 },
+      { characterId: "Q3", pos: { x: 14, y: 14 }, atTurn: 32 },
+    ];
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+      hp: 72,
+      weapon: "axe",
+      armour: "leather",
+      consumable: "heal",
+      lastKnown: observerLastKnown,
+    });
+    const enemies: CharacterState[] = [];
+    for (let i = 2; i <= 5; i++) {
+      enemies.push(
+        makeCharacter({
+          id: `P${i}`,
+          displayName: `Player_${i}`,
+          pos: { x: 50 + i, y: 50 + i },
+          weapon: "sword",
+        }),
+      );
+    }
+    const chests: ChestState[] = [
+      { ...makeChest("chest_001", { x: 53, y: 50 }), opened: true },
+      { ...makeChest("chest_002", { x: 54, y: 50 }), opened: true },
+    ];
+    const corpses: CorpseState[] = [
+      makeCorpse("Player_6", { x: 50, y: 53 }),
+      makeCorpse("Player_7", { x: 50, y: 54 }),
+    ];
+    const state = makeState({
+      characters: [me, ...enemies],
+      world: {
+        chests,
+        corpses,
+        evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 },
+      },
+      turn: 35,
+    });
+    const heard: HeardSpeech[] = [
+      { speakerId: "P2", text: "Truce at evac?" },
+      { speakerId: "P3", text: "Watch your six." },
+      { speakerId: "P4", text: "Splitting heading northwest." },
+      { speakerId: "P5", text: "Camping the chest." },
+      { speakerId: "P2", text: "Last call." },
+    ];
+    const personaText80 = "Move quietly. Avoid fights. Loot chests. ".repeat(8);
+    const scratchpad500 = "x".repeat(500);
+
+    const built = buildAgentInput(state, "P1", personaText80, heard);
+    const total =
+      SYSTEM_PROMPT.length +
+      personaText80.length +
+      scratchpad500.length +
+      built.visibleStateDigest.length;
+    const approxTokens = Math.ceil(total / 4);
+    expect(
+      approxTokens,
+      `prompt budget exceeded with [opened] markers — ${approxTokens} tokens (chars=${total})`,
+    ).toBeLessThanOrEqual(1200);
   });
 });
 

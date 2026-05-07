@@ -169,7 +169,14 @@ describe("WP6 callDecisionTool — FailureReason coverage", () => {
     const fetchImpl = vi.fn(async () =>
       new Response("internal server error body", { status: 500 }),
     );
-    const result = await callDecisionTool({ ...baseInput, fetchImpl });
+    // Status 500 is retryable per WP10.5 Pass D; pass a small retryDelayMs
+    // so the test still exercises the second-attempt-also-fails fallthrough
+    // without paying the 1 s production default.
+    const result = await callDecisionTool({
+      ...baseInput,
+      fetchImpl,
+      retryDelayMs: 5,
+    });
 
     expect(result.fellBackToSafeDefault).toBe(true);
     expect(result.failureReason).toBe("http_non_200");
@@ -389,5 +396,157 @@ describe("WP6 callDecisionTool — never-throws contract", () => {
     // dedicated FailureReason tests above cover the specific paths.
     expect(result.failureReason).toBeDefined();
     expect(result.decision).toEqual(SAFE_DEFAULT_DECISION);
+  });
+});
+
+// ─── WP10.5 Pass D — minimal retry on transient HTTP failures ────────────
+//
+// Per `wp10-5-phase-a-findings.md` Bucket 3 (~9 % of Phase-A LLM calls
+// hit `http_non_200`, ~one per turn — Azure TPM/RPM transients).
+// Per `de-risking.md` Measurement C / WP13 the policy is *minimal* backoff:
+// ONE retry, 1 s exponential delay, on status ∈ {429, 500, 502, 503, 504}.
+// Non-retryable statuses (4xx other than 429) fall through unchanged.
+//
+// Tests use a small `retryDelayMs` so the suite stays fast.
+
+describe("WP10.5 Pass D — minimal retry on transient HTTP failures", () => {
+  // Each retryable status gets a dedicated test so a regression on any one
+  // is immediately localisable.
+  const RETRYABLE_STATUSES = [429, 500, 502, 503, 504] as const;
+
+  for (const status of RETRYABLE_STATUSES) {
+    it(`retries once on HTTP ${status} and returns success on the second attempt`, async () => {
+      let calls = 0;
+      const fetchImpl = vi.fn(async () => {
+        calls += 1;
+        if (calls === 1) {
+          return new Response("transient", { status });
+        }
+        return jsonResponse(happyResponseBody());
+      });
+
+      const result = await callDecisionTool({
+        ...baseInput,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+
+      expect(calls).toBe(2);
+      expect(result.fellBackToSafeDefault).toBe(false);
+      expect(result.failureReason).toBeUndefined();
+      expect(result.decision).toEqual(VALID_DECISION);
+      // Retry telemetry is set so harness/analyze-match.ts can later count
+      // retried calls without changing the schema validator.
+      expect(result.raw.retried).toBe(true);
+      // httpStatus reflects the SUCCESSFUL second attempt.
+      expect(result.raw.httpStatus).toBe(200);
+    });
+  }
+
+  it("retries once on HTTP 429 and falls through to http_non_200 fallback when the second attempt also fails", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      return new Response("still rate-limited", { status: 429 });
+    });
+
+    const result = await callDecisionTool({
+      ...baseInput,
+      fetchImpl,
+      retryDelayMs: 5,
+    });
+
+    // Exactly two attempts: original + ONE retry. No third attempt.
+    expect(calls).toBe(2);
+    expect(result.fellBackToSafeDefault).toBe(true);
+    expect(result.failureReason).toBe("http_non_200");
+    expect(result.decision).toEqual(SAFE_DEFAULT_DECISION);
+    // retried=true even on the failure path: we DID attempt the retry.
+    expect(result.raw.retried).toBe(true);
+    expect(result.raw.httpStatus).toBe(429);
+  });
+
+  it("does NOT retry on a non-retryable HTTP 400 (bad request)", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      return new Response("bad request", { status: 400 });
+    });
+
+    const result = await callDecisionTool({
+      ...baseInput,
+      fetchImpl,
+      retryDelayMs: 5,
+    });
+
+    // 4xx other than 429 is not retried — single attempt.
+    expect(calls).toBe(1);
+    expect(result.fellBackToSafeDefault).toBe(true);
+    expect(result.failureReason).toBe("http_non_200");
+    expect(result.raw.retried).toBe(false);
+    expect(result.raw.httpStatus).toBe(400);
+  });
+
+  it("does NOT retry on a non-retryable HTTP 401 (auth)", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      return new Response("unauthorized", { status: 401 });
+    });
+
+    const result = await callDecisionTool({
+      ...baseInput,
+      fetchImpl,
+      retryDelayMs: 5,
+    });
+
+    expect(calls).toBe(1);
+    expect(result.fellBackToSafeDefault).toBe(true);
+    expect(result.failureReason).toBe("http_non_200");
+    expect(result.raw.retried).toBe(false);
+    expect(result.raw.httpStatus).toBe(401);
+  });
+
+  it("does NOT retry on the happy path (single attempt)", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      return jsonResponse(happyResponseBody());
+    });
+
+    const result = await callDecisionTool({
+      ...baseInput,
+      fetchImpl,
+      retryDelayMs: 5,
+    });
+
+    expect(calls).toBe(1);
+    expect(result.fellBackToSafeDefault).toBe(false);
+    // retried=false on the happy path so the harness can distinguish
+    // "succeeded first try" from "succeeded after retry".
+    expect(result.raw.retried).toBe(false);
+  });
+
+  it("waits at least retryDelayMs between attempts", async () => {
+    const delayMs = 30;
+    const timestamps: number[] = [];
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      timestamps.push(Date.now());
+      calls += 1;
+      if (calls === 1) return new Response("transient", { status: 503 });
+      return jsonResponse(happyResponseBody());
+    });
+
+    const result = await callDecisionTool({
+      ...baseInput,
+      fetchImpl,
+      retryDelayMs: delayMs,
+    });
+
+    expect(result.fellBackToSafeDefault).toBe(false);
+    expect(timestamps).toHaveLength(2);
+    // Allow a small scheduler-jitter slack (4 ms) below the nominal delay.
+    expect(timestamps[1]! - timestamps[0]!).toBeGreaterThanOrEqual(delayMs - 4);
   });
 });

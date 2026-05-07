@@ -132,3 +132,158 @@ If the PM elects to re-scope WP10.5 with Pass B+C+D, the orchestrator can dispat
 - `harness/cluster-failures.ts` — clusters fallback patterns by failure mode + persona; surfaces the validator-rejection bucket.
 
 Both are usable post-commit by any future agent investigating a specific match.
+
+---
+
+# WP10.5 Phase B/C/D — Outcome & Phase B Gate Decision
+
+**Match:** `j9749ssaaxeg5k69ebjb6g0nb5869tre`
+**Run:** 1 sequential, 50 turns, 177s, `--reasoning low`
+**Gate verdict:** **FAIL — 13.8% safe-default fallback (gate is ≤ 10%).**
+**Status:** Pass B+C+D landed cleanly with major substrate improvement; gate not met by 3.8 points.
+Reporting per brief — "If fallback >10%: STOP. Update findings doc with new diagnostic. Do NOT proceed to Phase C [Stage-2]. Commit Pass B+C+D landing as its own commit and report findings. PM re-scopes."
+
+---
+
+## Pass B/C/D scope landed (4 engineers parallel)
+
+| Sub-task | File(s) | Owner | Status |
+|---|---|---|---|
+| B.1 movement-arm `!opened` chest filter | `convex/engine/affordances.ts` + tests | SylviaKestrel | landed |
+| B.2 digest `[opened]` chest marker | `convex/llm/inputBuilder.ts` + tests | SylviaKestrel | landed |
+| B.3 `validatorReason` persistence to trace | `convex/schema.ts`, `convex/runMatch.ts`, `convex/_internal_runMatch.ts`, `harness/analyze-match.ts`, `harness/cluster-failures.ts` + tests | DesmondTallow | landed |
+| C systemPrompt cheat-sheet (3 constraint lines) | `convex/llm/systemPrompt.ts` + tests | PriyaWhetstone | landed |
+| D Azure minimal retry on {429, 500, 502, 503, 504} | `convex/llm/azure.ts` + tests | RaphaelOctant | landed |
+
+Validation: lint clean · typecheck clean · 244 tests pass / 4 skipped — up from 220 (+24 net new tests).
+Convex schema diff (`validatorReason: v.optional(v.string())`) accepted without prompt.
+
+---
+
+## Smoke headline
+
+| Metric | Phase A baseline | Pass B/C/D | Δ |
+|---|---|---|---|
+| Total agent-records | 400 | 400 | — |
+| **Fallback total** | 180 / 400 (**45.0%**) | 55 / 400 (**13.8%**) | **−69%** |
+| `schema_validation_failed` | 32 | 11 | −66% |
+| `http_non_200` | 36 | 39 | +8% |
+| `validator-rejection` | 112 | 4 | **−96%** |
+| `content_filter_blocked` | 0 | 1 | new |
+| Chest interacts succeeded | 5 / 5 | 7 / 7 | +2 |
+| Chest equips | 5 | 6 | +1 |
+| Speech events | 34 | 65 | +91% |
+| Attacks landed | 0 | 0 | — (persona-tuning, D24) |
+| Distinct `move.kind` literals | 4 | 4 | — |
+
+**Gate-1 → Phase A → Pass B/C/D: 84.5% → 45.0% → 13.8% (6× total reduction).** The contract-vocab and chest-loop fixes worked. Schema and validator buckets are essentially retired.
+
+---
+
+## Per-persona fallback breakdown (the new diagnostic)
+
+| Persona | Fallback | % of persona's 50 turns |
+|---|---|---|
+| **betrayer** | **43** | **86.0%** |
+| trader | 8 | 16.0% |
+| sprinter | 3 | 6.0% |
+| paranoid | 1 | 2.0% |
+| rat / duelist / camper / vulture | 0 each | 0.0% |
+
+7 of 8 personas are at ≤16% fallback. **One persona accounts for 78% of all fallback signal.**
+
+---
+
+## Pass D telemetry — `retried` attribute now persisted in trace
+
+Pass D landed `retried: boolean` on `CallResult.raw` and Pass B.3 persisted it through the schema. New diagnostic helper `harness/inspect-http.ts` cross-references buckets × HTTP status × persona × retry flag.
+
+---
+
+## Failure-mode breakdown (Pass B/C/D)
+
+### Bucket 1 — `http_non_200` × HTTP 400 × betrayer (39, 71% of fallbacks, 100% of http_non_200)
+
+**EVERY** http_non_200 fallback (39/39) is:
+- HTTP **400 Bad Request**
+- Persona: **betrayer** (100%)
+- Not retried (Pass D correctly excluded 400 from the retryable set per WP13 minimal-backoff guidance — 400 is not a transient error)
+
+This is **Azure rejecting the betrayer prompt at the request layer**, not a rate limit, not a transient transport issue. The betrayer persona text is:
+
+> "You are a betrayer. Cooperate loudly while it suits you — speak often, offer truces, suggest plans. The moment you hold an advantage (better weapon, lower enemy HP, near evac alone), strike without warning. If wounded by a foe, retaliate hard. Equip what you find. **Smile, then stab.**"
+
+The "strike without warning" / "Smile, then stab" / retaliation framing is almost certainly tripping Azure's prompt-content moderation policy on `gpt-5.4-mini`. The wrapper currently classifies 200-OK with `finish_reason: content_filter` as `content_filter_blocked` (1 case observed), but a 400 from the request-layer policy check arrives as a raw HTTP error and falls through to `http_non_200`.
+
+This is **not a substrate-contract issue** — the contract is correct, the wrapper correctly returns a safe-default, the trace correctly records the failure. It is a **persona-text-vs-Azure-safety-policy compatibility issue**.
+
+### Bucket 2 — `schema_validation_failed` (11, 20% of fallbacks)
+
+Down from 32. All 11 cases produced output that *parses* but fails Zod validation. Surface inspection of the dumped raw arguments shows fully-formed JSON across every observed case — the schema rejection is on a constrained sub-field. Most cases are trader/betrayer with prosocial ("truce", "shared evac") `say` content; the others are paranoid/sprinter. Pass C retired the three known edge cases; the residual 11 are likely:
+- Long natural-language `scratchpad_update` strings hitting an upstream length cap (need to check schema constraints).
+- Subtle field-shape variations the cheat-sheet doesn't pin (e.g., null vs absent fields).
+
+Not investigated further — within remediable scope but not the dominant problem.
+
+### Bucket 3 — `validator-rejection` (4, 7% of fallbacks)
+
+Down from 112. **B.3 worked**: every case now carries a `validatorReason` and is grouped by reason text in `cluster-failures.ts`:
+
+| Reason | Count |
+|---|---|
+| `consume='speed' but actor has consumable 'heal' equipped` | 3 (sprinter, T25/T30/T40) |
+| `move.kind='toward_object' targetObjectId='cover_48_75' is not a known chest or corpse` | 1 (betrayer, T7) |
+
+Both are minor contract-vocab gaps remaining in the system prompt — `consume` enum coupling to inventory state, and `toward_object` only accepting chest/corpse ids (not cover/landmark labels). Not worth a Pass E for 4 cases.
+
+### Bucket 4 — `content_filter_blocked` (1, 2%)
+
+A 200-OK response with `finish_reason: content_filter`. Single case. Same persona/policy-collision pattern as Bucket 1 but caught downstream.
+
+---
+
+## Sanity assertions
+
+| Assertion | Result |
+|---|---|
+| ≤ 10% fallback rate | **FAIL** — 13.8% (3.8 points over) |
+| ≥ 1 chest equip event | PASS — 6 |
+| ≥ 1 attack landed-or-near-miss | **FAIL** — 0 (substrate signal: zero combat in 50 turns; persona-tuning per D24, not a Pass-gate concern) |
+| ≥ 3 distinct `move.kind` literals | PASS — 4 |
+| No new `schema_validation_failed` patterns introduced | PASS (zero from Pass C's three target patterns) |
+
+---
+
+## Recommendation for re-scope
+
+The substrate is healthy. **One persona's text** is responsible for 71% of remaining fallback signal. Three options for the PM:
+
+### Option 1 — Soften the betrayer persona text (~5 min, mechanical)
+
+Edit `personas/betrayer.md` to remove the Azure-safety-tripping phrasings while preserving behavioural intent. Suggested rewrite (preserves deception/opportunism without explicit violence framing):
+
+> "You are a betrayer. Cooperate loudly while it suits you — speak often, offer truces, suggest plans. The moment you hold an advantage (better weapon, lower enemy HP, near evac alone), turn on the alliance without warning. If a foe wounds you, retaliate. Equip what you find. Promise allies, then leave them behind."
+
+Removes "strike", "stab", "smile then stab" — the explicit violence-cue phrases. Preserves "betrayal", "deception", "alliance breaking", which are theme-appropriate but not safety-flagged.
+
+**Projected impact:** if betrayer's 86% fallback drops to the 0–6% range of the other 7 personas, total fallback drops to **~5–8%** (well under the 10% gate). High confidence — this is the entire dominant bucket.
+
+### Option 2 — Replace betrayer entirely (~10 min)
+
+North Star §4 explicitly permits replacement: "the engineering agents may keep, trim, replace, or invent personas as long as the roster is 8 and the differentiation requirement is met." A "Saboteur" or "Opportunist" persona could fill the deceptive-defection niche without policy collision. Higher-effort than Option 1, no clear advantage if Option 1 works.
+
+### Option 3 — Classify HTTP 400 errorBody for content-filter signals + extend the cheat-sheet for the residual 11 schema_validation_failed (~30 min)
+
+Marginal gain. Only useful if PM wants to keep the betrayer text as-is and accept ~10% noise floor as the new baseline. The 39 HTTP-400s would still be safe-default fallbacks regardless of how they're classified — classification is diagnostic, not corrective.
+
+**Recommended path: Option 1.** Smallest possible change, addresses the dominant bucket, preserves persona differentiation goal, comfortably clears the gate.
+
+---
+
+## Diagnostic artefacts (committed in this pass)
+
+- `harness/analyze-match.ts` — now surfaces validator-rejection by reason (Pass B.3).
+- `harness/cluster-failures.ts` — now groups validator-rejection by reason text (Pass B.3).
+- `harness/inspect-http.ts` — new this pass; cross-references fallback bucket × httpStatus × persona × retried flag. Direct path to "which persona is collapsing on which Azure error."
+
+All three are usable post-commit by any future agent investigating a specific match.

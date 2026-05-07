@@ -275,6 +275,64 @@ export function buildHeardForObserver(
   return out;
 }
 
+// ─── Agent-llm record builder (pure; testable) ─────────────────────────────
+
+/**
+ * Build the `llm` block of one `agentRecords[]` row from the per-agent
+ * resolved-call result. Pure / no I/O — extracted so the
+ * `validatorReason` mapping invariant (WP10.5 Pass B.3) can be unit-tested
+ * without spinning up the Convex action.
+ *
+ * Mapping rules (locked):
+ *   - `failureReason` is INCLUDED only when truthy (matches the prior
+ *     `...(r.failureReason ? { failureReason: r.failureReason } : {})`
+ *     spread). Convex's optional validator accepts absent OR present, but
+ *     never `undefined` as a value. The conditional spread is the canonical
+ *     way to honour that.
+ *   - `validatorReason` follows the same conditional-spread pattern. When
+ *     the engine validator (`convex/engine/validation.ts`) accepted the
+ *     decision, no reason exists; when it rejected, the human-readable
+ *     reason string is persisted so analyze-match / cluster-failures can
+ *     group by it (per `wp10-5-phase-a-findings.md` §"Bucket 2").
+ *
+ * Both fields are `v.optional(...)` in the schema (`convex/schema.ts`
+ * agentLlmValidator + `convex/_internal_runMatch.ts` mirror), so absence
+ * is the persisted shape for the common case.
+ */
+export function buildAgentLlmRecord(r: {
+  responseId: string | null;
+  callId: string | null;
+  rawArguments: string | null;
+  usage: AzureUsage | null;
+  latencyMs: number;
+  httpStatus: number | null;
+  wrapperFellBack: boolean;
+  failureReason: FailureReason | undefined;
+  validatorReason: string | undefined;
+}): {
+  responseId: string | null;
+  callId: string | null;
+  rawArguments: string | null;
+  usage: AzureUsage | null;
+  latencyMs: number;
+  httpStatus: number | null;
+  fellBackToSafeDefault: boolean;
+  failureReason?: FailureReason;
+  validatorReason?: string;
+} {
+  return {
+    responseId: r.responseId,
+    callId: r.callId,
+    rawArguments: r.rawArguments,
+    usage: r.usage,
+    latencyMs: r.latencyMs,
+    httpStatus: r.httpStatus,
+    fellBackToSafeDefault: r.wrapperFellBack,
+    ...(r.failureReason ? { failureReason: r.failureReason } : {}),
+    ...(r.validatorReason ? { validatorReason: r.validatorReason } : {}),
+  };
+}
+
 // ─── Schema-conformant adapters for resolution trace ───────────────────────
 
 /**
@@ -572,16 +630,20 @@ export const advanceTurn = action({
         scratchpadAfter: nextState.characters.find(
           (c) => c.characterId === r.actor.characterId,
         )?.scratchpad ?? r.scratchpadBefore,
-        llm: {
+        // Pass B.3 — `validatorReason` threaded via the pure helper so the
+        // engine-validator rejection reason (computed at line ~512) is
+        // visible from the persisted trace, not just a local var.
+        llm: buildAgentLlmRecord({
           responseId: r.responseId,
           callId: r.callId,
           rawArguments: r.rawArguments,
           usage: r.usage,
           latencyMs: r.latencyMs,
           httpStatus: r.httpStatus,
-          fellBackToSafeDefault: r.wrapperFellBack,
-          ...(r.failureReason ? { failureReason: r.failureReason } : {}),
-        },
+          wrapperFellBack: r.wrapperFellBack,
+          failureReason: r.failureReason,
+          validatorReason: r.validatorReason,
+        }),
       }));
 
       const adaptedResolution = adaptResolutionForSchema(trace);

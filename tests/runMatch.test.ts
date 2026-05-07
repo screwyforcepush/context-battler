@@ -23,10 +23,14 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { buildHeardForObserver } from "../convex/runMatch.js";
+import {
+  buildHeardForObserver,
+  buildAgentLlmRecord,
+} from "../convex/runMatch.js";
 import { callDecisionTool } from "../convex/llm/azure.js";
 import type {
   CharacterState,
+  FailureReason,
   ParsedDecision,
 } from "../convex/engine/types.js";
 
@@ -199,5 +203,85 @@ describe("WP10.5 A5 — reasoningEffort threads into Azure request body", () => 
 
     expect(capturedBody).not.toBeNull();
     expect(capturedBody!.reasoning?.effort).toBe("high");
+  });
+});
+
+// ─── B.3: validatorReason threads into the persisted agent-llm record ───────
+//
+// The engine validator rejection reason is computed locally in
+// `runMatch.ts` (validation.reason). Pass B.3 wires it into the persisted
+// trace record so harness/analyze-match.ts and harness/cluster-failures.ts
+// can surface it. This test pins the mapping invariant on the pure helper
+// `buildAgentLlmRecord` so future refactors can't silently drop the field.
+//
+// Cross-ref: `docs/project/phases/01-engine-and-harness/wp10-5-phase-a-findings.md`
+// — without this field, the validator-rejection bucket (62.2% of fallbacks
+// in the gate-1 smoke) is opaque.
+
+describe("WP10.5 B.3 — validatorReason persists into agent-llm trace record", () => {
+  const baseR = {
+    callId: "call_x",
+    rawArguments: '{"foo":"bar"}',
+    responseId: "resp_x",
+    usage: null,
+    latencyMs: 12,
+    httpStatus: 200,
+  };
+
+  it("includes validatorReason when the engine validator rejected the decision", () => {
+    const record = buildAgentLlmRecord({
+      ...baseR,
+      wrapperFellBack: true,
+      failureReason: undefined,
+      validatorReason:
+        "interact target 'chest_001' is already opened",
+    });
+
+    expect(record.fellBackToSafeDefault).toBe(true);
+    expect(record.validatorReason).toBe(
+      "interact target 'chest_001' is already opened",
+    );
+    // No wrapper-level failureReason for validator-only rejections.
+    expect(record.failureReason).toBeUndefined();
+  });
+
+  it("omits validatorReason when validation passed (no rejection)", () => {
+    const record = buildAgentLlmRecord({
+      ...baseR,
+      wrapperFellBack: false,
+      failureReason: undefined,
+      validatorReason: undefined,
+    });
+
+    expect(record.fellBackToSafeDefault).toBe(false);
+    expect("validatorReason" in record).toBe(false);
+  });
+
+  it("threads BOTH failureReason and validatorReason when wrapper failed AND validator rejected the safe-default substitute", () => {
+    // Edge: the wrapper already fell back (e.g. http_non_200 → safe-default),
+    // and although the safe-default *should* validate, in principle the
+    // helper must not lose either signal. Pin the invariant.
+    const record = buildAgentLlmRecord({
+      ...baseR,
+      wrapperFellBack: true,
+      failureReason: "http_non_200" as FailureReason,
+      validatorReason: "actor 'foo' is not alive",
+    });
+
+    expect(record.failureReason).toBe("http_non_200");
+    expect(record.validatorReason).toBe("actor 'foo' is not alive");
+    expect(record.fellBackToSafeDefault).toBe(true);
+  });
+
+  it("preserves the existing wrapper-only failureReason path (no validatorReason)", () => {
+    const record = buildAgentLlmRecord({
+      ...baseR,
+      wrapperFellBack: true,
+      failureReason: "schema_validation_failed" as FailureReason,
+      validatorReason: undefined,
+    });
+
+    expect(record.failureReason).toBe("schema_validation_failed");
+    expect("validatorReason" in record).toBe(false);
   });
 });

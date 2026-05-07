@@ -140,6 +140,9 @@ const agentLlmValidator = v.object({
   httpStatus: v.union(v.number(), v.null()),
   fellBackToSafeDefault: v.boolean(),
   failureReason: v.optional(failureReasonValidator),
+  // WP10.5 Pass B.3 — mirrors `convex/schema.ts` agentLlmValidator. Engine
+  // validator rejection reason; optional so legacy rows validate cleanly.
+  validatorReason: v.optional(v.string()),
 });
 
 const agentRecordValidator = v.object({

@@ -238,6 +238,16 @@ const agentLlmValidator = v.object({
   httpStatus: v.union(v.number(), v.null()),
   fellBackToSafeDefault: v.boolean(),
   failureReason: v.optional(failureReasonValidator),
+  // WP10.5 Pass B.3 — engine validator rejection reason. Populated when the
+  // engine's `validateDecision` (WP5) rejects a wrapper-emitted decision on
+  // semantic grounds (target-not-visible, chest-already-opened, range, etc).
+  // Distinct from `failureReason` (which is wrapper-level: HTTP/parse/schema
+  // failures). The diagnostic key that makes substrate noise debuggable —
+  // see `docs/project/phases/01-engine-and-harness/wp10-5-phase-a-findings.md`
+  // for why this was the missing signal in gate-1.
+  // Optional + additive: existing rows without this field validate cleanly;
+  // no migration needed.
+  validatorReason: v.optional(v.string()),
 });
 
 const agentRecordValidator = v.object({
