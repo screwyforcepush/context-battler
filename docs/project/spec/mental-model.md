@@ -84,6 +84,7 @@ Non-negotiable framings. Mechanics serve them, not the other way around.
 4. **The scratchpad is the explainability layer.** No post-run AI coaching. The player observes, infers, and revises. The agent's live tactical memory is exposed; its self-reflection is not.
 5. **Text is terrain.** Speech, item names, inscriptions, corpse notes, signs — all can influence agents. Prompt injection is *part of the game*, not a vulnerability.
 6. **Build the substrate; let the strategy emerge.** The engine provides affordances. Players' prompts produce strategy. Diplomacy, lying, and betrayal are not engine features — they are emergent consequences of speech + scratchpad + prompt authorship.
+7. **State is the contract; runtime is swappable.** Convex holds the canonical game state and turn ledger. The engine and the renderer meet only at this data — neither knows about the other. Any slice can be rewritten in another language without touching the others. See `architecture.md`.
 
 ## 7. North star (decision filter)
 
@@ -111,19 +112,49 @@ These omissions are load-bearing for the product identity:
 - No mid-run prompt editing (in PvP).
 - No post-run AI coaching or auto-postmortem. The player does the thinking.
 - No giant action menu for the agent. Compact decision contract over local affordances.
+- No conditional logic in turn tool calls — concrete actions and targets only, no predicates or fallbacks. The LLM thinks before committing; the engine resolves after. Misreads and wasted actions are features, not bugs to design around.
 - No conversation history or session memory across turns. The scratchpad is the agent's *only* persistent state.
 - No engine-enforced diplomacy, alliance, or betrayal mechanics. These emerge from prompts.
 - No real-time interrupts. Turn-based, simultaneous resolution.
 
 ## 10. Current focus — phase 1
 
-The first delivery slice is **simulation only**:
-- 8 pre-baked agent personas with minimal behavioural prompts.
+The first delivery slice is **simulation + evaluation harness**:
+- 8 pre-baked agent personas with minimal behavioural prompts. The 8 preset cards in `concept-spec.md` (Rat, Duelist, Trader, Betrayer, Paranoid, Camper, Sprinter, Vulture) are **illustrative, not prescribed** — the only requirements are that the roster is 8 personas and that they are *sufficiently differentiated* in behaviour to register on the simulation report.
 - Full turn loop: visible state → LLM call → decision → engine resolution → next turn.
 - Stateless per-turn LLM calls. Scratchpad is the only persistent memory.
-- No player input, no rendering layer, no progression, no leaderboard.
+- A single hand-crafted reference map for phase 1. Procedural map generation is deferred — same map every run keeps regressions diagnosable while the engine is being shaken out.
+- A multi-run harness that fires N matches and aggregates stats (kills, extractions, survival turns, speech, equips, movement) into a **simulation report** — leaderboard-shaped, but evaluation-only, not player-facing.
+- No player input, no rendering layer, no progression, no public leaderboard.
 
-The goal is to prove the substrate produces watchable, attributable behaviour from prompts alone. Player input, rendered playback, progression, leaderboard, and prompt-injection item naming are all downstream of phase 1 working.
+**Prompt economy is load-bearing.** Each turn is one small, snappy LLM call: the model receives the system prompt (game rules + objective + available actions), the persona prompt, the scratchpad, and the visible-state summary, and returns a single tool call with a compact action object. All four inputs are kept tight — system prompt is terse, persona prompts are short, the scratchpad is bounded, the visible-state summary is a tactical digest rather than a tile dump. Sprawling prompts would make turns slow, calls expensive, and persona differentiation muddier. Brevity is a design constraint, not a stylistic preference.
+
+**Reasoning is on, at a small budget.** The agent needs to actually deliberate over the visible state before committing to a tool call — turning reasoning off would degrade the decision to next-token autocompletion, which collapses persona signal and breaks attribution. The Azure deployment supports `reasoning.effort` (`"low" | "medium" | "high"`); the exact level is a tuning knob for the engineering loop, not a fixed value. The tension between *snappy* and *thinks first* is real and intentional — start low and tune up only if persona behaviour is too shallow on the report.
+
+The goal is to prove the substrate produces watchable, attributable behaviour from prompts alone. The **proof artifact is the simulation report**: differentiated outcomes across personas, with at least some agents reaching extraction.
+
+This means **prompt and value tuning is in scope for phase 1** — but only to the extent needed to produce a meaningful signal in the report. A clean engine that runs to completion but yields all-zero stats (no kills, no extractions, no movement) has not met the phase 1 bar. Tuning beyond "engine clearly works" is a downstream loop, not phase 1.
+
+**Quantitative done-bar** (50-run evaluation pass, sampled with all 8 personas in every run):
+
+- ≥ **30%** of runs end with at least one agent extracting at evac (≥ 15 of 50).
+- ≥ **80%** of runs contain at least one kill.
+- ≥ **80%** of runs contain at least one chest equip.
+- ≥ **50%** of runs contain at least one speech event.
+- **Persona differentiation**: across the 8 personas, the spread (max − min) of extraction rate is ≥ **15 percentage points**. Prompts must be visibly shaping behaviour, not all converging to identical outcomes.
+- Engine completes 50 consecutive runs with **no crashes or invalid states**.
+
+These numbers are the closing condition for phase 1, not the design ceiling. They are intentionally lenient — the bar is "the substrate works and prompts matter," not "the meta is balanced."
+
+**Iteration cadence** (three stages, each a precondition for the next):
+
+1. **1 run, sequential** — engine smoke. Single match completes end-to-end without crashing or hitting invalid states. This validates the turn loop, resolution order, and LLM round-trip before parallelism is introduced.
+2. **10 runs, parallel** — fast in-loop iteration during build/tuning. Each run is independent; the harness fans them out concurrently. This is the everyday loop while shaping prompts, spawns, and values.
+3. **50 runs, parallel** — closing report. The run that's measured against the quantitative done-bar above and persisted to Convex.
+
+Parallelism is required from stage 2 onward — sequential 50-run passes would be too slow to iterate against. Per-run state must be fully independent: no shared mutable state, no order dependence.
+
+Player input, rendered playback, progression, public leaderboards, and prompt-injection item naming are all downstream of phase 1.
 
 ## 11. Open questions / live tensions
 

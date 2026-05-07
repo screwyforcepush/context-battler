@@ -2,10 +2,10 @@
 # Repository Guidelines
 
 VALIDATE by Running required commands — all must pass without warnings or errors:
-   - lint:       <!-- TODO: wire up linter command -->
-   - typecheck:  <!-- TODO: wire up typecheck command -->
-   - tests:      <!-- TODO: wire up test command -->
-   - build:      <!-- TODO: wire up build command -->
+   - lint:       `npm run lint`
+   - typecheck:  `npm run typecheck`
+   - tests:      `npm test`
+   - build:      `npm run build`
 
 
 ## Dev server

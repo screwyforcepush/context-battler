@@ -21,8 +21,8 @@ coverage/
 .next/
 out/
 
-# Convex generated
-convex/_generated/
+# Convex generated files are intentionally COMMITTED (WP1 acceptance).
+# See docs/project/phases/01-engine-and-harness/work-packages.md WP1.
 
 # Editor / OS
 .DS_Store

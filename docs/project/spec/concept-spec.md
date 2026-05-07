@@ -111,6 +111,8 @@ The engine **enables** social dynamics. It does not **enforce** them. Resist the
 
 The substrate that everything else sits on. Mechanics described in later sections assume this shape.
 
+> The *concrete* tech stack (Azure for LLM, Convex for state and engine, web for renderer) lives in `architecture.md`. This section covers the **principles** the stack must satisfy, regardless of what tech implements them.
+
 ## 2A.1 Stateless per-turn LLM calls
 
 Each agent is driven by **independent, stateless LLM calls — one per agent per turn.** No conversation history. No session memory. Each call is self-contained.

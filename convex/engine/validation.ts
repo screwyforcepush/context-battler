@@ -1,0 +1,247 @@
+// WP5 — decision validation.
+//
+// Pure-function module per ADR §1; no Convex imports. Concept-spec §2A.3
+// locks the engine-as-referee invariant: "the engine never trusts the LLM
+// to abide by movement range, attack range, vision, simultaneity, or any
+// other rule." This module is the engine's last gate before the resolver
+// (WP7) consumes a decision: invalid decisions are replaced with the
+// safe default.
+//
+// Note: decisions are *shape-validated* upstream by Zod (WP6). This
+// module assumes the discriminator + required-field machinery is sound,
+// and validates the *semantic* claims:
+//   - Targets resolve to known entities.
+//   - Targets are alive / unopened / in-range / visible.
+//   - Evac is revealed when toward_evac is chosen.
+//   - The actor has the consumable they want to consume.
+//   - Numeric bounds (e.g. relative dx/dy ∈ [-12, 12]).
+//
+// Each validation failure returns a short, human-readable `reason` plus
+// SAFE_DEFAULT_DECISION. The reason feeds into the trace so reviewing
+// agents can see why a decision was rejected.
+
+import { chebyshev } from "./distance.js";
+import { computeVisibleEntities } from "./vision.js";
+import {
+  SAFE_DEFAULT_DECISION,
+  WEAPONS,
+  type CharacterState,
+  type MatchState,
+  type ParsedDecision,
+  type WeaponName,
+} from "./types.js";
+
+/** Default attack range when the actor has no weapon equipped. v0 is
+ *  range 2 across all weapons (concept-spec §14), so "no weapon" still
+ *  uses range 2 for fist/improvised attacks. WP7 may revisit. */
+const DEFAULT_ATTACK_RANGE = 2;
+
+/** Interact + loot range — concept-spec §13 + §6 ("Interaction range: 2 tiles"). */
+const INTERACT_RANGE = 2;
+
+/** Relative-move bound — locked by ADR §4 / concept-spec §10. The schema
+ *  enforces ±12 (movement 8 default + speed-consumable cap of 12). */
+const MAX_RELATIVE_DELTA = 12;
+
+export type ValidationResult =
+  | { ok: true; decision: ParsedDecision }
+  | { ok: false; reason: string; safeDefault: ParsedDecision };
+
+/**
+ * Validate `decision` against `state` for the named actor. Returns either
+ * `{ ok: true }` (caller forwards the decision unchanged) or
+ * `{ ok: false, reason, safeDefault }` (caller substitutes the safe
+ * default and persists the reason in the trace).
+ *
+ * The function is pure: same input → same output, no side effects.
+ */
+export function validateDecision(
+  state: MatchState,
+  characterId: string,
+  decision: ParsedDecision,
+): ValidationResult {
+  const actor = state.characters.find((c) => c.characterId === characterId);
+  if (!actor) {
+    return invalid(`actor '${characterId}' not found in state.characters`);
+  }
+  if (!actor.alive) {
+    return invalid(`actor '${characterId}' is not alive`);
+  }
+
+  // Compute visible entities once — used by both move-target and action
+  // validation. (Pure: same observer state → same visible list.)
+  const { visible } = computeVisibleEntities(state, characterId);
+  const visibleCharacterIds = new Set<string>();
+  for (const v of visible) {
+    if (v.kind === "character") visibleCharacterIds.add(v.characterId);
+  }
+
+  // ── consume ──────────────────────────────────────────────────────────
+  if (decision.consume === "heal" || decision.consume === "speed") {
+    const consumable = actor.equipped.consumable;
+    if (!consumable || consumable.category !== "consumable") {
+      return invalid(
+        `consume='${decision.consume}' but actor has no consumable equipped`,
+      );
+    }
+    if (consumable.name !== decision.consume) {
+      return invalid(
+        `consume='${decision.consume}' but actor has consumable '${consumable.name}' equipped`,
+      );
+    }
+  }
+
+  // ── move ─────────────────────────────────────────────────────────────
+  switch (decision.move.kind) {
+    case "relative": {
+      const { dx, dy } = decision.move;
+      if (
+        !Number.isInteger(dx) ||
+        !Number.isInteger(dy) ||
+        Math.abs(dx) > MAX_RELATIVE_DELTA ||
+        Math.abs(dy) > MAX_RELATIVE_DELTA
+      ) {
+        return invalid(
+          `move.kind='relative' has out-of-range delta (${dx},${dy}); bound is ±${MAX_RELATIVE_DELTA}`,
+        );
+      }
+      break;
+    }
+    case "toward_entity":
+    case "away_from_entity": {
+      const targetId = decision.move.targetCharacterId;
+      if (!targetId) {
+        return invalid(
+          `move.kind === '${decision.move.kind}' missing targetCharacterId`,
+        );
+      }
+      const target = state.characters.find((c) => c.characterId === targetId);
+      if (!target || !target.alive) {
+        return invalid(
+          `move target '${targetId}' is not a living character`,
+        );
+      }
+      if (!visibleCharacterIds.has(targetId)) {
+        return invalid(
+          `move target '${targetId}' is not visible to actor`,
+        );
+      }
+      break;
+    }
+    case "toward_object": {
+      const targetId = decision.move.targetObjectId;
+      if (!targetId) {
+        return invalid(`move.kind='toward_object' missing targetObjectId`);
+      }
+      const isChest = state.world.chests.some((c) => c.id === targetId);
+      const isCorpse = state.world.corpses.some(
+        (c) => c.characterId === targetId,
+      );
+      if (!isChest && !isCorpse) {
+        return invalid(
+          `move.kind='toward_object' targetObjectId='${targetId}' is not a known chest or corpse`,
+        );
+      }
+      break;
+    }
+    case "toward_evac": {
+      if (state.world.evac.revealedAtTurn === null) {
+        return invalid(
+          `move.kind='toward_evac' but evac is not yet revealed (revealedAtTurn=null)`,
+        );
+      }
+      break;
+    }
+    case "none":
+      break;
+    default: {
+      // Exhaustiveness: should be unreachable when ParsedDecision is well-typed.
+      const _exhaustive: never = decision.move;
+      void _exhaustive;
+      return invalid(`move.kind is unrecognised`);
+    }
+  }
+
+  // ── action ───────────────────────────────────────────────────────────
+  switch (decision.action.kind) {
+    case "attack": {
+      const targetId = decision.action.targetCharacterId;
+      if (!targetId) {
+        return invalid(`action.kind='attack' missing targetCharacterId`);
+      }
+      const target = state.characters.find((c) => c.characterId === targetId);
+      if (!target || !target.alive) {
+        return invalid(`attack target '${targetId}' is not a living character`);
+      }
+      if (!visibleCharacterIds.has(targetId)) {
+        return invalid(`attack target '${targetId}' is not visible to actor`);
+      }
+      const range = weaponRange(actor);
+      if (chebyshev(actor.pos, target.pos) > range) {
+        return invalid(
+          `attack target '${targetId}' is beyond weapon range ${range}`,
+        );
+      }
+      break;
+    }
+    case "interact": {
+      const targetId = decision.action.targetObjectId;
+      if (!targetId) {
+        return invalid(`action.kind='interact' missing targetObjectId`);
+      }
+      const chest = state.world.chests.find((c) => c.id === targetId);
+      if (!chest) {
+        return invalid(`interact target '${targetId}' is not a known chest`);
+      }
+      if (chest.opened) {
+        return invalid(`interact target '${targetId}' is already opened`);
+      }
+      if (chebyshev(actor.pos, chest.pos) > INTERACT_RANGE) {
+        return invalid(
+          `interact target '${targetId}' is beyond interact range ${INTERACT_RANGE}`,
+        );
+      }
+      break;
+    }
+    case "loot": {
+      const targetId = decision.action.targetCorpseId;
+      if (!targetId) {
+        return invalid(`action.kind='loot' missing targetCorpseId`);
+      }
+      const corpse = state.world.corpses.find(
+        (c) => c.characterId === targetId,
+      );
+      if (!corpse) {
+        return invalid(`loot target '${targetId}' is not a known corpse`);
+      }
+      if (chebyshev(actor.pos, corpse.pos) > INTERACT_RANGE) {
+        return invalid(
+          `loot target '${targetId}' is beyond loot range ${INTERACT_RANGE}`,
+        );
+      }
+      break;
+    }
+    case "none":
+      break;
+    default: {
+      const _exhaustive: never = decision.action;
+      void _exhaustive;
+      return invalid(`action.kind is unrecognised`);
+    }
+  }
+
+  return { ok: true, decision };
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+function invalid(reason: string): ValidationResult {
+  return { ok: false, reason, safeDefault: SAFE_DEFAULT_DECISION };
+}
+
+function weaponRange(actor: CharacterState): number {
+  const w = actor.equipped.weapon;
+  if (!w || w.category !== "weapon") return DEFAULT_ATTACK_RANGE;
+  const tier = WEAPONS[w.name as WeaponName];
+  return tier?.range ?? DEFAULT_ATTACK_RANGE;
+}

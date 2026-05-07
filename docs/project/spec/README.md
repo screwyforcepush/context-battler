@@ -5,7 +5,8 @@ This directory holds the **source of truth** specifications for context-battler.
 ## What lives here
 
 - **`mental-model.md`** — the why layer. Purpose, core flows, user mental models, business logic. No implementation details.
-- **Concept / mechanics specs** — the what layer. Game rules, turn economy, combat, gear, evac.
+- **`concept-spec.md`** — the what layer. Game rules, turn economy, combat, gear, evac mechanics.
+- **`architecture.md`** — the system-shape layer. Tech stack, slice boundaries, where state lives. Names concrete tech without diving into code.
 - **Data dictionary, data flows** — when the system grows enough to need them.
 - **Tech guide / industry references** — when relevant.
 

@@ -1,0 +1,701 @@
+"use node";
+// WP10 — per-turn match action.
+//
+// Public action `advanceTurn({ matchId })`. Wraps the entire body in a
+// single try/catch (per work-packages.md WP10 + ADR §6). On any uncaught
+// error: marks the match `status="failed"` with `failure={turn, reason}`
+// and does NOT re-schedule the next turn. The harness (WP11) polls
+// `matches.status` and sees the terminal state cleanly.
+//
+// Per-turn pipeline (mirrors concept-spec.md §23 + WP10 acceptance):
+//   1. Read matches/characters/worldState rows.
+//   2. Build engine `MatchState` from db rows (set `maxHp=100` per the v0
+//      invariant — characters table doesn't store maxHp).
+//   3. Compute heard-last-turn per agent (filter by Chebyshev ≤ 20 to
+//      observer's CURRENT pos; concept-spec.md §16 + WP8 contract).
+//   4. Promise.all 8 calls to `callDecisionTool` (WP6 wrapper — never
+//      throws; per-agent fallbacks visible via `failureReason`).
+//   5. Validate each decision (WP5); SAFE_DEFAULT_DECISION on invalid.
+//   6. Resolve the turn (WP7) → produces `nextState` + `ResolutionTrace`.
+//   7. Persist `turns` row (full agentRecords[] per ADR §7 — incl. system
+//      + persona prompt text/hash, visibleStateDigest, scratchpadBefore,
+//      decision, scratchpadAfter, llm metadata).
+//   8. Patch characters + worldState rows from the resolved nextState.
+//   9. Termination: if turn>=50 OR aliveCount<=1 → mark completed, populate
+//      `outcome`. Else → `scheduler.runAfter(0, ...)` to chain.
+//
+// Trace adaptation notes (locked in WP7 head-of-type comment):
+//   - `ResolutionTrace.consumed[i].item` is a string ConsumableName; the
+//     schema validator expects `{category:"consumable", name:...}`. WP10
+//     adapts at persistence time.
+//   - `ResolutionTrace` characterIds are plain strings; the schema's
+//     resolution + agentRecord validators use `v.id("characters")`. Convex
+//     Id values ARE strings at runtime; the same string round-trips.
+//
+// Cross-references:
+//   - ADR §6 — schema (locked).
+//   - ADR §7 — trace shape (this file builds the row).
+//   - work-packages.md WP10 — acceptance criteria.
+
+import { v } from "convex/values";
+import type { Doc, Id } from "./_generated/dataModel.js";
+import { action } from "./_generated/server.js";
+import { api } from "./_generated/api.js";
+
+import { resolveTurn, type ResolutionTrace } from "./engine/resolution.js";
+import { validateDecision } from "./engine/validation.js";
+import {
+  SAFE_DEFAULT_DECISION,
+  type ArmourName,
+  type CharacterState,
+  type ConsumableName,
+  type EquippedSlots,
+  type FailureReason,
+  type HeardSpeech,
+  type ItemRef,
+  type MatchState,
+  type ParsedDecision,
+  type PersonaId,
+  type Tile,
+  type WeaponName,
+  type WorldState,
+} from "./engine/types.js";
+import { chebyshev } from "./engine/distance.js";
+
+import { buildAgentInput } from "./llm/inputBuilder.js";
+import { callDecisionTool, type AzureUsage } from "./llm/azure.js";
+import { loadPersonas } from "./llm/personas.js";
+
+// ─── Tunables (locked) ─────────────────────────────────────────────────────
+
+/** v0 max HP for every character. The schema doesn't store maxHp; the
+ *  engine uses 100 by invariant per ADR §6 / concept-spec §12. */
+const MAX_HP = 100;
+/** Hearing range — concept-spec §16 (Chebyshev ≤ 20). */
+const HEARING_RANGE = 20;
+/** Total turn count before forced termination — concept-spec §15. */
+const FINAL_TURN = 50;
+/** Reasoning effort per North Star (low, NOT none — see WP11 / de-risking). */
+const REASONING_EFFORT = "low" as const;
+/** Per-call max output tokens — locked at 1200 (WP6/WP10 budget). */
+const MAX_OUTPUT_TOKENS = 1200;
+/** Per-call abort timeout — 60s per ADR §4. The wrapper enforces. */
+const CALL_ABORT_TIMEOUT_MS = 60_000;
+/** Turn-50 sole-survivor / extraction prize pool. Equally split among
+ *  extracted set; sole survivor takes 100 if last alive. (Phase-1 simple. */
+const PRIZE_POOL = 100;
+
+// ─── Lightweight 32-bit hash (DJB2 → hex) ─────────────────────────────────
+//
+// Why not `node:crypto` SHA-256? Convex `"use node"` actions support node
+// imports, but using a tiny inline hash keeps this module bundler-friendly
+// and removes a dep on a heavier API for what is, per ADR §7, just a
+// "cheap diff key" across runs. The hash isn't cryptographic — it's an
+// audit identity for prompt text. WP15 prompt edits will produce a
+// different hex value; that's all that's required.
+
+/**
+ * DJB2-style 32-bit hash → 8-char hex string. Stable across calls, same
+ * input always produces the same output. Used to populate
+ * `agentRecords[].input.{systemPromptHash,personaPromptHash}` (ADR §7).
+ */
+function hashHex(text: string): string {
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) {
+    // h = h * 33 + char — xor variant for slightly better distribution.
+    h = ((h << 5) + h) ^ text.charCodeAt(i);
+    // Coerce to unsigned 32-bit each iteration.
+    h = h >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+// ─── Slot narrowing helpers ────────────────────────────────────────────────
+//
+// The engine's `EquippedSlots` types each slot as `ItemRef` (the broad
+// union over weapon/armour/consumable), but the schema's validators
+// expect each slot to be narrowed to its own category. The engine's
+// `equipIntoSlot` only ever places matching-category items, so the broad
+// type is just structural-typing convenience. We narrow at the schema
+// boundary by re-tagging with the exact category literal.
+
+type NarrowedEquipped = {
+  weapon?: { category: "weapon"; name: WeaponName };
+  armour?: { category: "armour"; name: ArmourName };
+  consumable?: { category: "consumable"; name: ConsumableName };
+};
+
+function narrowSlot(
+  ref: ItemRef | undefined,
+  expected: "weapon",
+): { category: "weapon"; name: WeaponName } | undefined;
+function narrowSlot(
+  ref: ItemRef | undefined,
+  expected: "armour",
+): { category: "armour"; name: ArmourName } | undefined;
+function narrowSlot(
+  ref: ItemRef | undefined,
+  expected: "consumable",
+): { category: "consumable"; name: ConsumableName } | undefined;
+function narrowSlot(
+  ref: ItemRef | undefined,
+  expected: "weapon" | "armour" | "consumable",
+):
+  | { category: "weapon"; name: WeaponName }
+  | { category: "armour"; name: ArmourName }
+  | { category: "consumable"; name: ConsumableName }
+  | undefined {
+  if (!ref) return undefined;
+  if (ref.category !== expected) return undefined;
+  // Re-tag to the literal-narrow shape — tsc can't infer this through the
+  // function-overload bridge, but the runtime value is unchanged.
+  if (expected === "weapon") {
+    return { category: "weapon", name: ref.name as WeaponName };
+  }
+  if (expected === "armour") {
+    return { category: "armour", name: ref.name as ArmourName };
+  }
+  return { category: "consumable", name: ref.name as ConsumableName };
+}
+
+function narrowEquipped(slots: EquippedSlots): NarrowedEquipped {
+  const out: NarrowedEquipped = {};
+  const w = narrowSlot(slots.weapon, "weapon");
+  if (w) out.weapon = w;
+  const a = narrowSlot(slots.armour, "armour");
+  if (a) out.armour = a;
+  const c = narrowSlot(slots.consumable, "consumable");
+  if (c) out.consumable = c;
+  return out;
+}
+
+// ─── Engine state ↔ Convex row shaping ─────────────────────────────────────
+
+/**
+ * Build the in-memory engine `MatchState` from Convex rows. The engine uses
+ * plain string `characterId`s and a runtime `maxHp` of 100; both round-trip
+ * with the schema (Convex Id values ARE strings at runtime).
+ */
+function buildMatchState(
+  matchRow: Doc<"matches">,
+  characters: Doc<"characters">[],
+  worldRow: Doc<"worldState">,
+  descriptorSize: { w: number; h: number },
+): MatchState {
+  const charStates: CharacterState[] = characters.map((c) => ({
+    characterId: c._id as string,
+    personaId: c.personaId,
+    spawnIndex: c.spawnIndex,
+    displayName: c.displayName,
+    hp: c.hp,
+    maxHp: MAX_HP,
+    pos: { x: c.pos.x, y: c.pos.y },
+    equipped: { ...c.equipped },
+    scratchpad: c.scratchpad,
+    hidden: c.hidden,
+    alive: c.alive,
+    diedAtTurn: c.diedAtTurn,
+    extractedAtTurn: c.extractedAtTurn,
+    lastKnown: c.lastKnown.map((entry) => ({
+      characterId: entry.characterId as string,
+      pos: { x: entry.pos.x, y: entry.pos.y },
+      atTurn: entry.atTurn,
+    })),
+  }));
+
+  const world: WorldState = {
+    size: descriptorSize,
+    walls: worldRow.walls.map((w) => ({ x: w.x, y: w.y, w: w.w, h: w.h })),
+    coverTiles: worldRow.coverTiles.map((t) => ({ x: t.x, y: t.y })),
+    // ChestState in the engine carries `lootTable`; the row shape doesn't
+    // (it's bookkeeping only, used by WP3 expansion). Re-inject a stub
+    // value — the engine never re-rolls loot post-spawn so the lootTable
+    // value is unused after match-start.
+    chests: worldRow.chests.map((c) => ({
+      id: c.id,
+      pos: { x: c.pos.x, y: c.pos.y },
+      contents: c.contents,
+      opened: c.opened,
+      lootTable: "",
+    })),
+    corpses: worldRow.corpses.map((c) => ({
+      characterId: c.characterId as string,
+      pos: { x: c.pos.x, y: c.pos.y },
+      contents: { ...c.contents },
+    })),
+    evac: {
+      centre: { x: worldRow.evac.centre.x, y: worldRow.evac.centre.y },
+      revealedAtTurn: worldRow.evac.revealedAtTurn,
+    },
+  };
+
+  return {
+    matchId: matchRow._id as string,
+    turn: matchRow.turn,
+    world,
+    characters: charStates,
+    rngSeed: matchRow.rngSeed,
+  };
+}
+
+// ─── Speech-window filter (concept-spec §16 + WP8) ─────────────────────────
+
+/**
+ * Build the heard-last-turn filtered list for `observerId` from the prior
+ * turn's resolution speech array. We filter to messages whose speaker is
+ * within Chebyshev ≤ 20 of the OBSERVER'S CURRENT pos (start-of-this-turn).
+ * Per WP10 spec, we use the speaker's CURRENT pos in the characters table
+ * as the proxy for "speaker's start-of-prev-turn pos" (good-enough phase-1
+ * approximation; the speaker may have moved a few tiles since speaking).
+ *
+ * Dead speakers are skipped.
+ */
+function buildHeardForObserver(
+  observer: CharacterState,
+  speech: ResolutionTrace["speech"],
+  characters: CharacterState[],
+): HeardSpeech[] {
+  if (!speech || speech.length === 0) return [];
+  const out: HeardSpeech[] = [];
+  for (const entry of speech) {
+    const speaker = characters.find((c) => c.characterId === entry.characterId);
+    if (!speaker) continue;
+    if (!speaker.alive) continue;
+    if (chebyshev(speaker.pos, observer.pos) > HEARING_RANGE) continue;
+    out.push({ speakerId: entry.characterId, text: entry.text });
+  }
+  return out;
+}
+
+// ─── Schema-conformant adapters for resolution trace ───────────────────────
+
+/**
+ * Adapt `ResolutionTrace` (engine vocabulary) to the schema's
+ * `resolutionValidator` shape. Two adaptations:
+ *   - `consumed[].item: ConsumableName` (engine string) → `{category:"consumable", name:...}` (schema ItemRef).
+ *   - `characterId: string` (engine) → `Id<"characters">` (schema). Convex
+ *     Id values ARE strings at runtime; we cast at the boundary.
+ */
+function adaptResolutionForSchema(
+  trace: ResolutionTrace,
+): {
+  consumed: Array<{
+    characterId: Id<"characters">;
+    item: { category: "consumable"; name: ConsumableName };
+  }>;
+  speech: Array<{
+    characterId: Id<"characters">;
+    text: string;
+    heardBy: Id<"characters">[];
+  }>;
+  moves: Array<{
+    characterId: Id<"characters">;
+    from: Tile;
+    to: Tile;
+  }>;
+  actions: Array<{
+    characterId: Id<"characters">;
+    kind: string;
+    target: string;
+    result: string;
+  }>;
+  deaths: Id<"characters">[];
+  visibilityUpdates: Array<{
+    characterId: Id<"characters">;
+    hidden: boolean;
+    revealedBy?:
+      | "attack"
+      | "loot"
+      | "speech"
+      | "consumable"
+      | "leaving_cover"
+      | "proximity";
+  }>;
+} {
+  return {
+    consumed: trace.consumed.map((c) => ({
+      characterId: c.characterId as Id<"characters">,
+      item: { category: "consumable" as const, name: c.item },
+    })),
+    speech: trace.speech.map((s) => ({
+      characterId: s.characterId as Id<"characters">,
+      text: s.text,
+      heardBy: s.heardBy.map((h) => h as Id<"characters">),
+    })),
+    moves: trace.moves.map((m) => ({
+      characterId: m.characterId as Id<"characters">,
+      from: { x: m.from.x, y: m.from.y },
+      to: { x: m.to.x, y: m.to.y },
+    })),
+    actions: trace.actions.map((a) => ({
+      characterId: a.characterId as Id<"characters">,
+      kind: a.kind,
+      target: a.target,
+      result: a.result,
+    })),
+    deaths: trace.deaths.map((d) => d as Id<"characters">),
+    visibilityUpdates: trace.visibilityUpdates.map((u) => ({
+      characterId: u.characterId as Id<"characters">,
+      hidden: u.hidden,
+      revealedBy: u.revealedBy,
+    })),
+  };
+}
+
+// ─── Public action: advanceTurn ───────────────────────────────────────────
+
+/**
+ * `runMatch.advanceTurn` — drives one turn of a match end-to-end. Wraps
+ * the body in a single try/catch (WP10 contract); never re-throws.
+ *
+ * Returns `null` (Convex action shape; the harness reads outcomes via
+ * `matches.status` polling — return value is unused by the chain).
+ */
+export const advanceTurn = action({
+  args: { matchId: v.id("matches") },
+  returns: v.null(),
+  handler: async (ctx, { matchId }) => {
+    // Track currentTurn for failure reporting; updated once we read the row.
+    let currentTurn = 0;
+    try {
+      // ── 1. Read match + character + world rows. ─────────────────────────
+      const matchRow = await ctx.runQuery(api.matches.get, { id: matchId });
+      if (!matchRow) {
+        // Defensive: a deleted match should silently halt the chain.
+        return null;
+      }
+      // No-op if the match is already terminal (or the row was missing).
+      if (matchRow.status === "completed" || matchRow.status === "failed") {
+        return null;
+      }
+      currentTurn = matchRow.turn + 1; // We are RESOLVING currentTurn now.
+
+      // Flip pending → running on first invocation.
+      if (matchRow.status === "pending") {
+        await ctx.runMutation(api._internal_runMatch.markRunning, {
+          matchId,
+        });
+      }
+
+      const characters = await ctx.runQuery(
+        api._internal_runMatch.charactersByMatch,
+        { matchId },
+      );
+      const worldRow = await ctx.runQuery(
+        api._internal_runMatch.worldByMatch,
+        { matchId },
+      );
+      if (!worldRow) {
+        throw new Error(
+          `runMatch.advanceTurn: worldState row missing for match ${matchId}`,
+        );
+      }
+
+      // Use the descriptor's size constant (100×100 reference map per ADR §5).
+      const state: MatchState = buildMatchState(
+        { ...matchRow, turn: currentTurn },
+        characters,
+        worldRow,
+        { w: 100, h: 100 },
+      );
+
+      // ── 2. Read prior turn speech (for heard-last-turn). ────────────────
+      const priorTurnRow =
+        currentTurn > 1
+          ? await ctx.runQuery(api._internal_runMatch.turnByMatchTurn, {
+              matchId,
+              turn: currentTurn - 1,
+            })
+          : null;
+      const priorSpeech: ResolutionTrace["speech"] =
+        priorTurnRow?.resolution.speech.map((s) => ({
+          characterId: s.characterId as string,
+          text: s.text,
+          heardBy: s.heardBy.map((h) => h as string),
+        })) ?? [];
+
+      // ── 3. Load personas (per-call, allows hot-edits per WP9). ──────────
+      const personas = loadPersonas();
+
+      // ── 4. Build agent inputs + Promise.all callDecisionTool for living
+      //      agents. Dead agents are not asked for decisions (and not
+      //      written into agentRecords; WP10 acceptance: "Every row in
+      //      `turns` has agent records for every agent that was alive at
+      //      the start of that turn"). ────────────────────────────────────
+      const livingActors = state.characters.filter((c) => c.alive);
+
+      type PerAgent = {
+        actor: CharacterState;
+        heard: HeardSpeech[];
+        systemPrompt: string;
+        personaPromptText: string;
+        visibleStateDigest: string;
+        scratchpadBefore: string;
+      };
+
+      const perAgent: PerAgent[] = livingActors.map((actor) => {
+        const personaText = personas[actor.personaId as PersonaId] ?? "";
+        const heard = buildHeardForObserver(actor, priorSpeech, state.characters);
+        const built = buildAgentInput(state, actor.characterId, personaText, heard);
+        return {
+          actor,
+          heard,
+          systemPrompt: built.systemPrompt,
+          personaPromptText: personaText,
+          visibleStateDigest: built.visibleStateDigest,
+          scratchpadBefore: actor.scratchpad,
+        };
+      });
+
+      const callPromises = perAgent.map((entry) =>
+        callDecisionTool({
+          systemPrompt: entry.systemPrompt,
+          personaPrompt: entry.personaPromptText,
+          scratchpad: entry.scratchpadBefore,
+          visibleStateDigest: entry.visibleStateDigest,
+          reasoningEffort: REASONING_EFFORT,
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          abortTimeoutMs: CALL_ABORT_TIMEOUT_MS,
+        }),
+      );
+      const callResults = await Promise.all(callPromises);
+
+      // ── 5. Validate decisions; substitute SAFE_DEFAULT_DECISION on
+      //      semantic failure (WP5). ──────────────────────────────────────
+      type AgentResolved = {
+        actor: CharacterState;
+        personaPromptText: string;
+        systemPrompt: string;
+        visibleStateDigest: string;
+        scratchpadBefore: string;
+        decision: ParsedDecision;
+        wrapperFellBack: boolean;
+        // Narrowed to the schema's union; `undefined` when no failure.
+        failureReason: FailureReason | undefined;
+        validatorReason: string | undefined;
+        callId: string | null;
+        rawArguments: string | null;
+        responseId: string | null;
+        usage: AzureUsage | null;
+        latencyMs: number;
+        httpStatus: number | null;
+      };
+
+      const resolved: AgentResolved[] = perAgent.map((entry, i) => {
+        const result = callResults[i]!;
+        // Run validator on the wrapper's decision (which is safe-default if
+        // wrapper already fell back). Validator may further reject on
+        // semantic grounds.
+        const validation = validateDecision(
+          state,
+          entry.actor.characterId,
+          result.decision,
+        );
+        const finalDecision: ParsedDecision = validation.ok
+          ? validation.decision
+          : validation.safeDefault;
+        const validatorReason = validation.ok ? undefined : validation.reason;
+
+        // If the validator rejected (and the wrapper hadn't already fallen
+        // back), this counts as the engine's safe-default substitution per
+        // ADR §4 / concept-spec §2A.3. We surface `fellBackToSafeDefault`
+        // = true in that case so trace consumers see the substitution.
+        const fellBack = result.fellBackToSafeDefault || !validation.ok;
+
+        return {
+          actor: entry.actor,
+          personaPromptText: entry.personaPromptText,
+          systemPrompt: entry.systemPrompt,
+          visibleStateDigest: entry.visibleStateDigest,
+          scratchpadBefore: entry.scratchpadBefore,
+          decision: finalDecision,
+          wrapperFellBack: fellBack,
+          failureReason: result.failureReason,
+          validatorReason,
+          callId: result.callId,
+          rawArguments: result.rawArguments,
+          responseId: result.raw.responseId,
+          usage: result.raw.usage,
+          latencyMs: result.raw.latencyMs,
+          httpStatus: result.raw.httpStatus,
+        };
+      });
+
+      // ── 6. Resolve the turn. ────────────────────────────────────────────
+      const decisions = new Map<string, ParsedDecision>();
+      for (const r of resolved) {
+        decisions.set(r.actor.characterId, r.decision);
+      }
+      // Provide a safe-default for ANY living-but-uncalled actors (defensive
+      // — perAgent is built from livingActors so this loop is exhaustive,
+      // but the resolver expects a decision for any id it sees in `decisions`).
+      for (const actor of livingActors) {
+        if (!decisions.has(actor.characterId)) {
+          decisions.set(actor.characterId, SAFE_DEFAULT_DECISION);
+        }
+      }
+
+      const { state: nextState, trace } = resolveTurn(state, decisions);
+
+      // ── 7. Persist via internal mutation. ────────────────────────────────
+      // Build agentRecords with the locked ADR §7 schema. The validator
+      // accepts undefined `failureReason` (it's `v.optional(...)`); a
+      // validator-only rejection has no LLM-level failureReason but DOES
+      // surface as `fellBackToSafeDefault=true`.
+      const agentRecords = resolved.map((r) => ({
+        characterId: r.actor.characterId as Id<"characters">,
+        personaId: r.actor.personaId,
+        input: {
+          systemPromptHash: hashHex(r.systemPrompt),
+          systemPromptText: r.systemPrompt,
+          personaPromptHash: hashHex(r.personaPromptText),
+          personaPromptText: r.personaPromptText,
+          visibleStateDigest: r.visibleStateDigest,
+          scratchpadBefore: r.scratchpadBefore,
+        },
+        decision: r.decision,
+        scratchpadAfter: nextState.characters.find(
+          (c) => c.characterId === r.actor.characterId,
+        )?.scratchpad ?? r.scratchpadBefore,
+        llm: {
+          responseId: r.responseId,
+          callId: r.callId,
+          rawArguments: r.rawArguments,
+          usage: r.usage,
+          latencyMs: r.latencyMs,
+          httpStatus: r.httpStatus,
+          fellBackToSafeDefault: r.wrapperFellBack,
+          ...(r.failureReason ? { failureReason: r.failureReason } : {}),
+        },
+      }));
+
+      const adaptedResolution = adaptResolutionForSchema(trace);
+
+      // ── 8. Termination decision. ─────────────────────────────────────────
+      // `nextState.turn` is already incremented past `currentTurn` by the
+      // resolver. We use `currentTurn` as the "we just resolved" marker.
+      const aliveAfter = nextState.characters.filter((c) => c.alive);
+      const aliveCount = aliveAfter.length;
+      const extractedSet = nextState.characters
+        .filter((c) => c.extractedAtTurn === currentTurn)
+        .map((c) => c.characterId as Id<"characters">);
+      const isTerminal =
+        currentTurn >= FINAL_TURN || aliveCount <= 1;
+
+      // Build outcome on terminal.
+      let outcome:
+        | {
+            extracted: Id<"characters">[];
+            lastSurvivor?: Id<"characters">;
+            pointsByCharacter: Array<{
+              id: Id<"characters">;
+              points: number;
+            }>;
+          }
+        | undefined;
+      if (isTerminal) {
+        const pointsByCharacter: Array<{
+          id: Id<"characters">;
+          points: number;
+        }> = [];
+        if (aliveCount === 1 && extractedSet.length === 0) {
+          // Sole survivor (last-agent-standing branch): solo wins prize pool.
+          const sole = aliveAfter[0]!;
+          pointsByCharacter.push({
+            id: sole.characterId as Id<"characters">,
+            points: PRIZE_POOL,
+          });
+        } else if (extractedSet.length > 0) {
+          // Even split among extracted (turn-50 branch).
+          const share = Math.floor(PRIZE_POOL / extractedSet.length);
+          for (const id of extractedSet) {
+            pointsByCharacter.push({ id, points: share });
+          }
+        }
+        outcome = {
+          extracted: extractedSet,
+          ...(aliveCount === 1
+            ? {
+                lastSurvivor: aliveAfter[0]!
+                  .characterId as Id<"characters">,
+              }
+            : {}),
+          pointsByCharacter,
+        };
+      }
+
+      await ctx.runMutation(api._internal_runMatch.persistTurn, {
+        matchId,
+        turn: currentTurn,
+        agentRecords,
+        resolution: adaptedResolution,
+        characterPatches: nextState.characters.map((c) => ({
+          id: c.characterId as Id<"characters">,
+          hp: c.hp,
+          pos: { x: c.pos.x, y: c.pos.y },
+          equipped: narrowEquipped(c.equipped),
+          scratchpad: c.scratchpad,
+          hidden: c.hidden,
+          alive: c.alive,
+          diedAtTurn: c.diedAtTurn,
+          extractedAtTurn: c.extractedAtTurn,
+          lastKnown: c.lastKnown.map((entry) => ({
+            characterId: entry.characterId as Id<"characters">,
+            pos: { x: entry.pos.x, y: entry.pos.y },
+            atTurn: entry.atTurn,
+          })),
+        })),
+        worldPatch: {
+          chests: nextState.world.chests.map((c) => ({
+            id: c.id,
+            pos: { x: c.pos.x, y: c.pos.y },
+            contents: c.contents,
+            opened: c.opened,
+          })),
+          corpses: nextState.world.corpses.map((c) => ({
+            characterId: c.characterId as Id<"characters">,
+            pos: { x: c.pos.x, y: c.pos.y },
+            contents: narrowEquipped(c.contents),
+          })),
+          evac: {
+            centre: {
+              x: nextState.world.evac.centre.x,
+              y: nextState.world.evac.centre.y,
+            },
+            revealedAtTurn: nextState.world.evac.revealedAtTurn,
+          },
+        },
+        nextTurn: currentTurn,
+        terminal: isTerminal,
+        outcome,
+      });
+
+      // ── 9. Schedule next turn (or stop). ─────────────────────────────────
+      if (!isTerminal) {
+        await ctx.scheduler.runAfter(0, api.runMatch.advanceTurn, { matchId });
+      }
+      return null;
+    } catch (e) {
+      const reason =
+        e instanceof Error ? e.message : `unknown error: ${String(e)}`;
+      // Defensive failure write — never re-throws.
+      try {
+        await ctx.runMutation(api._internal_runMatch.markFailed, {
+          matchId,
+          turn: currentTurn,
+          reason,
+        });
+      } catch {
+        // If even the failure write fails, swallow — the chain has already
+        // halted and the harness will see the last-known state.
+      }
+      return null;
+    }
+  },
+});
+
+// ─── Internal mutations + queries (default Convex runtime) ─────────────────
+//
+// These live in a SEPARATE module (`convex/_internal_runMatch.ts`) because
+// the action above runs in `"use node"` and cannot define mutations/queries
+// in the same file. They're internal-only — the harness never calls them.
