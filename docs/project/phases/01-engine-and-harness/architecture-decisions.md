@@ -418,8 +418,18 @@ runs: {
 }
 
 // reports — multi-run aggregate (one per harness invocation). Owned by WP14.
+//
+// Additive schema (v2 / WP14 land): the table preserves the v1 fields
+// (`runIds`, `runCount`, `generatedAt`, `metrics`, `metBar`) as required —
+// older readers continue to validate. WP14 added matchIds-based addressing
+// and the §10 done-bar payload as optional fields, plus an index on
+// `(matchIdsHash, reportType)` for the idempotency lookup. The `payload`
+// object mirrors `ReportPayload` from `convex/engine/reportStats.ts`.
 reports: {
-  _id, runIds: Id<"runs">[], runCount: number,
+  _id,
+
+  // ── v1 fields (preserved verbatim) ────────────────────────────────
+  runIds: Id<"runs">[], runCount: number,
   generatedAt,
   metrics: {
     extractionRate: number,
@@ -429,8 +439,30 @@ reports: {
     perPersonaExtractionRate: Record<PersonaId, number>,
     personaSpread: number,
   },
-  metBar: boolean, // whether all 6 thresholds in mental-model §10 are met
+  metBar: boolean, // whether all thresholds in mental-model §10 are met
+
+  // ── v2 / WP14 additive fields ─────────────────────────────────────
+  matchIds?: Id<"matches">[],            // input matchIds (caller order)
+  matchIdsHash?: string,                 // SHA-256 hex of sorted-then-joined matchIds
+  reportType?: string,                   // discriminator (e.g. "stage-3-50run")
+  payload?: ReportPayload,               // §10 done-bar payload (mirrors engine type)
+  missingRunsForMatchIds?: Id<"matches">[], // matchIds that had no `runs` row at read time
 }
+
+// Index added in WP14: `by_matchIdsHash_reportType`. The mutation
+// `reports.create` reads by this tuple before insert; re-fires with the
+// same matchIds set + reportType return the existing row (idempotent).
+//
+// `ReportPayload` shape (mirrors convex/engine/reportStats.ts):
+//   runCount, kills, extractions, equips, speechEvents,
+//   runsWithAtLeastOneKill, runsWithAtLeastOneExtraction,
+//   runsWithAtLeastOneEquip, runsWithAtLeastOneSpeech,
+//   killRate, extractionRate, equipRate, speechRate,
+//   perPersona[8] = { personaId, kills, equips, speechEvents, extracted,
+//                     extractionsCount, extractionRate },
+//   personaExtractionSpread (in percentage points, 0..100),
+//   meetsExtractionThreshold, meetsKillThreshold, meetsEquipThreshold,
+//   meetsSpeechThreshold, meetsPersonaSpreadThreshold, meetsAllThresholds.
 ```
 
 ### v0 item stat tiers (locked, per `concept-spec.md` §14)
@@ -509,7 +541,8 @@ const record  = turnDoc.agentRecords.find(r => r.characterId === c);
 //   decision,                // ParsedDecision (incl. discriminated-union move/action)
 //   scratchpadAfter,
 //   llm: { responseId, callId, rawArguments, usage, latencyMs, httpStatus,
-//          fellBackToSafeDefault, failureReason? },
+//          fellBackToSafeDefault, failureReason?, validatorReason?,
+//          httpBodyExcerpt? },
 // }
 ```
 

@@ -357,6 +357,71 @@ const perPersonaExtractionRateValidator = v.object({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// WP14 — `reports.payload` validator. Mirrors `ReportPayload` from
+// `convex/engine/reportStats.ts` field-for-field. Extending the report
+// payload requires updating BOTH this validator AND the engine type.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Per-persona aggregation block within `reports.payload.perPersona[]`.
+ * Mirrors `ReportPerPersonaStats` from the engine layer.
+ *
+ *   `extractionsCount` — count of RUNS in which this persona had `extracted > 0`.
+ *   `extractionRate`   — extractionsCount / runCount in [0, 1] (0 when runCount=0).
+ *   `extracted`        — sum of per-run `extracted` (per-run character-count).
+ */
+const reportPerPersonaStatsValidator = v.object({
+  personaId: personaIdValidator,
+  kills: v.number(),
+  equips: v.number(),
+  speechEvents: v.number(),
+  extracted: v.number(),
+  extractionsCount: v.number(),
+  extractionRate: v.number(),
+});
+
+/**
+ * `reports.payload` validator — the §10 done-bar payload Stage-3 emits.
+ * Mirrors `ReportPayload` from `convex/engine/reportStats.ts` exactly.
+ */
+const reportPayloadValidator = v.object({
+  // Run counts
+  runCount: v.number(),
+
+  // Top-level sums across runs
+  kills: v.number(),
+  extractions: v.number(),
+  equips: v.number(),
+  speechEvents: v.number(),
+
+  // ≥1-per-run counts
+  runsWithAtLeastOneKill: v.number(),
+  runsWithAtLeastOneExtraction: v.number(),
+  runsWithAtLeastOneEquip: v.number(),
+  runsWithAtLeastOneSpeech: v.number(),
+
+  // ≥1-per-run rates
+  killRate: v.number(),
+  extractionRate: v.number(),
+  equipRate: v.number(),
+  speechRate: v.number(),
+
+  // Per-persona breakdown (always 8 entries)
+  perPersona: v.array(reportPerPersonaStatsValidator),
+
+  // Persona extraction-rate spread (max-min) in PERCENTAGE POINTS (0..100)
+  personaExtractionSpread: v.number(),
+
+  // §10 threshold flags
+  meetsExtractionThreshold: v.boolean(),
+  meetsKillThreshold: v.boolean(),
+  meetsEquipThreshold: v.boolean(),
+  meetsSpeechThreshold: v.boolean(),
+  meetsPersonaSpreadThreshold: v.boolean(),
+  meetsAllThresholds: v.boolean(),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Schema definition.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -444,7 +509,27 @@ export default defineSchema({
   }).index("by_match", ["matchId"]),
 
   // ── reports: one row per harness invocation (written by WP14) ─────────────
+  //
+  // WP14 added matchIds-based addressing on top of the original runIds-based
+  // shape. Both reference sets are persisted (additive, non-breaking):
+  //   - `runIds` + `runCount` + `metrics` + `metBar`: original v1 shape from
+  //     WP2 (kept untouched so WP10/WP11/historical rows continue to validate).
+  //   - `matchIds` + `matchIdsHash` + `reportType` + `payload` +
+  //     `missingRunsForMatchIds`: WP14 additions. The Convex mutation
+  //     `reports.create({ matchIds, reportType })` reads the `runs` rows for
+  //     each matchId, calls the pure aggregator, and writes the row. The
+  //     idempotency tuple is `(matchIdsHash, reportType)` — sort-then-hash
+  //     of the matchIds set so re-fires with the same set in any order
+  //     hit the same row.
+  //
+  // The `payload` validator mirrors `ReportPayload` from
+  // `convex/engine/reportStats.ts` field-for-field; that's the §10 done-bar
+  // shape Stage-3 emits. Extending `payload` is additive (Convex object
+  // validators are exact-match by default; new fields require a schema
+  // change here AND the engine type).
   reports: defineTable({
+    // ── v1 / WP2 fields (preserved verbatim — historical rows + harness
+    //    legacy paths) ──────────────────────────────────────────────────
     runIds: v.array(v.id("runs")),
     runCount: v.number(),
     generatedAt: v.number(),
@@ -457,5 +542,31 @@ export default defineSchema({
       personaSpread: v.number(),
     }),
     metBar: v.boolean(),
-  }).index("by_generatedAt", ["generatedAt"]),
+
+    // ── v2 / WP14 additions ───────────────────────────────────────────
+    /** Match ids the report aggregated over (sorted into the hash, not
+     *  the array — original input order is preserved here for trace). */
+    matchIds: v.optional(v.array(v.id("matches"))),
+    /** Deterministic hex SHA-256 of the SORTED, comma-joined matchIds.
+     *  Empty string for the empty set. The `(matchIdsHash, reportType)`
+     *  tuple is the idempotency key — re-fires with the same set return
+     *  the same row instead of inserting. */
+    matchIdsHash: v.optional(v.string()),
+    /** Caller-supplied report-type discriminator (e.g. "stage-3-50run",
+     *  "stage-2-10run-tuning"). Part of the idempotency tuple. */
+    reportType: v.optional(v.string()),
+    /** Per-§10-done-bar payload produced by `aggregateReportStats`.
+     *  Mirrors `ReportPayload` from `convex/engine/reportStats.ts` 1:1. */
+    payload: v.optional(reportPayloadValidator),
+    /** Match ids the caller passed but for which no `runs` row was found
+     *  at read time. Stage-3 needs this signal to know which matches were
+     *  quietly excluded from the aggregate (e.g. failed matches that
+     *  didn't get a `runs` row by WP12 contract). */
+    missingRunsForMatchIds: v.optional(v.array(v.id("matches"))),
+  })
+    .index("by_generatedAt", ["generatedAt"])
+    // WP14 idempotency index: `reports.create` reads by this tuple before
+    // inserting; re-fires with the same matchIds set + reportType return
+    // the existing row.
+    .index("by_matchIdsHash_reportType", ["matchIdsHash", "reportType"]),
 });
