@@ -1,12 +1,20 @@
-// AUTO-GENERATED FROM personas/*.md.
-// To regenerate: run `npx tsx scripts/regenerate-data.ts` (or rerun this WP's regen step).
-// DO NOT EDIT BY HAND — edit the source files, then regenerate.
+// Inlined personas — single source of truth for persona prompts at runtime.
 //
-// Convex bundles only the `convex/` directory; the canonical persona markdown
-// at `personas/<id>.md` is NOT shipped to the deployment. We embed the trimmed
-// bodies here so `loadPersonas()` (convex/llm/personas.ts) can return them
-// without fs access. Tests in `tests/llm/personas.test.ts` still read the
-// .md files directly to enforce the on-disk authoring surface.
+// To edit: change the trimmed bodies below directly, OR edit the canonical
+// `personas/<id>.md` source file and copy the trimmed body here. There is
+// NO automated regen script (the previously-referenced
+// `scripts/regenerate-data.ts` was removed in WP10.5 A6 cleanup; the
+// trade-off was deliberate — markdown bodies cannot be JSON-imported and
+// scripted regen added a step with no automation enforcing it).
+// Tests in `tests/llm/personas.test.ts` cross-check the on-disk markdown
+// files against the inlined bodies here, so divergence is caught at CI.
+//
+// Why inline at all? Convex bundles only the `convex/` directory; the
+// canonical persona markdown at `personas/<id>.md` is NOT shipped to the
+// deployment. We embed the trimmed bodies here so `loadPersonas()`
+// (convex/llm/personas.ts) can return them without fs access.
+// `convex/engine/map.ts` solved the same problem for the map descriptor
+// via a JSON import (WP10.5 A6); markdown has no equivalent escape hatch.
 //
 // Boundary (ADR §1): pure-function module; no Convex imports.
 

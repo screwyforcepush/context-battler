@@ -11,8 +11,10 @@
 //   1. Read matches/characters/worldState rows.
 //   2. Build engine `MatchState` from db rows (set `maxHp=100` per the v0
 //      invariant — characters table doesn't store maxHp).
-//   3. Compute heard-last-turn per agent (filter by Chebyshev ≤ 20 to
-//      observer's CURRENT pos; concept-spec.md §16 + WP8 contract).
+//   3. Build heard-last-turn per agent by reading the persisted
+//      `trace.speech[].heardBy` audience from the prior turn's resolver
+//      output (concept-spec.md §16 + WP8 contract — `resolution.ts` is the
+//      sole producer of the §16-correct audience; we just deliver it).
 //   4. Promise.all 8 calls to `callDecisionTool` (WP6 wrapper — never
 //      throws; per-agent fallbacks visible via `failureReason`).
 //   5. Validate each decision (WP5); SAFE_DEFAULT_DECISION on invalid.
@@ -60,8 +62,6 @@ import {
   type WeaponName,
   type WorldState,
 } from "./engine/types.js";
-import { chebyshev } from "./engine/distance.js";
-
 import { buildAgentInput } from "./llm/inputBuilder.js";
 import { callDecisionTool, type AzureUsage } from "./llm/azure.js";
 import { loadPersonas } from "./llm/personas.js";
@@ -71,12 +71,12 @@ import { loadPersonas } from "./llm/personas.js";
 /** v0 max HP for every character. The schema doesn't store maxHp; the
  *  engine uses 100 by invariant per ADR §6 / concept-spec §12. */
 const MAX_HP = 100;
-/** Hearing range — concept-spec §16 (Chebyshev ≤ 20). */
-const HEARING_RANGE = 20;
 /** Total turn count before forced termination — concept-spec §15. */
 const FINAL_TURN = 50;
-/** Reasoning effort per North Star (low, NOT none — see WP11 / de-risking). */
-const REASONING_EFFORT = "low" as const;
+/** Default reasoning effort when the matches row has none persisted (legacy
+ *  rows or callers omitting the arg) — concept-spec / de-risking.md
+ *  "Reasoning policy" makes "low" the phase-1 default; "none" is forbidden. */
+const DEFAULT_REASONING_EFFORT = "low" as const;
 /** Per-call max output tokens — locked at 1200 (WP6/WP10 budget). */
 const MAX_OUTPUT_TOKENS = 1200;
 /** Per-call abort timeout — 60s per ADR §4. The wrapper enforces. */
@@ -241,27 +241,35 @@ function buildMatchState(
 // ─── Speech-window filter (concept-spec §16 + WP8) ─────────────────────────
 
 /**
- * Build the heard-last-turn filtered list for `observerId` from the prior
- * turn's resolution speech array. We filter to messages whose speaker is
- * within Chebyshev ≤ 20 of the OBSERVER'S CURRENT pos (start-of-this-turn).
- * Per WP10 spec, we use the speaker's CURRENT pos in the characters table
- * as the proxy for "speaker's start-of-prev-turn pos" (good-enough phase-1
- * approximation; the speaker may have moved a few tiles since speaking).
+ * Build the heard-last-turn filtered list for `observer` from the prior
+ * turn's persisted resolution speech array.
  *
- * Dead speakers are skipped.
+ * §16-correct semantics live in `convex/engine/resolution.ts:236-263`: the
+ * resolver computes `heardBy` against every listener's start-of-turn-N
+ * position (the position at the moment of speech) and persists it on
+ * `trace.speech[].heardBy`. WP10's job is therefore a direct read of the
+ * persisted audience — NOT a re-filter against current (turn N+1)
+ * positions, which would drift if the speaker or observer moved during
+ * resolution. (gate-1-review.md flagged the previous re-filter as a
+ * §16-correctness regression risk; bundle WP10.5 A4 fixes it.)
+ *
+ * Exported for unit testing the direct-read invariant; the engine is the
+ * sole producer of `heardBy`, so the consumer's only job is honest
+ * delivery.
  */
-function buildHeardForObserver(
+export function buildHeardForObserver(
   observer: CharacterState,
   speech: ResolutionTrace["speech"],
-  characters: CharacterState[],
+  // characters is unused now (the trace is self-sufficient) but kept on the
+  // signature to avoid churning callers; WP10's call site already has the
+  // list in scope and we don't want a second public parameter shape on the
+  // helper. Marked `_` to satisfy strict-unused-variable lint.
+  _characters: CharacterState[],
 ): HeardSpeech[] {
   if (!speech || speech.length === 0) return [];
   const out: HeardSpeech[] = [];
   for (const entry of speech) {
-    const speaker = characters.find((c) => c.characterId === entry.characterId);
-    if (!speaker) continue;
-    if (!speaker.alive) continue;
-    if (chebyshev(speaker.pos, observer.pos) > HEARING_RANGE) continue;
+    if (!entry.heardBy.includes(observer.characterId)) continue;
     out.push({ speakerId: entry.characterId, text: entry.text });
   }
   return out;
@@ -447,13 +455,20 @@ export const advanceTurn = action({
         };
       });
 
+      // WP10.5 A5 — read reasoning effort from the matches row, defaulting
+      // to "low" when the field is absent (legacy rows or callers omitting
+      // the arg). Plumbed CLI → matches.start → matches row → here →
+      // callDecisionTool.
+      const reasoningEffort =
+        matchRow.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
+
       const callPromises = perAgent.map((entry) =>
         callDecisionTool({
           systemPrompt: entry.systemPrompt,
           personaPrompt: entry.personaPromptText,
           scratchpad: entry.scratchpadBefore,
           visibleStateDigest: entry.visibleStateDigest,
-          reasoningEffort: REASONING_EFFORT,
+          reasoningEffort,
           maxOutputTokens: MAX_OUTPUT_TOKENS,
           abortTimeoutMs: CALL_ABORT_TIMEOUT_MS,
         }),

@@ -148,31 +148,144 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
     expect(aAfter.pos.x).toBeGreaterThan(0);
   });
 
-  it("§9 — primary 'move' with action.kind != 'none' still moves; action does not fire (must be stationary_action)", () => {
-    // In v0 each turn you commit to ONE primary. If primary='move', the
-    // action sub-decision is ignored. The validator should have nulled it,
-    // but defensively the resolver also ignores actions when primary='move'.
-    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
-    const b = makeCharacter({ id: "B", pos: { x: 1, y: 0 }, hp: 100 });
+  it("§9 — primary 'move' resolves move first, THEN action (move-then-attack same turn)", () => {
+    // Per concept-spec §9 line 447: "Move up to 8, then optionally take one
+    // normal action if valid". WP10.5 fix: the resolver must NOT short-circuit
+    // the action phase when primary === "move". Both sub-decisions resolve
+    // (movement phase 4, then action phase 5 against post-move position).
+    //
+    // Setup: A at (0,0), B at (3,0). A's weapon is sword (range 2), B is at
+    // Chebyshev 3 — out of attack range. A moves dx=2 → lands at (2,0); B is
+    // now at distance 1 (in range). The post-move action then fires.
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "sword" }, // 15 dmg
+    });
+    const b = makeCharacter({ id: "B", pos: { x: 3, y: 0 }, hp: 100 });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
       [
         "A",
-        {
-          consume: "none",
+        nullDecision({
           primary: "move",
-          move: { kind: "relative", dx: 0, dy: 1 },
+          move: { kind: "relative", dx: 2, dy: 0 },
           action: { kind: "attack", targetCharacterId: "B" },
-          say: null,
-          overwatch_priority: null,
-          scratchpad_update: null,
-        },
+        }),
       ],
       ["B", nullDecision()],
     ]);
-    const { state: next } = resolveTurn(state, decisions);
-    // B should still have full HP (the attack didn't fire because primary was 'move').
+    const { state: next, trace } = resolveTurn(state, decisions);
+    // A moved to (2,0) — confirms move phase resolved.
+    expect(findChar(next, "A").pos).toEqual({ x: 2, y: 0 });
+    // sword(15) - cloth(0) = 15 damage → B at 100-15 = 85.
+    expect(findChar(next, "B").hp).toBe(85);
+    // Trace contains both the move and the attack action.
+    expect(trace.moves.find((m) => m.characterId === "A")).toBeTruthy();
+    expect(
+      trace.actions.find(
+        (act) =>
+          act.characterId === "A" && act.kind === "attack" && act.target === "B",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("§9 — primary 'move' resolves move first, THEN action (move-then-interact chest)", () => {
+    // Sister scenario for chest interaction — the canonical "move to chest,
+    // then open" pattern needed for ≥80% chest-equip done-bar (mental-model
+    // §10). A at (0,0), chest at (3,0) holding axe. A moves dx=2 → (2,0); chest
+    // is now at distance 1 ≤ INTERACT_RANGE (2). The post-move interact opens
+    // the chest and equips the axe.
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "rusty_blade" },
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        chests: [
+          {
+            id: "chest_001",
+            pos: { x: 3, y: 0 },
+            contents: { category: "weapon", name: "axe" },
+            opened: false,
+            lootTable: "weapons-heavy",
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          primary: "move",
+          move: { kind: "toward_object", targetObjectId: "chest_001" },
+          action: { kind: "interact", targetObjectId: "chest_001" },
+        }),
+      ],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+    // A moved closer to the chest (toward_object stops at Chebyshev 2 from
+    // the chest's static target tile); confirm A is now within INTERACT_RANGE.
+    const aAfter = findChar(next, "A");
+    expect(Math.max(Math.abs(aAfter.pos.x - 3), Math.abs(aAfter.pos.y - 0))).toBeLessThanOrEqual(2);
+    // Chest opened, axe equipped (replacing rusty_blade).
+    expect(aAfter.equipped.weapon).toEqual({ category: "weapon", name: "axe" });
+    const chest = next.world.chests.find((c) => c.id === "chest_001")!;
+    expect(chest.opened).toBe(true);
+    expect(chest.contents).toBeNull();
+    // Trace contains both the move and the interact action.
+    expect(trace.moves.find((m) => m.characterId === "A")).toBeTruthy();
+    expect(
+      trace.actions.find(
+        (act) =>
+          act.characterId === "A" &&
+          act.kind === "interact" &&
+          act.target === "chest_001",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("§9 — primary 'move' with action that is invalid post-move (out of range) → action no-ops cleanly, move still applies", () => {
+    // Defensive: even with the §9 short-circuit removed, the resolver's
+    // in-range check (resolution.ts attack/interact/loot branches) gates
+    // the action against POST-MOVE position. If the action target is still
+    // out of range after the move resolves, the action is a no-op (trace
+    // entry "out_of_range") — the move itself still applies.
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "sword" },
+    });
+    const b = makeCharacter({ id: "B", pos: { x: 20, y: 0 }, hp: 100 });
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          primary: "move",
+          move: { kind: "relative", dx: 2, dy: 0 },
+          // B is still at dist 18 after A moves to (2,0) — way out of range.
+          action: { kind: "attack", targetCharacterId: "B" },
+        }),
+      ],
+      ["B", nullDecision()],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+    // A still moves.
+    expect(findChar(next, "A").pos).toEqual({ x: 2, y: 0 });
+    // B HP unchanged (action gated by post-move in-range check).
     expect(findChar(next, "B").hp).toBe(100);
+    // Trace records the attempted action with out_of_range result.
+    expect(
+      trace.actions.find(
+        (act) =>
+          act.characterId === "A" &&
+          act.kind === "attack" &&
+          act.result === "out_of_range",
+      ),
+    ).toBeTruthy();
   });
 });
 

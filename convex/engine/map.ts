@@ -1,11 +1,12 @@
 // WP3 — reference map loader + deterministic descriptor expander.
 //
-// Convex bundles only the `convex/` directory; the canonical descriptor at
-// `maps/reference.json` is NOT shipped to the deployment. We therefore
-// embed the descriptor in `convex/_data/map.ts` (the derived bundle) and
-// return a deep-clone here. The .json file remains the canonical
-// authoring surface — the WP15 tuning loop edits the .json (then re-runs
-// the regen step) or edits the inline file directly.
+// Convex's esbuild-based bundler resolves JSON imports natively, so the
+// canonical `maps/reference.json` ships into the deployment via a direct
+// `import … with { type: "json" }`. (`convex/matches.ts` already proves
+// this path works in the default Convex runtime; WP10.5 A6 collapses the
+// previously-inlined `convex/_data/map.ts` redundancy.) tsconfig has
+// `resolveJsonModule: true`, so the same import is also valid for vitest
+// + tsc.
 //
 // With fs gone, this module no longer needs the node runtime — there is
 // no `"use node";` directive, which means default-runtime Convex
@@ -44,27 +45,37 @@ import {
   type Wall,
 } from "./types.js";
 import { makeRng, rollLoot } from "./loot.js";
-import { REFERENCE_MAP_DESCRIPTOR } from "../_data/map.js";
+// JSON import — Convex's esbuild-based bundler + tsconfig
+// `resolveJsonModule: true` make this work in both deployment + vitest.
+// The `_comment` doc field is stripped at the loader boundary below so the
+// returned shape matches `MapDescriptor` exactly.
+import referenceMapJson from "../../maps/reference.json" with { type: "json" };
 
 // ─── Reference map loader ────────────────────────────────────────────────────
 
 /**
- * Return the hand-authored reference map descriptor. The descriptor is
- * embedded at build time (see `convex/_data/map.ts`); we deep-clone it
- * via JSON round-trip to preserve the contract that callers can mutate
- * the returned object without affecting subsequent calls (the previous
- * fs-backed implementation produced a fresh `JSON.parse` result each
- * call — preserve the same semantic).
+ * Return the hand-authored reference map descriptor. The descriptor lives
+ * at `maps/reference.json` and is JSON-imported above; we deep-clone via
+ * JSON round-trip to preserve the contract that callers can mutate the
+ * returned object without affecting subsequent calls.
  *
- * The `_comment` field that lives in the on-disk JSON is already stripped
- * from the inline descriptor, so the returned shape matches `MapDescriptor`
- * exactly.
+ * The `_comment` field that lives in the on-disk JSON is stripped here so
+ * the returned shape matches `MapDescriptor` exactly.
  */
 export function loadReferenceMap(): MapDescriptor {
-  // Inline-bundled per Convex deployment (see note above).
-  // Deep-clone to preserve the contract that callers can mutate the returned
-  // object without affecting subsequent calls.
-  return JSON.parse(JSON.stringify(REFERENCE_MAP_DESCRIPTOR)) as MapDescriptor;
+  // Deep-clone via JSON round-trip + strip `_comment`. The clone preserves
+  // the original mutate-safe contract from the fs-backed implementation.
+  const parsed = JSON.parse(JSON.stringify(referenceMapJson)) as MapDescriptor & {
+    _comment?: string;
+  };
+  return {
+    size: parsed.size,
+    walls: parsed.walls,
+    coverClusters: parsed.coverClusters,
+    chests: parsed.chests,
+    spawns: parsed.spawns,
+    evac: parsed.evac,
+  };
 }
 
 // ─── Cover cluster expansion ─────────────────────────────────────────────────

@@ -29,7 +29,12 @@
 //      Detect "leaving cover" reveal: was in cover-tile at start, not in
 //      cover-tile at end.
 //   5. Action — for each living agent based on `primary`:
-//        - "move" → action sub-decision IGNORED (defensive; v0 §9 commits)
+//        - "move" → resolve `decision.action` against POST-move position
+//          (concept-spec §9 line 447: "Move up to 8, then optionally take
+//          one normal action if valid"). The action is gated by the same
+//          in-range / liveness checks as `stationary_action`; if the target
+//          is still out of range / invalid after the move, the action no-ops
+//          (trace records "out_of_range" / "no_target" / "already_opened").
 //        - "overwatch" → fire on first valid in-range visible enemy (nearest)
 //        - "stationary_action" → resolve `decision.action` (attack / interact
 //          / loot / none).
@@ -325,9 +330,10 @@ export function resolveTurn(
     const actor = working.characters.find((c) => c.characterId === id);
     if (!actor || !actor.alive) continue;
 
-    // primary === "move" → action sub-decision is IGNORED (concept-spec §9
-    // — one primary commitment per turn).
-    if (decision.primary === "move") continue;
+    // WP10.5 (concept-spec §9 line 447): primary === "move" still allows ONE
+    // normal action this turn. Fall through to the action switch below; the
+    // in-range / liveness gates evaluate against the POST-move `working`
+    // state. primary === "overwatch" has its own resolution branch.
 
     if (decision.primary === "overwatch") {
       // Find first valid in-range VISIBLE enemy (priority: nearest).
@@ -370,7 +376,9 @@ export function resolveTurn(
       continue;
     }
 
-    // primary === "stationary_action"
+    // primary === "stationary_action" OR primary === "move" (post-move
+    // action — see WP10.5 head-note). Both paths resolve `decision.action`
+    // against the same post-move `working` state.
     const action: ActionDecision = decision.action;
     switch (action.kind) {
       case "none":

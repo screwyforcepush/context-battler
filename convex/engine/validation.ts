@@ -11,10 +11,23 @@
 // module assumes the discriminator + required-field machinery is sound,
 // and validates the *semantic* claims:
 //   - Targets resolve to known entities.
-//   - Targets are alive / unopened / in-range / visible.
+//   - Targets are alive / unopened / visible.
 //   - Evac is revealed when toward_evac is chosen.
 //   - The actor has the consumable they want to consume.
 //   - Numeric bounds (e.g. relative dx/dy ∈ [-12, 12]).
+//
+// Action-target *range* checks (attack / interact / loot) are skipped
+// when the actor is moving (`decision.move.kind !== "none"`). Per
+// concept-spec.md §9 line 447 ("Move up to 8, then optionally take one
+// normal action if valid") the action range is evaluated against the
+// POST-move position. The resolver is the final gate
+// (resolution.ts:386–495 records `result:"out_of_range"` and no-ops
+// cleanly when the post-move position is still out of range), so
+// gating against the pre-move position here would reject the canonical
+// move-into-range-then-act pattern. Engine-as-referee invariant
+// (concept-spec §2A.3): the resolver is authoritative on positional
+// outcomes; validation guards only what is known *before* the
+// resolver runs.
 //
 // Each validation failure returns a short, human-readable `reason` plus
 // SAFE_DEFAULT_DECISION. The reason feeds into the trace so reviewing
@@ -176,11 +189,15 @@ export function validateDecision(
       if (!visibleCharacterIds.has(targetId)) {
         return invalid(`attack target '${targetId}' is not visible to actor`);
       }
-      const range = weaponRange(actor);
-      if (chebyshev(actor.pos, target.pos) > range) {
-        return invalid(
-          `attack target '${targetId}' is beyond weapon range ${range}`,
-        );
+      // Range check skipped when actor is moving — resolver gates against
+      // post-move position (concept-spec §9 line 447). See header note.
+      if (decision.move.kind === "none") {
+        const range = weaponRange(actor);
+        if (chebyshev(actor.pos, target.pos) > range) {
+          return invalid(
+            `attack target '${targetId}' is beyond weapon range ${range}`,
+          );
+        }
       }
       break;
     }
@@ -196,10 +213,14 @@ export function validateDecision(
       if (chest.opened) {
         return invalid(`interact target '${targetId}' is already opened`);
       }
-      if (chebyshev(actor.pos, chest.pos) > INTERACT_RANGE) {
-        return invalid(
-          `interact target '${targetId}' is beyond interact range ${INTERACT_RANGE}`,
-        );
+      // Range check skipped when actor is moving — resolver gates against
+      // post-move position (concept-spec §9 line 447). See header note.
+      if (decision.move.kind === "none") {
+        if (chebyshev(actor.pos, chest.pos) > INTERACT_RANGE) {
+          return invalid(
+            `interact target '${targetId}' is beyond interact range ${INTERACT_RANGE}`,
+          );
+        }
       }
       break;
     }
@@ -214,10 +235,14 @@ export function validateDecision(
       if (!corpse) {
         return invalid(`loot target '${targetId}' is not a known corpse`);
       }
-      if (chebyshev(actor.pos, corpse.pos) > INTERACT_RANGE) {
-        return invalid(
-          `loot target '${targetId}' is beyond loot range ${INTERACT_RANGE}`,
-        );
+      // Range check skipped when actor is moving — resolver gates against
+      // post-move position (concept-spec §9 line 447). See header note.
+      if (decision.move.kind === "none") {
+        if (chebyshev(actor.pos, corpse.pos) > INTERACT_RANGE) {
+          return invalid(
+            `loot target '${targetId}' is beyond loot range ${INTERACT_RANGE}`,
+          );
+        }
       }
       break;
     }

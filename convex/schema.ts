@@ -84,6 +84,19 @@ export const revealedByValidator = v.union(
   v.literal("proximity"),
 );
 
+/**
+ * `reasoningEffort` per Azure Responses API `reasoning.effort` knob (locked
+ * literal-union per `azure-llm.md` §7 + `de-risking.md` "Reasoning policy":
+ * `"none"` is explicitly disallowed for the entire phase; `"low"` is the
+ * default). WP10.5 A5 plumbs this from the harness CLI through the
+ * `matches` row and into `callDecisionTool`'s request body.
+ */
+export const reasoningEffortValidator = v.union(
+  v.literal("low"),
+  v.literal("medium"),
+  v.literal("high"),
+);
+
 // 2D tile (used for positions and map structures).
 const tileValidator = v.object({ x: v.number(), y: v.number() });
 
@@ -346,6 +359,11 @@ export default defineSchema({
     completedAt: v.union(v.number(), v.null()),
     mapId: v.string(), // "reference" for phase 1
     rngSeed: v.string(), // seeds chest loot rolls AND persona-to-spawn assignment
+    // Azure Responses API `reasoning.effort` knob for every per-turn LLM
+    // call in this match. Optional on the table so historical rows persist
+    // without migration; absent → treated as "low" by `runMatch.advanceTurn`
+    // (the WP10.5 default + the de-risking.md "Reasoning policy" baseline).
+    reasoningEffort: v.optional(reasoningEffortValidator),
     outcome: v.object({
       extracted: v.array(v.id("characters")),
       lastSurvivor: v.optional(v.id("characters")),

@@ -502,7 +502,7 @@ describe("WP8 — SYSTEM_PROMPT", () => {
 // ─── Test 10 — Affordances rendering ────────────────────────────────────────
 
 describe("WP8 — affordances rendering", () => {
-  it("Affordances section lists movement and actions lines from localAffordances()", () => {
+  it("Affordances section lists movement and actions lines from localAffordances() in schema-aligned vocab (WP10.5)", () => {
     const me = makeCharacter({
       id: "P1",
       displayName: "Player_1",
@@ -516,15 +516,15 @@ describe("WP8 — affordances rendering", () => {
     const state = makeState({ characters: [me, enemy] });
     const digest = buildVisibleStateDigest(state, "P1", []);
     const affBlock = extractSection(digest, "Affordances:");
-    // Movement line should mention toward Player_3.
+    // Movement line should mention schema-aligned move literals.
     expect(affBlock).toContain("movement:");
-    expect(affBlock).toContain("toward P3");
-    expect(affBlock).toContain("away from P3");
+    expect(affBlock).toContain("toward_entity: P3");
+    expect(affBlock).toContain("away_from_entity: P3");
     // Actions line should include overwatch (always when alive).
     expect(affBlock).toContain("actions:");
     expect(affBlock).toContain("overwatch");
-    // Enemy at dist 1 ≤ default attack range 2 → "attack P3 (in range)".
-    expect(affBlock).toContain("attack P3 (in range)");
+    // Enemy at dist 1 ≤ default attack range 2 → schema-aligned attack literal.
+    expect(affBlock).toContain("attack: P3 (in range)");
   });
 });
 

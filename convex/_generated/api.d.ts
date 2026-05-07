@@ -8,7 +8,6 @@
  * @module
  */
 
-import type * as _data_map from "../_data/map.js";
 import type * as _data_personas from "../_data/personas.js";
 import type * as _internal_runMatch from "../_internal_runMatch.js";
 import type * as engine_affordances from "../engine/affordances.js";
@@ -40,7 +39,6 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  "_data/map": typeof _data_map;
   "_data/personas": typeof _data_personas;
   _internal_runMatch: typeof _internal_runMatch;
   "engine/affordances": typeof engine_affordances;

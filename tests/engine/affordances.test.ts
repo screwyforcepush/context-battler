@@ -3,10 +3,17 @@
 // Tests are written FIRST per AOP. Spec section: concept-spec.md §22
 // (local affordances).
 //
-//   "Available movement: toward Player_3, away from Player_3, toward chest,
-//    toward cover northwest, toward evac, to relative tile."
-//   "Available actions: attack Player_3, in range; loot corpse, in range;
-//    open chest, in range; overwatch."
+// WP10.5 — affordance strings emit the schema-aligned vocabulary used by the
+// `decide_turn` tool (see `convex/llm/decisionTool.ts`). The affordance
+// digest is what the model parrots, so the literal `move.kind` /
+// `action.kind` values from the JSON Schema discriminator are surfaced
+// directly:
+//
+//   movement: `toward_entity: P3`, `away_from_entity: P3`,
+//             `toward_object: chest_001`, `toward_object: <corpseId>`,
+//             `toward_evac`, `relative: dx,dy` (cover/freeform).
+//   actions:  `attack: P3 (in range)`, `interact: chest_001`,
+//             `loot: <corpseId>`, `overwatch`.
 
 import { describe, expect, it } from "vitest";
 import { localAffordances } from "../../convex/engine/affordances.js";
@@ -81,7 +88,7 @@ function makeState(opts: {
 }
 
 describe("WP5 — localAffordances (concept-spec §22)", () => {
-  it("§22 — 'open chest_NNN' only when in range 2", () => {
+  it("§22 — 'interact: chest_NNN' only when in range 2", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     const inRange = makeChest("chest_001", { x: 6, y: 6 });
     const outOfRange = makeChest("chest_002", { x: 10, y: 10 });
@@ -90,11 +97,11 @@ describe("WP5 — localAffordances (concept-spec §22)", () => {
       world: { chests: [inRange, outOfRange] },
     });
     const aff = localAffordances(state, "A");
-    expect(aff.actions).toContain("open chest_001");
-    expect(aff.actions).not.toContain("open chest_002");
+    expect(aff.actions).toContain("interact: chest_001");
+    expect(aff.actions).not.toContain("interact: chest_002");
   });
 
-  it("§22 — 'loot corpse_X' only when in range 2", () => {
+  it("§22 — 'loot: <corpseId>' only when in range 2", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     const closeCorpse = makeCorpse("Player_3", { x: 6, y: 6 });
     const farCorpse = makeCorpse("Player_5", { x: 20, y: 20 });
@@ -103,8 +110,8 @@ describe("WP5 — localAffordances (concept-spec §22)", () => {
       world: { corpses: [closeCorpse, farCorpse] },
     });
     const aff = localAffordances(state, "A");
-    expect(aff.actions).toContain("loot Player_3");
-    expect(aff.actions).not.toContain("loot Player_5");
+    expect(aff.actions).toContain("loot: Player_3");
+    expect(aff.actions).not.toContain("loot: Player_5");
   });
 
   it("§22 — 'overwatch' always present when alive", () => {
@@ -114,7 +121,7 @@ describe("WP5 — localAffordances (concept-spec §22)", () => {
     expect(aff.actions).toContain("overwatch");
   });
 
-  it("§22 — 'attack Player_X' only when X visible AND Chebyshev ≤ weapon range (2)", () => {
+  it("§22 — 'attack: <id> (in range)' only when X visible AND Chebyshev ≤ weapon range (2)", () => {
     const me = makeCharacter({
       id: "A",
       pos: { x: 5, y: 5 },
@@ -124,15 +131,15 @@ describe("WP5 — localAffordances (concept-spec §22)", () => {
     const outOfRange = makeCharacter({ id: "C", pos: { x: 10, y: 10 } });
     const state = makeState({ characters: [me, inRange, outOfRange] });
     const aff = localAffordances(state, "A");
-    expect(aff.actions).toContain("attack B (in range)");
-    expect(aff.actions).not.toContain("attack C (in range)");
+    expect(aff.actions).toContain("attack: B (in range)");
+    expect(aff.actions).not.toContain("attack: C (in range)");
   });
 
-  it("§22 — 'toward evac' only when evac revealed", () => {
+  it("§22 — 'toward_evac' only when evac revealed", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     const stateHidden = makeState({ characters: [me] });
     const affHidden = localAffordances(stateHidden, "A");
-    expect(affHidden.movement).not.toContain("toward evac");
+    expect(affHidden.movement).not.toContain("toward_evac");
 
     const stateRevealed = makeState({
       characters: [me],
@@ -142,7 +149,7 @@ describe("WP5 — localAffordances (concept-spec §22)", () => {
       turn: 31,
     });
     const affRevealed = localAffordances(stateRevealed, "A");
-    expect(affRevealed.movement).toContain("toward evac");
+    expect(affRevealed.movement).toContain("toward_evac");
   });
 
   it("§22 — movement affordances exclude entities not visible (hidden / out-of-range)", () => {
@@ -158,20 +165,23 @@ describe("WP5 — localAffordances (concept-spec §22)", () => {
       characters: [me, hiddenEnemy, farEnemy, visibleEnemy],
     });
     const aff = localAffordances(state, "A");
-    expect(aff.movement).toContain("toward D");
-    expect(aff.movement).toContain("away from D");
-    expect(aff.movement).not.toContain("toward B");
-    expect(aff.movement).not.toContain("toward C");
+    expect(aff.movement).toContain("toward_entity: D");
+    expect(aff.movement).toContain("away_from_entity: D");
+    expect(aff.movement).not.toContain("toward_entity: B");
+    expect(aff.movement).not.toContain("toward_entity: C");
   });
 
-  it("§22 — 'to relative tile' is always present (movement always offered)", () => {
+  it("§22 — 'relative: dx,dy' freeform option always present (movement always offered)", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     const state = makeState({ characters: [me] });
     const aff = localAffordances(state, "A");
-    expect(aff.movement).toContain("to relative tile");
+    // The freeform "relative: dx,dy" entry is always emitted; the dx,dy
+    // values are placeholders since the model picks them.
+    const hasRelative = aff.movement.some((m) => m.startsWith("relative: "));
+    expect(hasRelative).toBe(true);
   });
 
-  it("§22 — 'toward chest_NNN' for visible chests; 'toward cover at (x,y)' for visible cover", () => {
+  it("§22 — 'toward_object: chest_NNN' for visible chests; cover renders as 'relative: dx,dy'", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     const chest = makeChest("chest_001", { x: 8, y: 8 });
     const cover: Tile = { x: 6, y: 8 };
@@ -180,10 +190,32 @@ describe("WP5 — localAffordances (concept-spec §22)", () => {
       world: { chests: [chest], coverTiles: [cover] },
     });
     const aff = localAffordances(state, "A");
-    expect(aff.movement).toContain("toward chest_001");
-    // Cover string is loose — just check it mentions the cover position.
-    const hasCoverEntry = aff.movement.some((m) => m.includes("toward cover"));
-    expect(hasCoverEntry).toBe(true);
+    expect(aff.movement).toContain("toward_object: chest_001");
+    // Cover tile is offered as a concrete relative move from the actor's
+    // position (cover has no dedicated schema literal, so we use `relative:`
+    // — the closest schema arm).
+    expect(aff.movement).toContain("relative: 1,3");
+  });
+
+  it("§22 — 'toward_object: <corpseId>' for visible corpses", () => {
+    const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const corpse = makeCorpse("Player_9", { x: 7, y: 5 });
+    const state = makeState({
+      characters: [me],
+      world: { corpses: [corpse] },
+    });
+    const aff = localAffordances(state, "A");
+    expect(aff.movement).toContain("toward_object: Player_9");
+  });
+
+  it("§22 — 'overwatch' literal stays as the bare 'overwatch' token (no schema prefix)", () => {
+    // overwatch is a primary commitment, not an action.kind. The affordance
+    // string must remain the bare token so callers/agents can pattern-match
+    // on it without confusing it with action.kind literals.
+    const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const state = makeState({ characters: [me] });
+    const aff = localAffordances(state, "A");
+    expect(aff.actions).toContain("overwatch");
   });
 
   it("§22 — dead actor returns empty affordances (defensive)", () => {

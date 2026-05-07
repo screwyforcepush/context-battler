@@ -16,10 +16,10 @@
 //     in Convex; we just stop tracking.
 //   - `--reasoning` is validated against the literal union {low, medium, high}.
 //     `none` is REJECTED with a non-zero exit per de-risking.md "Reasoning
-//     policy" (binding for the entire phase). Stage-1 captures the value but
-//     does NOT plumb it into `matches.start` — DerekChroma's stage-1
-//     `matches.start` hardcodes `"low"` via the wrapper default. See TODO at
-//     the start() call site.
+//     policy" (binding for the entire phase). The validated value is
+//     plumbed into `matches.start({ reasoningEffort })` (WP10.5 A5), which
+//     persists it on the matches row; `runMatch.advanceTurn` reads it back
+//     and forwards it to every per-turn `callDecisionTool` invocation.
 //   - Concurrency knob: at C=1 we run sequentially; at C>1 we use a tiny
 //     inline Promise-pool (no external dep). Stage-2 will extend this to a
 //     real semaphore-bounded fan-out if needed.
@@ -73,7 +73,7 @@ type StatusResponse = {
 
 const matchesStart = makeFunctionReference<
   "mutation",
-  { rngSeed?: string },
+  { rngSeed?: string; reasoningEffort?: ReasoningEffort },
   MatchId
 >("matches:start");
 
@@ -245,11 +245,15 @@ async function runOne(
   client: ConvexHttpClient,
   runIndex: number,
   totalRuns: number,
+  reasoningEffort: ReasoningEffort,
 ): Promise<RunOutcome> {
-  // TODO(stage-2): plumb `args.reasoning` into `matches.start` once
-  // DerekChroma's matches.start accepts a `reasoningEffort` arg. For Stage-1
-  // the wrapper default ("low") is hardcoded inside Convex.
-  const matchId: MatchId = await client.mutation(matchesStart, {});
+  // WP10.5 A5 — `--reasoning` is plumbed end-to-end: harness validates the
+  // literal, forwards it to `matches.start`, which persists it on the
+  // matches row; `runMatch.advanceTurn` reads it back per turn and threads
+  // it into `callDecisionTool`'s request body (`reasoning.effort`).
+  const matchId: MatchId = await client.mutation(matchesStart, {
+    reasoningEffort,
+  });
   emit({
     event: "run_start",
     matchId,
@@ -282,6 +286,7 @@ async function runAll(
   client: ConvexHttpClient,
   totalRuns: number,
   concurrency: number,
+  reasoningEffort: ReasoningEffort,
 ): Promise<RunOutcome[]> {
   const outcomes: RunOutcome[] = new Array(totalRuns);
   let cursor = 0;
@@ -290,7 +295,7 @@ async function runAll(
       const i = cursor;
       cursor += 1;
       if (i >= totalRuns) return;
-      outcomes[i] = await runOne(client, i, totalRuns);
+      outcomes[i] = await runOne(client, i, totalRuns, reasoningEffort);
     }
   };
   const workerCount = Math.min(concurrency, totalRuns);
@@ -304,8 +309,9 @@ async function runAll(
 
 async function main(): Promise<void> {
   const args = parseCliArgs(process.argv.slice(2));
-  // Reasoning is validated above; capture it for telemetry. Stage-1 does not
-  // plumb it into matches.start (see TODO in `runOne`).
+  // Reasoning is validated above and now plumbed end-to-end (WP10.5 A5):
+  // harness → matches.start → matches row → runMatch.advanceTurn →
+  // callDecisionTool. The telemetry line below is the same shape as Stage-1.
   process.stderr.write(
     JSON.stringify({
       event: "config",
@@ -317,7 +323,12 @@ async function main(): Promise<void> {
 
   const client = makeConvexClient();
   const startedAt = Date.now();
-  const outcomes = await runAll(client, args.runs, args.concurrency);
+  const outcomes = await runAll(
+    client,
+    args.runs,
+    args.concurrency,
+    args.reasoning,
+  );
   const durationMs = Date.now() - startedAt;
 
   let completed = 0;

@@ -357,4 +357,113 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     const result = validateDecision(state, "A", decision);
     expect(result.ok).toBe(true);
   });
+
+  // ─── WP10.5 Phase A3 follow-up: post-move action gating ────────────────
+  // concept-spec §9 line 447: "Move up to 8, then optionally take one normal
+  // action if valid." When the actor moves AND acts in the same turn, the
+  // action's range must be evaluated against the POST-move position, which
+  // is the resolver's job (resolution.ts post-A3 no-ops cleanly with
+  // result:"out_of_range" when needed). The validator must NOT pre-reject
+  // a move+action pair on pre-move position alone.
+
+  it("§9 line 447 — move:toward_object + action:interact same chest at distance 8 → valid (resolver gates post-move)", () => {
+    const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    // Chest at (13, 5) — Chebyshev 8 from actor (out of INTERACT_RANGE=2,
+    // but reachable in one move turn at speed 8).
+    const chest = makeChest("chest_001", { x: 13, y: 5 });
+    const state = makeState({
+      characters: [me],
+      world: { chests: [chest] },
+    });
+    const decision: ParsedDecision = {
+      ...defaultDecision(),
+      primary: "move",
+      move: { kind: "toward_object", targetObjectId: "chest_001" },
+      action: { kind: "interact", targetObjectId: "chest_001" },
+    };
+    const result = validateDecision(state, "A", decision);
+    expect(result.ok).toBe(true);
+  });
+
+  it("§9 line 447 — move:toward_entity + action:attack same target at distance 6 with sword (range 2) → valid", () => {
+    const me = makeCharacter({
+      id: "A",
+      pos: { x: 5, y: 5 },
+      weapon: "sword",
+    });
+    // Target at (11, 5) — Chebyshev 6 from actor (out of weapon range 2,
+    // but reachable in one move at speed 8).
+    const target = makeCharacter({ id: "B", pos: { x: 11, y: 5 } });
+    const state = makeState({ characters: [me, target] });
+    const decision: ParsedDecision = {
+      ...defaultDecision(),
+      primary: "move",
+      move: { kind: "toward_entity", targetCharacterId: "B" },
+      action: { kind: "attack", targetCharacterId: "B" },
+    };
+    const result = validateDecision(state, "A", decision);
+    expect(result.ok).toBe(true);
+  });
+
+  it("regression — move:none + action:attack at distance 5 with sword (range 2) → STILL safe-default", () => {
+    const me = makeCharacter({
+      id: "A",
+      pos: { x: 5, y: 5 },
+      weapon: "sword",
+    });
+    const target = makeCharacter({ id: "B", pos: { x: 10, y: 5 } });
+    const state = makeState({ characters: [me, target] });
+    const decision: ParsedDecision = {
+      ...defaultDecision(),
+      // move.kind === "none" — pre-move range gating MUST still apply.
+      action: { kind: "attack", targetCharacterId: "B" },
+    };
+    const result = validateDecision(state, "A", decision);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/range/i);
+    }
+  });
+
+  it("regression — move:none + action:interact chest at distance 5 → STILL safe-default", () => {
+    const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const chest = makeChest("chest_001", { x: 10, y: 5 });
+    const state = makeState({
+      characters: [me],
+      world: { chests: [chest] },
+    });
+    const decision: ParsedDecision = {
+      ...defaultDecision(),
+      // move.kind === "none" — pre-move range gating MUST still apply.
+      action: { kind: "interact", targetObjectId: "chest_001" },
+    };
+    const result = validateDecision(state, "A", decision);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/range/i);
+    }
+  });
+
+  it("§9 line 447 — move:toward_object chestA + action:interact chestB-far-away → valid (resolver no-ops post-move)", () => {
+    // Validator must not reject this; the resolver's post-move chebyshev
+    // check at resolution.ts:446 will record result:"out_of_range" cleanly.
+    // Validation's job is to ensure the action *target* is well-formed
+    // (exists, not opened, visible if applicable) — NOT to second-guess
+    // the actor's tactical choice when they're moving.
+    const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const chestA = makeChest("chest_a", { x: 13, y: 5 });
+    const chestB = makeChest("chest_b", { x: 90, y: 90 });
+    const state = makeState({
+      characters: [me],
+      world: { chests: [chestA, chestB] },
+    });
+    const decision: ParsedDecision = {
+      ...defaultDecision(),
+      primary: "move",
+      move: { kind: "toward_object", targetObjectId: "chest_a" },
+      action: { kind: "interact", targetObjectId: "chest_b" },
+    };
+    const result = validateDecision(state, "A", decision);
+    expect(result.ok).toBe(true);
+  });
 });

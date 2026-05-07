@@ -24,6 +24,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server.js";
 import { api } from "./_generated/api.js";
+import { reasoningEffortValidator } from "./schema.js";
 // loot.ts is fs-free; safe to import from default-runtime module.
 import { makeRng, rollLoot } from "./engine/loot.js";
 import { PERSONA_IDS } from "./engine/types.js";
@@ -182,6 +183,11 @@ function assignPersonasToSpawnsInline(
 export const start = mutation({
   args: {
     rngSeed: v.optional(v.string()),
+    // WP10.5 A5 — Azure `reasoning.effort` knob, plumbed end-to-end from the
+    // harness CLI. Optional; defaults to "low" (de-risking.md "Reasoning
+    // policy"). `runMatch.advanceTurn` reads this back from the matches row
+    // and forwards it to `callDecisionTool` on every turn.
+    reasoningEffort: v.optional(reasoningEffortValidator),
   },
   returns: v.id("matches"),
   handler: async (ctx, args) => {
@@ -197,6 +203,13 @@ export const start = mutation({
       completedAt: null,
       mapId: "reference",
       rngSeed,
+      // Persist reasoning effort if supplied; absent → runMatch defaults
+      // to "low". We only set the field when the caller passed a value so
+      // historical rows (and absent-arg callers) stay sparse — the schema
+      // marks the field optional for the same reason.
+      ...(args.reasoningEffort !== undefined
+        ? { reasoningEffort: args.reasoningEffort }
+        : {}),
       outcome: {
         extracted: [],
         pointsByCharacter: [],

@@ -1,28 +1,37 @@
 // WP5 — local affordances (concept-spec §22).
+// WP10.5 — schema-aligned vocabulary (gate-1 review issue: model parroted
+// English vocab; 84.5% safe-default fall-back). Strings now mirror the
+// `decide_turn` tool's discriminated-union literals so the model copies a
+// valid schema literal verbatim. See `convex/llm/decisionTool.ts` for the
+// authoritative literal set.
 //
 // Pure-function module per ADR §1; no Convex imports.
 //
 // Affordances are short, deduped strings the WP8 digest builder embeds in
 // the per-turn LLM input. They reduce model burden by surfacing the
-// *currently meaningful* options ("attack Player_3, in range") rather than
+// *currently meaningful* options ("attack: P3 (in range)") rather than
 // dumping the global action menu. The list is naturally bounded by what
 // the engine sees as visible / in-range; no explicit cap is applied here.
 //
-// Movement affordances:
-//   - "toward Player_X" for each visible enemy
-//   - "away from Player_X" for each visible enemy
-//   - "toward chest_NNN" for visible chests
-//   - "toward Player_X" / "loot corpse" — corpse-targeted movement uses
-//     the corpse object id (the dead character's id; e.g. "Player_5")
-//   - "toward cover at (x,y)" for visible cover tiles, capped sensibly
-//   - "toward evac" only when evac is revealed
-//   - "to relative tile" always (the freeform movement option)
+// Movement affordances (mirror `move.kind` literals):
+//   - "toward_entity: <id>" for each visible enemy
+//   - "away_from_entity: <id>" for each visible enemy
+//   - "toward_object: <chestId>" for visible chests
+//   - "toward_object: <corpseId>" for visible corpses (corpse object id is
+//     the dead character's id; e.g. "Player_5")
+//   - "relative: dx,dy" for visible cover tiles, capped sensibly (cover has
+//     no dedicated schema literal — `relative` is the closest arm)
+//   - "toward_evac" only when evac is revealed
+//   - "relative: dx,dy" always (the freeform movement option, with empty
+//     deltas placeholder so the model picks values)
 //
-// Action affordances:
-//   - "attack Player_X (in range)" — only when visible AND Chebyshev
+// Action affordances (mirror `action.kind` literals; overwatch is a
+// `primary` commitment, not an action.kind, but it stays the bare token
+// because the model selects it via `primary: "overwatch"`):
+//   - "attack: <id> (in range)" — only when visible AND Chebyshev
 //     ≤ weapon range
-//   - "open chest_NNN" — only when chest visible AND in interact range 2
-//   - "loot corpse_X" — only when corpse visible AND in interact range 2
+//   - "interact: <chestId>" — only when chest visible AND in interact range 2
+//   - "loot: <corpseId>" — only when corpse visible AND in interact range 2
 //   - "overwatch" — always when alive (per concept-spec §11 — overwatch
 //     is the camp stance and is always available)
 
@@ -78,70 +87,78 @@ export function localAffordances(
   const movement: string[] = [];
   const actions: string[] = [];
 
-  // Movement — visible enemies.
+  // Movement — visible enemies (schema-aligned: `toward_entity` /
+  // `away_from_entity` literals from `decide_turn`).
   for (const id of visibleCharIds) {
-    movement.push(`toward ${id}`);
-    movement.push(`away from ${id}`);
+    movement.push(`toward_entity: ${id}`);
+    movement.push(`away_from_entity: ${id}`);
   }
 
-  // Movement — visible chests.
+  // Movement — visible chests (schema-aligned: `toward_object` literal).
   for (const chest of visibleChests) {
-    movement.push(`toward ${chest.id}`);
+    movement.push(`toward_object: ${chest.id}`);
   }
 
   // Movement — visible corpses (movement-target uses the corpse object id;
-  // distinct from the "loot corpse_X" action affordance below).
+  // distinct from the `loot: <corpseId>` action affordance below).
   for (const corpse of visibleCorpses) {
-    movement.push(`toward ${corpse.id}`);
+    movement.push(`toward_object: ${corpse.id}`);
   }
 
   // Movement — visible cover tiles, capped at COVER_AFFORDANCE_CAP closest
-  // to the actor.
+  // to the actor. Cover has no dedicated schema arm; render as a concrete
+  // `relative: dx,dy` (the closest arm — `move.kind === "relative"` with
+  // explicit dx/dy offsets from the actor).
   const closeCovers = visibleCoverTiles
     .map((t) => ({ t, d: chebyshev(actor.pos, t) }))
     .sort((a, b) => a.d - b.d)
     .slice(0, COVER_AFFORDANCE_CAP);
   for (const { t } of closeCovers) {
-    movement.push(`toward cover at (${t.x},${t.y})`);
+    const dx = t.x - actor.pos.x;
+    const dy = t.y - actor.pos.y;
+    movement.push(`relative: ${dx},${dy}`);
   }
 
-  // Movement — evac when revealed.
+  // Movement — evac when revealed (schema-aligned: `toward_evac` literal).
   if (state.world.evac.revealedAtTurn !== null) {
-    movement.push("toward evac");
+    movement.push("toward_evac");
   }
 
-  // Movement — relative tile is always offered.
-  movement.push("to relative tile");
+  // Movement — freeform relative tile is always offered (schema-aligned:
+  // `relative` literal; dx,dy are placeholders the model picks).
+  movement.push("relative: dx,dy");
 
-  // Actions — attack-in-range.
+  // Actions — attack-in-range (schema-aligned: `attack` literal).
   const attackRange = weaponRange(actor);
   for (const id of visibleCharIds) {
     const target = state.characters.find((c) => c.characterId === id);
     if (!target) continue;
     if (chebyshev(actor.pos, target.pos) <= attackRange) {
-      actions.push(`attack ${id} (in range)`);
+      actions.push(`attack: ${id} (in range)`);
     }
   }
 
-  // Actions — open chest in range.
+  // Actions — interact with chest in range (schema-aligned: `interact`
+  // literal; only suggest unopened chests).
   for (const chest of visibleChests) {
     if (chebyshev(actor.pos, chest.pos) <= INTERACT_RANGE) {
-      // Only suggest opening unopened chests — opened chests are no-op.
       const fresh = state.world.chests.find((c) => c.id === chest.id);
       if (fresh && !fresh.opened) {
-        actions.push(`open ${chest.id}`);
+        actions.push(`interact: ${chest.id}`);
       }
     }
   }
 
-  // Actions — loot corpse in range.
+  // Actions — loot corpse in range (schema-aligned: `loot` literal).
   for (const corpse of visibleCorpses) {
     if (chebyshev(actor.pos, corpse.pos) <= INTERACT_RANGE) {
-      actions.push(`loot ${corpse.id}`);
+      actions.push(`loot: ${corpse.id}`);
     }
   }
 
-  // Actions — overwatch always when alive (concept-spec §11).
+  // Actions — overwatch always when alive (concept-spec §11). Overwatch is
+  // a `primary` commitment, not an `action.kind` literal, so the affordance
+  // string stays the bare `overwatch` token.
   actions.push("overwatch");
 
   return { movement, actions };
