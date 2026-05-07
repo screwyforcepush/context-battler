@@ -1,0 +1,8 @@
+{
+  "name": "context-battler",
+  "version": "0.0.0",
+  "private": true,
+  "devDependencies": {
+    "convex": "^1.37.0"
+  }
+}

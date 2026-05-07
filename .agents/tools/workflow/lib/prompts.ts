@@ -1,0 +1,417 @@
+/**
+ * Prompt Building Module
+ *
+ * Handles template loading and prompt assembly for all job types.
+ * Extracted from runner.ts for modularity.
+ */
+
+import { readFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
+
+// Types needed for prompt building
+export interface Assignment {
+  _id: string;
+  _creationTime: number;
+  namespaceId: string;
+  northStar: string;
+  status: "pending" | "active" | "blocked" | "complete";
+  blockedReason?: string;
+  independent: boolean;
+  priority: number;
+  artifacts: string;
+  decisions: string;
+  headGroupId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface JobGroup {
+  _id: string;
+  _creationTime: number;
+  assignmentId: string;
+  nextGroupId?: string;
+  status: "pending" | "running" | "complete" | "failed";
+  aggregatedResult?: string;
+  createdAt: number;
+}
+
+export interface Job {
+  _id: string;
+  _creationTime: number;
+  groupId: string;
+  namespaceId?: string;
+  jobType: string;
+  harness: "claude" | "codex" | "gemini";
+  context?: string;
+  status: "pending" | "running" | "complete" | "failed" | "awaiting_retry";
+  result?: string;
+  prompt?: string;
+  startedAt?: number;
+  completedAt?: number;
+  sessionId?: string;
+  createdAt: number;
+}
+
+export interface ChatJobContext {
+  threadId: string;
+  namespaceId: string;
+  mode: "jam" | "cook" | "guardian";
+  // For differential prompting
+  effectivePromptMode: "jam" | "cook";
+  lastPromptMode?: "jam" | "cook";
+  latestUserMessage: string;
+  claudeSessionId?: string;
+  // Guardian session fork: true when forking from OG session for first guardian eval
+  forkSession?: boolean;
+  // Guardian mode context
+  assignmentId?: string;
+  isGuardianEvaluation?: boolean; // True when PO is evaluating PM response
+}
+
+// Prompt types for differential prompting
+export type PromptType = "full" | "mode_activation" | "minimal" | "guardian_eval";
+
+// Resolve templates directory relative to this module
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const TEMPLATES_DIR = join(__dirname, "..", "templates");
+const PM_MODULES_DIR = join(TEMPLATES_DIR, "pm-modules");
+
+/**
+ * Load a template file by job type
+ */
+export function loadTemplate(jobType: string): string {
+  const templatePath = join(TEMPLATES_DIR, `${jobType}.md`);
+  try {
+    return readFileSync(templatePath, "utf-8");
+  } catch {
+    console.error(`Template not found: ${jobType}.md`);
+    return "Execute the task as described.\n\n{{CONTEXT}}";
+  }
+}
+
+function loadPmModule(moduleName: string): string {
+  const modulePath = join(PM_MODULES_DIR, `${moduleName}.md`);
+  try {
+    return readFileSync(modulePath, "utf-8");
+  } catch {
+    console.error(`PM module not found: ${moduleName}.md`);
+    return "";
+  }
+}
+
+function renderPmModule(
+  template: string,
+  replacements: Record<string, string>
+): string {
+  let output = template;
+  for (const [key, value] of Object.entries(replacements)) {
+    output = output.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value);
+  }
+  return output;
+}
+
+// Accumulated job result for PM jobs
+export interface AccumulatedJobResult {
+  jobType: string;
+  harness: string; // Kept for internal tracking, not shown to PM
+  result: string;
+  groupId?: string;
+  groupIndex?: number;
+}
+
+/**
+ * Format accumulated results for PM prompt
+ * Uses jobType with A/B/C suffixes for multiple jobs of same type
+ * Does NOT expose harness names - PM sees only jobType labels
+ */
+function formatAccumulatedResults(
+  accumulatedResults: AccumulatedJobResult[]
+): string {
+  if (!accumulatedResults || accumulatedResults.length === 0) {
+    return "(no previous results)";
+  }
+
+  // Group by jobType to determine if we need A/B/C suffixes
+  const byJobType = new Map<string, AccumulatedJobResult[]>();
+  for (const r of accumulatedResults) {
+    const list = byJobType.get(r.jobType) || [];
+    list.push(r);
+    byJobType.set(r.jobType, list);
+  }
+
+  // Build sections with A/B/C suffixes for duplicates
+  const sections: string[] = [];
+  const suffixes = ["A", "B", "C", "D", "E", "F", "G", "H"];
+
+  for (const [jobType, results] of byJobType) {
+    if (results.length === 1) {
+      // Single job of this type - no suffix
+      sections.push(`## ${jobType}\n\n${results[0].result}`);
+    } else {
+      // Multiple jobs of same type - add A/B/C suffixes
+      for (let i = 0; i < results.length; i++) {
+        const suffix = suffixes[i] || `${i + 1}`;
+        sections.push(`## ${jobType} ${suffix}\n\n${results[i].result}`);
+      }
+    }
+  }
+
+  return sections.join("\n\n---\n\n");
+}
+
+interface GroupedResults {
+  groupId: string;
+  groupIndex: number;
+  results: AccumulatedJobResult[];
+}
+
+function groupAccumulatedResults(
+  accumulatedResults: AccumulatedJobResult[]
+): GroupedResults[] {
+  if (!accumulatedResults || accumulatedResults.length === 0) {
+    return [];
+  }
+
+  const groups = new Map<string, GroupedResults>();
+  let fallbackIndex = 0;
+
+  for (const result of accumulatedResults) {
+    const groupId = result.groupId || `unknown-${fallbackIndex}`;
+    const groupIndex =
+      typeof result.groupIndex === "number" ? result.groupIndex : fallbackIndex;
+
+    if (!groups.has(groupId)) {
+      groups.set(groupId, {
+        groupId,
+        groupIndex,
+        results: [],
+      });
+    }
+
+    groups.get(groupId)!.results.push(result);
+    fallbackIndex += 1;
+  }
+
+  return Array.from(groups.values()).sort((a, b) => a.groupIndex - b.groupIndex);
+}
+
+function isReviewJobType(jobType: string): boolean {
+  return jobType === "review" || jobType.endsWith("review");
+}
+
+function includesJobType(results: AccumulatedJobResult[], jobType: string): boolean {
+  return results.some((r) => r.jobType === jobType);
+}
+
+function inferPrimaryJobType(results: AccumulatedJobResult[]): string {
+  if (includesJobType(results, "implement")) return "implement";
+  if (includesJobType(results, "plan")) return "plan";
+  if (includesJobType(results, "document")) return "document";
+  if (includesJobType(results, "uat")) return "uat";
+  return results[0]?.jobType || "unknown";
+}
+
+function buildPmModules(
+  accumulatedResults: AccumulatedJobResult[],
+  r1GroupResults?: AccumulatedJobResult[]
+): string {
+  const grouped = groupAccumulatedResults(accumulatedResults);
+  if (grouped.length === 0) {
+    return "No prior job results found. Ask clarifying questions if needed and decide the first actionable job.";
+  }
+
+  const latestGroup = grouped[grouped.length - 1];
+  const latestHasReview = latestGroup.results.some((r) => isReviewJobType(r.jobType));
+  const latestHasImplement = latestGroup.results.some((r) => r.jobType === "implement");
+  const latestHasPlan = latestGroup.results.some((r) => r.jobType === "plan");
+  const latestHasDocument = latestGroup.results.some((r) => r.jobType === "document");
+
+  if (latestHasReview) {
+    let reviewGroupIndex = -1;
+    for (let i = grouped.length - 1; i >= 0; i--) {
+      if (grouped[i].results.some((r) => isReviewJobType(r.jobType))) {
+        reviewGroupIndex = i;
+        break;
+      }
+    }
+
+    const hasR1Override = r1GroupResults && r1GroupResults.length > 0;
+    const priorGroup =
+      reviewGroupIndex > 0 ? grouped[reviewGroupIndex - 1] : undefined;
+    const p1JobType = hasR1Override
+      ? inferPrimaryJobType(r1GroupResults!)
+      : priorGroup
+        ? inferPrimaryJobType(priorGroup.results)
+        : "unknown";
+    const priorResults = hasR1Override
+      ? formatAccumulatedResults(r1GroupResults!)
+      : priorGroup
+        ? formatAccumulatedResults(priorGroup.results)
+        : "(no prior group found)";
+
+    const template = loadPmModule("post-review");
+    return renderPmModule(template, {
+      R1_CONTEXT: priorResults,
+      P1_JOB_TYPE: p1JobType,
+    });
+  }
+
+  if (latestHasImplement) {
+    return loadPmModule("post-implement");
+  }
+
+  if (latestHasPlan) {
+    return loadPmModule("post-plan");
+  }
+
+  if (latestHasDocument) {
+    return loadPmModule("post-document");
+  }
+
+  return "No matching PM module found. Decide next steps based on the latest results and north star alignment.";
+}
+
+/**
+ * Build prompt for assignment-based jobs
+ * Each job has its own jobType and context
+ */
+export function buildPrompt(
+  group: JobGroup,
+  assignment: Assignment,
+  job: Job,
+  accumulatedResults: AccumulatedJobResult[],
+  previousNonPmGroupResults: AccumulatedJobResult[],
+  r1GroupResults: AccumulatedJobResult[]
+): string {
+  const template = loadTemplate(job.jobType);
+
+  // Format accumulated results for PM/retrospect jobs
+  const previousResults =
+    job.jobType === "pm" ? accumulatedResults : previousNonPmGroupResults;
+  const resultText = formatAccumulatedResults(previousResults);
+  const pmModules =
+    job.jobType === "pm" ? buildPmModules(accumulatedResults, r1GroupResults) : "";
+
+  return template
+    .replace(/\{\{NORTH_STAR\}\}/g, assignment.northStar)
+    .replace(/\{\{ARTIFACTS\}\}/g, assignment.artifacts || "(none)")
+    .replace(/\{\{DECISIONS\}\}/g, assignment.decisions || "(none)")
+    .replace(/\{\{CONTEXT\}\}/g, job.context || "(no specific context)")
+    .replace(/\{\{PREVIOUS_RESULT\}\}/g, resultText)
+    .replace(/\{\{ASSIGNMENT_ID\}\}/g, assignment._id)
+    .replace(/\{\{GROUP_ID\}\}/g, group._id)
+    .replace(/\{\{CURRENT_JOB_ID\}\}/g, job._id)
+    .replace(/\{\{HARNESS\}\}/g, job.harness)
+    .replace(/\{\{PM_MODULES\}\}/g, pmModules);
+}
+
+/**
+ * Determine which prompt type to use based on context
+ */
+export function determinePromptType(chatContext: ChatJobContext): PromptType {
+  const isNewSession = !chatContext.claudeSessionId;
+  const isGuardianEval = chatContext.isGuardianEvaluation === true;
+
+  // Guardian evaluation always gets its special prompt
+  if (isGuardianEval) {
+    return "guardian_eval";
+  }
+
+  // New session (no claudeSessionId) - send full prompt
+  if (isNewSession) {
+    return "full";
+  }
+
+  // Check if mode changed since last prompt
+  const modeChanged = chatContext.lastPromptMode !== chatContext.effectivePromptMode;
+
+  if (modeChanged) {
+    return "mode_activation";
+  }
+
+  // Same mode, resuming session - minimal prompt
+  return "minimal";
+}
+
+/**
+ * Extract a named section from the template
+ */
+function extractSection(template: string, section: string): string {
+  const regex = new RegExp(
+    `\\{\\{#section ${section}\\}\\}([\\s\\S]*?)\\{\\{\\/section\\}\\}`,
+    "m"
+  );
+  const match = template.match(regex);
+  return match?.[1]?.trim() || "";
+}
+
+/**
+ * Build prompt for chat jobs with differential prompting
+ * All prompt types use section extraction from template - no hardcoded prompts
+ */
+export function buildChatPrompt(chatContext: ChatJobContext, namespace: string): string {
+  const promptType = determinePromptType(chatContext);
+  const template = loadTemplate("product-owner");
+  const mode = chatContext.effectivePromptMode.toUpperCase() + "_MODE";
+
+  // Variable replacements
+  const replaceVars = (text: string): string => {
+    return text
+      .replace(/\{\{THREAD_ID\}\}/g, chatContext.threadId)
+      .replace(/\{\{NAMESPACE\}\}/g, namespace)
+      .replace(/\{\{MODE\}\}/g, chatContext.effectivePromptMode)
+      .replace(/\{\{LATEST_MESSAGE\}\}/g, chatContext.latestUserMessage)
+      .replace(/\{\{ASSIGNMENT_ID\}\}/g, chatContext.assignmentId || "(no assignment linked)");
+  };
+
+  const parts: string[] = [];
+
+  switch (promptType) {
+    case "full":
+      parts.push(extractSection(template, "INITIAL"));
+      parts.push(extractSection(template, mode));
+      break;
+
+    case "mode_activation":
+      parts.push(extractSection(template, mode));
+      break;
+
+    case "guardian_eval":
+      parts.push(extractSection(template, "GUARDIAN_MODE"));
+      break;
+
+    case "minimal":
+      // No template content - just user message
+      break;
+  }
+
+  let prompt = replaceVars(parts.join("\n\n---\n\n"));
+
+  // Append user message (not for guardian - PM report is already in LATEST_MESSAGE)
+  if (promptType !== "guardian_eval") {
+    prompt += `\n\n---\n\n**User says:**\n${chatContext.latestUserMessage}`;
+  }
+
+  return prompt;
+}
+
+
+/**
+ * Parse chat context from job context JSON field
+ */
+export function parseChatContext(contextStr: string): ChatJobContext | null {
+  try {
+    return JSON.parse(contextStr) as ChatJobContext;
+  } catch {
+    console.error("Failed to parse chat context:", contextStr);
+    return null;
+  }
+}
+
+/**
+ * Check if a job is a chat job based on its type
+ */
+export function isChatJob(job: Job): boolean {
+  return job.jobType === "chat" || job.jobType === "product-owner";
+}
