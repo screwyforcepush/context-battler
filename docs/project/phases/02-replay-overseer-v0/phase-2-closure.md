@@ -4,8 +4,10 @@
 > built, what proves it, what is intentionally absent, and what is still
 > pending the user's final vibe-judgement.
 >
-> Closure record drafted: 2026-05-08. Source commit at draft:
-> `4db9757` (HEAD; phase-2 dispatch baseline `7c22284`).
+> Closure record drafted: 2026-05-08 (commit `c39be0b`). Closure-readiness
+> fixes + known-issues populated 2026-05-08 (commits `2833537` +
+> `aee6397`). HEAD at sealing: `aee6397`. Phase-2 dispatch baseline:
+> `7c22284`.
 >
 > This is a closure RECORD, not a retrospective and not a phase-3 plan.
 
@@ -14,13 +16,19 @@
 ## Status banner
 
 **Implementation: COMPLETE.** All four work packages (WP-A → WP-D) have
-landed across four commits between dispatch (`7c22284`, 2026-05-08) and
-HEAD (`4db9757`, 2026-05-08). Engineering hygiene gates green at root
-and at the `apps/replay/` sub-package: `npm run lint`,
-`npm run typecheck`, `npm run build`, `npm test` (447 passed, 4
-LIVE_AZURE-gated skips — phase-1 carry-over). Substrate freeze (D-P2-9)
-verified — empty diff over `convex/engine`, `convex/llm`,
-`convex/runMatch.ts`, `convex/schema.ts`, `personas/*`, `harness/*`.
+landed across four feature commits between dispatch (`7c22284`,
+2026-05-08) and the post-implementation tip (`4db9757`, 2026-05-08); two
+follow-up commits (`2833537`, `aee6397`) close the closure-readiness
+must-fix bundle and reconcile docs. Engineering hygiene gates green at
+root and at the `apps/replay/` sub-package: `npm run lint`,
+`npm run typecheck`, `npm run build`, `npm test`
+(454 passed, 4 LIVE_AZURE-gated skips — 332 phase-1 + 122 phase-2
+sub-package; phase-2 net adds 7 since the draft for the new
+`TurnFeed.test.tsx` truncation suite). `apps/replay` Vite build:
+130 modules, 79.51 KB gzipped. Substrate freeze (D-P2-9) verified —
+empty diff over `convex/engine`, `convex/llm`, `convex/runMatch.ts`,
+`convex/schema.ts`, `personas/*`, `harness/*` from dispatch through
+`aee6397`.
 
 **User vibe-judgement: PENDING.** The phase's success criterion is
 qualitative — the user steps through three+ matches, confirms the
@@ -64,9 +72,13 @@ apps/replay/
     ├── components/
     │   ├── Grid.tsx          inline-SVG bird's-eye, fit-to-viewport, no zoom/pan
     │   ├── TurnStepper.tsx   slider 0..match.turn + Next button + arrow keys; ?turn=N
-    │   ├── TurnFeed.tsx      side-panel agent rows; uses summariseDecision()
+    │   ├── TurnFeed.tsx      side-panel agent rows; uses summariseDecision();
+    │   │                     exports truncateOneLine helper (closure-readiness)
     │   ├── HoverCard.tsx     agent/chest/corpse/wall/cover/evac hover details
-    │   └── ExpandModal.tsx   5-tab modal: persona / system / digest / scratchpad / LLM trace
+    │   ├── ExpandModal.tsx   5-tab modal: persona / system / digest / scratchpad / LLM trace
+    │   │                     LLM tab includes copyable parsed `decision` JSON (AC#9)
+    │   └── __tests__/
+    │       └── TurnFeed.test.tsx   7 tests for truncateOneLine boundaries (closure-readiness)
     └── lib/
         ├── convexClient.ts   singleton ConvexReactClient(VITE_CONVEX_URL)
         ├── useHashRoute.ts   pure parser for #/, #/match/<id>?turn=N
@@ -75,13 +87,23 @@ apps/replay/
         ├── formatters.ts     pure: usage / latency / scratchpad-diff helpers
         ├── hoverTypes.ts     HoverTarget discriminated union (WP-C ↔ WP-D contract)
         └── __tests__/
-            ├── reconstruct.test.ts   25 tests (de-risking §1.1–§1.9 retired)
+            ├── reconstruct.test.ts   25 tests (de-risking §1.1–§1.6 + §1.8–§1.9 retired; §1.7 retired by D-P2-22)
             ├── decisionEnglish.test.ts 51 tests (ADR §5 vocabulary table)
             ├── formatters.test.ts    23 tests
             └── useHashRoute.test.ts  16 tests
 ```
 
-Total: 115 Vitest tests inside the sub-package, all passing.
+Total: 122 Vitest tests inside the sub-package, all passing
+(115 at draft + 7 added by closure-readiness for the
+`truncateOneLine` helper).
+
+`MatchPicker.tsx` additionally wraps its paginated query in a
+local `PickerErrorBoundary` class component that renders a friendly
+hint pointing at `npx convex dev` + `VITE_CONVEX_URL` when
+`replay:listMatches` 404s against a deployment that has not yet pushed
+`convex/replay.ts` (closure-readiness — UAT ISSUE-003b). The opaque
+"last survivor" picker column was removed in the same pass per D-P2-21
+(see §5 below).
 
 ### 1.2 Convex query module — `convex/replay.ts`
 
@@ -108,13 +130,14 @@ getReplayBundle}` to the renderer's TypeScript build (the only diff in
 
 | Suite | Count | Anchors |
 |---|---:|---|
-| `apps/replay/.../reconstruct.test.ts` | 25 | de-risking §1.1–§1.9 (every enumerated failure mode); ADR §4 walk rules |
-| `apps/replay/.../decisionEnglish.test.ts` | 51 | ADR §5 vocabulary table; canonical source `convex/engine/resolution.ts:374-586` (D-P2-14) |
-| `apps/replay/.../formatters.test.ts` | 23 | usage/latency/scratchpad-diff helpers (pure) |
-| `apps/replay/.../useHashRoute.test.ts` | 16 | hash-route parser (pure) |
-| **Phase-2 sub-total** | **115** | tests-first per AOP for the two pure modules |
+| `apps/replay/.../lib/__tests__/reconstruct.test.ts` | 25 | de-risking §1.1–§1.6 + §1.8–§1.9; §1.7 retired by D-P2-22; ADR §4 walk rules |
+| `apps/replay/.../lib/__tests__/decisionEnglish.test.ts` | 51 | ADR §5 vocabulary table; canonical source `convex/engine/resolution.ts:374-586` (D-P2-14) |
+| `apps/replay/.../lib/__tests__/formatters.test.ts` | 23 | usage/latency/scratchpad-diff helpers (pure) |
+| `apps/replay/.../lib/__tests__/useHashRoute.test.ts` | 16 | hash-route parser (pure) |
+| `apps/replay/.../components/__tests__/TurnFeed.test.tsx` | 7 | `truncateOneLine` boundary behaviour (closure-readiness — AC#7) |
+| **Phase-2 sub-total** | **122** | tests-first per AOP for the pure modules + the truncation helper |
 | Phase-1 carry-over (`tests/**`) | 332 + 4 skipped | `LIVE_AZURE`-gated skips unchanged from phase 1 |
-| **Suite total** | **447 + 4 skipped** | matches phase-1 baseline (332) + phase-2 net adds (115) |
+| **Suite total** | **454 + 4 skipped** | matches phase-1 baseline (332) + phase-2 net adds (122) |
 
 ### 1.4 ESLint slice-boundary rule
 
@@ -144,9 +167,12 @@ machine-enforced expression of architecture.md §1 / pillar 7
 
 ## 2. ADR adherence summary
 
-Each phase-2 decision (`D-P2-1`..`D-P2-17`, sourced from
+Each phase-2 decision (`D-P2-1`..`D-P2-23`, sourced from
 `architecture-decisions.md` and the conversation Decision Record)
-ticked off with one line of agent-verifiable evidence.
+ticked off with one line of agent-verifiable evidence. Decisions
+`D-P2-18`..`D-P2-23` are closure-readiness orchestration entries
+recorded after the implement job; they do not have ADR-section
+counterparts in `architecture-decisions.md`.
 
 | ID | Decision | Evidence |
 |---|---|---|
@@ -167,6 +193,12 @@ ticked off with one line of agent-verifiable evidence.
 | D-P2-15 | Plan refinement post-review approved without re-review | Reviewer-conditions met by direct engine-source verification per phase memory `feedback_verified_guides_are_contracts`; commit `93584a5`. |
 | D-P2-16 | Phase 2 v0 dispatched as a single implement job covering all 4 WPs | One implement job; sequenced internally per `work-packages.md` dependency arrows; four commits 2f697cd → 4db9757. |
 | D-P2-17 | Phase 2 v0 implement job COMPLETE | All four WP commits landed; gates green; this closure record filed. |
+| D-P2-18 | First review-group findings: 4 AC-violating must-fix items (Grid fit-to-viewport / URL→state sync / scratchpad preview / parsed decision JSON) | All four resolved by closure-readiness commit `2833537`; details in §5.0 below. |
+| D-P2-19 | Closure-completion path: single implement job lands must-fix + bundled-lower-priority + closure-doc, THEN COMPLETION REVIEW group dispatched | Honoured: `2833537` (code+README) + `aee6397` (docs) precede the COMPLETION REVIEW group; this current document pass is part of that group. |
+| D-P2-20 | de-risking §1.8 wording aligned to `t >= extractedAtTurn` impl semantics (engine extracts in resolution phase 8) | `de-risking.md` §1.8 updated in `aee6397` with citation to `convex/engine/resolution.ts:711-723`; matches `Grid.tsx:207-212`. |
+| D-P2-21 | Last-survivor column on MatchPicker dropped — enrichment would require N+1 worldState reads or a schema diff | `MatchPicker.tsx:1-31` doc-comment records the drop; remaining columns (matchId/startedAt/status/turn/extracted) satisfy AC#2 "enough context to choose". |
+| D-P2-22 | de-risking §1.7 retired (not patched) — reconstruct.ts performs zero corpse-contents derivation; HoverCard reads `worldState.corpses[]` directly | `de-risking.md` §1.7 marked retired in `aee6397`; parallels D-P2-12 (no derivation in v0). |
+| D-P2-23 | COMPLETION REVIEW group dispatched in parallel (review + uat + document); gates AOP.VALIDATE'd independently before dispatch | This document pass is the `document` strand of that group; §9 remains empty per north-star §COMPLETION CONDITION. |
 
 ---
 
@@ -174,21 +206,22 @@ ticked off with one line of agent-verifiable evidence.
 
 The Cucumber Given/When/Then in `README.md` §3 (the north-star
 business need) is the success contract. The table below maps each
-clause to its evidence; rows whose verification requires running the
-app in a browser against the user's Convex deployment are marked
-**Pending agent UAT walk-through** — those rows are mechanically
-correct in code (component + integration tests pass; props wire to the
-named fields) but are not yet validated by an end-to-end browser
-exercise against live data.
+clause to its evidence. The first agent-UAT pass against `4db9757`
+exercised every row and surfaced the four AC violations now resolved
+in §5.0. Rows whose verification still requires a visual count check
+against live data are explicitly marked **Pending agent UAT walk-
+through** below — those rows are mechanically correct in code
+(component + integration tests pass; props wire to the named fields)
+but were not visually counted in the first UAT pass.
 
 ### 3.1 Scenario 1 — User picks a recent match
 
 | Clause | Evidence |
 |---|---|
-| Given user opens replay app in local browser | `apps/replay/README.md` quick-start; root `dev:replay` script; Vite serves `:5173`. |
+| Given user opens replay app in local browser | `apps/replay/README.md` quick-start (refreshed in `2833537` with Prerequisites + route descriptions); root `dev:replay` script; Vite serves `:5173`. |
 | When they navigate to match list (`#/`) | `main.tsx:16-22` routes hash `#/` (or unrecognised) to `MatchPicker`. |
-| Then paginated, reverse-chronological list of matches | `convex/replay.ts:43-52` `listMatches` uses `withIndex("by_status", "completed").order("desc").paginate(opts)`; `MatchPicker.tsx` renders via `usePaginatedQuery`. |
-| And each row surfaces enough context | Columns include matchId (truncated), startedAt, status, turn, `outcome.extracted.length`, `outcome.lastSurvivor` (truncated id or "—"). Pending agent UAT for visual confirmation. |
+| Then paginated, reverse-chronological list of matches | `convex/replay.ts:43-52` `listMatches` uses `withIndex("by_status", "completed").order("desc").paginate(opts)`; `MatchPicker.tsx` renders via `usePaginatedQuery`. A local `PickerErrorBoundary` surfaces a friendly hint on `replay:listMatches` 404 (UAT ISSUE-003b). |
+| And each row surfaces enough context | Columns: matchId (truncated 8ch), `startedAt` (ISO + relative), status, `match.turn`, `outcome.extracted.length`. The opaque `outcome.lastSurvivor` column was dropped per D-P2-21 / UAT ISSUE-004 (enrichment would require N+1 reads or a forbidden schema diff). |
 | When click a row | `MatchPicker.tsx` row href is `#/match/<id>` (hash anchor, no JS handler needed). |
 | Then navigate to replay view | `main.tsx:18-19` matches `kind === "replay"` route from `useHashRoute`. |
 
@@ -197,35 +230,40 @@ exercise against live data.
 | Clause | Evidence |
 |---|---|
 | Given replay loaded for completed match | `Replay.tsx` calls `client.query(api.replay.getReplayBundle, { matchId })` once on mount (no subscription). |
-| Then bird's-eye 100×100 grid fits viewport | `Grid.tsx` SVG `viewBox="0 0 100 100"`, container `width: 100%; height: auto` (fit-to-viewport, no zoom/pan). Pending agent UAT for visual confirmation across viewport sizes. |
-| And turn 0 is shown by default | `Replay.tsx` initial `currentTurn = 0`; `reconstruct(bundle, 0)` synthesises spawn-position snapshot per ADR §4. |
+| Then bird's-eye 100×100 grid fits viewport | `Grid.tsx` SVG `viewBox="0 0 100 100"`; wrapped in `gridSquareStyle` (`Replay.tsx:419-428` — `aspect-ratio: 1/1` + `max-width: 100%` + `height: 100%`) inside a viewport-bounded main column so the grid is always square AND always fits — closure-readiness AC#4 / UAT ISSUE-001 (commit `2833537`). |
+| And turn 0 is shown by default | `Replay.tsx` initial `currentTurn = 0`; `reconstruct(bundle, 0)` synthesises spawn-position snapshot per ADR §4. URL ↔ state sync via `useEffect([props.turn])` mirror at `Replay.tsx:51-54` honours browser back/forward + direct URL edits — closure-readiness AC#5 / UAT ISSUE-002. |
 | And walls/cover/chests/corpses/evac/agents render | `Grid.tsx` z-ordered layers per ADR §4 walk (walls → cover → chests → corpses → evac → agents). Pending agent UAT for visual count check (≈28 walls, ≈60 cover tiles, 12 closed chests, 8 spawn agents, 3×3 evac ring at (47..49, 47..49)). |
 | When click "next turn" or use slider | `TurnStepper.tsx` Next button + slider; both write `?turn=N` via `useHashRoute`. |
 | Then grid updates | `Replay.tsx` derives snapshot via `useMemo(() => reconstruct(bundle, currentTurn))`. |
-| And turn feed updates | `TurnFeed.tsx` reads `turnRowByTurn.get(currentTurn)` (D-P2-13 keying) and renders agent rows with `summariseDecision()`. |
+| And turn feed updates | `TurnFeed.tsx` reads `turnRowByTurn.get(currentTurn)` (D-P2-13 keying) and renders agent rows with `summariseDecision()`; collapsed rows show a one-line dimmed `scratchpadAfter` preview via `truncateOneLine(text, 100)` — closure-readiness AC#7 (`TurnFeed.tsx:316`). |
 
 ### 3.3 Scenario 3 — User inspects an agent's mind
 
 | Clause | Evidence |
 |---|---|
 | When expand an agent's row in feed | `TurnFeed.tsx` "..." button mounts `ExpandModal` with `(agentRecord, characterById)`. |
-| Then see persona prompt, scratchpadBefore/After, decision in English, visibleStateDigest | `ExpandModal.tsx` 5 tabs read `personaPromptText` (`:221`), `systemPromptText` (`:242`), `visibleStateDigest` (`:263`), `scratchpadBefore`/`scratchpadAfter` (`:283-284`), LLM trace (`:336-401`). |
+| Then see persona prompt, scratchpadBefore/After, decision in English, visibleStateDigest | `ExpandModal.tsx` 5 tabs read `personaPromptText` (`:221`), `systemPromptText` (`:242`), `visibleStateDigest` (`:263`), `scratchpadBefore`/`scratchpadAfter` (`:283-284`), LLM trace (`:334+`). The LLM tab additionally surfaces a copyable parsed `agentRecord.decision` JSON section alongside `rawArguments` (`:353-356, :403-404`) — closure-readiness AC#9 / review-B Med-2. |
 | When hover an agent token | `Grid.tsx` agent `<g>` mouseenter populates `HoverCard` with `HoverTarget` discriminated-union payload. |
 | Then compact card with persona, hp, equipped, decision summary | `HoverCard.tsx` agent branch shows persona + displayName + position + alive/hidden + summary; hp/equipped render literal "see expand panel" per D-P2-11 (`HoverCard.tsx:230-231`). |
 | When hover a chest | `Grid.tsx` chest `<g>` populates HoverCard chest branch. |
 | Then see open/closed + contents | `HoverCard.tsx` closed chest shows id+pos+"closed"; opened chest shows id+pos+"opened (turn N)" + literal "contents not persisted" per D-P2-12 (`HoverCard.tsx:296`). |
 | When hover a corpse | `HoverCard.tsx` corpse branch shows deceased character + persona + death turn + remaining loot from `worldState.corpses[]`. |
 
-### 3.4 Caveat — agent UAT browser walk-through pending
+### 3.4 Caveat — agent UAT browser walk-through
 
-Per the phase plan (`work-packages.md` "Closing the phase" §1-§2), an
-independent reviewer agent walks three matches end-to-end and produces
-screenshot + DOM-assertion evidence for each Cucumber row before the
-user signoff (§9). This document is the **draft** closure record; the
-parallel agent UAT job's findings are not surfaced into this record at
-draft time. The draft is committed so the user can read the structure
-while the UAT pass completes; UAT findings will be appended (or
-escalated to a *Blocking findings* section) before the user starts §9.
+A first agent-UAT pass against the implementation tip `4db9757` produced
+two Med-blocking findings (Grid fit-to-viewport and URL↔state sync) plus
+one onboarding-friction issue (Convex deployment prerequisites unclear)
+— all four direct AC violations (`AC#4, AC#5, AC#7, AC#9`) were
+resolved in the closure-readiness commit `2833537` per §5.0 below.
+
+The COMPLETION REVIEW group (review + uat + document, dispatched per
+D-P2-23) is running in parallel with this document pass. Findings from
+that group's `uat` strand against `aee6397` are **not** integrated into
+this record at sealing time — to avoid blocking on parallel jobs per
+the assignment scope. If the COMPLETION REVIEW UAT raises new
+high-severity findings they will be appended as a *Blocking findings*
+section before the user starts §9; otherwise the user reads §9 fresh.
 
 ---
 
@@ -236,23 +274,84 @@ diff to the engine kernels, the LLM wrapper, the per-match orchestrator,
 the schema, the persona content, or the harness CLI.
 
 ```
-$ git diff 7c22284..HEAD -- convex/engine convex/llm convex/runMatch.ts convex/schema.ts personas harness
+$ git diff 7c22284..aee6397 -- convex/engine convex/llm convex/runMatch.ts convex/schema.ts personas harness
 (no output)
 ```
 
-Verified at draft time (HEAD = `4db9757`). The only files touched in
+Verified at sealing time (HEAD = `aee6397`). The only files touched in
 `convex/` between dispatch and HEAD are `convex/replay.ts` (new module,
 +92 lines) and the regenerated `convex/_generated/api.d.ts` (+2 lines —
-the new module's typed surface).
+the new module's typed surface). The closure-readiness commits
+(`2833537` code+README and `aee6397` docs) touched **only** the renderer
+sub-package and `docs/project/phases/02-replay-overseer-v0/*.md` —
+neither commit modifies any substrate path.
 
 ---
 
 ## 5. Known caveats / known-issues
 
-Each entry is tagged **v0 acceptable** (intentional gap, surfaced as
-literal copy in the UI) or **deferred** (downstream phase will close
-it). No high-severity findings are open against this phase at draft
-time.
+Each entry is tagged **resolved** (closure-readiness — fixed in
+`2833537` or `aee6397`), **v0 acceptable** (intentional gap, surfaced
+as literal copy in the UI) or **deferred** (downstream phase will
+close it). No high-severity findings are open against this phase at
+sealing time.
+
+### 5.0 Closure-readiness fixes applied (resolved)
+
+**Tag:** resolved (closure-readiness — landed in `2833537` + `aee6397`).
+
+The first review-group pass (review × 3 reviewers + agent UAT against
+`4db9757`) produced 4 AC-violating must-fix items + 5
+lower-priority items. All 9 are addressed:
+
+**AC-violating must-fix (4) — all resolved in `2833537`:**
+
+- **AC#4 — Grid fit-to-viewport:** `Replay.tsx:419-428` adds
+  `gridSquareStyle` (`aspect-ratio: 1/1` + `max-width: 100%` +
+  `height: 100%`) inside a viewport-bounded main column. The grid is
+  now always square and always fits. (UAT ISSUE-001.)
+- **AC#5 — URL ↔ currentTurn sync:** `Replay.tsx:51-54` adds a
+  `useEffect([props.turn])` mirror that pulls `useHashRoute` updates
+  into local state on browser back/forward and direct URL edits.
+  TurnStepper continues to write `?turn=N` via `replaceState`. (UAT
+  ISSUE-002.)
+- **AC#7 — Scratchpad preview on collapsed feed rows:** `TurnFeed.tsx`
+  exports a new `truncateOneLine(text, budget)` helper (`:316`) and
+  uses it at `:246` to render a one-line dimmed `scratchpadAfter`
+  preview at ≤100 chars on collapsed rows. **+7 Vitest cases** in
+  `apps/replay/src/components/__tests__/TurnFeed.test.tsx` cover
+  boundary, exact-budget, ellipsis, newline-collapse, CRLF/tab
+  collapse, run-of-whitespace collapse, and empty-string. (Review-B
+  Med-1.)
+- **AC#9 — Parsed `decision` JSON in ExpandModal:** `ExpandModal.tsx`
+  LLM tab adds a copyable parsed-`agentRecord.decision` JSON section
+  at `:353-356, :403-404` alongside the existing `rawArguments`. The
+  centerpiece of concept-spec §2.4 (scratchpad-as-explainability) is
+  now directly inspectable. (Review-B Med-2.)
+
+**Lower-priority bundle (5) — resolved in `2833537`:**
+
+- README route description refresh + new Prerequisites section
+  documenting `npx convex dev` + `VITE_CONVEX_URL` (review-B Low; UAT
+  ISSUE-003a). `apps/replay/README.md`.
+- `MatchPicker.tsx` `PickerErrorBoundary` class component — friendly
+  hint when `replay:listMatches` 404s on a deployment that has not yet
+  pushed `convex/replay.ts` (UAT ISSUE-003b).
+- Last-survivor column DROPPED from picker — D-P2-21 (UAT ISSUE-004).
+  Enrichment would require N+1 `worldState` reads OR a schema diff
+  forbidden by D-P2-9; the remaining columns satisfy AC#2.
+- HoverCard speculative `useEffect` import + `void useEffect` hush
+  comment removed (review-A nit).
+- `de-risking.md` §1.8 wording aligned to `t >= extractedAtTurn` impl
+  semantics with engine-source citation (D-P2-20; review-A Med-1).
+- `de-risking.md` §1.7 RETIRED (not patched) — `reconstruct.ts`
+  performs zero corpse-contents derivation and `HoverCard.tsx` reads
+  `bundle.worldState.corpses[]` directly, so the feared
+  derivation-vs-truth divergence has no surface. Parallels D-P2-12 for
+  chests (D-P2-22; review-B Med-3).
+
+Phase-2 sub-package test count went 115 → 122 in this slice. Root
+`npm test` went 447 → 454 passing (4 LIVE_AZURE skips unchanged).
 
 ### 5.1 Live-agent equipment + HP not derivable per turn — D-P2-11
 
@@ -335,9 +434,9 @@ next phase that revisits these surfaces can address them.
   `apps/replay/src/components/TurnFeed.tsx`; review-A Med-2). Conscious
   choice — extract to a shared module on the third caller, not earlier.
 - **Wall hover precision: NW-corner coordinate displayed for multi-tile
-  walls** (`apps/replay/src/routes/Replay.tsx:94` TODO; review-A/C nit).
-  Per-tile hover would require splitting wall geometry; deferred until
-  user signals it impedes vibe-judgement.
+  walls** (`apps/replay/src/routes/Replay.tsx:105-109` TODO; review-A/C
+  nit). Per-tile hover would require splitting wall geometry; deferred
+  until user signals it impedes vibe-judgement.
 - **HoverCard first-paint edge-clamp uses fallback dimensions before
   measuring** (`apps/replay/src/components/HoverCard.tsx:74-78`;
   review-A nit). Fallback `220 × 320` is used until the ref is
@@ -420,8 +519,10 @@ Phase 2 documents that together form the full record:
 - `README.md` — phase goal / scope / Cucumber surface / hard
   out-of-scope / dependency map.
 - `architecture-decisions.md` — ADR §1..§12 capturing decisions
-  D-P2-1..D-P2-14 (D-P2-15..17 are conversation Decision Record
-  entries — orchestration / dispatch level, not architecture).
+  D-P2-1..D-P2-14. D-P2-15..D-P2-23 are conversation Decision Record
+  entries — orchestration / dispatch / closure-readiness level, not
+  architecture; the §2 ADR adherence table above is the authoritative
+  evidence index for those.
 - `work-packages.md` — WP-A through WP-D scope, acceptance, test
   strategy, risks; "Closing the phase" §1-§3.
 - `de-risking.md` — single load-bearing unknown
