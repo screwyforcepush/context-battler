@@ -25,6 +25,7 @@ import type * as engine_validation from "../engine/validation.js";
 import type * as engine_vision from "../engine/vision.js";
 import type * as llm_azure from "../llm/azure.js";
 import type * as llm_decisionTool from "../llm/decisionTool.js";
+import type * as llm_idNormalisation from "../llm/idNormalisation.js";
 import type * as llm_inputBuilder from "../llm/inputBuilder.js";
 import type * as llm_personas from "../llm/personas.js";
 import type * as llm_systemPrompt from "../llm/systemPrompt.js";
@@ -61,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   "engine/vision": typeof engine_vision;
   "llm/azure": typeof llm_azure;
   "llm/decisionTool": typeof llm_decisionTool;
+  "llm/idNormalisation": typeof llm_idNormalisation;
   "llm/inputBuilder": typeof llm_inputBuilder;
   "llm/personas": typeof llm_personas;
   "llm/systemPrompt": typeof llm_systemPrompt;

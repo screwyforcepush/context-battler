@@ -40,8 +40,12 @@ npm run dev:replay
 - `#/match/<matchId>` — replay view: bird's-eye SVG grid, turn stepper
   (slider + Next + arrow keys), per-turn side-panel feed with
   decisions in English, hover details on agents/chests/corpses, and a
-  click-to-expand modal surfacing the full persona prompt, system
-  prompt, visible-state digest, scratchpad diff, and LLM trace.
+  click-to-expand raw-pane modal with three sections: full LLM input
+  (system + user role), reasoning text (when Azure surfaces it), and
+  the parsed tool-call JSON. (Phase-3 collapsed the previous 5-tab
+  modal to a single raw-dump pane — see
+  `docs/project/phases/03-substrate-refinement/architecture-decisions.md`
+  §2 for the reasoning-capture contract.)
 
 ## Why this is a sub-package
 
