@@ -5,7 +5,7 @@
 > replay UI can show their minds. Close with 10 Convex-persisted runs that
 > meet an enhanced acceptance bar.
 
-Phase status: planning. Phase 2 closure record:
+Phase status: closed **2026-05-08**. Phase 2 closure record:
 `docs/project/phases/02-replay-overseer-v0/phase-2-closure.md`. Phase 3's
 why-layer is anchored in `mental-model.md` §11 (substrate-refinement
 paragraph, added 2026-05-08).
