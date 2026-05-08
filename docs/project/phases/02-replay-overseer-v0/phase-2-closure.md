@@ -444,6 +444,62 @@ next phase that revisits these surfaces can address them.
 - **UAT ISSUE-005 hover state-machine fragility** (UAT report).
   Test artefact — could not reproduce with normal mouse usage; logged
   for completeness pending real-world observation.
+- **Kill-attribution v0 contract — multi-attacker same-turn deaths
+  produce duplicate kill claims**
+  (`apps/replay/src/lib/decisionEnglish.ts:351-358`,
+  `apps/replay/src/lib/__tests__/decisionEnglish.test.ts:457-512`,
+  `convex/engine/resolution.ts:374-586`; review-B Med-2 / review-A
+  nit #5; D-P2-25). The renderer appends `" — killed <displayName>"`
+  to *any* attacker whose attack outcome lands on a target appearing
+  in `resolution.deaths[]` on the same turn. When two or more agents
+  hit the same dying target simultaneously, each agent's feed row
+  claims the kill — the test at lines 503-510 explicitly locks this
+  contract ("the kill suffix appears for any attacker whose attack
+  outcome lands on the dying target on the same turn. Both attackers
+  get it"). Disambiguating would require either re-deriving last-blow
+  attribution from a substrate diff (forbidden by D-P2-9 — engine
+  emits `dmg N` traces + a flat `deaths[]` list, never a last-blow
+  field) or falling back to conservative wording like "target died
+  this turn" that would degrade the common single-attacker case where
+  the current copy reads cleanly. Defer to consumer-renderer
+  wishlist; the user can read `resolution.deaths[]` via the LLM trace
+  / parsed-decision JSON for the full picture in v0.
+- **de-risking §1.8 test-prose alignment — Grid filter not directly
+  asserted by reconstruct tests**
+  (`docs/project/phases/02-replay-overseer-v0/de-risking.md:188-196`,
+  `apps/replay/src/components/Grid.tsx:207-212`,
+  `apps/replay/src/lib/__tests__/reconstruct.test.ts:712-750`;
+  review-A nit #3; D-P2-26). §1.8's "Test (Vitest)" prose claims the
+  test asserts the Grid grid-filter expression
+  (`extractedAtTurn === null || extractedAtTurn > snapshot.turn`);
+  the actual Vitest cases at `reconstruct.test.ts:712-750` only
+  assert reconstruct's snapshot semantics
+  (`aSnap.extractedAtTurn === 50` at turn 50, `null` at turn 49) —
+  they do not mount `<Grid>` or exercise the filter at
+  `Grid.tsx:207-212`. Functional behaviour is correct (filter +
+  reconstruct semantics agree on `t >= extractedAtTurn → hidden` per
+  D-P2-20); the gap is purely documentary. Closing requires either
+  (a) trimming the §1.8 "Test" paragraph to match what the test
+  actually asserts, or (b) adding a thin RTL test that mounts
+  `<Grid>` with an extracted-character snapshot and asserts the
+  agent token is absent. Defer as optional polish — the next phase
+  that touches the Grid component is the natural moment.
+- **First-paint URL canonicalisation — bare `#/match/<id>` rewrites
+  to `?turn=0` on mount**
+  (`apps/replay/src/components/TurnStepper.tsx:42-70`; review-A
+  nit #4). The `useEffect(() => syncUrlTurn(currentTurn),
+  [currentTurn])` at `TurnStepper.tsx:68-70` fires on mount as well
+  as on subsequent `currentTurn` changes, so visiting
+  `#/match/<id>` (no `?turn=`) immediately rewrites the URL bar to
+  `#/match/<id>?turn=0`. `syncUrlTurn`'s hash-equality guard at
+  `TurnStepper.tsx:55` prevents re-entrant history churn (it returns
+  early when `window.location.hash === nextHash`), so the rewrite is
+  a single `replaceState` call and there is no observable runtime
+  loop. Functional no-op; mild polish — may surprise anyone
+  hand-typing or share-testing the canonical un-parameterised
+  URL. Defer as optional polish; the natural fix is to skip the
+  effect on the mount tick when the URL already has no `?turn=`
+  param (or to gate the write on `props.turn !== currentTurn`).
 
 ---
 
