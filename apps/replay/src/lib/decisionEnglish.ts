@@ -283,14 +283,26 @@ function renderActionIntent(
     }
     case "loot": {
       // Phase-3 ADR §1 — unified loot. Disambiguate by id namespace
-      // (chest_* → "Opened chest_NNN"; otherwise → "Looted corpse-of-X").
-      // WP-D.2 elaborates this with counter-fire / stance copy on
-      // overwatch entries.
-      if (a.targetId.startsWith("chest_")) {
-        return `Opened ${a.targetId}`;
+      // exactly the way the engine does (`convex/engine/movement.ts`
+      // L129-134 + `convex/engine/resolution.ts` L482-486): chest ids
+      // match `chest_` OR `Chest_` (case-insensitive — the engine
+      // normalises both forms upstream); everything else flows to the
+      // corpse-loot path.
+      //
+      // WP-F.3 fix (UAT ISSUE-001 [HIGH]): the previous lowercase-only
+      // check let `Chest_008` (capitalised — the LLM-facing rendered id)
+      // fall through to the corpse-of fallback, where
+      // `resolveCharacterName` then truncated the string to 8 chars,
+      // producing `Looted from corpse-of-Chest_00` (wrong prefix AND
+      // mangled id). The fix mirrors the engine's case-insensitive
+      // dispatch and renders the original id verbatim — no
+      // `corpse-of-` prefix on the chest path, no truncation.
+      const targetId = a.targetId;
+      if (/^chest_/i.test(targetId)) {
+        return `Opened ${targetId}`;
       }
       const name = resolveCharacterName(
-        a.targetId as Id<"characters">,
+        targetId as Id<"characters">,
         characterById,
       );
       return `Looted from corpse-of-${name}`;

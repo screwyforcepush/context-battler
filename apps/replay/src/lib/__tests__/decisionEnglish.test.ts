@@ -413,6 +413,100 @@ describe("summariseDecision — action.kind × result vocabulary (D-P2-14)", () 
     expect(out.oneLine).toContain(english);
   });
 
+  // ── WP-F.3 UAT ISSUE-001 [HIGH] regression — chest-loot rendering ─────
+  //
+  // The model emits typed chest ids verbatim (`Chest_008` capitalised),
+  // mirroring the displayName form the engine accepts case-insensitively
+  // (convex/engine/movement.ts:129-134, convex/engine/resolution.ts:482-
+  // 486). Pre-fix, the renderer's lowercase-only `chest_` check let the
+  // capitalised form fall through to the corpse-of fallback, where
+  // `resolveCharacterName` truncated the bogus id to 8 chars — producing
+  // `Looted from corpse-of-Chest_00` (wrong prefix AND mangled id).
+  //
+  // Post-fix:
+  //   - Chest namespace dispatch is case-insensitive.
+  //   - The full chest id renders verbatim (no truncation, no
+  //     corpse-of- prefix).
+  //   - Trace target string also rendered verbatim (the engine
+  //     preserves the model's emit on the trace per resolution.ts
+  //     L568-574).
+  it("chest-loot capital `Chest_008` → renders full id with no corpse-of- prefix", () => {
+    const me = makeChar("a", "Player_1");
+    const ar = makeAgentRecord(me._id, {
+      action: { kind: "loot", targetId: "Chest_008" },
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      actions: [
+        {
+          characterId: me._id,
+          kind: "loot",
+          // Engine echoes the model's verbatim emit on the trace target
+          // (resolution.ts L568-574). Mirror that here.
+          target: "Chest_008",
+          result: "opened",
+        },
+      ],
+    };
+    const out = summariseDecision(ar, res, characterMap(me));
+    // Full id preserved (case + all 3 digits — no `Chest_00` truncation).
+    expect(out.oneLine).toContain("Opened Chest_008");
+    // No corpse-of- prefix on the chest path.
+    expect(out.oneLine).not.toContain("corpse-of-Chest_008");
+    expect(out.oneLine).not.toContain("Looted from corpse-of-Chest");
+    // Outcome `opened` still surfaces under the loot vocabulary.
+    expect(out.oneLine).toContain("opened");
+  });
+
+  // Corpse-loot parity fixture — assert the loot path renders the
+  // corpse correctly with full Player_N displayName (no truncation).
+  it("corpse-loot Player_5 → renders Looted from corpse-of-Player_5 with looted outcome", () => {
+    const me = makeChar("a", "Player_1");
+    const dead = makeChar("b", "Player_5");
+    const ar = makeAgentRecord(me._id, {
+      action: { kind: "loot", targetId: dead._id },
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      actions: [
+        {
+          characterId: me._id,
+          kind: "loot",
+          target: dead._id,
+          result: "looted",
+        },
+      ],
+    };
+    const out = summariseDecision(ar, res, characterMap(me, dead));
+    expect(out.oneLine).toContain("Looted from corpse-of-Player_5");
+    expect(out.oneLine).toContain("looted");
+  });
+
+  // Drained-corpse fixture (phase-3 ADR §4 — `result: "empty"` trace
+  // entry from resolution.ts L800-807). Asserts the dedicated drained
+  // outcome copy surfaces alongside the corpse intent.
+  it("corpse-loot Player_5 + `empty` → surfaces drained outcome", () => {
+    const me = makeChar("a", "Player_1");
+    const dead = makeChar("b", "Player_5");
+    const ar = makeAgentRecord(me._id, {
+      action: { kind: "loot", targetId: dead._id },
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      actions: [
+        {
+          characterId: me._id,
+          kind: "loot",
+          target: dead._id,
+          result: "empty",
+        },
+      ],
+    };
+    const out = summariseDecision(ar, res, characterMap(me, dead));
+    expect(out.oneLine).toContain("Looted from corpse-of-Player_5");
+    expect(out.oneLine).toContain("corpse already drained");
+  });
+
   // ── loot × result (corpse variants — phase-3 ADR §4 adds "empty") ─────
   it.each([
     ["looted", "looted"],
