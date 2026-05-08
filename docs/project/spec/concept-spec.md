@@ -132,8 +132,11 @@ LLM input:
   - System prompt (laws of the game, available actions/tools)
   - Behavioural prompt (the player-written character prompt)
   - Current scratchpad (the agent's persistent memory, max-length-bounded)
-  - Visible state for this turn (vision summary, HP, equipped gear,
-    recent heard speech, known evac info, local affordances)
+  - Visible state for this turn (vision summary, HP, equipped gear;
+    per-Visible observation brackets carry attack/speech/holding
+    observations — no separate `Heard:` block; `in evac zone` appears
+    on the `You:` line only after evac is revealed; the system prompt
+    teaches the action grammar — no per-turn `Affordances:` block)
 
 LLM output:
   - Compact decision: primary commitment + optional consume +
@@ -403,17 +406,19 @@ Directional hearing
 Tracking last-known position
 ```
 
-## Last-known and heard states
+## Last-known and heard states (phase-3 v0.2 — folded into observation brackets)
 
-Agents may be told:
+Phase-3 substrate refinement supersedes the v0.1 `Last-known:` and
+`Heard (last turn):` blocks. The digest folds last-turn behaviour into
+per-Visible observation brackets (`attacked Player_2`, `said "..."`,
+`[opened]`, `[drained]`); non-visible map memory is the agent's job via
+the scratchpad. There is no separate `Last-known:` or `Heard (last
+turn):` block in the agent input (see §7 digest shape, §8 input list,
+and phase-3 ADR §6 for the contract).
 
-```text
-Player_2 was last seen entering cover 2 turns ago.
-You hear movement northwest.
-You heard a chest open to the east.
-```
-
-This creates paranoia without giving omniscience.
+Paranoia without omniscience still applies — it now flows through the
+observation brackets the agent saw last turn plus whatever the agent
+chose to write down.
 
 ---
 

@@ -370,12 +370,32 @@ export function buildAgentLlmRecord(r: {
 
 /**
  * Adapt `ResolutionTrace` (engine vocabulary) to the schema's
- * `resolutionValidator` shape. Two adaptations:
+ * `resolutionValidator` shape. Adaptations:
  *   - `consumed[].item: ConsumableName` (engine string) → `{category:"consumable", name:...}` (schema ItemRef).
  *   - `characterId: string` (engine) → `Id<"characters">` (schema). Convex
  *     Id values ARE strings at runtime; we cast at the boundary.
+ *   - Phase-3 ADR §3 / §9 — propagate the optional engine-emitted trace
+ *     fields verbatim so closing-10 metrics survive the persistence
+ *     boundary:
+ *       - `moves[].blockedBy: "wall"` — wall-blocked move marker
+ *         (movement.ts:449-455).
+ *       - `actions[].fromOverwatch: boolean` and `actions[].stance:
+ *         "offensive"|"defensive"` — overwatch-stance attribution for
+ *         offensive overwatch fires (resolution.ts:402-408) and
+ *         defensive counter-fire entries (resolution.ts:712-721).
+ *     All three are optional in BOTH the engine emit type and the
+ *     schema validators (`v.optional(...)`); we use the conditional-
+ *     spread pattern so absent values stay absent (Convex `v.optional`
+ *     accepts absent OR present, but never `undefined` as a value).
+ *
+ * Exported (rather than file-local) so the WP-F.1 persist-adapter parity
+ * test can drive the mapper directly without spinning up the Convex
+ * action runtime — the parity invariant is the load-bearing one for
+ * closing-10 metric correctness (defensiveCounterFires,
+ * offensiveOverwatchFires, persistedBlockedMoves all read these fields
+ * straight off persisted `turns.resolution.*`).
  */
-function adaptResolutionForSchema(
+export function adaptResolutionForSchema(
   trace: ResolutionTrace,
 ): {
   consumed: Array<{
@@ -391,12 +411,15 @@ function adaptResolutionForSchema(
     characterId: Id<"characters">;
     from: Tile;
     to: Tile;
+    blockedBy?: "wall";
   }>;
   actions: Array<{
     characterId: Id<"characters">;
     kind: string;
     target: string;
     result: string;
+    fromOverwatch?: boolean;
+    stance?: "offensive" | "defensive";
   }>;
   deaths: Id<"characters">[];
   visibilityUpdates: Array<{
@@ -425,12 +448,25 @@ function adaptResolutionForSchema(
       characterId: m.characterId as Id<"characters">,
       from: { x: m.from.x, y: m.from.y },
       to: { x: m.to.x, y: m.to.y },
+      // Phase-3 ADR §9 — wall-blocked-move marker. Conditional spread:
+      // engine omits the field on every non-blocked move entry, and the
+      // schema validator is `v.optional(v.literal("wall"))`.
+      ...(m.blockedBy !== undefined ? { blockedBy: m.blockedBy } : {}),
     })),
     actions: trace.actions.map((a) => ({
       characterId: a.characterId as Id<"characters">,
       kind: a.kind,
       target: a.target,
       result: a.result,
+      // Phase-3 ADR §3 — overwatch-stance attribution. Conditional spread
+      // for both fields: the engine omits them on non-overwatch attacks
+      // (legacy phase-1 shape) and may also emit `stance` without
+      // `fromOverwatch` (offensive overwatch fire — resolution.ts:402-408
+      // sets stance="offensive" and lets fromOverwatch default to absent).
+      ...(a.fromOverwatch !== undefined
+        ? { fromOverwatch: a.fromOverwatch }
+        : {}),
+      ...(a.stance !== undefined ? { stance: a.stance } : {}),
     })),
     deaths: trace.deaths.map((d) => d as Id<"characters">),
     visibilityUpdates: trace.visibilityUpdates.map((u) => ({

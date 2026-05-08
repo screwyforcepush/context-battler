@@ -138,5 +138,19 @@ audit-trail clarity.
 
 ---
 
+## Post-closure follow-ups
+
+- **WP-F.5 (2026-05-08)** — phase-3 completion review (Reviewer B Med)
+  surfaced two stale phase-1/2 LLM-input lines outside the original D12
+  edit set (§7/§8/§11/§13/§21/§22/§23): `concept-spec.md:130` (LLM-input
+  enumeration in §2A.1) and `concept-spec.md:406` (§7 sub-section
+  "Last-known and heard states"). Both brought into alignment with the
+  locked phase-3 digest shape (per-Visible observation brackets, no
+  separate `Affordances:` / `Heard:` / `Last-known:` blocks; evac on the
+  `You:` line only after reveal). Additional surface beyond D12; spec is
+  now internally consistent with phase-3 ADR §6.
+
+---
+
 *Drafted: 2026-05-08 (plan-v2 refinement). Prior plan-v1 changelog
 preserved at the bottom of `architecture-decisions.md`.*
