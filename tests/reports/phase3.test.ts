@@ -200,13 +200,19 @@ describe("computePhase3Metrics — wall-blocked move rate", () => {
 
 describe("computePhase3Metrics — drained-corpse repeat rate", () => {
   it("counts (actor, corpse) repeats across consecutive turn pairs", () => {
-    // Actor c0 emits empty-loot for Player_5 at turns 0, 1, 2 → 2 repeats
-    // (0→1, 1→2). Total loot attempts = 3 (the three empty entries).
-    // Rate = 2/3 ≈ 67% → FAIL (threshold ≤ 1%).
+    // Actor c0 emits empty-loot for Corpse_Player_5 at turns 0, 1, 2 →
+    // 2 repeats (0→1, 1→2). Total loot attempts = 3 (the three empty
+    // entries). Rate = 2/3 ≈ 67% → FAIL (threshold ≤ 1%).
+    //
+    // WP-H.2 fixture refresh: post-WP-G.1, the engine preserves the LLM
+    // verbatim `Corpse_Player_N` typed-id in the trace `target` field
+    // (resolution.ts:567 — `traceTarget: rawTargetId`). The repeat-rate
+    // filter is shape-agnostic (same-engine-emit equality) so this just
+    // tracks substrate-correct shape.
     const emptyLootEntry: Phase3ActionTraceEntry = {
       characterId: "c0",
       kind: "loot",
-      target: "Player_5",
+      target: "Corpse_Player_5",
       result: "empty",
     };
     const t0 = makeTurn({
@@ -253,12 +259,20 @@ describe("computePhase3Metrics — drained-corpse repeat rate", () => {
 });
 
 describe("computePhase3Metrics — corpse-loot success rate", () => {
-  it("counts runs with ≥ 1 looted+Player_* entry; ≥ 50% of runs is PASS", () => {
+  it("counts runs with ≥ 1 looted+Corpse_Player_* entry; ≥ 50% of runs is PASS", () => {
     // 2 runs: run1 has a successful corpse loot, run2 doesn't → 50%, PASS.
+    //
+    // WP-H.2 fixture refresh: the engine emits the LLM-verbatim
+    // `Corpse_Player_N` typed-id in the trace `target` field (post-WP-G.1
+    // — resolution.ts:567). Pre-WP-H.1 the aggregator only matched
+    // `Player_*`, so this run silently scored zero — the substrate was
+    // correct, the metric writer was authored against the pre-G.1
+    // contract. WP-H.1 widens the filter; this fixture exercises the
+    // post-G.1 shape.
     const successAction: Phase3ActionTraceEntry = {
       characterId: "c0",
       kind: "loot",
-      target: "Player_5",
+      target: "Corpse_Player_5",
       result: "looted",
     };
     const run1 = makeTurn({
@@ -311,6 +325,101 @@ describe("computePhase3Metrics — corpse-loot success rate", () => {
     ]);
     expect(out2.runsWithCorpseLoot).toBe(0);
     expect(out2.runsWithEquip).toBe(1); // chest open does count for equips
+  });
+
+  // ── WP-H.1 regression — post-WP-G.1 trace shape ─────────────────────
+  //
+  // The engine preserves the LLM's verbatim `Corpse_Player_N` typed-id
+  // in the loot trace `target` field (resolution.ts:567 —
+  // `traceTarget: rawTargetId`). Pre-WP-H.1 the aggregator's
+  // corpse-loot success filter only matched `Player_*`, so successful
+  // corpse-loots silently scored zero, masking an 80% closing-12 hit
+  // rate behind a 0% reported rate. This regression-fences the bug.
+  it("counts a Corpse_Player_* trace target as a corpse-loot success (WP-H.1 regression)", () => {
+    const successAction: Phase3ActionTraceEntry = {
+      characterId: "c0",
+      kind: "loot",
+      target: "Corpse_Player_3",
+      result: "looted",
+    };
+    const turn = makeTurn({
+      matchId: "M1",
+      turn: 0,
+      agentRecords: [makeAgentRecord({ characterId: "c0" })],
+      resolution: { moves: [], actions: [successAction], speech: [] },
+    });
+    const out = computePhase3Metrics([
+      {
+        matchId: "M1",
+        turns: [turn],
+        characters: [makeChar("c0", "Player_1")],
+      },
+    ]);
+    expect(out.runsWithCorpseLoot).toBe(1);
+    expect(out.corpseLootSuccessRate).toBe(1);
+    expect(out.meetsCorpseLootThreshold).toBe(true);
+    expect(out.totalLootAttempts).toBe(1);
+  });
+
+  it("still counts a bare Player_* trace target as a corpse-loot success (back-compat)", () => {
+    // Back-compat path per PM-lock D50: the filter accepts both
+    // `Corpse_Player_*` (post-WP-G.1 engine emit) AND `Player_*` (any
+    // historical fixtures or alternate emit paths). One assertion
+    // exercises both shapes side-by-side in the same run to lock the
+    // OR-acceptance contract.
+    const corpsePrefixed: Phase3ActionTraceEntry = {
+      characterId: "c0",
+      kind: "loot",
+      target: "Corpse_Player_2",
+      result: "looted",
+    };
+    const barePlayer: Phase3ActionTraceEntry = {
+      characterId: "c0",
+      kind: "loot",
+      target: "Player_4",
+      result: "looted",
+    };
+    const turn = makeTurn({
+      matchId: "M1",
+      turn: 0,
+      agentRecords: [makeAgentRecord({ characterId: "c0" })],
+      resolution: {
+        moves: [],
+        actions: [corpsePrefixed, barePlayer],
+        speech: [],
+      },
+    });
+    const out = computePhase3Metrics([
+      {
+        matchId: "M1",
+        turns: [turn],
+        characters: [makeChar("c0", "Player_1")],
+      },
+    ]);
+    // Both entries are kind=loot, so totalLootAttempts=2 — and BOTH are
+    // looted+Player_*-or-Corpse_Player_*, so runsWithCorpseLoot=1 (the
+    // run-level flag fires once). The back-compat assertion is that
+    // *both* shapes flip the run-flag (proven by removing either entry
+    // — see the second sub-assertion below).
+    expect(out.totalLootAttempts).toBe(2);
+    expect(out.runsWithCorpseLoot).toBe(1);
+
+    // Sub-assertion: the bare Player_* shape alone still counts.
+    const out2 = computePhase3Metrics([
+      {
+        matchId: "M2",
+        turns: [
+          makeTurn({
+            matchId: "M2",
+            turn: 0,
+            agentRecords: [makeAgentRecord({ characterId: "c0" })],
+            resolution: { moves: [], actions: [barePlayer], speech: [] },
+          }),
+        ],
+        characters: [makeChar("c0", "Player_1")],
+      },
+    ]);
+    expect(out2.runsWithCorpseLoot).toBe(1);
   });
 });
 

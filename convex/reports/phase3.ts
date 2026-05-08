@@ -40,8 +40,13 @@
 //      total kind="loot" entries (across all 10 runs). Threshold ≤ 1%.
 //
 //   4. **Corpse loot success rate** — % of RUNS where ≥ 1 entry with
-//      kind="loot" + result="looted" + target.startsWith("Player_")
-//      exists. Threshold ≥ 50%.
+//      kind="loot" + result="looted" + target ∈ {Corpse_Player_*,
+//      Player_*} exists. Threshold ≥ 50%. WP-H.1: filter accepts BOTH
+//      shapes — post-WP-G.1 the engine emits the LLM verbatim
+//      `Corpse_Player_N` typed-id (resolution.ts:567 preserves
+//      `traceTarget = rawTargetId`); bare `Player_*` is back-compat with
+//      historical fixtures and the alternate Player_* direct-dispatch
+//      branch (resolution.ts:617).
 //
 //   5. **Overwatch stance differentiation counts** — across all 10 runs:
 //      defensive counter-fires = count(action.kind="overwatch" +
@@ -374,7 +379,9 @@ export function computePhase3Metrics(
   let totalLootAttempts = 0;
   let drainedRepeats = 0;
 
-  // Corpse-loot success — count of RUNS with ≥ 1 successful Player_* loot.
+  // Corpse-loot success — count of RUNS with ≥ 1 successful corpse-loot
+  // (target shape ∈ {Corpse_Player_*, Player_*}). WP-H.1 widens the filter
+  // to honor the post-WP-G.1 verbatim-emit contract.
   let runsWithCorpseLoot = 0;
 
   // Overwatch stance differentiation.
@@ -447,9 +454,15 @@ export function computePhase3Metrics(
         // Loot: total + corpse-loot success flag for this run.
         if (a.kind === "loot") {
           totalLootAttempts += 1;
+          // WP-H.1 — accept BOTH `Corpse_Player_*` (post-WP-G.1 verbatim
+          // engine emit; resolution.ts:567 preserves the LLM typed-id in
+          // `traceTarget`) AND bare `Player_*` (back-compat with any
+          // historical fixtures and the alternate `Player_*` direct-
+          // dispatch branch at resolution.ts:617). PM-lock D50.
           if (
             a.result === "looted" &&
-            a.target.startsWith("Player_")
+            (a.target.startsWith("Corpse_Player_") ||
+              a.target.startsWith("Player_"))
           ) {
             runHasCorpseLoot = true;
           }
