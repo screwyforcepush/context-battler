@@ -9,8 +9,13 @@
 > `aee6397`). Closure-readiness round-2 fixes + deferred-known-issues
 > populated 2026-05-08 (commits `61c9c2b` + `d3c0370`). Closure-readiness
 > round-3 (Med-1 feed-scroll fix + 2 Lows + 2 closure-doc citation
-> tightenings) populated 2026-05-08 (commit `<HEAD>`). HEAD at sealing:
-> `<HEAD>`. Phase-2 dispatch baseline: `7c22284`.
+> tightenings) populated 2026-05-08 (commit `5ebe737`). HEAD at sealing:
+> `5ebe737`. Phase-2 dispatch baseline: `7c22284`.
+>
+> Round-3 is the third (target-final) closure-readiness round. With its
+> bundle resolved and the third COMPLETION REVIEW group's blocking-
+> findings strand clean (no Highs), the gate is now released to the user
+> for §9 vibe-judgement per north-star §COMPLETION CONDITION.
 >
 > This is a closure RECORD, not a retrospective and not a phase-3 plan.
 
@@ -22,7 +27,7 @@
 landed across four feature commits between dispatch (`7c22284`,
 2026-05-08) and the post-implementation tip (`4db9757`, 2026-05-08);
 five follow-up commits (`2833537`, `aee6397`, `61c9c2b`, `d3c0370`,
-`<HEAD>`) close three rounds of closure-readiness fixes and reconcile
+`5ebe737`) close three rounds of closure-readiness fixes and reconcile
 docs. Engineering hygiene gates green at root and at the `apps/replay/`
 sub-package: `npm run lint`, `npm run typecheck`, `npm run build`,
 `npm test` (457 passed, 4 LIVE_AZURE-gated skips — 332 phase-1 + 125
@@ -33,7 +38,7 @@ is pure CSS + UI rearrangement, no test count delta). `apps/replay`
 Vite build: 131 modules, 80.01 KB gzipped. Substrate freeze (D-P2-9)
 verified — empty diff over `convex/engine`, `convex/llm`,
 `convex/runMatch.ts`, `convex/schema.ts`, `personas/*`, `harness/*`
-from dispatch through `<HEAD>`.
+from dispatch through `5ebe737`.
 
 **User vibe-judgement: PENDING.** The phase's success criterion is
 qualitative — the user steps through three+ matches, confirms the
@@ -162,7 +167,7 @@ machine-enforced expression of architecture.md §1 / pillar 7
   - `build` extended likewise (renderer's `tsc --noEmit` is the build gate).
   - `dev:replay` → `npm --prefix apps/replay run dev` (Vite at `:5173`).
   - `build:replay` → sub-package `vite build` (131 modules, ~80 KB
-    gzipped per implement-job report — 80.01 KB at HEAD `<HEAD>`,
+    gzipped per implement-job report — 80.01 KB at HEAD `5ebe737`,
     79.93 KB at `61c9c2b`).
 - `vitest.config.ts` — `include` extended with
   `apps/replay/src/**/*.test.ts(x)` so root `npm test` covers both
@@ -174,13 +179,15 @@ machine-enforced expression of architecture.md §1 / pillar 7
 
 ## 2. ADR adherence summary
 
-Each phase-2 decision (`D-P2-1`..`D-P2-33`, sourced from
+Each phase-2 decision (`D-P2-1`..`D-P2-35`, sourced from
 `architecture-decisions.md` and the conversation Decision Record)
 ticked off with one line of agent-verifiable evidence. Decisions
-`D-P2-18`..`D-P2-33` are closure-readiness orchestration entries
+`D-P2-18`..`D-P2-35` are closure-readiness orchestration entries
 (`D-P2-18`..`D-P2-23` round-1; `D-P2-24`..`D-P2-29` round-2;
-`D-P2-30`..`D-P2-33` round-3) recorded after the implement job; they
-do not have ADR-section counterparts in `architecture-decisions.md`.
+`D-P2-30`..`D-P2-33` round-3 implement; `D-P2-34`..`D-P2-35` round-3
+review-group + §9 template restoration) recorded after the implement
+job; they do not have ADR-section counterparts in
+`architecture-decisions.md`.
 
 | ID | Decision | Evidence |
 |---|---|---|
@@ -213,10 +220,12 @@ do not have ADR-section counterparts in `architecture-decisions.md`.
 | D-P2-27 | After round-2 implement, dispatch second COMPLETION REVIEW group (review + uat + document) gating user §9 vibe-judgement | Second iteration of the closure-completion path; this document pass is the `document` strand of that second group running against HEAD `61c9c2b`. §9 preserved empty per north-star §COMPLETION CONDITION. |
 | D-P2-28 | `ReplayErrorBoundary` is intentionally dual-layer (sync class boundary in `main.tsx` + async `.catch()` friendly-hint frame in `Replay.tsx`) — React error boundaries don't catch promise rejections, so defence-in-depth is required | `apps/replay/src/main.tsx` `ReplayErrorBoundary` class wraps `<Replay key={route.matchId}/>` (render-time throws e.g. malformed bundle crashing `reconstruct`); `apps/replay/src/routes/Replay.tsx:83-87` `.catch()` path renders friendly hint frame for Convex `ArgumentValidationError` (the actual UAT ISSUE-003 trigger on bogus matchId). |
 | D-P2-29 | Round-2 closure-readiness bundle COMPLETE; substrate freeze D-P2-9 holds; ready for second COMPLETION REVIEW group dispatch | Commits `61c9c2b` + `d3c0370` landed; all gates green at HEAD; substrate-freeze diff `7c22284..61c9c2b` empty (see §4). |
-| D-P2-30 | Round-3 scope = Med-1 feed-row clipping at 1280×720 / 1366×768 (AC#7) + 2 Lows (Replay.tsx comment-label correction; raw Convex error gated behind `<details>`) + 2 closure-doc citation tightenings (§5.4 kill-attribution test-line range; §6 "push history shallowly" → `replaceState`) | Single commit `<HEAD>` lands the renderer-side fixes + closure-doc reconciliation; pure renderer + docs; substrate freeze (D-P2-9) holds. |
+| D-P2-30 | Round-3 scope = Med-1 feed-row clipping at 1280×720 / 1366×768 (AC#7) + 2 Lows (Replay.tsx comment-label correction; raw Convex error gated behind `<details>`) + 2 closure-doc citation tightenings (§5.4 kill-attribution test-line range; §6 "push history shallowly" → `replaceState`) | Single commit `5ebe737` lands the renderer-side fixes + closure-doc reconciliation; pure renderer + docs; substrate freeze (D-P2-9) holds. |
 | D-P2-31 | Med-1 feed-row clipping fix = move `overflow-y: auto` from inner feed-list `<div>` to the `<aside>` itself + `position: sticky; top: 0` on the feed header to keep the "Turn N · M decisions" caption visible while rows scroll | `apps/replay/src/components/TurnFeed.tsx` `feedStyle` now `overflowY: 'auto'` + `overscrollBehavior: 'contain'` + `minHeight: 0`; `feedHeaderStyle` now `position: 'sticky', top: 0, zIndex: 1`; `feedListStyle` simplified to a non-shrinking row stack. Browser-probed at 1280×720, 1366×768, 1920×1080 against closing-50 match `j977k5vpq9275kg5pr31cybavs869w0h` turn 2 (8 alive); all 8 rows reachable; AC#4 `documentElement.scrollHeight === clientHeight` intact at all 3 viewports. |
 | D-P2-32 | Replay.tsx error-path raw Convex `ArgumentValidationError` is opt-in detail, not body copy — gated behind `<details><summary>raw error</summary>` | `apps/replay/src/routes/Replay.tsx:219-238` renders `<details>` (collapsed by default) inside the friendly hint frame; the body paragraph stays the primary copy. Browser-probed on `#/match/bogus_id_123`: friendly hint visible, raw `ArgumentValidationError` only appears when the user expands the toggle. Mirrors `PickerErrorBoundary` visual language (review-A nit / round-3 Low). |
-| D-P2-33 | Round-3 closure-readiness bundle COMPLETE; substrate freeze D-P2-9 holds; second COMPLETION REVIEW group's user §9 vibe-judgement gate now unblocked | Commit `<HEAD>` landed; all gates green (lint/typecheck/test/build); substrate-freeze diff `7c22284..<HEAD>` empty (see §4); §9 preserved empty per north-star §COMPLETION CONDITION. |
+| D-P2-33 | Round-3 closure-readiness bundle COMPLETE; substrate freeze D-P2-9 holds; third COMPLETION REVIEW group's user §9 vibe-judgement gate now unblocked | Commit `5ebe737` landed; all gates green (lint/typecheck/test/build); substrate-freeze diff `7c22284..5ebe737` empty (see §4); §9 preserved empty per north-star §COMPLETION CONDITION. |
+| D-P2-34 | Third (target-final) COMPLETION REVIEW group dispatched against HEAD `5ebe737` and produced no Highs — releases the user-vibe-judgement gate without further blocking-fix iteration | Conversation Decision Record entry; this document seals the closure record at `5ebe737`. If review/UAT had surfaced Highs they would appear in a *Round-3 blocking findings* subsection between §5.0 and §5.1 — that subsection is intentionally absent here. |
+| D-P2-35 | §9 vibe-judgement template restored — the round-3 implement strand stripped the structured placeholder (Date / Matches walked / Vibe verdict / Observations / Follow-up tickets) that round-1 introduced and round-2 preserved; this document pass restores it for the user's free-form signoff | §9 below carries the same placeholder bullets as round-2 (`cba3630`); the user's vibe-judgement copy fills those fields. The north-star §COMPLETION CONDITION sets the gate (qualitative confidence on 3+ matches), NOT the doc structure — restoring the template is closure-record hygiene, not a north-star gate. |
 
 ---
 
@@ -248,7 +257,7 @@ but were not visually counted in the first UAT pass.
 | Clause | Evidence |
 |---|---|
 | Given replay loaded for completed match | `Replay.tsx` calls `client.query(api.replay.getReplayBundle, { matchId })` once on mount (no subscription). |
-| Then bird's-eye 100×100 grid fits viewport | `Grid.tsx` SVG `viewBox="0 0 100 100"`; wrapped in `gridSquareStyle` (`Replay.tsx:472` — `aspect-ratio: 1/1` + `max-width: 100%` + `height: 100%`) inside a viewport-bounded main column. Round-2 also added a global CSS reset at `apps/replay/src/index.css` (`html, body, #root { margin: 0; min-height: 100% }`) imported from `main.tsx`, removing the 16 px body margin that was clipping the feed last-row at 1280×720 (round-2 closure-readiness Med-1 / AC#4; commit `61c9c2b`). Round-3 then moved the side-panel scroll affordance from the inner feed-list `<div>` onto the `<aside>` itself + made the feed header `position: sticky` so all 8 agent rows are reachable on early/mid turns at 1280×720 / 1366×768 (round-3 closure-readiness Med-1 / AC#7; commit `<HEAD>`). |
+| Then bird's-eye 100×100 grid fits viewport | `Grid.tsx` SVG `viewBox="0 0 100 100"`; wrapped in `gridSquareStyle` (`Replay.tsx:496-501` — `aspect-ratio: 1/1` + `max-width: 100%` + `height: 100%`) inside a viewport-bounded main column. Round-2 also added a global CSS reset at `apps/replay/src/index.css` (`html, body, #root { margin: 0; min-height: 100% }`) imported from `main.tsx`, removing the 16 px body margin that was clipping the feed last-row at 1280×720 (round-2 closure-readiness Med-1 / AC#4; commit `61c9c2b`). Round-3 then moved the side-panel scroll affordance from the inner feed-list `<div>` onto the `<aside>` itself + made the feed header `position: sticky` so all 8 agent rows are reachable on early/mid turns at 1280×720 / 1366×768 (round-3 closure-readiness Med-1 / AC#7; commit `5ebe737`). |
 | And turn 0 is shown by default | `Replay.tsx` initial `currentTurn = 0`; `reconstruct(bundle, 0)` synthesises spawn-position snapshot per ADR §4. URL ↔ state sync via `useEffect([props.turn])` mirror at `Replay.tsx:51-54` honours browser back/forward + direct URL edits — closure-readiness AC#5 / UAT ISSUE-002. |
 | And walls/cover/chests/corpses/evac/agents render | `Grid.tsx` z-ordered layers per ADR §4 walk (walls → cover → chests → corpses → evac → agents). Pending agent UAT for visual count check (≈28 walls, ≈60 cover tiles, 12 closed chests, 8 spawn agents, 3×3 evac ring at (47..49, 47..49)). |
 | When click "next turn" or use slider | `TurnStepper.tsx` Next button + slider; both write `?turn=N` via `useHashRoute`. |
@@ -293,15 +302,13 @@ not registering wheel events on Linux Chromium) plus 4 Lows (2
 Replay.tsx comment-label / details-toggle code nits + 2 closure-doc
 citation precision findings). The Med + 2 Lows touching renderer code
 + 2 closure-doc reconciliations all landed in round-3 commit
-`<HEAD>` per §5.0 below. No round-3 deferrals — all 5 items were
+`5ebe737` per §5.0 below. No round-3 deferrals — all 5 items were
 in-scope and resolved.
 
-The third COMPLETION REVIEW group (running against HEAD `<HEAD>`,
+The third COMPLETION REVIEW group (running against HEAD `5ebe737`,
 dispatched per D-P2-33) is the gate that releases the user §9 vibe-
-judgement. If that group's UAT strand raises new high-severity
-findings against `<HEAD>` they will be appended as a *Blocking
-findings* section before the user starts §9; otherwise the user reads
-§9 fresh.
+judgement. That group surfaced no Highs; the user reads §9 fresh
+without a *Round-3 blocking findings* subsection (D-P2-34).
 
 ---
 
@@ -312,16 +319,16 @@ diff to the engine kernels, the LLM wrapper, the per-match orchestrator,
 the schema, the persona content, or the harness CLI.
 
 ```
-$ git diff 7c22284..<HEAD> -- convex/engine convex/llm convex/runMatch.ts convex/schema.ts personas harness
+$ git diff 7c22284..5ebe737 -- convex/engine convex/llm convex/runMatch.ts convex/schema.ts personas harness
 (no output)
 ```
 
-Verified at sealing time (HEAD = `<HEAD>`). The only files touched in
+Verified at sealing time (HEAD = `5ebe737`). The only files touched in
 `convex/` between dispatch and HEAD are `convex/replay.ts` (new module,
 +92 lines) and the regenerated `convex/_generated/api.d.ts` (+2 lines —
 the new module's typed surface). The five closure-readiness commits
 (`2833537` round-1 code+README, `aee6397` round-1 docs, `61c9c2b`
-round-2 code+test, `d3c0370` round-2 docs, `<HEAD>` round-3 code +
+round-2 code+test, `d3c0370` round-2 docs, `5ebe737` round-3 code +
 docs combined) touched **only** the renderer sub-package and
 `docs/project/phases/02-replay-overseer-v0/*.md` — none modifies any
 substrate path.
@@ -332,7 +339,7 @@ substrate path.
 
 Each entry is tagged **resolved** (closure-readiness — fixed in
 round-1 `2833537`/`aee6397`, round-2 `61c9c2b`/`d3c0370`, or round-3
-`<HEAD>`),
+`5ebe737`),
 **v0 acceptable** (intentional gap, surfaced as literal copy in the
 UI) or **deferred** (downstream phase will close it). No
 high-severity findings are open against this phase at sealing time.
@@ -341,7 +348,7 @@ high-severity findings are open against this phase at sealing time.
 
 **Tag:** resolved (closure-readiness — round-1 landed in `2833537` +
 `aee6397`; round-2 landed in `61c9c2b` + `d3c0370`; round-3 landed in
-`<HEAD>`).
+`5ebe737`).
 
 The first review-group pass (review × 3 reviewers + agent UAT against
 `4db9757`) produced 4 AC-violating must-fix items + 5 lower-priority
@@ -354,7 +361,7 @@ deferred known-issues in §5.4 (D-P2-25, D-P2-26).
 
 The third (completion-review) group pass (review × 2 + uat + document
 against `61c9c2b`) produced 0 Highs, 1 Med, and 4 Lows. All 5 items
-are resolved in round-3 (`<HEAD>`); no round-3 deferrals.
+are resolved in round-3 (`5ebe737`); no round-3 deferrals.
 
 **AC-violating must-fix (4) — all resolved in round-1 commit `2833537`:**
 
@@ -446,7 +453,7 @@ Round-2 phase-2 sub-package test count went 122 → 125. Root
 `apps/replay` Vite build went 130 modules / 79.51 KB gzipped → 131
 modules / 79.93 KB gzipped.
 
-**Round-3 must-fix + Lows (5) — all resolved in `<HEAD>`:**
+**Round-3 must-fix + Lows (5) — all resolved in `5ebe737`:**
 
 - **Med-1 / AC#7 — Feed-row clipping at 1280×720 / 1366×768
   (ISSUE-UAT-001):** with 8 alive agents on early/mid turns, Player_7
@@ -739,10 +746,11 @@ Phase 2 documents that together form the full record:
 - `README.md` — phase goal / scope / Cucumber surface / hard
   out-of-scope / dependency map.
 - `architecture-decisions.md` — ADR §1..§12 capturing decisions
-  D-P2-1..D-P2-14. D-P2-15..D-P2-29 are conversation Decision Record
+  D-P2-1..D-P2-14. D-P2-15..D-P2-35 are conversation Decision Record
   entries — orchestration / dispatch / closure-readiness level
-  (round-1 + round-2), not architecture; the §2 ADR adherence table
-  above is the authoritative evidence index for those.
+  (round-1 + round-2 + round-3), not architecture; the §2 ADR
+  adherence table above is the authoritative evidence index for
+  those.
 - `work-packages.md` — WP-A through WP-D scope, acceptance, test
   strategy, risks; "Closing the phase" §1-§3.
 - `de-risking.md` — single load-bearing unknown
@@ -758,6 +766,21 @@ Phase 2 documents that together form the full record:
 ---
 
 ## 9. User vibe-judgement (signoff — to be filled by user)
+
+> This section is the user's signoff. It is intentionally empty at
+> draft time. The phase is **not closed** until the user fills the
+> fields below. Filling them — or filing a follow-up phase to address
+> what the overseer revealed — closes phase 2 v0 per
+> `work-packages.md` "Closing the phase" §3.
+
+- **Date:** _yyyy-mm-dd_
+- **Matches walked (matchId × persona-of-interest):**
+  - _matchId_1_ — _persona / observation_
+  - _matchId_2_ — _persona / observation_
+  - _matchId_3_ — _persona / observation_
+- **Vibe verdict (positive / mixed / negative):** _…_
+- **Observations that influence the next phase:** _…_
+- **Follow-up phase tickets surfaced:** _…_
 
 ---
 
