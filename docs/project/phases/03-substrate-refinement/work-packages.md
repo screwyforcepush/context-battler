@@ -1150,3 +1150,119 @@ inbox-broadcast trail. Single discrete doc commit; mirrors the WP-G.7
 addendum pattern. Commit: `45dfdb4`. Hash finalisation for WP-H.7
 applied in a follow-up paperwork commit, mirroring the WP-G.9
 finalisation of WP-G.6 hashes.
+
+---
+
+## WP-I — corrective slice 4 (replay-renderer corpse-loot regression + low-cost adjacent hygiene)
+
+This corrective slice landed in response to completion-review-4's
+single file-cited HIGH (UAT ISSUE-001) at
+`apps/replay/src/lib/decisionEnglish.ts:338-342`. Three substrate
+reviewers (A/B/C) Approved/Passed completion-review-4 with only Lows;
+metrics + trace evidence on `jd7b98r81fxarkb3yyctsap2p186bbj7` verify
+the WP-H corpse-loot filter fix is substrate-correct (14 events / 8
+runs / 80%). However UAT walked the actual replay UI and caught a
+HIGH renderer regression: every one of those 14 corpse-loot events
+that closure §4 cites as load-bearing user-visible deliverable was
+rendering as garbage (`Looted from corpse-of-Corpse_P — looted` —
+8-char truncation + double `corpse-` prefix). Same class of bug as
+WP-F.3 chest fix (commit `53ce3cb`); the corpse branch was simply
+missed when WP-G.1 made the engine emit `Corpse_Player_N` verbatim.
+Substrate is correct (engine emit + validator accept + metrics record
+all verified at trace level); the renderer was the broken link. This
+is the **fourth occurrence of the substrate-code-correct +
+downstream-artifact-stale pattern** (after WP-F persistence-adapter,
+WP-G LLM↔engine contract, WP-H aggregator-formula) — though scoped
+narrower than the prior three (renderer-only, no trace impact, no
+metric regeneration).
+
+**Outcome.** Renderer now displays the 14 corpse-loot events
+honestly. **No closing-10 rerun, no metric regeneration**: reportId
+`jd7b98r81fxarkb3yyctsap2p186bbj7` and 13/14 PASS table remain
+canonical. mental-model §11 unchanged.
+
+**WP-I.1 — Renderer corpse branch verbatim handler.**
+`apps/replay/src/lib/decisionEnglish.ts` corpse branch patched to
+mirror the WP-F.3 chest verbatim handler: recognises
+`/^corpse_/i` typed-ids and renders `Looted from ${targetId}`
+verbatim. Existing `resolveCharacterName` fallback for legacy
+opaque-Convex-id targets preserved so historical match data still
+renders. Commit: `b291520` (bundled with WP-I.2).
+
+**WP-I.2 — Regression-guard unit test.**
+`apps/replay/src/lib/__tests__/decisionEnglish.test.ts` gained two
+regression tests exercising `kind="loot"` + `targetId="Corpse_Player_5"`
+(canonical) and `targetId="corpse_Player_5"` (lowercase variant
+locking the case-insensitive regex). Each asserts (a) full typed id
+present, (b) no `corpse-of-` substring, (c) no 8-char truncation
+(via regex `/Corpse_P(?![a-z])/`). TDD-verified red-then-green:
+both tests failed against the pre-fix renderer with the exact
+bug-shape error message before the fix landed. Commit: `b291520`
+(bundled with WP-I.1).
+
+**WP-I.3 — Untracked `j97a.json` cleanup.** NOOP — the file (1.4MB
+Convex match dump for matchId `j97a5s5e`, flagged by Reviewer A LOW
++ document-agent audit) was already absent before the WP-I batch
+fired. `git status` confirmed clean working tree; no commit
+required. `.gitignore` left unchanged: harness scripts (`probe-
+reasoning.ts`, `analyze-match.ts`) write JSON inside `harness/` or
+to stdout only, so the dump shape does not recur. Adding a broad
+`*.json` pattern at repo root would clobber legitimate JSON
+elsewhere; conservative no-change preserves the existing surface.
+
+**WP-I.4 — System prompt typed-id glossary alignment.**
+`convex/llm/systemPrompt.ts` — three sites updated from
+`Corpse_PlayerN` (no underscore) to `Corpse_Player_N` (with
+underscore), aligning the prompt-teaching shape with the digest's
+verbatim form. `inputBuilder.ts:516` builds
+`Corpse_${displayName}` where `displayName` is `Player_N`, so the
+digest output is `Corpse_Player_N`; the "copy id verbatim"
+instruction at `systemPrompt.ts:71` makes the digest the
+operational source of truth. Trace audit confirms zero rejections
+of either shape (14 successful corpse-loot events, 0 mismatches),
+so this is a pure cosmetic alignment for human reviewers. PM-
+acknowledged in D38. `tests/llm/systemPrompt.test.ts` assertion
+updated in lockstep to lock both presence (new shape) and absence
+(legacy shape) against future regression. Commit: `f3d4d40`.
+
+**WP-I.5 — concept-spec namespace examples refresh.**
+`docs/project/spec/concept-spec.md` — three sites refreshed
+(§13 around line 748; §22 around lines 1199 + 1251) to align
+prose with the live phase-3 "copy `Visible.id` verbatim" contract.
+Stale claims fixed: §13 said engine dispatches "(`chest_NNN` →
+chest path; `Player_N` → corpse path)" — wrong on both arms
+(corpse keys off `Corpse_Player_N`; chest receives `Chest_NNN`
+typed id and lowercases internally). §22 grammar-block comment
+repeated the same drift. §22 verbatim-copy example said "the
+agent emits `chest_005` from the bullet `Chest_005, dist 6 SE`"
+— but the agent never lowercases; it copies `Chest_005` verbatim
+and the engine lowercases at the validator boundary. Cited live
+sources at point of fix (`systemPrompt.ts:69`,
+`idNormalisation.ts`, `resolution.ts:526`) so future contributors
+can verify the contract didn't drift again. Commit: `2907d6a`.
+
+**WP-I.6 — Final validate gate.** `npm run lint && npm run
+typecheck && npm test && npm run build` against HEAD with all
+WP-I commits integrated: lint clean, typecheck clean, **623/623
+active tests pass (4 env-gated skipped)**, build clean. Test
+delta from WP-H baseline 621 → 623 attributed to the two new
+WP-I.2 corpse-render regression tests.
+
+**WP-I.7 — Manual replay-UI verification.** Deferred to
+completion-review-5 UAT (orchestrator cannot drive a browser
+session). Unit-test contract (WP-I.2) locks the same three
+assertions UAT round-4 ISSUE-001 caught, against the same
+trace-confirmed event shapes (`Corpse_Player_*` typed ids).
+The fix is a 4-line analogue to the proven WP-F.3 chest fix
+(commit `53ce3cb`); risk of UI integration regression is low.
+
+**WP-I.8 — Discrete commits per sub-item.** Five sub-items map
+to four commits (WP-I.3 NOOP): `b291520` (WP-I.1+WP-I.2 bundled
+per TDD inseparability), `f3d4d40` (WP-I.4), `2907d6a` (WP-I.5),
+this addendum.
+
+**WP-I.9 — work-packages.md addendum.** This commit. Mirrors
+the WP-G.7 / WP-H.9 addendum pattern. No closure-record edit
+(13/14 PASS table remains canonical; reportId unchanged); no
+mental-model §11 edit (reportId unchanged); no metric tables
+in this addendum (renderer-only slice).
