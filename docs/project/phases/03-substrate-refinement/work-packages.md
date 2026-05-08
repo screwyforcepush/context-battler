@@ -1017,3 +1017,138 @@ this commit.
 HEAD with all WP-G paperwork commits integrated. Phase-3 close
 re-asserted on the substrate-correct ledger; finalised the WP-G.6
 commit hashes left as a forward-pointer in this document.
+
+---
+
+## WP-H — corrective slice 3 (corpse-loot aggregator filter + integration-test refresh)
+
+This corrective slice landed in response to completion-review-3's file-cited
+HIGH at `convex/reports/phase3.ts:452` (independently flagged by reviewers
+A and B with concurring trace queries against the persisted dev report):
+the corpse-loot aggregator filter still keyed off the pre-WP-G.1
+`Corpse_Player_*` target shape, while the engine had since been emitting
+the normalised post-WP-G.1 `Player_*` shape. The substrate code was
+correct; the downstream report-aggregator and one stale integration-test
+fixture had drifted from it. This is the **third occurrence of the
+substrate-code-correct + downstream-artifact-stale pattern**, after WP-F
+(persistence adapter dropping engine fields) and WP-G (validator-boundary
+id-shape mismatch). The slice widens the corpse-loot success filter to
+accept both display-form and normalised target ids, refreshes
+`tests/llm/integration.test.ts` against the phase-3 7-field contract,
+extends `persistPhase3Report` with an `overwrite` flag so the closing-10
+report can be re-aggregated without a fresh harness run, and re-persists
+the phase-3-closing-10 report against the existing 10 matchIds. Canonical
+narrative anchor: `PHASE-3-CLOSURE.md` §3.0 (extended in WP-H.7).
+
+**Outcome.** Corpse-loot row flips MISS → PASS at 80% (8/10 runs);
+threshold count 12/14 → **13/14 PASS**. Sole residual MISS:
+reasoning-capture 68.82% (Azure-side floor — unchanged from WP-G.5
+baseline). The matchIds set is **unchanged** from WP-G.5's persisted
+report (no fresh harness run; the trace data is the same — only the
+aggregator output flipped). New phase-3-closing-10 reportId on dev
+(`calculating-meerkat-923`): **`jd7b98r81fxarkb3yyctsap2p186bbj7`**.
+Previous canonical reportId `jd769hc5vap1v11bd6jsy307ts86ab05` was
+**deleted** from the dev `reports` table as part of the WP-H.5 overwrite
+path (delete-then-insert).
+
+**WP-H.1 — Corpse-loot success filter widened.** `convex/reports/phase3.ts`
+line 452 corpse-loot success filter widened to accept both
+`target.startsWith("Corpse_Player_")` (legacy display form) and
+`target.startsWith("Player_")` (post-WP-G.1 normalised engine form).
+Audit of the surrounding loot filters confirmed only line 452 needed the
+post-WP-G.1 shape widening — line 449 totalLootAttempts is kind-only
+(shape-agnostic), line 458 chest-equip checks normalised lowercase
+`chest_*`, line 504 drained-repeat is shape-agnostic equality, and line
+539 outcome-attribution reads attack/overwatch trace via a separate
+`Player_*` code path. Single-line filter widening; no other aggregator
+sites required changes. Commit: `9d80c27` (bundled with WP-H.2).
+
+**WP-H.2 — Aggregator regression test.** `tests/reports/phase3.test.ts`
+fixture refresh + new regression test asserting that a corpse-loot trace
+entry with `target === "Player_3"` (post-WP-G.1 shape) now satisfies the
+corpse-loot success filter, and that the legacy `Corpse_Player_3` form
+also continues to satisfy it. Locks the dual-shape acceptance against
+future drift. Commit: `9d80c27` (bundled with WP-H.1).
+
+**WP-H.3 — Integration-test fixture refresh.** `tests/llm/integration.test.ts`
+refreshed to the phase-3 contract: imports the production
+`SYSTEM_PROMPT` verbatim from `convex/llm/systemPrompt.ts` (eliminating
+the prior duplicated synthetic schema cheat-sheet that was the drift
+source); rebuilds the digest fixture to phase-3 shape (`You:` /
+`Last turn (you):` / `Visible:` with per-Visible observation brackets;
+no `Heard:` / `Last-known:` / `Evac:` / `Affordances:` headers);
+typed-ids (`Player_3`, `Chest_003`, `Cover_32_28`, `Wall_31_28`) mirror
+inputBuilder output; round-trip assertions extended to all 7 required
+fields (`consume`/`primary`/`move`/`action`/`say`/`overwatch_stance`/
+`scratchpad_update`). VITEST_LLM=1 NOT exercised (live Azure
+round-trip; cost-gated). Commit: `4301164`.
+
+**WP-H.4 — `persistPhase3Report` overwrite flag.**
+`convex/reports/phase3.ts` `persistPhase3Report` extended with an
+`overwrite?: boolean` arg. When `overwrite === true` and an existing
+row matches the same `(matchIdsHash, reportType)` pair, the mutation
+deletes-then-inserts to surface a fresh reportId; default `false`
+preserves prior idempotency-on-duplicate semantics. Commit: `efccdc1`
+(bundled with WP-H.5 + WP-H.6).
+
+**WP-H.5 — Persist-strategy choice.** Selected **option (a) — `overwrite`
+flag with delete-then-insert** over option (b) (in-place mutation of the
+existing row's payload) because:
+(i) surfacing a fresh reportId makes the corrective re-aggregation
+visible in the audit trail (reviewer-friendly);
+(ii) delete-then-insert keeps the `reports` row immutable-once-written
+contract intact for non-overwrite callers;
+(iii) the single-mutation-arg shape is the smallest surface diff and
+defaults to off so existing call-sites are unaffected. Old canonical
+reportId `jd769hc5vap1v11bd6jsy307ts86ab05` was deleted from the dev
+`reports` table as part of this path. Commit: `efccdc1` (bundled with
+WP-H.4 + WP-H.6).
+
+**WP-H.6 — Re-aggregation against existing 10 matchIds.**
+`persistPhase3Report` invoked with `overwrite: true` against the
+existing 10 matchIds (unchanged from WP-G.5's persisted report; no
+fresh harness run). New phase-3-closing-10 reportId:
+**`jd7b98r81fxarkb3yyctsap2p186bbj7`**. Headline metrics: corpse-loot
+`runsWithCorpseLoot` 0 → 8, `corpseLootSuccessRate` 0 → 0.8,
+`meetsCorpseLootThreshold` false → true; **threshold count 12/14 →
+13/14 PASS**. All other metric values unchanged: schema-validity 8.256%
+PASS, wall-blocked 0.964% PASS, drained-repeat 0/110 PASS, defensive
+overwatch=18 + offensive=4 PASS, outcome-attribution 88.57% PASS, kill
+90% PASS, equip 100% PASS, speech 100% PASS, extraction 90% PASS,
+persona-spread 50pp PASS. Sole residual MISS: reasoning-capture 68.82%
+(Azure-side floor — unchanged). `meetsAllThresholds=false` because of
+that single residual. Validate gate at commit time: lint clean,
+typecheck clean, 621/621 tests pass, build clean. Commit: `efccdc1`
+(bundled with WP-H.4 + WP-H.5).
+
+**WP-H.7 — `PHASE-3-CLOSURE.md` rewrite against rerun reportId.**
+Closure record re-anchored to `jd7b98r81fxarkb3yyctsap2p186bbj7`; §2
+tables updated (13/14 PASS, 1 MISS); §3.0 extended to cite the WP-H
+slice as the third corrective occurrence of the substrate-code-correct
++ downstream-artifact-stale pattern; corpse-loot row narrative reframed
+from MISS-with-substrate-bug-explanation to PASS-on-substrate-correct;
+§3.3 reasoning-capture remains the sole residual-miss narrative.
+Source-commit at close = `efccdc1` (last source commit in the WP-H
+slice). Commit: pending — see git log post-merge (forward-pointer to
+be finalised in a follow-up commit, mirroring the WP-G.9 finalisation
+pattern for WP-G.6).
+
+**WP-H.8 — Mental-model §11 refresh.**
+`docs/project/spec/mental-model.md` §11 hyperlink updated from
+`jd769hc5vap1v11bd6jsy307ts86ab05` to
+`jd7b98r81fxarkb3yyctsap2p186bbj7`; threshold-count line flipped 12/14
+→ 13/14; residual-miss summary tightened to single-residual
+(reasoning-capture Azure-floor only); corrective-slice narrative
+extended from two-slice (WP-F + WP-G) to three-slice
+(WP-F + WP-G + WP-H). Doc-only synchronisation with the rewritten
+closure record. Commit: `8233d55`.
+
+**WP-H.9 — work-packages.md addendum.** This commit. Appends the WP-H
+section to the phase-3 work-packages document so the planning artifact
+gains coverage of the third corrective slice (3 source commits +
+2 paperwork commits + this addendum = 6 commits across 9 sub-items)
+that previously lived only in commit history + closure §3.0 +
+inbox-broadcast trail. Single discrete doc commit; mirrors the WP-G.7
+addendum pattern. Forward-pointers for WP-H.7 / WP-H.8 commit hashes
+to be finalised in a follow-up paperwork commit (mirrors the WP-G.9
+finalisation of WP-G.6 hashes).
