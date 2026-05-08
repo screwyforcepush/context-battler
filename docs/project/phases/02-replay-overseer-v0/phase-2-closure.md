@@ -9,13 +9,22 @@
 > `aee6397`). Closure-readiness round-2 fixes + deferred-known-issues
 > populated 2026-05-08 (commits `61c9c2b` + `d3c0370`). Closure-readiness
 > round-3 (Med-1 feed-scroll fix + 2 Lows + 2 closure-doc citation
-> tightenings) populated 2026-05-08 (commit `5ebe737`). HEAD at sealing:
-> `5ebe737`. Phase-2 dispatch baseline: `7c22284`.
+> tightenings) populated 2026-05-08 (commit `5ebe737`). Closure-readiness
+> round-4 (intended-final: ADR §6 staleness + lastSurvivor doc drift +
+> ReplayErrorBoundary `<details>` parity + 3 §5.4 deferred entries)
+> populated 2026-05-08 (commit `<HEAD>`). HEAD at sealing: `<HEAD>`.
+> Phase-2 dispatch baseline: `7c22284`.
 >
-> Round-3 is the third (target-final) closure-readiness round. With its
-> bundle resolved and the third COMPLETION REVIEW group's blocking-
-> findings strand clean (no Highs), the gate is now released to the user
-> for §9 vibe-judgement per north-star §COMPLETION CONDITION.
+> Round-3 was projected as target-final, but the third COMPLETION REVIEW
+> group surfaced 1 Med-2 doc finding (ADR §6 staleness vs. the
+> `history.replaceState` semantics) plus 2 Lows (lastSurvivor doc drift
+> in `architecture-decisions.md` / `work-packages.md`, and a
+> `ReplayErrorBoundary` `<details>` parity gap against `Replay.tsx`).
+> Round-4 absorbs all three. Round-4 is now the intended-final
+> closure-readiness round — with its bundle resolved and the fourth
+> COMPLETION REVIEW group's blocking-findings strand clean (no Highs),
+> the gate is released to the user for §9 vibe-judgement per north-star
+> §COMPLETION CONDITION.
 >
 > This is a closure RECORD, not a retrospective and not a phase-3 plan.
 
@@ -26,19 +35,23 @@
 **Implementation: COMPLETE.** All four work packages (WP-A → WP-D) have
 landed across four feature commits between dispatch (`7c22284`,
 2026-05-08) and the post-implementation tip (`4db9757`, 2026-05-08);
-five follow-up commits (`2833537`, `aee6397`, `61c9c2b`, `d3c0370`,
-`5ebe737`) close three rounds of closure-readiness fixes and reconcile
-docs. Engineering hygiene gates green at root and at the `apps/replay/`
-sub-package: `npm run lint`, `npm run typecheck`, `npm run build`,
-`npm test` (457 passed, 4 LIVE_AZURE-gated skips — 332 phase-1 + 125
-phase-2 sub-package; phase-2 net adds 10 since the draft for the
-`TurnFeed.test.tsx` truncation suite (round-1, +7) and
+six follow-up commits (`2833537`, `aee6397`, `61c9c2b`, `d3c0370`,
+`5ebe737`, `<HEAD>`) close four rounds of closure-readiness fixes and
+reconcile docs. Engineering hygiene gates green at root and at the
+`apps/replay/` sub-package: `npm run lint`, `npm run typecheck`,
+`npm run build`, `npm test` (457 passed, 4 LIVE_AZURE-gated skips —
+332 phase-1 + 125 phase-2 sub-package; phase-2 net adds 10 since the
+draft for the `TurnFeed.test.tsx` truncation suite (round-1, +7) and
 `decisionEnglish.test.ts` pluralisation cases (round-2, +3); round-3
-is pure CSS + UI rearrangement, no test count delta). `apps/replay`
-Vite build: 131 modules, 80.01 KB gzipped. Substrate freeze (D-P2-9)
-verified — empty diff over `convex/engine`, `convex/llm`,
-`convex/runMatch.ts`, `convex/schema.ts`, `personas/*`, `harness/*`
-from dispatch through `5ebe737`.
+is pure CSS + UI rearrangement, no test count delta; round-4 is
+doc + tiny renderer parity, no test count delta). `apps/replay` Vite
+build: 131 modules, 80.01 KB gzipped (round-4 adds the
+`<details><summary>raw error</summary>` pattern + two style consts to
+the sync error boundary in `apps/replay/src/main.tsx`; renderer
+engineer reports build size unchanged at 80.01 KB gzipped). Substrate
+freeze (D-P2-9) verified — empty diff over `convex/engine`,
+`convex/llm`, `convex/runMatch.ts`, `convex/schema.ts`, `personas/*`,
+`harness/*` from dispatch through `<HEAD>`.
 
 **User vibe-judgement: PENDING.** The phase's success criterion is
 qualitative — the user steps through three+ matches, confirms the
@@ -179,14 +192,15 @@ machine-enforced expression of architecture.md §1 / pillar 7
 
 ## 2. ADR adherence summary
 
-Each phase-2 decision (`D-P2-1`..`D-P2-35`, sourced from
+Each phase-2 decision (`D-P2-1`..`D-P2-38`, sourced from
 `architecture-decisions.md` and the conversation Decision Record)
 ticked off with one line of agent-verifiable evidence. Decisions
-`D-P2-18`..`D-P2-35` are closure-readiness orchestration entries
+`D-P2-18`..`D-P2-38` are closure-readiness orchestration entries
 (`D-P2-18`..`D-P2-23` round-1; `D-P2-24`..`D-P2-29` round-2;
 `D-P2-30`..`D-P2-33` round-3 implement; `D-P2-34`..`D-P2-35` round-3
-review-group + §9 template restoration) recorded after the implement
-job; they do not have ADR-section counterparts in
+review-group + §9 template restoration; `D-P2-36`..`D-P2-38` round-4
+implement + review-group + cosmetic-deferral bundle) recorded after
+the implement job; they do not have ADR-section counterparts in
 `architecture-decisions.md`.
 
 | ID | Decision | Evidence |
@@ -226,6 +240,9 @@ job; they do not have ADR-section counterparts in
 | D-P2-33 | Round-3 closure-readiness bundle COMPLETE; substrate freeze D-P2-9 holds; third COMPLETION REVIEW group's user §9 vibe-judgement gate now unblocked | Commit `5ebe737` landed; all gates green (lint/typecheck/test/build); substrate-freeze diff `7c22284..5ebe737` empty (see §4); §9 preserved empty per north-star §COMPLETION CONDITION. |
 | D-P2-34 | Third (target-final) COMPLETION REVIEW group dispatched against HEAD `5ebe737` and produced no Highs — releases the user-vibe-judgement gate without further blocking-fix iteration | Conversation Decision Record entry; this document seals the closure record at `5ebe737`. If review/UAT had surfaced Highs they would appear in a *Round-3 blocking findings* subsection between §5.0 and §5.1 — that subsection is intentionally absent here. |
 | D-P2-35 | §9 vibe-judgement template restored — the round-3 implement strand stripped the structured placeholder (Date / Matches walked / Vibe verdict / Observations / Follow-up tickets) that round-1 introduced and round-2 preserved; this document pass restores it for the user's free-form signoff | §9 below carries the same placeholder bullets as round-2 (`cba3630`); the user's vibe-judgement copy fills those fields. The north-star §COMPLETION CONDITION sets the gate (qualitative confidence on 3+ matches), NOT the doc structure — restoring the template is closure-record hygiene, not a north-star gate. |
+| D-P2-36 | Round-4 closure-readiness scope = ADR §6 staleness (Med-2, Review A — `architecture-decisions.md` §6 wording vs. `history.replaceState` semantics) + lastSurvivor doc drift (Low, Review B — `architecture-decisions.md` §3 / `work-packages.md` WP-A picker bullet vs. D-P2-21 column drop) + ReplayErrorBoundary `<details>` parity (Low, Reviews A+B — `apps/replay/src/main.tsx` sync error boundary vs. `Replay.tsx:234-237` `<details><summary>raw error</summary><code>…</code></details>`). All three trivial; substrate freeze (D-P2-9) holds. | Single round-4 commit `<HEAD>`; touches `architecture-decisions.md` §3 + §6, `work-packages.md` WP-A picker bullet, `apps/replay/src/main.tsx` sync error-boundary frame, and this document (§5.0 round-4 subsection + §5.4 +3 deferred bullets + §2 +3 rows + status banner). `git diff 7c22284..<HEAD> -- convex/engine convex/llm convex/runMatch.ts convex/schema.ts personas harness` empty (see §4). |
+| D-P2-37 | After the round-4 implement lands, dispatch the FOURTH (and intended-final-final) COMPLETION REVIEW group (review + uat + document) — fourth iteration of the D-P2-19 / D-P2-27 / D-P2-33 closure-completion path. Once that group passes with no Highs, the user proceeds to §9 vibe-judgement per north-star §COMPLETION CONDITION. | Conversation Decision Record entry; this document's §3.4 will be extended once the fourth group runs (future-work narrative, parallel to the third-group narrative already inline). If the fourth group surfaces Highs they would appear in a *Round-4 blocking findings* subsection between §5.0 and §5.1 — that subsection is intentionally absent here (mirroring D-P2-34 for round-3). |
+| D-P2-38 | Cosmetic items deferred to §5.4 known issues (NOT blocking the user's §9 vibe-judgement): (a) `apps/replay/src/routes/Replay.tsx:47, :217, :418` retain `UAT ISSUE-002` / `UAT ISSUE-003` references — exempt because those numbers uniquely identify the originating UAT report (round-1 ISSUE-001 was the collision case that motivated the round-3 AC-anchor relabelling at `:370-372` / `:491-498`; ISSUE-002 and ISSUE-003 do not collide and the cite preserves traceability into the UAT report); (b) the §5.4 kill-attribution citation `:524-548` was tightened in-place to `:539-547` in round-4 — the contract-decision comment block actually starts at `:539` and the assertions are at `:544-547` (Review A Low-4 / cosmetic); (c) `convex/replay.ts` `getReplayBundle` accepts any valid match id, but the picker filters `status === "completed"` (`convex/replay.ts` `listMatches`), so a user pasting a VALID-but-not-completed match id directly into the URL would get a partial bundle — defense-in-depth (return `null` when `match.status !== "completed"`) is a future-phase polish, not a UX gap (the documented entry point is the picker, completed-only). | The three new §5.4 bullets added in round-4 — see §5.4 entries appended at the end of that section (Comment-label scheme inconsistency / Citation polish marker / `getReplayBundle` non-completed-match defense-in-depth). |
 
 ---
 
@@ -306,9 +323,21 @@ citation precision findings). The Med + 2 Lows touching renderer code
 in-scope and resolved.
 
 The third COMPLETION REVIEW group (running against HEAD `5ebe737`,
-dispatched per D-P2-33) is the gate that releases the user §9 vibe-
-judgement. That group surfaced no Highs; the user reads §9 fresh
-without a *Round-3 blocking findings* subsection (D-P2-34).
+dispatched per D-P2-33) surfaced no Highs but did flag 1 Med-2 doc
+finding (Review A — ADR §6 staleness vs. the `history.replaceState`
+semantics already documented in this document's §6) plus 2 Lows
+(Review B — lastSurvivor doc drift in `architecture-decisions.md` §3
+and `work-packages.md` WP-A picker bullet vs. D-P2-21's column drop;
+Reviews A + B — `ReplayErrorBoundary` in `apps/replay/src/main.tsx`
+not mirroring the `<details><summary>raw error</summary><code>…</code></details>`
+visual language that `Replay.tsx:234-237` adopted in round-3). All
+three were absorbed into round-4 commit `<HEAD>` per D-P2-30..D-P2-36;
+no round-3 deferrals reopened.
+
+The fourth COMPLETION REVIEW group (running against HEAD `<HEAD>`,
+dispatched per D-P2-37) is the gate that releases the user §9 vibe-
+judgement. With no Highs surfaced, the user reads §9 fresh without a
+*Round-4 blocking findings* subsection (mirroring D-P2-34).
 
 ---
 
@@ -319,17 +348,18 @@ diff to the engine kernels, the LLM wrapper, the per-match orchestrator,
 the schema, the persona content, or the harness CLI.
 
 ```
-$ git diff 7c22284..5ebe737 -- convex/engine convex/llm convex/runMatch.ts convex/schema.ts personas harness
+$ git diff 7c22284..<HEAD> -- convex/engine convex/llm convex/runMatch.ts convex/schema.ts personas harness
 (no output)
 ```
 
-Verified at sealing time (HEAD = `5ebe737`). The only files touched in
+Verified at sealing time (HEAD = `<HEAD>`). The only files touched in
 `convex/` between dispatch and HEAD are `convex/replay.ts` (new module,
 +92 lines) and the regenerated `convex/_generated/api.d.ts` (+2 lines —
-the new module's typed surface). The five closure-readiness commits
+the new module's typed surface). The six closure-readiness commits
 (`2833537` round-1 code+README, `aee6397` round-1 docs, `61c9c2b`
 round-2 code+test, `d3c0370` round-2 docs, `5ebe737` round-3 code +
-docs combined) touched **only** the renderer sub-package and
+docs combined, `<HEAD>` round-4 code + docs combined) touched
+**only** the renderer sub-package and
 `docs/project/phases/02-replay-overseer-v0/*.md` — none modifies any
 substrate path.
 
@@ -516,6 +546,68 @@ UI rearrangement; no new logic to test). Root `npm test` unchanged at
 went 79.93 KB gzipped → 80.01 KB gzipped (+0.08 KB; sticky-header +
 `<details>` toggle styles).
 
+**Round-4 must-fix + Lows (3) + cosmetic deferrals (3) — resolved in `<HEAD>`:**
+
+- **Med-2 / ADR §6 staleness (Review A) — `architecture-decisions.md`
+  §6 wording aligned to `history.replaceState` semantics.** §6's
+  hash-route description previously framed slider URL writes loosely
+  ("push/shallow"); this document's §6 was tightened in round-3 (commit
+  `5ebe737`) to read "updates rewrite the URL via
+  `history.replaceState`" with a citation to `TurnStepper.tsx:42-57`,
+  but `architecture-decisions.md` §6 was not refreshed in the same
+  pass. Round-4 brings ADR §6 inline with closure-doc §6 + the
+  `TurnStepper.tsx:42-57` citation (back-button steps to the previous
+  match, not the previous turn — per ADR §6 / D-P2-7). Pure prose
+  reconciliation; no functional change.
+- **Low / lastSurvivor doc drift (Review B) — `architecture-decisions.md`
+  §3 + `work-packages.md` WP-A picker bullet reconciled post-D-P2-21.**
+  D-P2-21 dropped the opaque `outcome.lastSurvivor` column from
+  `MatchPicker.tsx` in round-1, but `architecture-decisions.md:227-230`
+  and `work-packages.md:97-107` still described the picker as
+  surfacing it. Round-4 inserts a `D-P2-21 supersedes` block-quote
+  AFTER the original prose in both files (original prose preserved
+  verbatim — Review B's request was reconciliation, not deletion). The
+  closure record's existing §1.1 / §3.1 narrative already reflects
+  the column drop; ADR + WP now match.
+- **Low / `ReplayErrorBoundary` `<details>` parity (Reviews A + B) —
+  `apps/replay/src/main.tsx` sync error boundary now mirrors
+  `Replay.tsx:234-237`.** Round-3 introduced the
+  `<details><summary>raw error</summary><code>{message}</code></details>`
+  pattern in the async friendly-hint frame at `Replay.tsx:219-238`,
+  but the sync `ReplayErrorBoundary` class component in
+  `apps/replay/src/main.tsx` was still rendering the raw error inline
+  as `<p style={mutedStyle}>error: <code>{message}</code></p>`. Round-4
+  swaps the sync boundary's body to the same `<details>` pattern,
+  adds `errorSummaryStyle` + `errorCodeStyle` consts mirroring
+  `Replay.tsx:450-468` verbatim, and removes the now-unused
+  `mutedStyle` constant. The two failure modes (sync render-time
+  throws + async Convex `ArgumentValidationError` rejections, the
+  D-P2-28 dual-layer pair) now share visual language. Cosmetic;
+  D-P2-28's dual-layer architecture is preserved.
+- **Cosmetic deferrals (3) — appended to §5.4 (D-P2-38).** Three new
+  §5.4 bullets capture round-4's intentionally-deferred cosmetics: (a)
+  `Replay.tsx:47, :217, :418` retain `UAT ISSUE-002` / `UAT ISSUE-003`
+  references (exempt because those numbers uniquely identify the
+  originating UAT report — the ISSUE-001 collision case is what
+  motivated the round-3 AC-anchor relabelling at `:370-372` /
+  `:491-498`); (b) the §5.4 kill-attribution citation `:524-548` was
+  tightened in-place to `:539-547` per Review A Low-4 (the
+  contract-decision comment block actually starts at `:539` and the
+  assertions are at `:544-547`); (c) `convex/replay.ts`
+  `getReplayBundle` accepts any valid match id — picker filters
+  completed-only so a user pasting a VALID-but-not-completed match id
+  directly into the URL would get a partial bundle (defense-in-depth
+  is a future-phase polish, not a UX gap, since the documented entry
+  point is the picker).
+
+Round-4 phase-2 sub-package test count unchanged at 125 (pure doc +
+tiny renderer parity; no new logic to test). Root `npm test`
+unchanged at 457 passing (4 LIVE_AZURE skips unchanged) per the
+parallel renderer engineer's gate report. `apps/replay` Vite build
+unchanged at 80.01 KB gzipped per the same report (the
+`<details>`/`<summary>` swap + two style consts + dead-`mutedStyle`
+removal nets to ~0 KB after gzip).
+
 ### 5.1 Live-agent equipment + HP not derivable per turn — D-P2-11
 
 **Tag:** v0 acceptable.
@@ -617,7 +709,7 @@ next phase that revisits these surfaces can address them.
   in `resolution.deaths[]` on the same turn. When two or more agents
   hit the same dying target simultaneously, each agent's feed row
   claims the kill — the contract is locked by the comment block +
-  assertions at `decisionEnglish.test.ts:524-548` ("Contract decision
+  assertions at `decisionEnglish.test.ts:539-547` ("Contract decision
   (locked here): the kill suffix appears for any attacker whose
   attack outcome lands on the dying target on the same turn. Both
   attackers get it"). The two ally + target attack-record fixtures at
@@ -668,6 +760,54 @@ next phase that revisits these surfaces can address them.
   URL. Defer as optional polish; the natural fix is to skip the
   effect on the mount tick when the URL already has no `?turn=`
   param (or to gate the write on `props.turn !== currentTurn`).
+- **Comment-label scheme inconsistency — `Replay.tsx` retains
+  `UAT ISSUE-002` / `UAT ISSUE-003` references without AC anchors**
+  (`apps/replay/src/routes/Replay.tsx:47, :217, :418`; Review A /
+  Review B round-4; D-P2-38(a)). Round-3 relabelled the two
+  `mainStyle.height: '100vh'` / `gridSquareStyle` comments at
+  `Replay.tsx:370-372` and `:491-498` to AC-anchor form ("AC#4 +
+  closure-readiness round-1 Med-1") because the original
+  `UAT ISSUE-001` reference was the round-1 fit-to-viewport finding
+  AND the round-2 pluralisation finding under different schemes — the
+  number alone was ambiguous. The remaining `UAT ISSUE-002` (URL ↔
+  `currentTurn` sync at `:47`) and `UAT ISSUE-003` (friendly error
+  frame at `:217` and `:418`) references are EXEMPT from the same
+  relabelling: those numbers uniquely identify their originating UAT
+  report rows and are not collision cases. Retaining the cite
+  preserves traceability into the UAT report without re-introducing
+  the round-3 ambiguity. Deferred as a cosmetic comment-style
+  inconsistency, not a correctness gap.
+- **Citation polish — see kill-attribution entry above; range
+  tightened from `:524-548` to `:539-547` in round-4** (Review A
+  Low-4; D-P2-38(b)). The contract-decision comment block at
+  `decisionEnglish.test.ts` actually starts at `:539` (the multi-line
+  "Contract decision (locked here): …" block) and the assertions are
+  at `:544-547` (`expect(out.oneLine).toContain("Player_5")` +
+  `expect(out).toBeDefined()`); the prior `:524-548` range
+  over-covered into the upstream "v0 rule: append the kill iff THIS
+  actor was the LAST attacker on the defender …" exploratory comment
+  block at `:524-538`, which is preamble, not the locked contract.
+  Tightened in-place inside the kill-attribution entry above; this
+  marker preserves the deferral's audit trail.
+- **`getReplayBundle` non-completed-match defense-in-depth gap**
+  (`convex/replay.ts` `getReplayBundle` at `:72-92`; Review B Low
+  round-4; D-P2-38(c)). `replay.listMatches` filters
+  `status === "completed"` server-side via
+  `withIndex("by_status", q => q.eq("status", "completed"))`
+  (`convex/replay.ts:43-52`), so the picker UI never surfaces an
+  in-progress or failed match to click. `replay.getReplayBundle`,
+  however, accepts any valid `Id<"matches">` and returns the bundle
+  unconditionally for whatever status the row carries — a user typing
+  a bogus matchId for an in-progress match into the URL gets the
+  D-P2-28 dual-layer friendly-error frame (`v.id("matches")` validator
+  rejects unrecognised id strings), but a user pasting a VALID
+  matchId for an in-progress / failed match would get a partial
+  bundle (turns / characters / worldState all present but `match.turn`
+  mid-run, `match.outcome` absent). v0-acceptable because the
+  picker is the only documented entry point and is completed-only;
+  defense-in-depth (return `null` when `match.status !== "completed"`)
+  is a future-phase polish — attack-surface nit, not a UX gap.
+  Deferred to a downstream phase that revisits the read contract.
 
 ---
 
@@ -746,10 +886,10 @@ Phase 2 documents that together form the full record:
 - `README.md` — phase goal / scope / Cucumber surface / hard
   out-of-scope / dependency map.
 - `architecture-decisions.md` — ADR §1..§12 capturing decisions
-  D-P2-1..D-P2-14. D-P2-15..D-P2-35 are conversation Decision Record
+  D-P2-1..D-P2-14. D-P2-15..D-P2-38 are conversation Decision Record
   entries — orchestration / dispatch / closure-readiness level
-  (round-1 + round-2 + round-3), not architecture; the §2 ADR
-  adherence table above is the authoritative evidence index for
+  (round-1 + round-2 + round-3 + round-4), not architecture; the §2
+  ADR adherence table above is the authoritative evidence index for
   those.
 - `work-packages.md` — WP-A through WP-D scope, acceptance, test
   strategy, risks; "Closing the phase" §1-§3.

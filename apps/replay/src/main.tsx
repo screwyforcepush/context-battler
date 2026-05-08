@@ -69,10 +69,10 @@ class ReplayErrorBoundary extends React.Component<
               Convex deployment. Double-check the URL or pick a row from the
               list.
             </p>
-            <p style={errorDetailStyle}>
-              <span style={mutedStyle}>error:</span>{" "}
-              <code>{this.state.error.message}</code>
-            </p>
+            <details style={errorDetailStyle}>
+              <summary style={errorSummaryStyle}>raw error</summary>
+              <code style={errorCodeStyle}>{this.state.error.message}</code>
+            </details>
           </div>
         </main>
       );
@@ -153,7 +153,28 @@ const errorDetailStyle: React.CSSProperties = {
   fontSize: "0.8125rem",
 };
 
-const mutedStyle: React.CSSProperties = {
+// Round-4: `<summary>` cursor + colour matches the muted-link palette so
+// the toggle reads as opt-in detail, not a callout. `<code>` block is
+// monospaced and word-broken so very long Convex error messages wrap
+// instead of stretching the alert frame. Mirrors Replay.tsx:450-468 so the
+// async sibling and this sync boundary share visual language (UAT
+// ISSUE-003 round-4 parity fix).
+const errorSummaryStyle: React.CSSProperties = {
   color: "#888",
   fontSize: "0.8125rem",
+  cursor: "pointer",
+};
+
+const errorCodeStyle: React.CSSProperties = {
+  display: "block",
+  marginTop: "0.375rem",
+  padding: "0.375rem 0.5rem",
+  background: "#fff",
+  border: "1px solid #ddd",
+  borderRadius: 4,
+  fontFamily:
+    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace',
+  fontSize: "0.75rem",
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
 };

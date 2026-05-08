@@ -230,6 +230,14 @@ for completed matches), `outcome.extracted.length`,
 `outcome.lastSurvivor` if any. These all exist on the `matches` row
 already; no schema change.
 
+> **D-P2-21 supersedes (round-1 closure-readiness):** the
+> `outcome.lastSurvivor` column was dropped from the picker — enrichment
+> would require an N+1 `worldState` read per row, OR a schema diff
+> forbidden by the substrate freeze (D-P2-9). The remaining columns
+> (matchId / startedAt / status / turn / extracted) satisfy AC#2
+> "enough context to choose". See `phase-2-closure.md` §5.0 (round-1
+> must-fix bundle) for the resolution evidence.
+
 **Rationale.**
 
 - **One module owns the renderer's read contract.** A reviewer auditing
@@ -613,9 +621,12 @@ vocabulary table above, every consume-action, and the
 **Decision.** Hash routing (`window.location.hash`):
 - `#/` — match-picker page.
 - `#/match/<matchId>` — replay page.
-- `#/match/<matchId>?turn=N` — replay page with deep-linked turn (the
-  slider hydrates from the URL on mount; updates push history shallowly
-  so back-button steps the slider).
+- `#/match/<matchId>?turn=N` — replay page with deep-linked turn. The
+  slider hydrates from the URL on mount; updates rewrite the URL via
+  `history.replaceState` (`TurnStepper.tsx:42-57`) so deep links can be
+  copied without polluting the back-button stack. Back-button
+  navigation steps to the previous match (or the picker), not to the
+  previous turn within the match.
 
 State lives in:
 - **URL** — selected match, current turn.

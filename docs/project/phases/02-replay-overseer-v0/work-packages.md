@@ -105,6 +105,14 @@ overlays).
   once the bundle's `characters[]` is loaded; for the picker, the id
   is enough to disambiguate matches. Each row is a hyperlink to
   `#/match/<matchId>`.
+
+  > **D-P2-21 supersedes (round-1 closure-readiness):** the
+  > `outcome.lastSurvivor` column was DROPPED from the picker because
+  > enrichment would require an N+1 `worldState` read per row, OR a
+  > schema diff forbidden by the substrate freeze (D-P2-9). The
+  > remaining columns (matchId / startedAt / status / turn / extracted)
+  > satisfy AC#2 "enough context to choose". See `phase-2-closure.md`
+  > §5.0 (round-1 must-fix bundle) for the resolution evidence.
 - `apps/replay/src/routes/Replay.tsx` — stub component. Renders a "TODO
   WP-B" placeholder reading the matchId from the route.
 - `apps/replay/README.md` — one-liner with `npm install` +
