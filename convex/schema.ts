@@ -423,6 +423,99 @@ const reportPerPersonaStatsValidator = v.object({
 });
 
 /**
+ * Phase-3 WP-E.4 — per-persona block of the phase-3 payload (carry-over
+ * extraction-only metric). Sibling shape to `reportPerPersonaStatsValidator`
+ * but slimmer because phase-3 only tracks extraction count/rate per persona
+ * (kills/equips/speech are now run-level metrics, not per-persona).
+ */
+const phase3PerPersonaStatsValidator = v.object({
+  personaId: personaIdValidator,
+  extractionsCount: v.number(),
+  extractionRate: v.number(),
+});
+
+/**
+ * Phase-3 WP-E.4 — `reports.phase3Payload` validator. Mirrors
+ * `Phase3MetricsPayload` from `convex/reports/phase3.ts` field-for-field.
+ *
+ * Stored on the `reports` row as a sibling field to the v1/v2 `payload`
+ * (phase-1 carry-over). The phase-3 closing-10 row carries:
+ *   - The v1 `metrics` block (zero-filled / mirrored from carry-over).
+ *   - The v2 `payload` block (phase-1 carry-over only — kills, etc).
+ *   - The new `phase3Payload` block — substrate-refinement metrics.
+ *
+ * Two-payload layout keeps the schema diff minimal (one new optional
+ * field, no `payload` validator union) and keeps phase-1 closing-50
+ * rows historically valid (their `phase3Payload` is undefined).
+ */
+const phase3PayloadValidator = v.object({
+  // Identification
+  reportType: v.literal("phase-3-closing-10"),
+  runCount: v.number(),
+  matchIds: v.array(v.string()),
+
+  // Schema validity (≤ 10%)
+  totalAgentRecords: v.number(),
+  fallbackCount: v.number(),
+  fallbackRate: v.number(),
+  meetsSafeDefaultThreshold: v.boolean(),
+
+  // Wall-blocked move rate (≤ 2%)
+  totalMoveAttempts: v.number(),
+  wallBlockedMoves: v.number(),
+  wallBlockedMoveRate: v.number(),
+  meetsWallBlockedThreshold: v.boolean(),
+
+  // Drained-corpse repeat rate (≤ 1%)
+  totalLootAttempts: v.number(),
+  drainedRepeats: v.number(),
+  drainedRepeatRate: v.number(),
+  meetsDrainedRepeatThreshold: v.boolean(),
+
+  // Corpse-loot success rate (≥ 50% of runs)
+  runsWithCorpseLoot: v.number(),
+  corpseLootSuccessRate: v.number(),
+  meetsCorpseLootThreshold: v.boolean(),
+
+  // Overwatch stance differentiation (both > 0)
+  defensiveCounterFires: v.number(),
+  offensiveOverwatchFires: v.number(),
+  meetsOverwatchDifferentiationThreshold: v.boolean(),
+
+  // Outcome attribution (≥ 50% best-effort)
+  outcomeAttributionPairs: v.number(),
+  outcomeAttributionMatches: v.number(),
+  outcomeAttributionRate: v.number(),
+  meetsOutcomeAttributionThreshold: v.boolean(),
+
+  // Reasoning capture (≥ 80% of non-fallback)
+  nonFallbackRecords: v.number(),
+  reasoningCaptured: v.number(),
+  reasoningCaptureRate: v.number(),
+  meetsReasoningCaptureThreshold: v.boolean(),
+
+  // Carry-over phase-1 (10-run-scaled)
+  runsWithExtraction: v.number(),
+  runsWithKill: v.number(),
+  runsWithEquip: v.number(),
+  runsWithSpeech: v.number(),
+  extractionRate: v.number(),
+  killRate: v.number(),
+  equipRate: v.number(),
+  speechRate: v.number(),
+  perPersona: v.array(phase3PerPersonaStatsValidator),
+  personaExtractionSpread: v.number(),
+  meetsExtractionThreshold: v.boolean(),
+  meetsKillThreshold: v.boolean(),
+  meetsEquipThreshold: v.boolean(),
+  meetsSpeechThreshold: v.boolean(),
+  meetsPersonaSpreadThreshold: v.boolean(),
+
+  // Composite gate
+  meetsAllThresholds: v.boolean(),
+});
+
+/**
  * `reports.payload` validator — the §10 done-bar payload Stage-3 emits.
  * Mirrors `ReportPayload` from `convex/engine/reportStats.ts` exactly.
  */
@@ -605,6 +698,28 @@ export default defineSchema({
      *  quietly excluded from the aggregate (e.g. failed matches that
      *  didn't get a `runs` row by WP12 contract). */
     missingRunsForMatchIds: v.optional(v.array(v.id("matches"))),
+    /**
+     * Phase-3 WP-E.4 — substrate-refinement metrics payload.
+     *
+     * Sibling to the v2 `payload` field; only populated on rows whose
+     * `reportType === "phase-3-closing-10"`. Carries the metrics
+     * defined in `docs/project/phases/03-substrate-refinement/README.md`
+     * §5: schema validity, wall-blocked move rate, drained-corpse
+     * repeat rate, corpse-loot success rate, overwatch stance
+     * differentiation, outcome attribution rate, reasoning capture
+     * rate, plus the carry-over phase-1-scaled metrics. The `payload`
+     * field continues to carry the phase-1 carry-over view (kills,
+     * extractions, equips, speech) so existing tooling that reads
+     * `payload.meetsAllThresholds` keeps working — `phase3Payload
+     * .meetsAllThresholds` is the phase-3 composite gate.
+     *
+     * Choice (per WP-E.4 brief): a sibling optional field, not a
+     * `payload` validator union. Keeps the schema diff minimal —
+     * historical phase-1 closing-50 rows validate without migration
+     * (`phase3Payload` is undefined on them); new phase-3 rows carry
+     * both the carry-over and the new metrics.
+     */
+    phase3Payload: v.optional(phase3PayloadValidator),
   })
     .index("by_generatedAt", ["generatedAt"])
     // WP14 idempotency index: `reports.create` reads by this tuple before
