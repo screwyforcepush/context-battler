@@ -149,40 +149,70 @@ display-only nicety to fix later.
 
 ### 1.8 Extracted character disappearance
 
-**Failure mode.** Characters that extract on turn N (action `kind:
-"extract"` per `harness/analyze-match.ts:55`) should not appear on the
-grid for turns ≥ N+1. A regression that keeps extracted characters at
-their last position would mislead the user about who's still in the
-arena.
+**Failure mode.** Extraction is **not an action** in the resolution
+trace — `convex/engine/resolution.ts:711-723` performs it as a phase-8
+mutation that sets `characters[c].extractedAtTurn = EVAC_EXTRACT_TURN`
+(50) for every character standing inside the evac zone on turn 50.
+There is **no `kind: "extract"` entry** in `resolution.actions[]`; an
+earlier draft of this plan referenced `harness/analyze-match.ts:55`,
+which checks for a literal that the engine never emits. A walk that
+relies on the missing action kind would never mark anyone as
+extracted; the renderer would keep them on the grid forever.
 
-**Test (Vitest).** Synthetic bundle: character A extracts on turn 50.
-Assert `reconstruct(bundle, 50).characters[A].extractedAtTurn === 50`
-and that the renderer's grid component (or the snapshot's "alive"
-filter) excludes A from the live-tokens list.
+**Resolution (locked by ADR §4 walk rule 4).** The walk reads
+extraction from `bundle.characters[c].extractedAtTurn` (the terminal
+characters[] row, written by phase-8 mutation). For each `c`, if
+`c.extractedAtTurn !== null` and `c.extractedAtTurn <= atTurn`, mark
+`snapshot.characters[c].extractedAtTurn = c.extractedAtTurn`. The
+token is hidden from the grid for `t > extractedAtTurn`.
+
+**Test (Vitest).** Synthetic bundle: character A has
+`extractedAtTurn: 50` on the terminal characters row. Assert
+`reconstruct(bundle, 50).characters[A].extractedAtTurn === 50` and
+that the snapshot's grid filter (`!extractedAtTurn || extractedAtTurn > atTurn`)
+excludes A from the live-tokens list at turn 51 (or any
+`atTurn > extractedAtTurn`). Assert the same character is still on
+the grid at turn 49.
 
 ---
 
-### 1.9 Turn 0 vs turn 1 — the first-row invariant
+### 1.9 Turn 0 is synthetic — turn-number keying, not array-index
 
-**Failure mode.** Phase 1's `convex/runMatch.ts:advanceTurn` is invoked
-first by `matches.start` with no turn argument; the chain produces the
-first `turns` row at `turn === 1`, NOT `turn === 0`. The pre-turn-1
-state (i.e. spawn positions, no actions yet) is therefore **not
-represented as a row in the ledger**. The walk must treat the
-"snapshot before bundle.turns[0]" as the synthetic turn-0 state
-(spawn positions, closed chests, no corpses).
+**Failure mode (locked by D-P2-13).** Phase 1's
+`convex/runMatch.ts:461` sets `currentTurn = matchRow.turn + 1`; the
+first `turns` row written to the ledger is `turn === 1`. The
+pre-turn-1 state (spawn positions, no actions, no agentRecords) is
+therefore **not represented as a row in the ledger**. Any UI code that
+indexes by array position (`bundle.turns[currentTurn]`,
+`slider 0..bundle.turns.length-1`) will be off-by-one against the
+turn the user thinks they're looking at.
 
-**Action item.** WP-B's pre-step is to inspect a real bundle from
-`npx convex run` and document the actual `bundle.turns[0].turn` value
-in `reconstruct.ts`'s comment header. If `turn === 1`, the walk
-synthesises a turn-0 snapshot from spawnIndex / map / characters
-without consulting any ledger row. If `turn === 0`, the walk's
-iteration starts at the first row.
+**Resolution.** The walk + UI key turns by **turn-number**, not array
+index:
 
-**Test (live integration, gated by `LIVE_CONVEX`).** Load a closing-50
-bundle. Assert `bundle.turns[0].turn` equals either 0 or 1 and that
-the walk produces correct spawn positions for that turn-0 view either
-way.
+- The walk constructs `turnRowByTurn = new Map<number, TurnRow>()` once
+  per bundle resolve, keyed by `row.turn`.
+- For `currentTurn === 0`, the walk synthesises the snapshot from
+  `characters[].spawnIndex` × `maps/reference.json`'s `spawns[]` —
+  **no ledger row consulted**. The UI feed renders "Pre-turn / spawn
+  positions, no decisions".
+- For `currentTurn >= 1`, the walk applies `turnRowByTurn.get(t)` for
+  `t = 1..currentTurn`. Slider range is `0..bundle.match.turn`
+  (inclusive of synthetic turn 0).
+
+**Test (Vitest).** Synthetic bundle whose `turns[]` array starts at
+`turn === 1` (mirroring the engine). Assert
+`reconstruct(bundle, 0)` returns spawn positions with no
+ledger-derived state. Assert `reconstruct(bundle, 1)` applies
+`turnRowByTurn.get(1).resolution`. Assert
+`reconstruct(bundle, 0).characters.length === bundle.characters.length`
+and that the synthetic turn 0 has no `diedAtTurn` / `extractedAtTurn`
+set.
+
+**Test (live integration, gated by `LIVE_CONVEX`).** Load a
+closing-50 bundle. Assert `bundle.turns[0].turn === 1` (no row at
+turn 0). Assert `reconstruct(bundle, 0)` produces 8 agents at the
+spawn positions documented in `maps/reference.json`.
 
 ---
 
@@ -193,15 +223,20 @@ this checklist against three closing-50 matches:
 
 - [ ] Match picker loads in <1 s and shows ≥ 3 matches.
 - [ ] Click a match row → replay route loads in <2 s.
-- [ ] Turn 0: 8 agents at 8 perimeter spawns, no corpses, all chests
-      closed, evac ring centred at (47..49, 47..49).
+- [ ] Turn 0: 8 agents at the 8 ring spawns surrounding the central
+      evac arena (per `maps/reference.json`, coordinates
+      (28,28)..(48,48) — interior ring, not 100×100 perimeter), no
+      corpses, all chests closed, evac ring centred at (47..49, 47..49).
 - [ ] Slider scrubs 0 → 50 and back without visual artifacts.
 - [ ] At each turn, the side-panel feed shows 8 rows (or fewer if
       agents have died) with English decision summaries that read
       naturally.
-- [ ] Hovering an agent shows persona, equipped, decision summary.
-- [ ] Hovering a chest at terminal turn shows opened-state matching
-      `worldState.chests[]`.
+- [ ] Hovering an agent shows persona, displayName, position, and
+      decision summary. Equipment + HP show "see expand panel"
+      (D-P2-11).
+- [ ] Hovering a closed chest at turn 0 shows "closed". Hovering an
+      opened chest at the terminal turn shows "opened (turn N)" plus
+      "contents not persisted" (D-P2-12).
 - [ ] Click "..." on a feed row → modal shows persona prompt + system
       prompt + visibleStateDigest + scratchpad + LLM trace; all are
       copy-to-clipboard.
@@ -224,9 +259,11 @@ spike":
 - **SVG rendering of ~100 nodes.** Trivially fast; no spike needed.
 - **Hash routing.** A 30-line custom hook; no spike needed.
 - **Vite + Convex client wiring.** `VITE_CONVEX_URL` env var; standard.
-- **Decision-as-English vocabulary.** Enumerated by inspection of
-  `convex/engine/{combat,loot,affordances}.ts`; one grep at WP-C
-  kickoff; no spike needed.
+- **Decision-as-English vocabulary.** Locked in ADR §5 from
+  `convex/engine/resolution.ts:374-586` per D-P2-14
+  (`dmg N` / `no_target` / `out_of_range` / `opened` /
+  `already_opened` / `no_chest` / `looted` / `no_corpse`). No spike;
+  the table is the contract.
 - **React + TypeScript + Convex codegen interop.** Convex's
   `_generated/api.d.ts` is the canonical surface; types flow.
 - **Persona colour palette.** Pick 8 high-contrast colours; trivial.
@@ -262,6 +299,16 @@ The walk is the unknown; everything else is craft.
 - `work-packages.md` WP-B — owns reconstruction tests.
 - `work-packages.md` WP-C — owns decision-as-English tests.
 - `concept-spec.md` §23 — resolution order the walk mirrors.
-- `convex/schema.ts` — schema validators the bundle types alias.
-- `harness/analyze-match.ts` — phase-1 CLI counterpart; result-string
-  enumeration for WP-C kickoff lives here at lines 49–58.
+- `convex/schema.ts` — schema source of truth; bundle types are
+  expressed via `Doc<T>` aliases from `convex/_generated/dataModel`
+  (per ADR §7 / M3).
+- `convex/engine/resolution.ts:374-586` — canonical source of the
+  result-string vocabulary the renderer parses (per D-P2-14).
+- `convex/engine/resolution.ts:711-723` — phase-8 extraction mutation
+  (extraction is NOT a `kind:"extract"` action — per D-P2-13/§1.8).
+- `convex/runMatch.ts:461` — `currentTurn = matchRow.turn + 1`; the
+  first ledger row is `turn === 1` (D-P2-13 / §1.9).
+- `harness/analyze-match.ts` — phase-1 CLI counterpart. **Stale**
+  with respect to result strings (per D-P2-14 — do not use lines
+  49-58 as a vocabulary reference; the canonical source is
+  `convex/engine/resolution.ts`).

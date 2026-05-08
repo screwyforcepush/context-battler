@@ -30,9 +30,17 @@ overlays).
     `typescript`, `@types/react`, `@types/react-dom`; deps: `react`,
     `react-dom`, `convex`).
   - `apps/replay/vite.config.ts` (`@vitejs/plugin-react`, dev server on
-    port 5173).
-  - `apps/replay/tsconfig.json` (extends root, JSX `react-jsx`, includes
-    `src/**/*` plus type-only imports from `../../convex/_generated/`).
+    port 5173). **Must set `server.fs.allow: ['..', '../..']`** so that
+    `import '../../maps/reference.json'` from `reconstruct.ts`
+    resolves — Vite's default policy confines reads to the project
+    root (`apps/replay/`) and would otherwise deny the cross-package
+    import (per M2 review).
+  - `apps/replay/tsconfig.json` (`compilerOptions.jsx: "react-jsx"`,
+    `compilerOptions.lib: ["ES2022", "DOM", "DOM.Iterable"]`,
+    `compilerOptions.module: "ESNext"`,
+    `compilerOptions.moduleResolution: "Bundler"`, includes
+    `src/**/*` plus type-only imports from `../../convex/_generated/`
+    and `../../convex/schema.ts`).
   - `apps/replay/index.html` (mount point `<div id="root"></div>`).
   - `apps/replay/src/main.tsx` — `ConvexProvider` wraps the app, hash
     router decides between `MatchPicker` and `Replay`.
@@ -41,15 +49,23 @@ overlays).
   - `apps/replay/src/lib/useHashRoute.ts` — hook returning the parsed
     hash route.
   - `apps/replay/src/routes/MatchPicker.tsx` — paginated table.
-- Wire the root `package.json` script `dev:replay` →
-  `npm --prefix apps/replay run dev`. Document the
-  `VITE_CONVEX_URL=<dev-deployment-url>` env var in `apps/replay/.env.example`.
+- Wire the root `package.json` scripts:
+  - `dev:replay` → `npm --prefix apps/replay run dev`.
+  - **`typecheck`** must be updated to also run
+    `npm --prefix apps/replay run typecheck` (or, equivalently, switch
+    to TypeScript project references — root-level decision is fine
+    either way as long as `npm run typecheck` from repo root covers
+    both packages). The current root script is plain
+    `tsc --noEmit` which would miss `apps/replay/`.
+  - Document `VITE_CONVEX_URL=<dev-deployment-url>` in
+    `apps/replay/.env.example`.
 - Wire root tooling:
-  - `eslint.config.mjs` — extend to include `apps/replay/src/**/*.{ts,tsx}`
-    (JSX-aware variant). Add a `no-restricted-imports` rule blocking
-    runtime imports of `convex/engine/*`, `convex/llm/*`,
-    `convex/runMatch.ts`, `convex/_internal_runMatch.ts` from
-    `apps/replay/src/**` (per ADR §7).
+  - `eslint.config.mjs` — add a dedicated `files` block for
+    `apps/replay/src/**/*.{ts,tsx}` with React/JSX-aware rules. Add a
+    `no-restricted-imports` rule blocking runtime imports of
+    `convex/engine/*`, `convex/llm/*`, `convex/runMatch.ts`,
+    `convex/_internal_runMatch.ts` from `apps/replay/src/**` (per ADR
+    §7). Type-only imports across the slice boundary remain allowed.
   - `vitest.config.ts` — extend `include` to cover
     `apps/replay/src/**/*.test.ts(x)`.
   - `.gitignore` — add `apps/replay/node_modules/`,
@@ -57,14 +73,38 @@ overlays).
 - Add a new Convex query module **`convex/replay.ts`** with **only**
   `listMatches({ paginationOpts })` for now (`getReplayBundle` lands in
   WP-B). Default Convex runtime; pure DB read.
+
+  Implementation contract (M1 — restored from north-star §3 row
+  metadata):
+
+  ```ts
+  // Filter to completed matches; reverse-chronological by _creationTime.
+  export const listMatches = query({
+    args: { paginationOpts: paginationOptsValidator },
+    handler: async (ctx, { paginationOpts }) => {
+      return await ctx.db
+        .query("matches")
+        .withIndex("by_status", (q) => q.eq("status", "completed"))
+        .order("desc")
+        .paginate(paginationOpts);
+    },
+  });
+  ```
+
+  Each match row already includes `outcome.extracted[]` and
+  `outcome.lastSurvivor` (per `convex/schema.ts` matches.outcome).
+  Renderer surfaces both directly — no secondary query needed.
 - `apps/replay/src/routes/MatchPicker.tsx` uses
   `usePaginatedQuery(api.replay.listMatches, {}, { initialNumItems: 20 })`
-  and renders a table with columns: matchId (truncated), startedAt
-  (relative time), status, current turn, extracted count
-  (`outcome.extracted.length`), last-survivor displayName if any
-  (resolved client-side via secondary query — or omitted if it would
-  add a round-trip; v0 acceptance is the simpler shape). Each row is a
-  hyperlink to `#/match/<matchId>`.
+  and renders a table with columns: matchId (truncated to 8 chars),
+  `startedAt` (relative time), `status`, `turn`,
+  `outcome.extracted.length`, **`outcome.lastSurvivor`** (rendered as
+  the truncated character id — the field is `v.id("characters")`,
+  not a displayName, per `convex/schema.ts:453`; if `undefined`,
+  render "—"). DisplayName resolution happens inside the replay view
+  once the bundle's `characters[]` is loaded; for the picker, the id
+  is enough to disambiguate matches. Each row is a hyperlink to
+  `#/match/<matchId>`.
 - `apps/replay/src/routes/Replay.tsx` — stub component. Renders a "TODO
   WP-B" placeholder reading the matchId from the route.
 - `apps/replay/README.md` — one-liner with `npm install` +
@@ -78,19 +118,26 @@ overlays).
 - `npm --prefix apps/replay run dev` starts a Vite server at
   `http://localhost:5173`.
 - Visiting `http://localhost:5173/` (with `VITE_CONVEX_URL` set to the
-  user's dev deployment URL) shows a paginated table of completed
-  matches in reverse-chronological order.
+  user's dev deployment URL) shows a paginated table of **completed**
+  matches in reverse-chronological order (filtered server-side via
+  `withIndex("by_status", q => q.eq("status", "completed")).order("desc")`).
 - The table includes: matchId (truncated to 8 chars), `startedAt`,
-  `status`, `turn`, count of `outcome.extracted`. Rendering does not
+  `status`, `turn`, count of `outcome.extracted`,
+  `outcome.lastSurvivor` (truncated id or "—"). Rendering does not
   block on loading more pages; "Load more" button uses the paginated
   query.
 - Clicking a row navigates to `#/match/<id>` and renders the WP-B
   placeholder.
 - `npm run lint`, `npm run typecheck`, `npm run build`, `npm test` all
-  green at root.
+  green at root **and cover `apps/replay/`** (root `typecheck` invokes
+  the sub-package's typecheck; root `lint` block matches `.tsx`).
+- The ESLint `no-restricted-imports` rule fires on a deliberate
+  attempt to import `convex/engine/...` from
+  `apps/replay/src/`, proving the slice boundary is enforced (one-off
+  manual check, not a permanent test).
 - `convex/replay.ts` deploys via `npx convex dev` without errors;
   `npx convex run replay:listMatches '{"paginationOpts":{"numItems":1,"cursor":null}}'`
-  returns the 1 most recent match.
+  returns the 1 most recent **completed** match.
 - `apps/replay/.env.example` exists and documents `VITE_CONVEX_URL`.
 
 **Test strategy.**
@@ -112,13 +159,20 @@ overlays).
 - **Pagination: matches table has only ~50 rows in dev currently.**
   Mitigation: `numItems: 20` default; user can scroll. Trivial.
 - **`replay.listMatches` index choice.** The `matches` table has
-  `by_status` only. Without a `_creationTime` index, `.order("desc")`
-  works on the table's natural creation order. Acceptable for v0; if
-  it ever performs poorly, add an explicit `by_startedAt` index in a
-  future WP.
+  `by_status` only (`convex/schema.ts:461`). The query narrows to
+  `status === "completed"` via that index and uses `.order("desc")`
+  to reverse the natural `_creationTime` order — newest first. No
+  `by_startedAt` or `by_creationTime` index is needed at the user's
+  ~50-row dev scale; if it ever performs poorly, add a dedicated
+  index in a future WP.
 
-**Effort.** 0.5–1.0 day. Sequenced first. Nothing else starts until
-WP-A's match picker shows the user's matches at `localhost:5173`.
+**Effort.** 1.0–1.25 days. Sequenced first. Re-estimated upward from
+the original 0.5–1.0 day to absorb the actual root-tooling extension
+work surfaced by reviewer A: a sub-tsconfig with DOM lib, an ESLint
+files block for `.tsx`, a separate typecheck invocation in the root
+script, and the Vite `server.fs.allow` config for the cross-package
+`maps/reference.json` import (per M2). Nothing else starts until WP-A's
+match picker shows the user's matches at `localhost:5173`.
 
 ---
 
@@ -159,31 +213,44 @@ WP-A's match picker shows the user's matches at `localhost:5173`.
   the full bundle for any completed match.
 - Visiting `#/match/<id>` for any closing-50 match shows turn 0 with:
   - 28 walls rendered.
-  - 10 cover clusters rendered.
+  - All cover tiles rendered (~60 individual tiles, expanded from 10
+    source clusters in `maps/reference.json` — engine flattens
+    clusters to per-tile entries in `worldState.coverTiles`, so the
+    renderer draws 60 squares, not 10).
   - 12 chests rendered (all closed at turn 0).
   - 0 corpses (turn 0 has no deaths).
   - 8 agents at their spawn positions, persona-coloured.
   - 3×3 evac ring centred at (47..49, 47..49).
-- Vitest tests pass for `reconstruct.ts`:
-  - turn 0: every character at `spawns[c.spawnIndex]`.
-  - turn 5 with synthetic moves: positions accumulate.
+- Vitest tests pass for `reconstruct.ts` (anchored to de-risking §1
+  failure modes):
+  - turn 0 (synthetic — no ledger row consulted): every character at
+    `spawns[c.spawnIndex]` (de-risking §1.5 happy path).
+  - turn 5 with synthetic moves: positions accumulate (§1.1).
   - stationary character (no `kind: "none"` move entry — it's omitted
-    from `resolution.moves[]`) keeps its previous position.
+    from `resolution.moves[]`) keeps its previous position (§1.1).
   - chest opens at turn N via `resolution.actions[*].kind === "interact"`
-    with `result === "opened"`.
+    with `result === "opened"` (§1.3).
   - death at turn N produces a corpse at the actor's last position from
-    turn N onward.
-  - hidden flag toggles via `resolution.visibilityUpdates[]`.
-  - `reconstruct(bundle, 30) === reconstruct(bundle, 30)` after a
-    backward jump (idempotency / no hidden state).
-  - `reconstruct(bundle, 50)` — terminal state — agents that extracted
-    are marked `extractedAtTurn` and absent from the grid (or
-    distinct-styled, depending on chosen WP-B affordance).
+    turn N onward (§1.2).
+  - hidden flag toggles via `resolution.visibilityUpdates[]` (§1.4).
+  - **throws on missing `spawnIndex`** with a clear error message
+    naming the offending character (de-risking §1.5 defensive case).
+  - `reconstruct(bundle, 30)` called twice in succession is structurally
+    equal; backward jump from 30 to 10 equals a fresh
+    `reconstruct(bundle, 10)` (§1.6 idempotency).
+  - extraction read from `bundle.characters[c].extractedAtTurn`:
+    extracted agents disappear from the grid for `t > extractedAtTurn`
+    (§1.8).
+  - synthetic turn 0 reconstructed from a bundle whose first ledger
+    row is `turn === 1` (D-P2-13 / §1.9 invariant).
 - `npm run lint && npm run typecheck && npm run build && npm test` all
   green.
 - The user can manually verify (UAT) by picking three matches from
   the closing-50 set and confirming turn 0 looks identical to the
-  expected start position (8 perimeter spawns, evac ring centred).
+  expected start position (8 ring spawns surrounding the central
+  evac arena per `maps/reference.json` — coordinates (28,28)..(48,48)
+  on the 100×100 grid, NOT the 100×100 perimeter; evac ring centred at
+  (47..49, 47..49)).
 
 **Test strategy.**
 
@@ -194,33 +261,47 @@ WP-A's match picker shows the user's matches at `localhost:5173`.
 - Live-data sanity: a "smoke" test loads the user's most-recent
   closing-50 match's bundle (gated by `LIVE_CONVEX` env var, mirrors
   the `LIVE_AZURE` pattern from phase 1's
-  `tests/llm/integration.test.ts`) and asserts the reconstruction
-  produces 8 agents at known spawn positions on turn 0.
+  `tests/llm/integration.test.ts`) and asserts:
+  - reconstruction produces 8 agents at known spawn positions on
+    turn 0 (synthetic, no ledger row consulted — §1.9 invariant).
+  - `bundle.turns[0].turn === 1` (D-P2-13 first-ledger-row invariant).
+  - **corpse-contents consistency (de-risking §1.7):** for every dead
+    character at the terminal turn, the walk's snapshot's corpse entry
+    matches the corresponding `worldState.corpses[]` entry by
+    `characterId`. Mismatches are logged, not failed (the walk treats
+    `worldState.corpses[]` as the authoritative source per ADR §4
+    fallback strategy, so the test is a sanity probe rather than a
+    hard contract).
 - The grid renderer is exercised via UAT only (visual; not a fit for
   Vitest).
 
 **Risks.**
 
-- **Equipment-state walk fragility.** ADR §4's caveat. Mitigation:
-  hover card displays equipped state best-effort; corpse contents come
-  from `worldState.corpses[]` (engine-authored truth).
-- **Turn 0 special case.** Phase 1 writes a turns row for turn=1 first
-  (per `convex/runMatch.ts` advanceTurn semantics — first invocation
-  produces turn 1). Verify whether the bundle's `turns[0]` is "turn 1"
-  or "turn 0", and whether a synthesised initial state is needed for
-  pre-turn-0 display. Mitigation: WP-B's pre-step is to inspect a
-  real bundle from `npx convex run` and document the index/turn
-  invariant in `reconstruct.ts`'s comment.
+- **Equipment + HP not derivable per turn (D-P2-11).** ADR §4 caveat.
+  Mitigation: snapshot fields are always `null` in v0; hover card
+  displays "see expand panel"; expand modal surfaces
+  `agentRecord.input.visibleStateDigest` for the agent's own view.
+  Corpse contents come from `worldState.corpses[]` (authoritative).
+- **Opened-chest contents not persisted (D-P2-12).** Engine clears
+  `worldState.chests[i].contents` to `null` on open
+  (`resolution.ts:537`). Mitigation: hover card on opened chest shows
+  "contents not persisted". No RNG-based loot derivation in v0.
+- **Turn-number model (D-P2-13).** Phase 1 writes the first turns row
+  at `turn === 1`; turn 0 is synthetic. The walk + UI key turns by
+  turn-number (`turnRowByTurn = new Map<number, TurnRow>()`), NOT
+  array index. Slider range is `0..bundle.match.turn` inclusive of
+  synthetic turn 0. Already encoded in ADR §4 walk rules and de-risking
+  §1.9.
 - **`worldState` no `by_match` index.** Per ADR §3. Mitigation: use
-  `.filter(q => q.eq(q.field("matchId"), matchId))` for v0; the table
-  has ~50 rows per dev deployment. Add an index in a follow-up if
-  needed.
+  `.filter(q => q.eq(q.field("matchId"), matchId)).unique()` for v0;
+  the table has ~50 rows per dev deployment. Add an index in a
+  follow-up if needed (additive schema change, no migration).
 - **Persona colour palette accessibility.** Pick 8 high-contrast
   colours (e.g. category10-style) and add textual persona-id labels
   for colour-blind safety.
 - **SVG performance on a 100×100 grid.** The renderer draws
-  ~28 walls + ~40 cover tiles + 12 chests + ≤8 corpses + 8 agents =
-  ~96 SVG nodes. Trivial. No virtualisation needed.
+  ~28 walls + ~60 cover tiles + 12 chests + ≤8 corpses + 8 agents =
+  ~116 SVG nodes. Trivial. No virtualisation needed.
 
 **Effort.** 1.0–1.5 days. Sequenced after WP-A.
 
@@ -231,18 +312,27 @@ WP-A's match picker shows the user's matches at `localhost:5173`.
 **Scope.**
 
 - Implement `apps/replay/src/components/TurnStepper.tsx`:
-  - Slider input (range 0..bundle.turns.length-1). Up/down/left/right
-    arrow keys step ±1 turn.
-  - "Next turn" / "Previous turn" buttons (previous because backward
-    stepping is free per ADR §4).
-  - Display "Turn N / 50" prominently.
+  - Slider input — range `0..bundle.match.turn` inclusive (turn 0 is
+    the synthetic pre-game snapshot per D-P2-13; `match.turn` is the
+    last turn the resolver advanced to). Up/down/left/right arrow keys
+    step ±1 turn within that range.
+  - "Next turn" button only. **No Previous button** (D-P2-7: the
+    slider gives arbitrary backward jump for free; a separate button
+    would be redundant UI).
+  - Display "Turn N / `match.turn`" prominently. Render turn 0 as
+    "Pre-turn / spawn positions".
   - Updates URL `?turn=N` on change.
 - Implement `apps/replay/src/components/TurnFeed.tsx`:
-  - For the current turn, render a row per agent with `agentRecord`
-    on that turn (i.e. iterate `bundle.turns[currentTurn].agentRecords`).
-  - Each row shows: persona swatch, displayName, persona id,
-    one-line decision summary (from `summariseDecision().oneLine`),
-    say text (if any), scratchpad-delta indicator.
+  - Build `turnRowByTurn = new Map<number, TurnRow>()` once on bundle
+    resolve, keyed by `row.turn` (D-P2-13). The first ledger row is
+    `turn === 1`; turn 0 is synthetic and has no row.
+  - For `currentTurn === 0`, render a "Pre-game / no decisions yet"
+    placeholder (no agentRecords exist).
+  - For `currentTurn >= 1`, look up `row = turnRowByTurn.get(currentTurn)`
+    and render a row per agent in `row.agentRecords[]`. Each row shows:
+    persona swatch, displayName, persona id, one-line decision summary
+    (from `summariseDecision().oneLine`), say text (if any),
+    scratchpad-delta indicator.
   - Click row → expand inline (no modal; the full content slots into
     the row) showing: full decision bullets, intent-vs-outcome list,
     full scratchpadAfter (truncated to 500 chars at most — schema
@@ -261,25 +351,38 @@ WP-A's match picker shows the user's matches at `localhost:5173`.
 
 **Acceptance.**
 
-- Slider scrubs forward and backward smoothly. Each turn change
-  updates the grid and the feed in <100 ms (the reconstruction is
-  fast; the bottleneck is React re-render).
-- Each agent row in the feed shows a one-line English decision summary
-  for the current turn. Examples (verifiable on closing-50 matches):
-  - `"Stayed put. Attacked Player_5 (hit, -12 HP). Said: \"Truce?\""`.
-  - `"Moved 6 tiles northeast toward chest_004. Interacted with chest_004 (opened: leather)."`.
+- Slider scrubs forward and backward smoothly across `0..match.turn`.
+  Each turn change updates the grid and the feed in <100 ms (the
+  reconstruction is fast; the bottleneck is React re-render).
+- Turn 0 renders as "Pre-turn / spawn positions" — no agentRecords,
+  grid shows 8 agents at spawn positions per `maps/reference.json`.
+- Each agent row in the feed (turns ≥ 1) shows a one-line English
+  decision summary for the current turn. Examples (verifiable on
+  closing-50 matches; vocabulary anchored to ADR §5 result-string
+  table — not `harness/analyze-match.ts`):
+  - `"Stayed put. Attacked Player_5 — hit (dealt 12 damage) — killed Player_5. Said: \"Truce?\""`.
+  - `"Moved 6 tiles northeast toward chest_004. Interacted with chest_004 — opened."`.
+  - `"Stayed put. Attacked Player_3 — out of range."`.
   - `"Overwatch (priority: nearest enemy)."`.
 - Clicking a row expands it inline; clicking again collapses.
 - Vitest tests pass for `decisionEnglish.ts`:
   - every `move.kind` produces the expected English string.
-  - every `action.kind` × every `result` value (enumerated in
-    `harness/analyze-match.ts:49–58`) produces the expected outcome
-    string.
+  - every `action.kind` × every `result` literal in the ADR §5
+    vocabulary table (`dmg N` / `no_target` / `out_of_range` /
+    `opened` / `already_opened` / `no_chest` / `looted` /
+    `no_corpse`) produces the expected outcome string. Source of
+    truth is `convex/engine/resolution.ts:374-586` per D-P2-14;
+    `harness/analyze-match.ts:49-58` is stale and not referenced.
+  - `dmg N` parses N as a positive integer; an attack outcome whose
+    actor + target also appear in `resolution.deaths[]` for the same
+    turn appends `" — killed <displayName>"` (death detection rule).
   - every `consume` value renders correctly.
   - `say: null` and `overwatch_priority: null` collapse cleanly.
   - intent-vs-outcome correctly pairs the actor's intent with the
-    matching `resolution.actions[]` entry, including the "out of
-    range" mismatch case.
+    matching `resolution.actions[]` entry, including the
+    `out_of_range` and `no_target` mismatch cases.
+  - unrecognised result strings render as
+    `"(unknown result: <raw>)"` rather than silently disappearing.
   - scratchpad delta detection correctly identifies "no change" vs
     "changed" and produces a truncated diff line.
 - The user can step through three matches and read each turn's feed
@@ -296,19 +399,18 @@ WP-A's match picker shows the user's matches at `localhost:5173`.
 
 **Risks.**
 
-- **Intent-outcome string drift.** The set of `result` strings produced
-  by the engine (`hit`, `missed`, `out_of_range`, `killed`, `opened`,
-  `equipped_<X>`, `looted_<X>`, etc.) is defined by
-  `convex/engine/combat.ts`, `convex/engine/loot.ts`,
-  `convex/engine/affordances.ts`. Mitigation: enumerate them by
-  searching the engine modules at WP-C kickoff (one grep), encode the
-  union as a TypeScript literal type in `decisionEnglish.ts`, and add
-  an integration smoke test that runs `summariseDecision` against
-  every action across the user's most-recent closing-50 match's
-  turns — any unrecognised result string should produce an obviously-
-  flagged "(unknown result: <raw>)" English phrase rather than a
-  silent omission, so future engine extensions surface a TODO instead
-  of corrupting the feed.
+- **Intent-outcome string drift.** The full set of `result` strings
+  the engine emits is enumerated in ADR §5 from
+  `convex/engine/resolution.ts:374-586`
+  (`dmg N` / `no_target` / `out_of_range` / `opened` /
+  `already_opened` / `no_chest` / `looted` / `no_corpse`). Mitigation:
+  encode the union as a TypeScript literal type in
+  `decisionEnglish.ts`, and add an integration smoke test that runs
+  `summariseDecision` against every action across the user's
+  most-recent closing-50 match's turns — any unrecognised result
+  string surfaces as `"(unknown result: <raw>)"` so future engine
+  extensions show up as a visible TODO instead of corrupting the
+  feed.
 - **Display name resolution.** The decision references
   `targetCharacterId` (a Convex id); the user wants `Player_5`.
   Mitigation: `summariseDecision` takes a `Map<Id, CharacterRow>`
@@ -327,15 +429,20 @@ WP-A's match picker shows the user's matches at `localhost:5173`.
 
 - Implement `apps/replay/src/components/HoverCard.tsx`:
   - On agent hover (mouseenter on grid token): show a card pinned near
-    the cursor with persona name, displayName, hp (best-effort —
-    "unknown" if pure walk doesn't track it; phase-1 schema does not
-    persist HP per turn), equipped (best-effort per ADR §4),
-    one-line decision summary for the current turn (reuses
-    `summariseDecision().oneLine`).
-  - On chest hover: show the chest's id, position, opened-state, and
-    contents (if opened, from the walk; if closed, "contents hidden").
-  - On corpse hover: show the deceased character's displayName + persona,
-    death turn, remaining loot from `worldState.corpses[]`.
+    the cursor with persona name, displayName, position,
+    alive/hidden flags, and the one-line decision summary for the
+    current turn (reuses `summariseDecision().oneLine`). Equipment +
+    HP rows display **"see expand panel"** per D-P2-11 — the substrate
+    does not persist these per turn, so the authoritative source is
+    `agentRecord.input.visibleStateDigest` shown in the expand modal.
+  - On chest hover (closed): show the chest's id, position, "closed".
+  - On chest hover (opened): show id, position, "opened (turn N)",
+    and the line **"contents not persisted"** per D-P2-12 — the
+    engine clears `worldState.chests[i].contents` on open
+    (`resolution.ts:537`), so v0 cannot recover what came out.
+  - On corpse hover: show the deceased character's displayName +
+    persona, death turn, remaining loot from `worldState.corpses[]`
+    (engine-authored truth — the only ledger-free fallback we have).
   - On wall / cover / evac hover: trivial single-word labels.
 - Implement `apps/replay/src/components/ExpandModal.tsx`:
   - Triggered from a "..." button on each feed row.
@@ -361,10 +468,15 @@ WP-A's match picker shows the user's matches at `localhost:5173`.
 
 **Acceptance.**
 
-- Hovering any agent on the grid shows a card with persona, hp,
-  equipped, and current-turn decision summary.
-- Hovering a chest shows opened state + contents (if opened).
-- Hovering a corpse shows deceased character + remaining loot.
+- Hovering any agent on the grid shows a card with persona,
+  displayName, position, alive/hidden flags, and the current-turn
+  decision summary. Equipment + HP rows display "see expand panel"
+  (per D-P2-11).
+- Hovering a closed chest shows id + position + "closed".
+- Hovering an opened chest shows id + position + "opened (turn N)" +
+  "contents not persisted" (per D-P2-12).
+- Hovering a corpse shows deceased character + persona + death turn +
+  remaining loot from `worldState.corpses[]`.
 - Clicking the "..." on a feed row opens the modal showing all five
   tabs populated for that (turn, agent).
 - Manual UAT against three closing-50 matches: the user can read any
