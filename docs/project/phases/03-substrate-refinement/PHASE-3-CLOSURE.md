@@ -3,7 +3,7 @@
 > Single-file handoff for phase-4 planning. Records what the
 > substrate-refinement closing-10 produced, what proves it, and which
 > README §5 thresholds are met vs documented-why-not.
-> Closure date: 2026-05-08. Source commit at close: `a2f50e3`.
+> Closure date: 2026-05-08. Source commit at close: `efccdc1`.
 >
 > This is a closure RECORD, not a retrospective and not a phase-4 plan.
 
@@ -29,11 +29,12 @@ looped on drained corpses (engine silently no-op'd), and emitted
 ## 2. Done-bar verdict (README §5 — phase-3 enhanced thresholds)
 
 **Canonical source:**
-- `reportId` = `jd769hc5vap1v11bd6jsy307ts86ab05`
+- `reportId` = `jd7b98r81fxarkb3yyctsap2p186bbj7`
 - `reportType` = `phase-3-closing-10`
 - `runCount` = 10
-- `metBar` (composite) = `false` — 12 / 14 thresholds met; 2 documented
-  misses with paragraphs in §3 below.
+- `metBar` (composite) = `false` — 13 / 14 thresholds met; 1 documented
+  miss (reasoning capture, Azure-side floor) with a paragraph in §3
+  below.
 - `missingRunsForMatchIds` = `[]`
 
 **Match ids (10):**
@@ -64,7 +65,7 @@ substrate-refinement metrics.
 | Schema validity (fellBackToSafeDefault rate) | ≤ 10% of per-turn calls | 8.256% (258 / 3125) | PASS |
 | Wall-blocked move rate | ≤ 2% of move attempts | 0.964% (13 / 1349) | PASS |
 | Drained-corpse repeat rate | ≤ 1% of loot attempts | 0% (0 / 110) | PASS |
-| Corpse-loot success rate | ≥ 50% of runs | 0% (0 / 10) | **MISS** (see §3.2) |
+| Corpse-loot success rate | ≥ 50% of runs | 80% (8 / 10) | PASS |
 | Defensive overwatch counter-fire | > 0 across 10 runs | 18 | PASS |
 | Offensive overwatch fire | > 0 across 10 runs | 4 | PASS |
 | Outcome-attribution heuristic | ≥ 50% of damage-taken pairs | 88.571% (93 / 105) | PASS |
@@ -81,34 +82,34 @@ substrate-refinement metrics.
 | Persona extraction-rate spread | ≥ 15 pp | 50 pp (trader 50% / opportunist 40% / sprinter 40% − paranoid 0% / camper 0%) | PASS |
 | 10 consecutive runs, no crashes / invalid states | required | 0 failures | PASS |
 
-**12 / 14 thresholds met** (12 PASS + 2 MISS — corpse-loot success,
-reasoning capture). Each remaining miss is documented in §3 with its
+**13 / 14 thresholds met** (13 PASS + 1 MISS — reasoning capture).
+The sole remaining miss is documented in §3.3 with its
 substrate-correctness reading and phase-4 carry-forward note.
 
 ---
 
-## 3. Documented-why-not for the threshold misses
+## 3. Documented-why-not for the threshold miss
 
-The threshold list is the bar; misses require sign-off, not silent
-acceptance. Each miss is recorded here with: what the metric actually
-measures, what the data showed, what the substrate did right vs. wrong,
-and what (if anything) phase-4 should pick up.
+The threshold list is the bar; the single remaining miss requires
+sign-off, not silent acceptance. It is recorded here with: what the
+metric actually measures, what the data showed, what the substrate did
+right vs. wrong, and what (if anything) phase-4 should pick up.
 
-### 3.0 The WP-F + WP-G corrective slice — between three closing-10s
+### 3.0 The WP-F + WP-G + WP-H corrective slice — between three closing-10s and one re-aggregation
 
-This closure record reflects the THIRD closing-10 run, not the first or
-the second. The original closing-10 (OLDEST reportId
-`jd7fz3dkfx36cqf8q0qhpt1t8d86ab6h`) was generated against a
-broken-substrate state: the persistence adapter dropped engine-emitted
-`fromOverwatch` / `stance` / `blockedBy` fields by overwriting them with
-unconditional `undefined`s; the validator boundary rejected
-display-form ids; the chest-loot renderer truncated typed ids; the
-wall-blocked outcome trace lacked its directional vector; the digest
-concept-spec lines drifted from the live shape; and `schemaMirror` was
-not pinned to live validator exports. Those defects masked the
-substrate's actual behaviour — the engine WAS firing overwatch
-counter-fire, but the trace persisted with the stance field stripped, so
-the report read 0.
+This closure record reflects the THIRD closing-10 run re-aggregated
+through the post-WP-H corpse-loot filter. The original closing-10
+(OLDEST reportId `jd7fz3dkfx36cqf8q0qhpt1t8d86ab6h`) was generated
+against a broken-substrate state: the persistence adapter dropped
+engine-emitted `fromOverwatch` / `stance` / `blockedBy` fields by
+overwriting them with unconditional `undefined`s; the validator
+boundary rejected display-form ids; the chest-loot renderer truncated
+typed ids; the wall-blocked outcome trace lacked its directional
+vector; the digest concept-spec lines drifted from the live shape;
+and `schemaMirror` was not pinned to live validator exports. Those
+defects masked the substrate's actual behaviour — the engine WAS
+firing overwatch counter-fire, but the trace persisted with the
+stance field stripped, so the report read 0.
 
 The WP-F fix-bundle landed first (six substrate-correctness fixes on
 the persistence/render half of the gap) and produced the SECOND
@@ -165,16 +166,86 @@ The full corrective slice context for the reader:
 - **WP-F.6** — `schemaMirror` test pinned to live validator exports so
   drift can't recur (commit `6eafbab`).
 
-The NEW closing-10 (reportId `jd769hc5vap1v11bd6jsy307ts86ab05`) is
-the first run on a substrate-correct ledger across BOTH halves of the
-substrate (persistence/render via WP-F + LLM↔engine contract via
-WP-G). The headline delta vs the WP-F-only run is the schema-validity
-flip from 18.73% → 8.256%, dropping below the ≤10% bar for the first
-time. That is the load-bearing measurement on the WP-G slice: the
-two HIGH findings from completion-review-2 were correct, the fixes
+The first re-anchor against rerun-#3 produced the (now-superseded)
+canonical reportId `jd769hc5vap1v11bd6jsy307ts86ab05` — the first run
+on a substrate-correct ledger across BOTH halves of the substrate
+(persistence/render via WP-F + LLM↔engine contract via WP-G). The
+headline delta vs the WP-F-only run was the schema-validity flip from
+18.73% → 8.256%, dropping below the ≤10% bar for the first time.
+That ledger row was deleted as part of the WP-H.5 overwrite (see
+below); historical references to that reportId remain only in this
+narrative paragraph and in the deleted-row event itself. The two HIGH
+findings from completion-review-2 were correct, the WP-G fixes
 worked, and the residual fallback population is now genuinely
 small-tail rather than dominated by the corpse-id and missing-`say`
 clusters.
+
+**WP-H — corrective slice 3 (metric-ledger formula fix; third
+occurrence of D24/D36-class).** Completion-review-3 reviewer-A and
+reviewer-B independently flagged the same file-cited HIGH at
+`convex/reports/phase3.ts:452`: the corpse-loot success filter was
+checking only `target.startsWith("Player_")`, but post-WP-G.1 the
+engine preserves the LLM's verbatim `Corpse_Player_*` typed-id in
+`traceTarget` (resolution.ts:567). The filter therefore counted zero
+runs even though the trace ledger itself contained 14 successful
+`Corpse_Player_*` loot events distributed across 8 of 10 runs.
+Reviewers A and B independently audited the persisted trace via
+`convex run` and concurred on 14 events / 8 runs / 80% PASS.
+
+This is the third occurrence of the recurring failure pattern that
+WP-F (D24, persistence adapter dropped engine fields) and WP-G (D36,
+validator boundary rejected display-form ids) both addressed: the
+substrate code lands correctly, but a downstream artifact is authored
+to a pre-fix contract and silently masks the substrate's true
+behaviour. WP-F was on the persistence adapter; WP-G was on the
+validator/JSON-schema boundary; WP-H is on the metric-ledger formula
+that aggregates the trace into the report payload. A stale fixture
+cohort in `tests/reports/phase3.test.ts:209,261,323` (which still
+emitted bare `Player_*` corpse targets) masked the bug from the unit
+suite, so the regression slipped past CI even though both the engine
+and the trace were already substrate-correct.
+
+The WP-H fix-bundle landed in three commits:
+
+- **WP-H.1 + H.2** — corpse-loot success filter widens to accept BOTH
+  `Corpse_Player_*` (post-WP-G.1 verbatim engine emit) AND bare
+  `Player_*` (back-compat with the alternate `Player_*` direct-
+  dispatch branch at resolution.ts:617). Fixture cohort in
+  `tests/reports/phase3.test.ts` refreshed to emit the post-WP-G.1
+  shape; new regression test locks the both-shapes acceptance.
+  Audit confirmed lines 449 (`totalLootAttempts`, kind-only),
+  458 (chest-equip, normalised lowercase), 504 (drained-repeat,
+  shape-agnostic equality), and 539 (outcome-attribution, separate
+  `Player_*` code path) did not need the same widening. Commit
+  `9d80c27`.
+- **WP-H.3** — `tests/llm/integration.test.ts` refreshed to phase-3
+  contract: imports the production `SYSTEM_PROMPT` verbatim from
+  `convex/llm/systemPrompt.ts` (eliminates the duplicated synthetic
+  schema cheat-sheet that was the drift source); digest rebuilt to
+  the phase-3 shape (You / Last turn (you) / Visible: with per-
+  Visible observation brackets); typed-ids `Player_3`, `Chest_003`,
+  `Cover_32_28`, `Wall_31_28` mirror inputBuilder output; round-trip
+  assertions extended to all 7 required schema fields. Closes
+  reviewer-B's medium finding on the integration suite. Commit
+  `4301164`.
+- **WP-H.4 + H.5 + H.6** — `persistPhase3Report` extended with an
+  optional `overwrite: boolean` flag (delete-then-insert when an
+  existing row matches the same `matchIdsHash + reportType`),
+  preserving the default idempotent no-op behaviour for harness
+  re-fires. Re-aggregation invoked over the same 10 matchIds with
+  `overwrite: true`, producing the new canonical reportId
+  `jd7b98r81fxarkb3yyctsap2p186bbj7`. The previous row
+  (`jd769hc5vap1v11bd6jsy307ts86ab05`) was deleted as part of the
+  overwrite path — only this narrative paragraph and the deletion
+  event itself reference it. Commit `efccdc1`.
+
+The trace data on the existing 10 matchIds was already
+substrate-correct — no closing-10 harness rerun was needed; only the
+aggregator filter needed widening and the row needed re-emission.
+Headline deltas vs the rerun-#3 row: corpse-loot success rate
+0% → 80% (8 / 10 runs); threshold count 12/14 → 13/14 PASS. All
+other metric values are identical to the pre-WP-H row (the trace
+data is the same; only the corpse-loot aggregator output flipped).
 
 ### 3.1 Schema validity — fellBackToSafeDefault 8.256% vs ≤ 10% (PASS)
 
@@ -208,55 +279,59 @@ would surface the residual top-N fallback modes if phase-4 wants to
 push the rate even lower. The substrate is already correct; this is
 optimisation, not a substrate-correctness gap.
 
-### 3.2 Corpse-loot success 0% — combat-economy tuning, substrate now correct
+### 3.2 Corpse-loot success 80% — substrate-correct PASS (prior 0% framing was wrong)
 
-Across the 10 NEW closing runs, 9 of 10 matches contained at least one
-kill (kill rate 90%), so corpses ARE being created — but agents are not
-pivoting to corpse-loot once the target is down. The corpse-loot
-success rate sits at 0% (0 / 10 runs with a successful
-`kind="loot" + result="looted"` against a corpse id).
+**Substrate-correct PASS.** The corpse-loot success rate measures
+honestly at 80% across 10 runs (8 of 10 runs with at least one
+successful `kind="loot" + result="looted"` against a corpse id),
+comfortably above the ≥ 50% bar. Across the 10 closing runs, 9 of 10
+matches contained at least one kill (kill rate 90%), so corpses are
+being created; the persisted trace ledger contains 14 successful
+`Corpse_Player_*` loot events distributed across those 8 runs (audited
+independently by reviewers A and B via `convex run`).
 
-**Why this is now genuinely propensity, not substrate-rejection.**
-Pre-WP-G.1, agents emitting the `Corpse_Player_N` display form (the
-form the system prompt teaches at line 70) were rejected at the
-validator's namespace boundary, masking propensity behind a
-substrate-correctness defect. WP-G.1's `normaliseCorpseTargetId`
-wires the display form through the validator+engine (loot dispatch,
-toward_object, movement) and is exercised by 11 new tests across
+**The previous 0% reading was a metric-formula bug, not propensity.**
+The closure record on rerun-#3 framed the 0% rate as "the first honest
+measurement of post-kill corpse-loot propensity against a
+substrate-correct ledger" and tagged it as combat-economy tuning OOS
+for phase-3. That framing was contradicted by the trace evidence: the
+substrate IS supporting post-kill corpse-loot pivots at 80% run rate.
+The misframing was traced to a stale aggregator filter at
+`convex/reports/phase3.ts:452` that checked only
+`target.startsWith("Player_")` and missed the post-WP-G.1
+`Corpse_Player_*` shape the engine actually emits. Completion-review-3
+reviewer-A and reviewer-B independently flagged the same file-cited
+HIGH; WP-H.1 widened the filter to accept BOTH shapes, and the
+re-aggregation flipped the row to PASS without touching the trace
+data.
+
+**Substrate readiness already proven on the original WP-G slice; now
+honestly reported.** WP-G.1's `normaliseCorpseTargetId` wired the
+display-form `Corpse_Player_N` id through the validator + engine
+(loot dispatch, toward_object, movement) and is exercised by 11
+tests across
 `tests/engine/{validation,resolution,movement}.test.ts` +
-`tests/llm/systemPrompt.test.ts`. The new closing-10 traces contain
-zero `Corpse_Player_*` invalid-namespace failures — the rejection
-path is gone. The 0% rate is therefore the first honest measurement
-of post-kill corpse-loot propensity against a substrate-correct
-ledger.
+`tests/llm/systemPrompt.test.ts`. The closing-10 traces contain zero
+`Corpse_Player_*` invalid-namespace failures (the rejection path is
+gone), and 14 successful loot events confirm agents are pivoting to
+corpse-loot post-kill. The renderer distinguishes corpse-loot from
+chest-loot (WP-F.3 + WP-G.3); the digest exposes drained corpses with
+`[drained]` annotation (WP-C). The substrate is ready and the metric
+ledger now reflects that honestly.
 
-**Why this is OOS for phase-3 per North Star §11 NON-GOALS.** The
-substrate now correctly tells agents about killable targets, drained
-corpses, and the `loot` action grammar against the display-form id
-they actually emit. The decision policy "after a kill, pivot to
-looting the corpse" is a combat-economy tuning concern — it lives at
-the persona-prompt and system-prompt-encouragement layer, not in the
-substrate. North Star §11 explicitly carves combat tuning out of
-phase-3.
+### 3.3 Reasoning capture 68.818% vs ≥ 80% — sole remaining residual miss (Azure-side floor)
 
-**Phase-4 candidate.** Persona / system-prompt tuning to encourage
-post-kill loot pivots (e.g. `vulture` and `opportunist` archetypes are
-the natural fit, per §7). The substrate is ready: the loot dispatch
-correctly namespaces on display-form `Corpse_Player_N` ids (WP-G.1),
-the digest exposes corpses with `[drained]` annotation when relevant
-(WP-C), and the renderer distinguishes corpse-loot from chest-loot
-(WP-F.3 + WP-G.3).
-
-### 3.3 Reasoning capture 68.818% vs ≥ 80%
-
-The reasoning capture metric counts per-turn calls that resulted in a
-non-null `agentRecord.llm.reasoning` field across all NON-FALLBACK
-records. Across 2867 non-fallback records, 1973 carried reasoning text
-(68.818%), 894 did not. This is a small uptick from the WP-F-only
-reading of 66.3% — likely an artefact of the larger non-fallback
-denominator (2867 vs 2677) following WP-G.2's schema-fix —
-consistent with the prior thesis that this metric is sticky around
-two-thirds.
+This is the SOLE remaining honest residual miss in the 14-threshold
+list. The reasoning capture metric counts per-turn calls that resulted
+in a non-null `agentRecord.llm.reasoning` field across all
+NON-FALLBACK records. Across 2867 non-fallback records, 1973 carried
+reasoning text (68.818%), 894 did not. This is a small uptick from
+the WP-F-only reading of 66.3% — likely an artefact of the larger
+non-fallback denominator (2867 vs 2677) following WP-G.2's schema-fix
+— consistent with the prior thesis that this metric is sticky around
+two-thirds. The miss is substrate-correct: the wrapper, schema, and
+trace ledger are all functioning as designed; the floor is intrinsic
+to Azure at `effort: "low"`.
 
 **Branch A is confirmed functional, not the question.** The WP-A.1
 probe (`harness/probe-reasoning.ts`) verified that Azure DOES expose
@@ -317,10 +392,19 @@ ledger:
   corpses.
 - **Loot/interact unify** is in flight: 0 `kind: "interact"` entries
   anywhere in the 10-run trace (verified via `target.startsWith("chest_")`
-  vs `target.startsWith("Player_")` namespace dispatch). Chests +
-  corpses both flow through `kind: "loot"` (PM lock D7); display-form
-  `Corpse_Player_N` ids are normalised at the validator boundary
-  (WP-G.1).
+  vs `target.startsWith("Player_")` / `target.startsWith("Corpse_Player_")`
+  namespace dispatch). Chests + corpses both flow through
+  `kind: "loot"` (PM lock D7); display-form `Corpse_Player_N` ids are
+  normalised at the validator boundary (WP-G.1) and preserved verbatim
+  in the trace's `traceTarget` (resolution.ts:567).
+- **Post-kill corpse-loot pivot** — 14 successful `Corpse_Player_*`
+  loot events distributed across 8 of 10 runs (audited independently
+  by completion-review-3 reviewers A and B via `convex run` over the
+  persisted 10-match trace). Run rate 80% comfortably clears the
+  ≥ 50% threshold; the aggregator filter at
+  `convex/reports/phase3.ts:452` now accepts both
+  `Corpse_Player_*` (post-WP-G.1 verbatim emit) and bare `Player_*`
+  (back-compat with the alternate direct-dispatch branch) per WP-H.1.
 - **Overwatch_priority removed** — schema doesn't carry the field; the
   3-arm action union (`attack | loot | none`) and `overwatch_stance:
   "offensive" | "defensive" | null` are the live shape. Live data: 18
@@ -436,28 +520,36 @@ Phase 3 deliberately did NOT change any of the following, per README §4
 Observations from the phase-3 closing-10 that future planning may treat
 as in-scope, deferred, or accepted as-is.
 
-- **Post-kill loot-pivot tuning.** §3.2's 0% corpse-loot success rate
-  against a 90% kill rate is the dominant remaining miss. With the
-  WP-G.1 corpse-id namespace fix landed, this is now genuinely a
-  combat-economy / persona-tuning concern (not substrate rejection
-  masking propensity). Persona / system-prompt tuning to encourage
-  post-kill loot pivots is the natural fit (combat-economy tuning,
-  OOS for phase-3 per North Star §11 NON-GOALS).
+- **`reasoning.effort` upgrade probe.** §3.3's ~⅓ shortfall is the
+  sole remaining honest residual miss and is sticky because Azure at
+  `effort: "low"` ships an empty `summary: []` on a sub-tier of
+  responses even when reasoning tokens were generated. Probe
+  `medium`-effort token budget vs. capture-rate trade-off — the
+  natural lever for lifting reasoning capture above the Azure-side
+  floor.
+- **Full reasoning content capture (alternate path to the same goal).**
+  Capture the full reasoning content (`output[].type === "reasoning"`
+  content array, not just the summary) so the diagnostic surface no
+  longer depends on Azure choosing to emit a summary. Wrapper-local
+  change in `convex/llm/azure.ts`; the field shape is already
+  nullable string.
+- **Counter-fire-damage `Last turn (you):` line** per UAT-003. The
+  one-way attribution gap for defensive-overwatch attackers (the
+  attacker's `Last turn (you):` line does not reflect the
+  counter-fire damage they took) is a digest-render polish carried
+  over from phase-3 UAT.
 - **Validator-rejection breakdown aggregator.** §3.1's residual 8.256%
   safe-default rate is small-tail. A phase-4 aggregator slice over
   `agentRecord.llm.validatorReason` (already persisted per-row) would
   surface the top-N residual failure modes if phase-4 wants to push
   the rate even lower; the substrate is already correct, so this is
   optimisation, not a gap.
-- **Full reasoning content capture.** §3.3's ~⅓ shortfall is sticky
-  because we capture only the Azure `summary: "auto"` item. Capture
-  the full reasoning content (`output[].type === "reasoning"` content
-  array) so the diagnostic surface no longer depends on Azure choosing
-  to emit a summary. Wrapper-local change in `convex/llm/azure.ts`.
-- **`reasoning.effort` upgrade probe.** Alternative to the above:
-  probe `medium`-effort token budget vs. capture-rate trade-off if the
-  diagnostic surface starts feeling thin at the current `effort:
-  "low"` floor.
+- **Persona vulture / opportunist tuning (optional).** Corpse-loot run
+  rate already measures at 80% (§3.2), comfortably above the ≥ 50%
+  bar; persona-prompt tuning to encourage even more aggressive
+  post-kill loot pivots remains a phase-4 candidate but is no longer
+  required by the threshold list. Combat-economy tuning is OOS for
+  phase-3 per North Star §11 NON-GOALS.
 
 ---
 
@@ -470,7 +562,7 @@ Phase-3 documents that together form the full record:
   reasoning capture contract, overwatch stance, drained corpse,
   walls in digest, last-turn line, system prompt, concept-spec edits,
   blocked-move trace).
-- `work-packages.md` — WP-A through WP-G.
+- `work-packages.md` — WP-A through WP-H.
 - `de-risking.md` — D-P3-1 reasoning capture probe, D-P3-4
   outcome-attribution heuristic, others.
 - `harness/probe-reasoning.ts` + `harness/probe-reasoning-output.json`
@@ -485,7 +577,7 @@ Phase-3 documents that together form the full record:
 ## 9. Sign-off
 
 > The user accepts the closing-10 outcome as the phase-3 closure record.
-> Threshold misses are documented with reproducible references in §3;
-> phase-4 may pick any of the §7 follow-ups.
+> The single remaining threshold miss is documented with reproducible
+> references in §3.3; phase-4 may pick any of the §7 follow-ups.
 
 (Sign-off block intentionally left blank for the user.)
