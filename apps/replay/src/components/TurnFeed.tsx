@@ -335,17 +335,27 @@ function Swatch(props: { colour: string; dimmed?: boolean }): React.ReactElement
 // Styles
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Layout invariant (closure-readiness round-3, AC#7): the aside itself
+// owns `overflow-y: auto` so the agent rows are reachable via the page-
+// level scroll affordance even when the nested-flex chain leaves the
+// inner list with no visible scrollbar (Linux Chromium overlay-style).
+// `min-height: 0` propagates the shrink permission from `feedColStyle`.
+// `overscroll-behavior: contain` keeps wheel scroll local to the panel.
 const feedStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   height: "100%",
+  minHeight: 0,
   minWidth: 0,
   background: "#fff",
   border: "1px solid #ddd",
   borderRadius: 4,
-  overflow: "hidden",
+  overflowY: "auto",
+  overscrollBehavior: "contain",
 };
 
+// Sticky header keeps the "Turn N · M decisions" caption visible while
+// the rows scroll inside the aside (closure-readiness round-3, AC#7).
 const feedHeaderStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "baseline",
@@ -353,6 +363,9 @@ const feedHeaderStyle: React.CSSProperties = {
   padding: "0.625rem 0.875rem",
   borderBottom: "1px solid #eee",
   background: "#f6f8fa",
+  position: "sticky",
+  top: 0,
+  zIndex: 1,
 };
 
 const feedTitleStyle: React.CSSProperties = {
@@ -365,12 +378,13 @@ const feedSubtitleStyle: React.CSSProperties = {
   color: "#666",
 };
 
+// Inner row container — the scroll affordance is on the aside (see
+// `feedStyle`); this div just stacks rows. `flex-shrink: 0` prevents flex
+// from collapsing rows when the aside's intrinsic height is short.
 const feedListStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  flex: 1,
-  overflowY: "auto",
-  minHeight: 0,
+  flexShrink: 0,
 };
 
 const placeholderStyle: React.CSSProperties = {

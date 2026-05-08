@@ -216,6 +216,9 @@ export function Replay(props: {
     // (it doesn't reach the route-level `ReplayErrorBoundary` in main.tsx —
     // boundaries don't catch async rejections), so we render a friendly
     // hint inline that mirrors the boundary's copy.
+    // Closure-readiness round-3: the raw Convex error message is gated
+    // behind a `<details>` toggle so the friendly hint is the primary
+    // copy and the verbose `ArgumentValidationError` dump is opt-in.
     return (
       <main style={mainStyle}>
         <a href="#/" style={linkStyle}>
@@ -228,10 +231,10 @@ export function Replay(props: {
             Convex deployment. Double-check the URL or pick a row from the
             list.
           </p>
-          <p style={errorDetailStyle}>
-            <span style={errorMutedStyle}>error:</span>{" "}
-            <code>{error.message}</code>
-          </p>
+          <details style={errorDetailStyle}>
+            <summary style={errorSummaryStyle}>raw error</summary>
+            <code style={errorCodeStyle}>{error.message}</code>
+          </details>
         </div>
       </main>
     );
@@ -368,7 +371,8 @@ const mainStyle: React.CSSProperties = {
   flexDirection: "column",
   gap: "0.875rem",
   // Cap to viewport so the body row has a bounded height for the
-  // square grid + scrollable feed (closure-readiness UAT ISSUE-001).
+  // square grid + scrollable feed (AC#4 — fit-to-viewport; closure-
+  // readiness round-1 Med-1).
   height: "100vh",
   boxSizing: "border-box",
 };
@@ -439,9 +443,28 @@ const errorDetailStyle: React.CSSProperties = {
   fontSize: "0.8125rem",
 };
 
-const errorMutedStyle: React.CSSProperties = {
+// Round-3: `<summary>` cursor + colour matches the muted-link palette so
+// the toggle reads as opt-in detail, not a callout. `<code>` block is
+// monospaced and word-broken so very long Convex error messages wrap
+// instead of stretching the alert frame.
+const errorSummaryStyle: React.CSSProperties = {
   color: "#888",
   fontSize: "0.8125rem",
+  cursor: "pointer",
+};
+
+const errorCodeStyle: React.CSSProperties = {
+  display: "block",
+  marginTop: "0.375rem",
+  padding: "0.375rem 0.5rem",
+  background: "#fff",
+  border: "1px solid #ddd",
+  borderRadius: 4,
+  fontFamily:
+    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace',
+  fontSize: "0.75rem",
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
 };
 
 const stepperSectionStyle: React.CSSProperties = {
@@ -468,7 +491,8 @@ const gridColStyle: React.CSSProperties = {
 // `height: 100%` + `aspect-ratio: 1/1` gives a square as tall as the cell;
 // `max-width: 100%` clamps the square to the column's width when the column
 // is narrower than the available height. Net: the grid is always square and
-// always fits within the remaining viewport (closure-readiness UAT ISSUE-001).
+// always fits within the remaining viewport (AC#4 — fit-to-viewport;
+// closure-readiness round-1 Med-1).
 const gridSquareStyle: React.CSSProperties = {
   height: "100%",
   aspectRatio: "1 / 1",
