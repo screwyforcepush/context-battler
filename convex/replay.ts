@@ -1,4 +1,4 @@
-// Phase 02 / WP-A — Renderer-only Convex query module.
+// Phase 02 / WP-A + WP-B — Renderer-only Convex query module.
 //
 // This module owns the *renderer's* read contract against Convex state. It
 // does NOT extend `convex/turns.ts` or `convex/matches.ts`; per
@@ -8,14 +8,20 @@
 //
 // Default Convex runtime — no `"use node"`, no fs, no fetch. Pure DB reads.
 //
-// WP-A scope: `listMatches` only. `getReplayBundle` lands in WP-B.
+// WP-A scope: `listMatches`. WP-B scope: `getReplayBundle` (this file).
 //
 // Cross-references:
 //   - architecture-decisions.md §3 — the locked contract for both queries.
-//   - work-packages.md WP-A — the acceptance bullets this implementation hits.
-//   - convex/schema.ts:461 — `matches.by_status` index used below.
+//   - work-packages.md WP-A / WP-B — acceptance bullets this hits.
+//   - convex/schema.ts:461 — `matches.by_status` index used by listMatches.
+//   - convex/schema.ts:487/495 — `characters.by_match` and
+//     `turns.by_match_turn` indexes used by getReplayBundle.
+//   - convex/schema.ts:498-508 — `worldState` table has NO `by_match` index;
+//     v0 uses `.filter()` with `.unique()` (1:1 with matches; ~50 rows in
+//     dev — trivial scan).
 
 import { paginationOptsValidator } from "convex/server";
+import { v } from "convex/values";
 import { query } from "./_generated/server.js";
 
 /**
@@ -42,5 +48,45 @@ export const listMatches = query({
       .withIndex("by_status", (q) => q.eq("status", "completed"))
       .order("desc")
       .paginate(paginationOpts);
+  },
+});
+
+/**
+ * Single batch fetch — the entire data set the replay route needs in ONE
+ * round trip. Returns `null` when the matchId does not resolve.
+ *
+ * Per `architecture-decisions.md` §3, this is the renderer's only mid-replay
+ * read; "no mid-replay round-trips" is enforced at the contract layer by
+ * exposing only this whole-bundle query.
+ *
+ * Index choices (verified against `convex/schema.ts`):
+ *   - `turns` uses `by_match_turn` and `.order("asc")` so the ledger comes
+ *     back ascending by `turn`. The walk in `apps/replay/src/lib/reconstruct.ts`
+ *     keys by `row.turn` (not array position) per D-P2-13, but the sort
+ *     keeps debug-printing intuitive.
+ *   - `characters` uses `by_match` (8 rows per match — one per agent).
+ *   - `worldState` has no `by_match` index in the phase-1 schema; we
+ *     `.filter()` + `.unique()` for the 1:1 lookup. The `.unique()` call
+ *     enforces "one row per match"; a missing or duplicate row throws.
+ */
+export const getReplayBundle = query({
+  args: { matchId: v.id("matches") },
+  handler: async (ctx, { matchId }) => {
+    const match = await ctx.db.get(matchId);
+    if (!match) return null;
+    const turns = await ctx.db
+      .query("turns")
+      .withIndex("by_match_turn", (q) => q.eq("matchId", matchId))
+      .order("asc")
+      .collect();
+    const characters = await ctx.db
+      .query("characters")
+      .withIndex("by_match", (q) => q.eq("matchId", matchId))
+      .collect();
+    const worldState = await ctx.db
+      .query("worldState")
+      .filter((q) => q.eq(q.field("matchId"), matchId))
+      .unique();
+    return { match, turns, characters, worldState };
   },
 });
