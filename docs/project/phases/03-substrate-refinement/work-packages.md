@@ -1129,9 +1129,7 @@ slice as the third corrective occurrence of the substrate-code-correct
 from MISS-with-substrate-bug-explanation to PASS-on-substrate-correct;
 §3.3 reasoning-capture remains the sole residual-miss narrative.
 Source-commit at close = `efccdc1` (last source commit in the WP-H
-slice). Commit: pending — see git log post-merge (forward-pointer to
-be finalised in a follow-up commit, mirroring the WP-G.9 finalisation
-pattern for WP-G.6).
+slice). Commit: `68ab0f5`.
 
 **WP-H.8 — Mental-model §11 refresh.**
 `docs/project/spec/mental-model.md` §11 hyperlink updated from
@@ -1149,6 +1147,6 @@ gains coverage of the third corrective slice (3 source commits +
 2 paperwork commits + this addendum = 6 commits across 9 sub-items)
 that previously lived only in commit history + closure §3.0 +
 inbox-broadcast trail. Single discrete doc commit; mirrors the WP-G.7
-addendum pattern. Forward-pointers for WP-H.7 / WP-H.8 commit hashes
-to be finalised in a follow-up paperwork commit (mirrors the WP-G.9
-finalisation of WP-G.6 hashes).
+addendum pattern. Commit: `45dfdb4`. Hash finalisation for WP-H.7
+applied in a follow-up paperwork commit, mirroring the WP-G.9
+finalisation of WP-G.6 hashes.
