@@ -562,7 +562,7 @@ Phase-3 documents that together form the full record:
   reasoning capture contract, overwatch stance, drained corpse,
   walls in digest, last-turn line, system prompt, concept-spec edits,
   blocked-move trace).
-- `work-packages.md` — WP-A through WP-H.
+- `work-packages.md` — WP-A through WP-I.
 - `de-risking.md` — D-P3-1 reasoning capture probe, D-P3-4
   outcome-attribution heuristic, others.
 - `harness/probe-reasoning.ts` + `harness/probe-reasoning-output.json`
