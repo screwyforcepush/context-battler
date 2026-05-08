@@ -30,6 +30,7 @@ import type * as llm_inputBuilder from "../llm/inputBuilder.js";
 import type * as llm_personas from "../llm/personas.js";
 import type * as llm_systemPrompt from "../llm/systemPrompt.js";
 import type * as matches from "../matches.js";
+import type * as replay from "../replay.js";
 import type * as reports from "../reports.js";
 import type * as runMatch from "../runMatch.js";
 import type * as runs from "../runs.js";
@@ -65,6 +66,7 @@ declare const fullApi: ApiFromModules<{
   "llm/personas": typeof llm_personas;
   "llm/systemPrompt": typeof llm_systemPrompt;
   matches: typeof matches;
+  replay: typeof replay;
   reports: typeof reports;
   runMatch: typeof runMatch;
   runs: typeof runs;

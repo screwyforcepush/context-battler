@@ -26,5 +26,5 @@
     "vitest.config.ts",
     "eslint.config.mjs"
   ],
-  "exclude": ["node_modules", "convex/_generated"]
+  "exclude": ["node_modules", "convex/_generated", "apps"]
 }

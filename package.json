@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm --prefix apps/replay run typecheck",
     "test": "vitest run",
-    "build": "tsc --noEmit",
-    "harness": "tsx harness/run.ts"
+    "build": "tsc --noEmit && npm --prefix apps/replay run typecheck",
+    "harness": "tsx harness/run.ts",
+    "dev:replay": "npm --prefix apps/replay run dev",
+    "build:replay": "npm --prefix apps/replay run build"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
