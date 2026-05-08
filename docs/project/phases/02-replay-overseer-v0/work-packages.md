@@ -134,6 +134,15 @@ overlays).
   `outcome.lastSurvivor` (truncated id or "—"). Rendering does not
   block on loading more pages; "Load more" button uses the paginated
   query.
+
+  > **D-P2-21 supersedes (round-1 closure-readiness):** the
+  > `outcome.lastSurvivor` column was DROPPED from the picker because
+  > enrichment would require an N+1 `worldState` read per row, OR a
+  > schema diff forbidden by the substrate freeze (D-P2-9). The
+  > shipped table includes matchId / startedAt / status / turn /
+  > extracted only — that subset satisfies AC#2 "enough context to
+  > choose". See `phase-2-closure.md` §5.0 (round-1 must-fix bundle)
+  > for the resolution evidence.
 - Clicking a row navigates to `#/match/<id>` and renders the WP-B
   placeholder.
 - `npm run lint`, `npm run typecheck`, `npm run build`, `npm test` all

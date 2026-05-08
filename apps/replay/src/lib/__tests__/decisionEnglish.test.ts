@@ -490,6 +490,10 @@ describe("summariseDecision — death detection (resolution.deaths[])", () => {
     expect(out.oneLine).toContain("hit (dealt 12 damage) — killed Player_5");
   });
 
+  // v0 contract per D-P2-25 (phase-2-closure.md §5.4): engine emits `dmg N`
+  // per attacker and a flat `deaths[]` list with no last-blow attribution;
+  // the renderer cannot disambiguate, so duplicate kill claims by simultaneous
+  // attackers are accepted. Test name is preserved for git-blame continuity.
   it("does NOT append the kill suffix when only a different agent killed the same target", () => {
     const me = makeChar("a", "Player_1");
     const ally = makeChar("c", "Player_3");

@@ -12,19 +12,29 @@
 > tightenings) populated 2026-05-08 (commit `5ebe737`). Closure-readiness
 > round-4 (intended-final: ADR §6 staleness + lastSurvivor doc drift +
 > ReplayErrorBoundary `<details>` parity + 3 §5.4 deferred entries)
-> populated 2026-05-08 (commit `dc4101b`). HEAD at sealing: `dc4101b`.
-> Phase-2 dispatch baseline: `7c22284`.
+> populated 2026-05-08 (commit `dc4101b`). Closure-readiness round-5
+> (doc-only cleanup: WP-A acceptance bullet `D-P2-21 supersedes` +
+> kill-attribution test header annotation + ReplayErrorBoundary comment
+> retarget + 4 §5.4 deferred entries + 3 ADR rows D-P2-41..43) populated
+> 2026-05-08 (single commit per `D-P2-41a` rationale; closure record
+> continues to cite `dc4101b` as the implement-substantive sealing SHA
+> per round-3/4 precedent). Phase-2 dispatch baseline: `7c22284`.
 >
 > Round-3 was projected as target-final, but the third COMPLETION REVIEW
 > group surfaced 1 Med-2 doc finding (ADR §6 staleness vs. the
 > `history.replaceState` semantics) plus 2 Lows (lastSurvivor doc drift
 > in `architecture-decisions.md` / `work-packages.md`, and a
 > `ReplayErrorBoundary` `<details>` parity gap against `Replay.tsx`).
-> Round-4 absorbs all three. Round-4 is now the intended-final
-> closure-readiness round — with its bundle resolved and the fourth
-> COMPLETION REVIEW group's blocking-findings strand clean (no Highs),
-> the gate is released to the user for §9 vibe-judgement per north-star
-> §COMPLETION CONDITION.
+> Round-4 absorbed all three. The fourth COMPLETION REVIEW group then
+> returned 3 Pass + 1 Concern-no-Highs + UAT Pass-1-Low against HEAD
+> `96b3679`; reviewer consensus was "no round-5 implementation cycle
+> warranted", with reviewer B conditioning closure on `patch-OR-§5.4`
+> treatment of 4 Lows. Round-5 discharges that condition as a doc-only
+> cleanup (this round). With round-5 sealed, the engineering scope of
+> phase 2 v0 is COMPLETE; the remaining substrate is the user's §9
+> vibe-judgement per north-star §COMPLETION CONDITION (qualitative
+> confidence on 3+ matches). No further COMPLETION REVIEW group is
+> dispatched after round-5 (per D-P2-41 reviewer consensus).
 >
 > This is a closure RECORD, not a retrospective and not a phase-3 plan.
 
@@ -35,23 +45,23 @@
 **Implementation: COMPLETE.** All four work packages (WP-A → WP-D) have
 landed across four feature commits between dispatch (`7c22284`,
 2026-05-08) and the post-implementation tip (`4db9757`, 2026-05-08);
-six follow-up commits (`2833537`, `aee6397`, `61c9c2b`, `d3c0370`,
-`5ebe737`, `dc4101b`) close four rounds of closure-readiness fixes and
-reconcile docs. Engineering hygiene gates green at root and at the
-`apps/replay/` sub-package: `npm run lint`, `npm run typecheck`,
+seven follow-up commits (`2833537`, `aee6397`, `61c9c2b`, `d3c0370`,
+`5ebe737`, `dc4101b`, round-5) close five rounds of closure-readiness
+fixes and reconcile docs. Engineering hygiene gates green at root and
+at the `apps/replay/` sub-package: `npm run lint`, `npm run typecheck`,
 `npm run build`, `npm test` (457 passed, 4 LIVE_AZURE-gated skips —
 332 phase-1 + 125 phase-2 sub-package; phase-2 net adds 10 since the
 draft for the `TurnFeed.test.tsx` truncation suite (round-1, +7) and
 `decisionEnglish.test.ts` pluralisation cases (round-2, +3); round-3
 is pure CSS + UI rearrangement, no test count delta; round-4 is
-doc + tiny renderer parity, no test count delta). `apps/replay` Vite
-build: 131 modules, 80.01 KB gzipped (round-4 adds the
-`<details><summary>raw error</summary>` pattern + two style consts to
-the sync error boundary in `apps/replay/src/main.tsx`; renderer
-engineer reports build size unchanged at 80.01 KB gzipped). Substrate
-freeze (D-P2-9) verified — empty diff over `convex/engine`,
-`convex/llm`, `convex/runMatch.ts`, `convex/schema.ts`, `personas/*`,
-`harness/*` from dispatch through `dc4101b`.
+doc + tiny renderer parity, no test count delta; round-5 is doc-only
++ a single comment annotation in `decisionEnglish.test.ts:493`, no
+test count delta). `apps/replay` Vite build: 131 modules, 80.01 KB
+gzipped (round-5 changes are comment-only inside `.tsx` files —
+build size unchanged). Substrate freeze (D-P2-9) verified — empty diff
+over `convex/engine`, `convex/llm`, `convex/runMatch.ts`,
+`convex/schema.ts`, `personas/*`, `harness/*` from dispatch through
+the round-5 sealing tip.
 
 **User vibe-judgement: PENDING.** The phase's success criterion is
 qualitative — the user steps through three+ matches, confirms the
@@ -192,16 +202,18 @@ machine-enforced expression of architecture.md §1 / pillar 7
 
 ## 2. ADR adherence summary
 
-Each phase-2 decision (`D-P2-1`..`D-P2-38`, sourced from
+Each phase-2 decision (`D-P2-1`..`D-P2-43`, sourced from
 `architecture-decisions.md` and the conversation Decision Record)
 ticked off with one line of agent-verifiable evidence. Decisions
-`D-P2-18`..`D-P2-38` are closure-readiness orchestration entries
+`D-P2-18`..`D-P2-43` are closure-readiness orchestration entries
 (`D-P2-18`..`D-P2-23` round-1; `D-P2-24`..`D-P2-29` round-2;
 `D-P2-30`..`D-P2-33` round-3 implement; `D-P2-34`..`D-P2-35` round-3
 review-group + §9 template restoration; `D-P2-36`..`D-P2-38` round-4
-implement + review-group + cosmetic-deferral bundle) recorded after
-the implement job; they do not have ADR-section counterparts in
-`architecture-decisions.md`.
+implement + cosmetic-deferral bundle; `D-P2-39`..`D-P2-40` round-4
+bundle-complete + fourth COMPLETION REVIEW group dispatch;
+`D-P2-41`..`D-P2-43` round-5 doc-only cleanup + assignment-complete
+handoff) recorded after the implement job; they do not have
+ADR-section counterparts in `architecture-decisions.md`.
 
 | ID | Decision | Evidence |
 |---|---|---|
@@ -243,6 +255,11 @@ the implement job; they do not have ADR-section counterparts in
 | D-P2-36 | Round-4 closure-readiness scope = ADR §6 staleness (Med-2, Review A — `architecture-decisions.md` §6 wording vs. `history.replaceState` semantics) + lastSurvivor doc drift (Low, Review B — `architecture-decisions.md` §3 / `work-packages.md` WP-A picker bullet vs. D-P2-21 column drop) + ReplayErrorBoundary `<details>` parity (Low, Reviews A+B — `apps/replay/src/main.tsx` sync error boundary vs. `Replay.tsx:234-237` `<details><summary>raw error</summary><code>…</code></details>`). All three trivial; substrate freeze (D-P2-9) holds. | Single round-4 commit `dc4101b`; touches `architecture-decisions.md` §3 + §6, `work-packages.md` WP-A picker bullet, `apps/replay/src/main.tsx` sync error-boundary frame, and this document (§5.0 round-4 subsection + §5.4 +3 deferred bullets + §2 +3 rows + status banner). `git diff 7c22284..dc4101b -- convex/engine convex/llm convex/runMatch.ts convex/schema.ts personas harness` empty (see §4). |
 | D-P2-37 | After the round-4 implement lands, dispatch the FOURTH (and intended-final-final) COMPLETION REVIEW group (review + uat + document) — fourth iteration of the D-P2-19 / D-P2-27 / D-P2-33 closure-completion path. Once that group passes with no Highs, the user proceeds to §9 vibe-judgement per north-star §COMPLETION CONDITION. | Conversation Decision Record entry; this document's §3.4 will be extended once the fourth group runs (future-work narrative, parallel to the third-group narrative already inline). If the fourth group surfaces Highs they would appear in a *Round-4 blocking findings* subsection between §5.0 and §5.1 — that subsection is intentionally absent here (mirroring D-P2-34 for round-3). |
 | D-P2-38 | Cosmetic items deferred to §5.4 known issues (NOT blocking the user's §9 vibe-judgement): (a) `apps/replay/src/routes/Replay.tsx:47, :217, :418` retain `UAT ISSUE-002` / `UAT ISSUE-003` references — exempt because those numbers uniquely identify the originating UAT report (round-1 ISSUE-001 was the collision case that motivated the round-3 AC-anchor relabelling at `:370-372` / `:491-498`; ISSUE-002 and ISSUE-003 do not collide and the cite preserves traceability into the UAT report); (b) the §5.4 kill-attribution citation `:524-548` was tightened in-place to `:539-547` in round-4 — the contract-decision comment block actually starts at `:539` and the assertions are at `:544-547` (Review A Low-4 / cosmetic); (c) `convex/replay.ts` `getReplayBundle` accepts any valid match id, but the picker filters `status === "completed"` (`convex/replay.ts` `listMatches`), so a user pasting a VALID-but-not-completed match id directly into the URL would get a partial bundle — defense-in-depth (return `null` when `match.status !== "completed"`) is a future-phase polish, not a UX gap (the documented entry point is the picker, completed-only). | The three new §5.4 bullets added in round-4 — see §5.4 entries appended at the end of that section (Comment-label scheme inconsistency / Citation polish marker / `getReplayBundle` non-completed-match defense-in-depth). |
+| D-P2-39 | Round-4 closure-readiness bundle COMPLETE; substrate freeze D-P2-9 holds; fourth COMPLETION REVIEW group's user §9 vibe-judgement gate now positioned for release | Two-commit shape: implement `dc4101b` + SHA-substitute follow-up `96b3679`, mirroring the round-3 `5ebe737` → `d27bd79` pattern (no-amend directive forbids the in-place alternative; shipping with `<HEAD>` placeholders was the closure-doc hygiene debt review-A surfaced in round-3). All gates green at HEAD `96b3679`: lint clean / typecheck clean (root + `apps/replay/`) / 457 pass + 4 LIVE_AZURE skip / `apps/replay` Vite build 131 modules / 80.01 KB gzipped. Substrate-freeze diff `7c22284..dc4101b` empty (see §4); `dc4101b..96b3679` touches only this document (SHA substitution). §9 preserved empty per north-star §COMPLETION CONDITION. |
+| D-P2-40 | Fourth (intended-final-final) COMPLETION REVIEW group dispatched in parallel against HEAD `dc4101b` (the substantive UX-surface tip) — review + uat + document strands. Gates AOP.VALIDATE'd independently before dispatch. UAT focus narrows to the only renderer-touching change in round-4 (`ReplayErrorBoundary` `<details>` parity in `apps/replay/src/main.tsx`); the ADR §6 / lastSurvivor / closure-doc fixes have no UX surface. Document strand AOP.VALIDATE's the implement strand's "§9 template left untouched" claim against `git show d27bd79:.../phase-2-closure.md`. | Conversation Decision Record entry; this document seals the closure record at `dc4101b` (implement) / `96b3679` (SHA-substitute follow-up). If review/UAT surfaced Highs they would appear in a *Round-4 blocking findings* subsection between §5.0 and §5.1 — that subsection is intentionally absent here (mirroring D-P2-34 for round-3). With the gate released, the north-star §COMPLETION CONDITION narrows to the user filling §9 below. |
+| D-P2-41 | Fourth COMPLETION REVIEW group OUTCOME against HEAD `96b3679` = 3 Pass + 1 Concern-no-Highs + UAT Pass-1-Low. Zero Highs surfaced. Reviewer consensus: NO round-5 implementation cycle warranted. Reviewer B's Concern was conditioned on "patch-OR-§5.4" treatment of 4 Lows — round-5 discharges that condition with a doc-only cleanup bundle (3 patches + 1 §5.4 deferred for the unrenderable UAT corpse-hover gap) and 4 explicit `D-P2-41a..d` deferral entries for the polish nits the reviewers raised. | Conversation Decision Record entry; this document's §3.4 fourth-group narrative is replaced (see below) with the actual verdict; the speculative "If review/UAT surfaced Highs they would appear in a *Round-4 blocking findings* subsection" sentence on D-P2-40 holds — that subsection is empty because no Highs were surfaced. Round-5 §5.0 subsection (added below) enumerates the 9 review-surfaced items and how each was discharged. |
+| D-P2-42 | Round-5 scope = doc-only cleanup discharging Reviewer B's Concern condition. Three substantive patches (`work-packages.md` WP-A acceptance bullet — `D-P2-21 supersedes` block-quote mirroring the round-4 pattern at `architecture-decisions.md:233`; `apps/replay/src/lib/__tests__/decisionEnglish.test.ts:493` — single-line v0-contract annotation per D-P2-25; `apps/replay/src/main.tsx:8-17, :29-44` — ReplayErrorBoundary comment retarget to clarify sync vs async layers per D-P2-28) + four §5.4 deferred entries (`D-P2-41a..d`) + three ADR-table rows (`D-P2-41..D-P2-43`). Substrate freeze (D-P2-9) holds. Single commit, NOT a two-commit shape — round-5 explicitly defers the SHA-citation chase per `D-P2-41a` rationale (closure record citing `dc4101b` is the implement-substantive SHA per round-3/4 precedent; bumping introduces a recursive doc-update loop). | Single round-5 commit; touches `phase-2-closure.md` (this document), `work-packages.md` WP-A acceptance bullet, `apps/replay/src/lib/__tests__/decisionEnglish.test.ts` (1 comment annotation, no test count delta), `apps/replay/src/main.tsx` (comment retarget, no runtime delta). `git diff 7c22284..HEAD -- convex/engine convex/llm convex/runMatch.ts convex/schema.ts personas harness` empty (see §4); `apps/replay` Vite build unchanged at 131 modules / 80.01 KB gzipped (no runtime diff — comment-only changes inside .tsx files). NO further COMPLETION REVIEW group dispatched after round-5 — reviewer consensus on the round-4 group already cleared the "no Highs" gate. |
+| D-P2-43 | After round-5 lands, the engineering scope of phase 2 v0 is COMPLETE. The remaining substrate is the user's §9 vibe-judgement entry per north-star §COMPLETION CONDITION — qualitative confidence on 3+ matches walked through the renderer. Assignment-complete handoff to user: this document is the final substrate-handoff artefact; no further fix/review iteration is dispatched by the engineering team unless §9 surfaces a finding the user explicitly escalates back. | Conversation Decision Record entry. §9 below preserved in `d27bd79`-restored form (Date / Matches walked / Vibe verdict / Observations / Follow-up tickets) — verified byte-identical against `git show d27bd79:docs/project/phases/02-replay-overseer-v0/phase-2-closure.md` at round-5 sealing. The next PM cycle marks assignment complete on the basis of this row + the round-5 §5.0 subsection's "all 9 review-surfaced items discharged" enumeration. |
 
 ---
 
@@ -334,10 +351,24 @@ visual language that `Replay.tsx:234-237` adopted in round-3). All
 three were absorbed into round-4 commit `dc4101b` per D-P2-30..D-P2-36;
 no round-3 deferrals reopened.
 
-The fourth COMPLETION REVIEW group (running against HEAD `dc4101b`,
-dispatched per D-P2-37) is the gate that releases the user §9 vibe-
-judgement. With no Highs surfaced, the user reads §9 fresh without a
-*Round-4 blocking findings* subsection (mirroring D-P2-34).
+The fourth COMPLETION REVIEW group (running against HEAD `96b3679`,
+dispatched per D-P2-37 / D-P2-40) returned 3 Pass + 1 Concern-no-Highs
++ UAT Pass-1-Low. Reviewer consensus: NO round-5 implementation cycle
+warranted (zero Highs; the four Lows raised are documentary or
+cosmetic). Reviewer B's Concern was conditioned on `patch-OR-§5.4`
+treatment of those Lows; round-5 (doc-only cleanup) discharges that
+condition with three small patches (WP-A acceptance bullet
+`D-P2-21 supersedes` block-quote in `work-packages.md`; v0-contract
+single-line annotation above the kill-attribution `it(...)` block in
+`decisionEnglish.test.ts:493`; sync-vs-async retarget of the
+`ReplayErrorBoundary` comments in `main.tsx:8-17, :29-44`) plus four
+explicit `D-P2-41a..d` `§5.4` deferrals (closure-record SHA literalism,
+6-vs-8 commit-count framing, round-3 wording understatement, UAT
+ISSUE-001 corpse-hover not exercised). With round-5 sealed, the user
+reads §9 fresh without a *Round-4 blocking findings* subsection
+(mirroring D-P2-34 for round-3) — the engineering scope is complete and
+the gate releases to the user's §9 vibe-judgement per north-star
+§COMPLETION CONDITION.
 
 ---
 
@@ -368,8 +399,8 @@ substrate path.
 ## 5. Known caveats / known-issues
 
 Each entry is tagged **resolved** (closure-readiness — fixed in
-round-1 `2833537`/`aee6397`, round-2 `61c9c2b`/`d3c0370`, or round-3
-`5ebe737`),
+round-1 `2833537`/`aee6397`, round-2 `61c9c2b`/`d3c0370`, round-3
+`5ebe737`, round-4 `dc4101b`/`96b3679`, or round-5 doc-only cleanup),
 **v0 acceptable** (intentional gap, surfaced as literal copy in the
 UI) or **deferred** (downstream phase will close it). No
 high-severity findings are open against this phase at sealing time.
@@ -608,6 +639,98 @@ unchanged at 80.01 KB gzipped per the same report (the
 `<details>`/`<summary>` swap + two style consts + dead-`mutedStyle`
 removal nets to ~0 KB after gzip).
 
+**Round-5 doc-only cleanup (3 patches + 4 §5.4 deferred + 3 ADR rows) — sealed in single round-5 commit:**
+
+The fourth COMPLETION REVIEW group (running against HEAD `96b3679`,
+dispatched per D-P2-37 / D-P2-40) returned 3 Pass + 1 Concern-no-Highs
++ UAT Pass-1-Low. Reviewer consensus: NO round-5 implementation cycle
+warranted (zero Highs surfaced). Reviewer B's Concern was conditioned
+on `patch-OR-§5.4` treatment of 4 Lows; round-5 discharges that
+condition as a doc-only cleanup. Round-5 is intentionally a SINGLE
+commit (not the round-3/4 two-commit shape) — closure record continues
+to cite `dc4101b` as the implement-substantive sealing SHA per
+round-3/4 precedent, see `D-P2-41a` `§5.4` deferral rationale below.
+
+Items surfaced by the fourth COMPLETION REVIEW group + the doc-strand
+discharge enumeration:
+
+- **Review A Low #1 — closure-record HEAD-at-sealing literalism** →
+  §5.4 deferred entry `D-P2-41a`. The closure record at HEAD-of-this-
+  commit cites `dc4101b` as the sealing SHA. Bumping the cite to the
+  round-5 commit's own SHA every doc-finalisation round introduces a
+  recursive doc-update loop. Round-3/4 precedent (`5ebe737` and
+  `dc4101b` are the cited SHAs in their respective sealing windows,
+  not their two-commit follow-up substitutes) holds.
+- **Review A Low #2 — 6-vs-8 follow-up commit count framing
+  inconsistency** → §5.4 deferred entry `D-P2-41b`. The status banner
+  refers to "six follow-up commits" (now updated to seven) but other
+  prose snippets in §3.4 / §5.0 still use round-numbered framing
+  ("round-3 …", "round-4 …") rather than absolute commit counts.
+  Standardising the framing is post-§9 cleanup, not round-5 scope.
+- **Review A Low #3 — round-3 wording understates architectural
+  shift** → §5.4 deferred entry `D-P2-41c`. The round-3 narrative in
+  §5.0 describes the feed-row clipping fix in CSS-mechanism terms;
+  the architectural decision (move `overflow-y` from inner row stack
+  to `<aside>`) is faithfully captured in the existing D-P2-31 ADR
+  row, so the §5.0 prose is supplementary rather than load-bearing.
+  Refactoring the §5.0 round-3 paragraph is post-§9 cleanup.
+- **Review B Low #1 — closure refs `dc4101b` vs `96b3679`** → paired
+  with Review A Low #1, §5.4 deferred entry `D-P2-41a`. Same
+  literalism-loop rationale.
+- **Review B Low #2 — WP-A acceptance bullet still lists
+  `outcome.lastSurvivor`** → PATCHED in round-5
+  (`work-packages.md:132` region). Added the same
+  `D-P2-21 supersedes` block-quote pattern that round-4 applied to
+  `work-packages.md:109` (WP-A scope section) and
+  `architecture-decisions.md:233` (§3 picker-row enumeration);
+  original prose preserved verbatim above the new block-quote per
+  round-4 reconciliation precedent.
+- **Review B Low #3 — kill-attribution test name reads as a
+  contradiction** → ANNOTATED in round-5 via a single-line comment
+  block above the `it(...)` at
+  `apps/replay/src/lib/__tests__/decisionEnglish.test.ts:493`. The
+  comment notes the v0 contract per D-P2-25 (engine emits `dmg N` per
+  attacker, no last-blow attribution surfaced; duplicate kill claims
+  by simultaneous attackers are accepted). Test name + assertions
+  preserved for git-blame continuity per the v0 contract locked in
+  `phase-2-closure.md` §5.4 D-P2-25 entry.
+- **Review B Low #4 — ReplayErrorBoundary comments target wrong
+  layer** → PATCHED in round-5 (`apps/replay/src/main.tsx:8-17,
+  :29-44`). The pre-existing comments described the boundary as
+  catching the "synchronous throw on schema-validator failure" from
+  Convex's argument validator — that is actually the ASYNC path,
+  caught by the `.catch()` frame at `routes/Replay.tsx:211`. The sync
+  class boundary catches RENDER-time throws (e.g. malformed bundle
+  crashing `reconstruct`). Round-5 retargets the comments to clarify
+  the sync vs async layers and cross-reference D-P2-28's dual-layer
+  architecture. Boundary behaviour, styles, and class shape unchanged.
+- **UAT Pass-1-Low ISSUE-001 — corpse-hover not exercised in this UAT
+  pass** → §5.4 deferred entry `D-P2-41d`. Test-coverage gap, NOT a
+  defect. UAT walked early/mid-turn match snapshots where no
+  characters had died yet. Synthesising a kill-rich fixture (or
+  pinning a closing-50 match with 6+ corpses on the grid for the next
+  UAT pass) is the recommended remediation. Out of round-5 scope
+  (engineering-doc cleanup only); next phase or a future-UAT run can
+  pick this up.
+- **Document-strand uncommitted work** → COMMITTED in this round-5
+  commit. The round-5 entrypoint had +9/-6 uncommitted lines staged
+  in the working tree (`D-P2-39` + `D-P2-40` ADR rows + the §2 intro
+  range bump from `D-P2-1..D-P2-38` → `D-P2-1..D-P2-40` and the §8
+  cross-ref range bump from `D-P2-15..D-P2-38` → `D-P2-15..D-P2-40`).
+  Round-5 EXTENDS that doc-strand (round-4 closure follow-up) with
+  the round-5 cleanup (D-P2-41..D-P2-43 rows + range bumps to
+  `..D-P2-43`) and lands the combined edit in a single commit per
+  D-P2-42 single-commit shape.
+
+Round-5 phase-2 sub-package test count unchanged at 125 (the
+`decisionEnglish.test.ts:493` change is a comment annotation, not a
+new test). Root `npm test` unchanged at 457 passing (4 LIVE_AZURE
+skips unchanged). `apps/replay` Vite build unchanged at 80.01 KB
+gzipped — both `.tsx` round-5 edits (`main.tsx` ReplayErrorBoundary
+comment retarget + `decisionEnglish.test.ts` test-header annotation)
+are inside comment blocks; comments do not survive Vite's production
+build minification, so the bundle is byte-identical to round-4.
+
 ### 5.1 Live-agent equipment + HP not derivable per turn — D-P2-11
 
 **Tag:** v0 acceptable.
@@ -808,6 +931,71 @@ next phase that revisits these surfaces can address them.
   defense-in-depth (return `null` when `match.status !== "completed"`)
   is a future-phase polish — attack-surface nit, not a UX gap.
   Deferred to a downstream phase that revisits the read contract.
+- **Closure-record SHA-at-sealing literalism** (`phase-2-closure.md`
+  front-matter / status banner; Review A Low #1 + Review B Low #1
+  round-4; D-P2-41a). The closure record cites `dc4101b` as the
+  HEAD-at-sealing SHA — that is the round-4 implement-substantive
+  commit, mirroring the round-3 sealing-SHA convention where the
+  cited HEAD was `5ebe737` (the implement-substantive commit) rather
+  than `d27bd79` (the SHA-substitute follow-up). Reviewers raised
+  that subsequent round-N commits (`96b3679` for round-4, the round-5
+  commit for round-5) are not back-substituted into the record. The
+  decision is to NOT chase the SHA on every doc-finalisation commit:
+  bumping the cite triggers a recursive doc-update loop where the
+  bump itself is a new commit that supersedes its own reference.
+  Round-3/4 precedent (sealing-SHA = implement-substantive SHA, not
+  the SHA-substitute follow-up) is preserved by round-5 leaving
+  `dc4101b` in place. Defer; no remediation required — convention
+  documented here for downstream auditability. Consumer-renderer
+  phase pointer: this is a documentation hygiene convention, not a
+  consumer-renderer concern.
+- **6-vs-8 follow-up commit count framing inconsistency**
+  (`phase-2-closure.md` status banner + §3.4 + §5.0; Review A Low #2
+  round-4; D-P2-41b). The status banner counts follow-up commits
+  ("six" → "seven" through round-5) while §3.4 / §5.0 prose uses
+  round-numbered framing ("round-3 commit `5ebe737`", "round-4
+  commit `dc4101b`", etc.). Both framings are accurate and
+  cross-checkable, but they are not standardised — a reader counting
+  by absolute commit-count will reach a different number than a
+  reader counting by round-named commits because the round-3 + round-4
+  two-commit shape pairs (e.g. `5ebe737` + `d27bd79`) is implicitly
+  collapsed in the round-named framing. Standardising on absolute
+  commit-count framing throughout §3.4 / §5.0 is post-§9 cleanup, not
+  round-5 scope (changing prose references during a closure-readiness
+  doc-only round risks introducing fresh drift). Defer to a
+  post-§9-vibe-judgement consolidation pass. Consumer-renderer phase
+  pointer: not applicable — this is closure-record hygiene only.
+- **Round-3 §5.0 wording understates architectural shift**
+  (`phase-2-closure.md` §5.0 "Round-3 must-fix + Lows" Med-1 / AC#7
+  bullet; Review A Low #3 round-4; D-P2-41c). The round-3 narrative
+  describes the feed-row clipping fix in CSS-mechanism terms (move
+  `overflow-y: auto` from inner row stack to `<aside>`, sticky
+  header, `overscroll-behavior: contain`). The architectural
+  decision — that the feed panel owns its scrollport rather than
+  delegating it to an inner DIV — is captured in the existing ADR
+  adherence row D-P2-31 with engineering-language phrasing
+  ("affordance moved from inner feed-list `<div>` onto the `<aside>`
+  itself"). Both are accurate; the §5.0 prose is supplementary, not
+  load-bearing — D-P2-31 is the authoritative architectural record.
+  Refactoring the §5.0 round-3 paragraph for clearer architectural
+  framing is post-§9 cleanup. Defer. Consumer-renderer phase
+  pointer: not applicable — closure-record hygiene only.
+- **UAT ISSUE-001 corpse-hover not exercised in fourth-group UAT
+  pass** (UAT report against HEAD `96b3679`; Review B / UAT Pass-1-Low
+  round-4; D-P2-41d). The fourth-group UAT walked early/mid-turn
+  snapshots where no characters had died yet, so the corpse-hover
+  affordance (`HoverCard.tsx` corpse branch — character + persona +
+  death turn + remaining loot from `worldState.corpses[]`) was not
+  visually verified. This is a TEST-COVERAGE GAP, not a defect — the
+  corpse-hover code path is exercised by the existing reconstruct +
+  HoverCard unit tests, and the implementation is byte-identical to
+  the round-1..4 sealed state. The natural remediation is a synthetic
+  kill-rich fixture (or pinning a closing-50 match with 6+ corpses on
+  the grid) for the next UAT pass — out of round-5 doc-only scope.
+  Defer; next-phase / future-UAT-run can pick this up. Consumer-
+  renderer phase pointer: a synthetic kill-rich fixture would be the
+  natural way for a downstream renderer to integration-test corpse-
+  rendering at viewport scale.
 
 ---
 
@@ -886,11 +1074,11 @@ Phase 2 documents that together form the full record:
 - `README.md` — phase goal / scope / Cucumber surface / hard
   out-of-scope / dependency map.
 - `architecture-decisions.md` — ADR §1..§12 capturing decisions
-  D-P2-1..D-P2-14. D-P2-15..D-P2-38 are conversation Decision Record
+  D-P2-1..D-P2-14. D-P2-15..D-P2-43 are conversation Decision Record
   entries — orchestration / dispatch / closure-readiness level
-  (round-1 + round-2 + round-3 + round-4), not architecture; the §2
-  ADR adherence table above is the authoritative evidence index for
-  those.
+  (round-1 + round-2 + round-3 + round-4 + round-5 doc-only cleanup +
+  assignment-complete handoff), not architecture; the §2 ADR adherence
+  table above is the authoritative evidence index for those.
 - `work-packages.md` — WP-A through WP-D scope, acceptance, test
   strategy, risks; "Closing the phase" §1-§3.
 - `de-risking.md` — single load-bearing unknown

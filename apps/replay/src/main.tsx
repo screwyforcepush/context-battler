@@ -9,12 +9,13 @@
 //   - Imports `./index.css` so the global reset (`html, body, #root
 //     { margin: 0; min-height: 100% }`) clears the user-agent 16px page-
 //     level scroll overhang (AC#4 / Med-1).
-//   - Wraps the `<Replay>` mount in a `ReplayErrorBoundary` so a bogus
-//     matchId (e.g. `#/match/bogus_id_123`) renders a friendly hint with
-//     a back-to-picker link instead of the raw Convex
-//     `ArgumentValidationError` dump that React surfaces when the
-//     `client.query(api.replay.getReplayBundle, { matchId })` call throws
-//     synchronously on schema-validator failure (UAT ISSUE-003 round 2).
+//   - Wraps the `<Replay>` mount in a `ReplayErrorBoundary` (defined below)
+//     to catch synchronous render-time throws inside the replay subtree.
+//     The complementary async path for Convex `ArgumentValidationError`
+//     rejections on bogus matchIds (the actual UAT ISSUE-003 trigger) is
+//     handled inline at `routes/Replay.tsx:211` via a `.catch()` frame —
+//     React error boundaries do not catch promise rejections, so the two
+//     layers together form the D-P2-28 dual-layer error-handling pair.
 
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -26,17 +27,21 @@ import { Replay } from "./routes/Replay";
 import "./index.css";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ReplayErrorBoundary — narrow component-level boundary catching the synchronous
-// throw from Convex's argument validator when the URL carries a malformed
-// `matchId`. Convex's `v.id("matches")` validator rejects ids that don't
-// belong to the `matches` table (or that aren't shaped like a Convex id at
-// all) by throwing an `ArgumentValidationError` from the
-// `client.query(api.replay.getReplayBundle, { matchId })` call. Without a
-// boundary, React surfaces that throw inline as a raw stack trace, which
-// breaks the "user fat-fingers a URL → friendly recovery path" contract
-// (north-star COMPLETION CONDITION). Modelled on PickerErrorBoundary in
-// `routes/MatchPicker.tsx:155-191` so the two failure modes share a visual
-// language.
+// ReplayErrorBoundary — narrow component-level boundary catching SYNCHRONOUS
+// render-time throws inside the `<Replay>` subtree (e.g. a malformed bundle
+// crashing `reconstruct(bundle, atTurn)` mid-render, or any other render-time
+// exception React would otherwise surface as a raw stack trace).
+//
+// React error boundaries do NOT catch promise rejections — the async path
+// for Convex `ArgumentValidationError` rejections (the original UAT ISSUE-003
+// trigger when the URL carries a bogus matchId) is handled separately by the
+// `.catch()` frame at `routes/Replay.tsx:211` which renders a friendly hint
+// inline. This sync class boundary + async `.catch()` pair is the D-P2-28
+// dual-layer architecture documented in `phase-2-closure.md` §5.0 round-2 +
+// ADR adherence row D-P2-28; the two halves share visual language so the user
+// sees the same frame regardless of which path fired.
+//
+// Modelled on PickerErrorBoundary in `routes/MatchPicker.tsx:155-191`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type ReplayErrorBoundaryState = { error: Error | null };
