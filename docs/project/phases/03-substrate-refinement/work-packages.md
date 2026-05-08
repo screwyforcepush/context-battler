@@ -998,9 +998,8 @@ Closure record re-anchored to the rerun-#3 reportId; §2 tables updated
 reviewer-B HIGH-1/HIGH-2 findings; §3.1 reframed as why-it-PASSED; §3.2
 reframed as combat-economy-tuning (substrate is now correct); §3.3 number
 refreshed (65.0% → 68.82%); §4 proof points + §7 follow-ups refreshed.
-Mental-model §11 hyperlink updated. Commits: WP-G.6 paperwork commits
-land in parallel with this WP-G.7 commit (sister doc work; document-agent
-in WP-G.9 may finalise hashes).
+Mental-model §11 hyperlink updated. Commits: `96df32f` (closure
+rewrite) + `dd52f2c` (mental-model §11 refresh).
 
 **WP-G.7 — work-packages.md addendum.** This commit. Appends the WP-F
 and WP-G sections to the phase-3 work-packages document so the planning
@@ -1016,5 +1015,5 @@ this commit.
 **WP-G.9 — Final validate gate + closure.** Final
 `npm run lint && npm run typecheck && npm test && npm run build` against
 HEAD with all WP-G paperwork commits integrated. Phase-3 close
-re-asserted on the substrate-correct ledger; document-agent finalises any
-TBD hashes left in WP-G.6.
+re-asserted on the substrate-correct ledger; finalised the WP-G.6
+commit hashes left as a forward-pointer in this document.
