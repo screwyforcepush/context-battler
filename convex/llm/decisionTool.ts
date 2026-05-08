@@ -163,7 +163,15 @@ export type DecisionToolDefinition = {
   readonly parameters: {
     readonly type: "object";
     readonly additionalProperties: false;
-    readonly required: readonly ["consume", "primary", "move", "action"];
+    readonly required: readonly [
+      "consume",
+      "primary",
+      "move",
+      "action",
+      "say",
+      "overwatch_stance",
+      "scratchpad_update",
+    ];
     readonly properties: {
       readonly consume: EnumProp<"none" | "heal" | "speed">;
       readonly primary: EnumProp<"move" | "stationary_action" | "overwatch">;
@@ -192,7 +200,23 @@ export const decisionTool: DecisionToolDefinition = {
   parameters: {
     type: "object",
     additionalProperties: false,
-    required: ["consume", "primary", "move", "action"],
+    // WP-G.2 / D39 (PM-lock): all 7 declared properties must be required.
+    // Zod parser below is `.strict()` and requires all 7; if the JSON
+    // Schema we send to Azure left `say`, `overwatch_stance`, or
+    // `scratchpad_update` as legally-omittable, Azure could omit them,
+    // Zod would reject, and we'd safe-default. Reviewer-B's audit of
+    // completion-review-2 traces saw 207/234 schema failures missing
+    // `say` for exactly this reason. The schemaMirror parity test
+    // (`tests/llm/schemaMirror.test.ts`) catches future drift.
+    required: [
+      "consume",
+      "primary",
+      "move",
+      "action",
+      "say",
+      "overwatch_stance",
+      "scratchpad_update",
+    ],
     properties: {
       consume: { enum: ["none", "heal", "speed"] },
       primary: { enum: ["move", "stationary_action", "overwatch"] },

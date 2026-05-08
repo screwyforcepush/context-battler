@@ -9,7 +9,13 @@
 // Spec — phase-3 ADR §1 (replaces phase-1 ADR §4):
 //   - `type: "function"`, `name: "decide_turn"`, `parameters` is a single
 //     object schema with `additionalProperties: false`.
-//   - Required keys: ["consume","primary","move","action"].
+//   - Required keys: ["consume","primary","move","action","say",
+//     "overwatch_stance","scratchpad_update"] — all 7 declared properties
+//     are required (WP-G.2 / D39 PM-lock). Zod parser is `.strict()` so the
+//     JSON Schema MUST require everything Zod requires; otherwise Azure
+//     legally omits a nullable field, Zod rejects, and we safe-default.
+//     Reviewer-B's audit of completion-review-2 traces saw 207/234 schema
+//     failures missing `say` for exactly this reason.
 //   - `move` is a 6-arm `oneOf` discriminated by `kind` (unchanged from
 //     phase 1).
 //   - `action` is a **3-arm** `oneOf` discriminated by `kind` (was 4-arm):
@@ -59,13 +65,25 @@ describe("phase-3 decisionTool — JSON Schema shape", () => {
     expect(decisionTool.description.length).toBeGreaterThan(0);
   });
 
-  it("required keys are exactly the 4 locked fields", () => {
+  it("required keys are exactly the 7 locked fields (WP-G.2 / D39 PM-lock)", () => {
     const params = decisionTool.parameters;
     expect(params.type).toBe("object");
     expect(params.additionalProperties).toBe(false);
-    // ADR §1: required = ["consume","primary","move","action"].
+    // WP-G.2 / D39: JSON Schema required[] must mirror Zod `.strict()` shape
+    // exactly. All 7 declared properties are required — `say`,
+    // `overwatch_stance`, `scratchpad_update` are nullable but NOT optional.
+    // Without this, Azure legally omits them per the JSON Schema, Zod
+    // (.strict() at decisionTool.ts:351,361) rejects, and we safe-default.
     expect([...params.required].sort()).toEqual(
-      ["action", "consume", "move", "primary"],
+      [
+        "action",
+        "consume",
+        "move",
+        "overwatch_stance",
+        "primary",
+        "say",
+        "scratchpad_update",
+      ],
     );
   });
 
