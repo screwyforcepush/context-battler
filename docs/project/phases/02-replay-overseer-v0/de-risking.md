@@ -122,28 +122,37 @@ snapshot at turn 10 as a single fresh `reconstruct(bundle, 10)` call.
 
 ---
 
-### 1.7 Corpse contents consistency with `worldState.corpses[]`
+### 1.7 Corpse contents consistency — RETIRED via worldState.corpses[] fallback
 
-**Failure mode.** The walk derives corpse contents from the actor's
-last-known equipped state — which is itself best-effort from action-
-result parsing (per ADR §4 caveat). The phase-1 substrate ALSO
-persists `worldState.corpses[]` as engine-authored truth. If the
-walk's corpse contents diverge from `worldState.corpses[]` at the
-final turn, the walk's equipment-state inference is buggy.
+**Status.** Retired during phase-2 closure-readiness reconciliation
+(parallels the D-P2-12 chest-contents fallback in
+`architecture-decisions.md` §10).
 
-**Test (live integration, gated by `LIVE_CONVEX` env var).** Pick the
-most-recent closing-50 match. Reconstruct at the terminal turn
-(turn=match.turn). Assert that for every dead character, the walk's
-inferred corpse contents match the corresponding entry in
-`worldState.corpses[]` (with a tolerance for the documented best-
-effort surface — i.e. log mismatches, only fail the test if mismatches
-exceed a small threshold).
+**Why retired.** The walk in `apps/replay/src/lib/reconstruct.ts`
+does NOT derive corpse contents at all — `SnapshotCorpse` is
+`{characterId, pos}` only. The hover card reads contents *directly*
+from `bundle.worldState.corpses[]` (engine-authored truth) at
+`apps/replay/src/components/HoverCard.tsx:338-339` via
+`bundle.worldState?.corpses.find(c => c.characterId === characterId)`.
+There is no walk-side inference to be consistent with, so there is
+nothing to test for divergence. The originally-feared failure mode —
+the walk's equipment-state inference drifting from the engine's
+authoritative `worldState.corpses[]` — does not exist because the
+inference does not exist (locked by D-P2-11 / ADR §4 walk caveat:
+equipment + HP are NOT derivable from the ledger; corpse contents
+read from the engine-authored snapshot).
 
-**Mitigation if the test fails.** ADR §4's authoritative-fallback
-strategy: the rendered corpse hover card reads contents *directly*
-from `worldState.corpses[]`, not from the walk. The walk's corpse-
-contents output is then purely cosmetic and the divergence becomes a
-display-only nicety to fix later.
+**Consequences.** No Vitest test owed for §1.7. The corpse-hover
+display is a thin pass-through of `worldState.corpses[]`, which the
+phase-1 substrate writes during the engine's death/loot handling and
+is the same data surface the live-integration test would have
+verified against. WP-D's HoverCard implementation is the test surface
+(component-level rendering of the engine-authored data).
+
+**Cross-reference.** Identical resolution shape to D-P2-12
+(opened-chest contents not persisted): when the engine owns the
+authoritative state and the renderer reads it directly, no walk-side
+test is needed.
 
 ---
 
@@ -159,20 +168,33 @@ which checks for a literal that the engine never emits. A walk that
 relies on the missing action kind would never mark anyone as
 extracted; the renderer would keep them on the grid forever.
 
-**Resolution (locked by ADR §4 walk rule 4).** The walk reads
+**Resolution (locked by ADR §4 walk rule 4 / D-P2-20).** The walk reads
 extraction from `bundle.characters[c].extractedAtTurn` (the terminal
 characters[] row, written by phase-8 mutation). For each `c`, if
 `c.extractedAtTurn !== null` and `c.extractedAtTurn <= atTurn`, mark
 `snapshot.characters[c].extractedAtTurn = c.extractedAtTurn`. The
-token is hidden from the grid for `t > extractedAtTurn`.
+token is hidden from the grid for `t >= extractedAtTurn` — i.e.
+visible BEFORE `extractedAtTurn`, hidden AT `extractedAtTurn` and
+after.
+
+**Why hidden AT, not after.** Engine extraction is phase 8 (last) of
+the turn — `convex/engine/resolution.ts:711-723` mutates
+`characters[c].extractedAtTurn = state.turn` for every character
+inside the evac zone, then increments to `state.turn + 1`. The
+*post-resolution* snapshot at turn N (the snapshot the user sees when
+they slide to turn N) therefore legitimately omits any character that
+got extracted during turn N's phase 8: the extraction has already
+happened in-trace, so the grid view at turn N reflects the world
+*after* extraction completed. Renderer filter at
+`apps/replay/src/components/Grid.tsx:207-212` matches this:
+`c.extractedAtTurn <= snapshot.turn` → hidden.
 
 **Test (Vitest).** Synthetic bundle: character A has
 `extractedAtTurn: 50` on the terminal characters row. Assert
 `reconstruct(bundle, 50).characters[A].extractedAtTurn === 50` and
-that the snapshot's grid filter (`!extractedAtTurn || extractedAtTurn > atTurn`)
-excludes A from the live-tokens list at turn 51 (or any
-`atTurn > extractedAtTurn`). Assert the same character is still on
-the grid at turn 49.
+that the snapshot's grid filter (`extractedAtTurn === null || extractedAtTurn > snapshot.turn`)
+excludes A from the live-tokens list at turn 50 and any later turn.
+Assert the same character is still on the grid at turn 49.
 
 ---
 

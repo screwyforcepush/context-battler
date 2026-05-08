@@ -12,7 +12,7 @@
 //   §1.4 Hidden flag toggles via visibilityUpdates (applied LAST).
 //   §1.5 Spawn index lookup — happy path AND throws on missing spawnIndex.
 //   §1.6 Idempotency — same input → same output; backward-jump equals fresh.
-//   §1.7 Live integration (gated by LIVE_CONVEX) — corpse-contents probe.
+//   §1.7 retired via worldState.corpses[] fallback — see de-risking.md §1.7.
 //   §1.8 Extraction — `extractedAtTurn` from terminal characters[]; token
 //        excluded from grid when t > extractedAtTurn; still on grid at t-1.
 //   §1.9 Synthetic turn 0 — first ledger row is turn===1.

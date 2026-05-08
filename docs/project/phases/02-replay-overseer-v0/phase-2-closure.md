@@ -322,6 +322,30 @@ freeze applies; `harness/analyze-match.ts` was not required to change
 for the v0 renderer to be correct). A future phase that updates the
 CLI should refresh that vocabulary at the same time.
 
+### 5.4 Deferred nits surfaced in closure-readiness reviews
+
+**Tag:** deferred (closure-readiness reviews + UAT; not phase-2-blocking).
+
+One-liner each, with file:line refs and review/UAT source citation.
+Conscious deferrals — none gate phase-2 closure; tracked here so the
+next phase that revisits these surfaces can address them.
+
+- **Persona-colour palette duplicated across `Grid.tsx` and `TurnFeed.tsx`**
+  (`apps/replay/src/components/Grid.tsx`,
+  `apps/replay/src/components/TurnFeed.tsx`; review-A Med-2). Conscious
+  choice — extract to a shared module on the third caller, not earlier.
+- **Wall hover precision: NW-corner coordinate displayed for multi-tile
+  walls** (`apps/replay/src/routes/Replay.tsx:94` TODO; review-A/C nit).
+  Per-tile hover would require splitting wall geometry; deferred until
+  user signals it impedes vibe-judgement.
+- **HoverCard first-paint edge-clamp uses fallback dimensions before
+  measuring** (`apps/replay/src/components/HoverCard.tsx:74-78`;
+  review-A nit). Fallback `220 × 320` is used until the ref is
+  measured; brief one-frame mis-clamp at first hover only.
+- **UAT ISSUE-005 hover state-machine fragility** (UAT report).
+  Test artefact — could not reproduce with normal mouse usage; logged
+  for completeness pending real-world observation.
+
 ---
 
 ## 6. How to run
