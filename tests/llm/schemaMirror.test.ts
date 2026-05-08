@@ -1,208 +1,239 @@
-// Phase-3 WP-A.5 — Mirror parity test.
+// Phase-3 WP-A.5 / WP-F.6 — Mirror parity test (live-export comparison).
 //
-// `convex/_internal_runMatch.ts` carries hand-mirrored copies of:
-//   - `actionValidator`, `decisionValidator`, `agentLlmValidator`
-//   - `actions[]` action-entry validator (with optional fromOverwatch+stance
-//     per ADR §3)
-//   - `moves[]` move-entry validator (with optional blockedBy per ADR §9)
+// `convex/_internal_runMatch.ts` carries hand-mirrored copies of the
+// agent-record + resolution validators that live canonically in
+// `convex/schema.ts`:
+//   - `actionValidator`, `decisionValidator`, `agentLlmValidator`,
+//     `agentRecordValidator`
+//   - `resolutionValidator` — including `actions[]` (with optional
+//     `fromOverwatch`+`stance` per ADR §3) and `moves[]` (with optional
+//     `blockedBy: "wall"` per ADR §9)
 //
 // The mirror MUST stay in lockstep with `convex/schema.ts`; any drift
-// rejects every new-shape `recordTurn` mutation row at runtime. Drift is
-// invisible at the convex codegen level because `_internal_runMatch.ts`
-// re-declares the validators inline rather than re-importing them.
+// rejects every new-shape `recordTurn`/`persistTurn` mutation row at
+// runtime. Drift is invisible at the convex codegen level because
+// `_internal_runMatch.ts` re-declares the validators inline rather than
+// re-importing them.
 //
-// This test asserts the equivalence at the validator level. The cheapest
-// form (per WP-A.5 acceptance) is a typecheck-time pass that constructs a
-// sample ParsedDecision + actions/moves entries and asserts both
-// validators accept it. We do this by importing schema's `default` (the
-// `defineSchema(...)` result is the validator surface) plus the mirror
-// module's exports and walking every literal/field via Convex's
-// `validator.json`-equivalent introspection.
+// ─── WP-F.6 refactor (Reviewer-B Med fix) ─────────────────────────────────
+// The prior version of this test re-declared the expected validator shapes
+// inline, then asserted those re-declarations matched themselves — which
+// could not detect drift. It just rebroadcast whatever the test author
+// wrote.
 //
-// We use `convex/values`'s validator instances directly (they expose
-// `.kind`, `.members`, `.fields` on object/union validators) rather than
-// the Convex-internal `JSONValue` round-trip, which keeps the test
-// pure-TS with no Convex runtime dependency.
+// This version compares the LIVE validator-JSON exported from BOTH source
+// modules. Convex `Validator` instances expose a stable `.json` getter
+// (see `node_modules/convex/dist/esm/values/validators.js`); `defineSchema`
+// preserves each table's row validator at `schema.tables.<name>.validator`,
+// and `mutation({ args: ... })` exposes the args validator JSON via the
+// `exportArgs()` helper attached to the registered function. We pull the
+// agent-record validator and resolution validator from each module via
+// these public-Convex surfaces and assert byte-level JSON equality.
+//
+// ─── Manual regression-direction verification (per WP-F.6 §4) ─────────────
+// To confirm this test detects drift, I temporarily edited
+// `convex/_internal_runMatch.ts` to drop `fromOverwatch` from the
+// `actions[]` mirror element validator. Re-running this suite produced the
+// expected RED:
+//   `expected: '"fromOverwatch":...'` present in schema JSON,
+//   `actual:   '...'` absent in mirror JSON
+// Restoring the field returned the suite to GREEN. The structural-
+// fingerprint comparison is genuinely load-bearing now — drift in either
+// direction (field add, field remove, field rename, optional flip,
+// literal-value change, union-member reorder) trips the byte-equality
+// assertion.
 
 import { describe, expect, it } from "vitest";
 import { v } from "convex/values";
 import type { ParsedDecision } from "../../convex/engine/types.js";
 
-// ─── Helper: walk a validator and produce a structural fingerprint ────────
-// Convex's validator instances expose:
-//   - `.kind`: "string" | "number" | "boolean" | "id" | "union" | "object"
-//             | "literal" | "array" | "any" | "null" | ...
-//   - on `union` : `.members: Validator[]`
-//   - on `object`: `.fields: Record<string, Validator>` (each may have
-//                  `.isOptional: "optional" | "required"`)
-//   - on `literal`: `.value`
+import schema from "../../convex/schema.js";
+import * as runMatchInternals from "../../convex/_internal_runMatch.js";
+
+// ─── Helpers: pull validator JSON from each source ────────────────────────
 //
-// The fingerprint is a JSON-stable representation of the validator shape
-// that we can deep-compare across modules. Optional fields are sorted into
-// the fingerprint so order doesn't drive the diff.
+// `schema.tables.turns.validator` is a `VObject` with `.fields.<name>` on
+// the row shape; we descend into `agentRecords.element` and `resolution`
+// to get the per-record / per-trace validators.
+//
+// `runMatchInternals.persistTurn.exportArgs()` returns the JSON-stringified
+// args validator object (same `.json` shape: `{ type: "object", value: {
+// <name>: { fieldType: <inner>, optional } } }`). The `agentRecords` arg
+// is an array; the element is the mirror agentRecord validator.
 
-type ValidatorLike = {
-  kind: string;
-  isOptional?: string;
-  members?: ValidatorLike[];
-  fields?: Record<string, ValidatorLike>;
-  value?: unknown;
-  element?: ValidatorLike;
-  tableName?: string;
-};
+type ValidatorJson = unknown;
 
-function fingerprint(val: unknown): unknown {
-  const validator = val as ValidatorLike;
-  if (validator.kind === "object") {
-    const fields = validator.fields ?? {};
-    const out: Record<string, unknown> = {};
-    for (const k of Object.keys(fields).sort()) {
-      const inner = fields[k] as ValidatorLike;
-      out[k] = {
-        optional: inner.isOptional ?? "required",
-        shape: fingerprint(inner),
-      };
-    }
-    return { kind: "object", fields: out };
-  }
-  if (validator.kind === "union") {
-    const members = (validator.members ?? []).map((m) => fingerprint(m));
-    // Sort by stringified shape for stability — order-independence is the
-    // contract (`v.union(a, b)` ≡ `v.union(b, a)` in this schema).
-    members.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-    return { kind: "union", members };
-  }
-  if (validator.kind === "array") {
-    return { kind: "array", element: fingerprint(validator.element) };
-  }
-  if (validator.kind === "literal") {
-    return { kind: "literal", value: validator.value };
-  }
-  if (validator.kind === "id") {
-    return { kind: "id", tableName: validator.tableName };
-  }
-  // string | number | boolean | any | null — no inner shape.
-  return { kind: validator.kind };
+interface ValidatorWithJson {
+  json: ValidatorJson;
+  kind?: string;
+  fields?: Record<string, ValidatorWithJson>;
+  element?: ValidatorWithJson;
 }
 
-// ─── Build the EXPECTED phase-3 validators (single source).────────────────
-// These mirror what `convex/schema.ts` AND `convex/_internal_runMatch.ts`
-// must both encode. The test asserts both files match THIS shape.
+function schemaValidators(): {
+  agentRecord: ValidatorJson;
+  resolution: ValidatorJson;
+} {
+  const turnsRow = schema.tables.turns.validator as unknown as ValidatorWithJson;
+  const fields = turnsRow.fields;
+  if (!fields) {
+    throw new Error("schema.tables.turns.validator.fields missing");
+  }
+  const agentRecordsArr = fields.agentRecords;
+  const resolution = fields.resolution;
+  if (!agentRecordsArr?.element || !resolution) {
+    throw new Error(
+      "schema.tables.turns.validator.fields.agentRecords.element or .resolution missing",
+    );
+  }
+  return {
+    agentRecord: agentRecordsArr.element.json,
+    resolution: resolution.json,
+  };
+}
 
-const expectedMoveValidator = v.union(
-  v.object({
-    kind: v.literal("relative"),
-    dx: v.number(),
-    dy: v.number(),
-  }),
-  v.object({
-    kind: v.literal("toward_entity"),
-    targetCharacterId: v.string(),
-  }),
-  v.object({
-    kind: v.literal("away_from_entity"),
-    targetCharacterId: v.string(),
-  }),
-  v.object({
-    kind: v.literal("toward_object"),
-    targetObjectId: v.string(),
-  }),
-  v.object({ kind: v.literal("toward_evac") }),
-  v.object({ kind: v.literal("none") }),
-);
+interface ConvexFunction {
+  exportArgs: () => string;
+}
 
-const expectedActionValidator = v.union(
-  v.object({
-    kind: v.literal("attack"),
-    targetCharacterId: v.string(),
-  }),
-  v.object({
-    kind: v.literal("loot"),
-    targetId: v.string(),
-  }),
-  v.object({ kind: v.literal("none") }),
-);
+// Convex `mutation({ args })` JSON layout:
+//   { type: "object", value: { <argName>: { fieldType: <innerJson>, optional } } }
+interface ConvexArgsJson {
+  type: "object";
+  value: Record<string, { fieldType: ValidatorJson; optional: boolean }>;
+}
+interface ConvexArrayJson {
+  type: "array";
+  value: ValidatorJson;
+}
 
-const expectedDecisionValidator = v.object({
-  consume: v.union(
-    v.literal("none"),
-    v.literal("heal"),
-    v.literal("speed"),
-  ),
-  primary: v.union(
-    v.literal("move"),
-    v.literal("stationary_action"),
-    v.literal("overwatch"),
-  ),
-  move: expectedMoveValidator,
-  action: expectedActionValidator,
-  say: v.union(v.string(), v.null()),
-  overwatch_stance: v.union(
-    v.literal("offensive"),
-    v.literal("defensive"),
-    v.null(),
-  ),
-  scratchpad_update: v.union(v.string(), v.null()),
-});
+function isArrayJson(j: ValidatorJson): j is ConvexArrayJson {
+  return (
+    typeof j === "object" &&
+    j !== null &&
+    (j as { type?: string }).type === "array"
+  );
+}
 
-// ─── Pull the actual validators from each source ──────────────────────────
-//
-// `convex/schema.ts` does NOT re-export its private validator consts; the
-// schema definition is the only thing exported. We scrape the
-// `decisionValidator` shape via the schema's `turns.agentRecords[].decision`
-// path, and `agentLlmValidator` via `turns.agentRecords[].llm`.
-//
-// `convex/_internal_runMatch.ts` likewise hides its validators — they're
-// only consumed inline as `args:` of mutations. The cheapest accessible
-// path is to import the file (the side-effects are negligible — pure
-// validator construction) and reach in via the `persistTurn` mutation's
-// declared argument schema. Convex `mutation({...})` wraps the args
-// validator; we pull it from `persistTurn._args`.
-//
-// To avoid leaning on Convex internals, we instead RE-DECLARE the mirror
-// validator inline here using the same v.* calls as the source. This is
-// pragmatic: the mirror module is hand-copied anyway; we just need a
-// single source of truth for "what the WP-A.2 commit must encode".
-
-import schema from "../../convex/schema.js";
+function mirrorValidators(): {
+  agentRecord: ValidatorJson;
+  resolution: ValidatorJson;
+} {
+  const persistTurn = runMatchInternals.persistTurn as unknown as ConvexFunction;
+  const argsJson = JSON.parse(persistTurn.exportArgs()) as ConvexArgsJson;
+  const agentRecordsField = argsJson.value.agentRecords;
+  const resolutionField = argsJson.value.resolution;
+  if (!agentRecordsField || !resolutionField) {
+    throw new Error(
+      "_internal_runMatch.persistTurn args missing agentRecords/resolution",
+    );
+  }
+  const agentRecordsArr = agentRecordsField.fieldType;
+  if (!isArrayJson(agentRecordsArr)) {
+    throw new Error(
+      "_internal_runMatch.persistTurn.args.agentRecords is not an array validator",
+    );
+  }
+  return {
+    agentRecord: agentRecordsArr.value,
+    resolution: resolutionField.fieldType,
+  };
+}
 
 // ─── Tests ────────────────────────────────────────────────────────────────
 
-describe("phase-3 WP-A.5 — schema↔mirror parity (validator-level)", () => {
-  it("turns.agentRecords[].decision matches expected phase-3 decisionValidator", () => {
-    // Schema defineSchema returns an object with `tables.<name>.validator`
-    // — but the public surface varies by Convex version. The `_args`
-    // / `validator` accessor is internal; we pivot to constructing a
-    // sample row and asserting `defineTable` accepted it. Since we can't
-    // round-trip without the Convex runtime, the most robust test here is
-    // structural-equivalence at the TS-type level: declare a sample
-    // `ParsedDecision`, use the schema's exported `defineSchema` result
-    // existence as a signal that the file compiled, then assert our
-    // expected validator is a structural superset by fingerprint.
-    expect(schema).toBeDefined();
-    const expectedFp = fingerprint(expectedDecisionValidator);
-    expect(expectedFp).toBeTruthy();
-    // Concrete check: the fingerprint of expectedDecisionValidator must
-    // contain the fields we list below in the new-shape contract. This
-    // catches regressions (e.g. someone re-introduces overwatch_priority).
-    const stringified = JSON.stringify(expectedFp);
+describe("phase-3 WP-F.6 — schema↔mirror parity (live validator exports)", () => {
+  // The load-bearing assertion: byte-level equality of validator JSON
+  // between `convex/schema.ts` and `convex/_internal_runMatch.ts`.
+  // Drift in either direction (add/remove/rename/optional-flip/
+  // literal-change/union-reorder) produces non-equal JSON.
+
+  it("agentRecord validator JSON is identical between schema and mirror", () => {
+    const fromSchema = schemaValidators().agentRecord;
+    const fromMirror = mirrorValidators().agentRecord;
+    expect(JSON.stringify(fromMirror)).toBe(JSON.stringify(fromSchema));
+  });
+
+  it("resolution validator JSON is identical between schema and mirror", () => {
+    const fromSchema = schemaValidators().resolution;
+    const fromMirror = mirrorValidators().resolution;
+    expect(JSON.stringify(fromMirror)).toBe(JSON.stringify(fromSchema));
+  });
+
+  // ─── Phase-3 contract sentinels (regression-only) ──────────────────────
+  // These guard against accidental re-introduction of pre-phase-3 shapes
+  // even if BOTH modules are edited consistently. They read the live
+  // schema JSON, so they double as "did the schema actually change?" smoke.
+
+  it("decision validator carries phase-3 contract (overwatch_stance, no overwatch_priority, no interact)", () => {
+    const turnsRow = schema.tables.turns.validator as unknown as ValidatorWithJson;
+    const agentRecordEl = turnsRow.fields?.agentRecords?.element;
+    const decisionField = agentRecordEl?.fields?.decision;
+    if (!decisionField) {
+      throw new Error("schema agentRecord.decision field missing");
+    }
+    const stringified = JSON.stringify(decisionField.json);
+
+    // ADR §1 — overwatch_priority REMOVED, replaced by overwatch_stance.
     expect(stringified).toContain('"overwatch_stance"');
     expect(stringified).not.toContain('"overwatch_priority"');
+
+    // ADR §1 — loot.targetCorpseId RENAMED to loot.targetId.
     expect(stringified).toContain('"targetId"');
     expect(stringified).not.toContain('"targetCorpseId"');
+
+    // ADR §1 — action union: attack | loot | none. interact arm REMOVED.
     expect(stringified).toContain('"loot"');
     expect(stringified).toContain('"attack"');
-    // "interact" must NOT appear as an action.kind literal.
-    // (We only check inside the action union; the substring may appear
-    // elsewhere, e.g. in a comment-derived literal — but it shouldn't.)
     expect(stringified).not.toContain('"interact"');
   });
 
-  it("a sample ParsedDecision typechecks against the expected validator shape", () => {
-    // The TS compile-time pass: this construction MUST NOT have any TS
-    // error when `engine/types.ts` is on the new shape. If the alias drifts
-    // (e.g. someone re-adds `interact` to `ActionDecision`), this file
-    // stops compiling — the cheapest mirror-parity guard per ADR §1.
+  it("resolution.actions[] carries optional fromOverwatch + stance per ADR §3", () => {
+    const fromSchema = schemaValidators().resolution;
+    const stringified = JSON.stringify(fromSchema);
+    expect(stringified).toContain('"fromOverwatch"');
+    expect(stringified).toContain('"stance"');
+    expect(stringified).toContain('"offensive"');
+    expect(stringified).toContain('"defensive"');
+  });
+
+  it("resolution.moves[] carries optional blockedBy: 'wall' per ADR §9", () => {
+    const fromSchema = schemaValidators().resolution;
+    const stringified = JSON.stringify(fromSchema);
+    expect(stringified).toContain('"blockedBy"');
+    // The literal value must be exactly "wall" (single-member literal).
+    expect(stringified).toContain('"wall"');
+  });
+
+  it("agentLlm.reasoning is required-nullable (string|null), NOT v.optional", () => {
+    // Per ADR §2 / PM lock D13. `undefined !== null` counting bugs are
+    // avoided by construction: every persisted row carries the field with
+    // null as the unambiguous "not captured" sentinel.
+    const turnsRow = schema.tables.turns.validator as unknown as ValidatorWithJson;
+    const llmField = turnsRow.fields?.agentRecords?.element?.fields?.llm;
+    if (!llmField) {
+      throw new Error("schema agentRecord.llm field missing");
+    }
+    const llmJson = llmField.json as {
+      type: string;
+      value: Record<string, { fieldType: { type: string }; optional: boolean }>;
+    };
+    const reasoning = llmJson.value.reasoning;
+    expect(reasoning).toBeDefined();
+    // Required-nullable: optional MUST be false; type MUST be "union".
+    expect(reasoning?.optional).toBe(false);
+    expect(reasoning?.fieldType.type).toBe("union");
+  });
+});
+
+// ─── TS-compile-time guard (cheapest mirror-parity for ParsedDecision) ────
+//
+// If `engine/types.ts` drifts (e.g. someone re-adds `interact` to
+// `ActionDecision` or restores `overwatch_priority`), this construction
+// fails to compile. The runtime `expect`s are nominal — the value here is
+// the TS check.
+describe("phase-3 — ParsedDecision shape (TS-compile guard)", () => {
+  it("a sample ParsedDecision typechecks against the new-shape contract", () => {
     const sample: ParsedDecision = {
       consume: "none",
       primary: "overwatch",
@@ -214,71 +245,9 @@ describe("phase-3 WP-A.5 — schema↔mirror parity (validator-level)", () => {
     };
     expect(sample.overwatch_stance).toBe("defensive");
     expect(sample.action.kind).toBe("none");
-  });
-});
-
-describe("phase-3 WP-A.5 — actions[] entry validator carries optional fromOverwatch+stance", () => {
-  // Per ADR §3 the trace's `resolution.actions[]` validator is extended
-  // with optional `fromOverwatch?: boolean` + `stance?: "offensive" |
-  // "defensive"`. The schema MUST accept entries with and without these
-  // fields. Equivalence is checked structurally below — both `schema.ts`
-  // and `_internal_runMatch.ts` validators must encode the same expected
-  // shape.
-  const expectedActionEntryValidator = v.object({
-    characterId: v.id("characters"),
-    kind: v.string(),
-    target: v.string(),
-    result: v.string(),
-    fromOverwatch: v.optional(v.boolean()),
-    stance: v.optional(
-      v.union(v.literal("offensive"), v.literal("defensive")),
-    ),
-  });
-
-  it("expected action-entry shape includes optional fromOverwatch + stance", () => {
-    const fp = fingerprint(expectedActionEntryValidator);
-    const stringified = JSON.stringify(fp);
-    expect(stringified).toContain('"fromOverwatch"');
-    expect(stringified).toContain('"stance"');
-    expect(stringified).toContain('"offensive"');
-    expect(stringified).toContain('"defensive"');
-  });
-});
-
-describe("phase-3 WP-A.5 — moves[] entry validator carries optional blockedBy", () => {
-  // Per ADR §9, `MoveTraceEntry` gains optional `blockedBy: "wall"`. The
-  // wall-blocked move is a `from === to` entry tagged for the report
-  // writer (single source of truth — no aggregator-side derivation).
-  const expectedMoveEntryValidator = v.object({
-    characterId: v.id("characters"),
-    from: v.object({ x: v.number(), y: v.number() }),
-    to: v.object({ x: v.number(), y: v.number() }),
-    blockedBy: v.optional(v.literal("wall")),
-  });
-
-  it("expected move-entry shape includes optional blockedBy: 'wall'", () => {
-    const fp = fingerprint(expectedMoveEntryValidator);
-    const stringified = JSON.stringify(fp);
-    expect(stringified).toContain('"blockedBy"');
-    expect(stringified).toContain('"wall"');
-  });
-});
-
-describe("phase-3 WP-A.5 — agentLlmValidator gains required-nullable reasoning", () => {
-  // Per ADR §2 / PM lock D13 the validator is `v.union(v.string(), v.null())`,
-  // NOT `v.optional(v.string())`. Required-nullable ensures every persisted
-  // row carries the field with `null` as the unambiguous "not captured"
-  // sentinel. `undefined !== null` counting bugs are avoided by construction.
-  const expectedReasoningField = v.union(v.string(), v.null());
-
-  it("reasoning is v.union(v.string(), v.null()), not v.optional", () => {
-    const fp = fingerprint(expectedReasoningField);
-    const stringified = JSON.stringify(fp);
-    expect(stringified).toContain('"string"');
-    expect(stringified).toContain('"null"');
-    // The union must have exactly 2 members.
-    const obj = fp as { kind: string; members: unknown[] };
-    expect(obj.kind).toBe("union");
-    expect(obj.members.length).toBe(2);
+    // Touch `v` so the import isn't a dead reference (kept for the
+    // rare-but-real future case where this file grows a bespoke fixture
+    // validator alongside the live-export comparisons above).
+    expect(v).toBeDefined();
   });
 });
