@@ -745,9 +745,18 @@ randomly-rolled loot; corpses hold the dead agent's equipped slots),
 but **phase-3 v0.2 unifies the engine action vocabulary**: both chest
 opens and corpse loots flow through a single `loot` action with
 `targetId` (formerly two separate actions, `interact` for chests and
-`loot` for corpses). The engine dispatches by id namespace
-(`chest_NNN` → chest path; `Player_N` → corpse path). Trace `kind` for
-chest opens is `"loot"` with `result: "opened"`. See phase-3 ADR §1.
+`loot` for corpses). The agent copies `Visible.id` verbatim per the
+system prompt (`convex/llm/systemPrompt.ts:69`), so `targetId` arrives
+as a typed id (`Chest_NNN` or `Corpse_Player_N`). The engine then
+dispatches by id namespace at the validator boundary
+(`Chest_NNN` → chest path; `Corpse_Player_N` → corpse path), with
+namespace normalisation (`Chest_NNN` → `chest_NNN`,
+`Corpse_Player_N` → underlying character `_id`) handled engine-side in
+`convex/llm/idNormalisation.ts` and consumed by
+`convex/engine/resolution.ts:526`. The agent never sees the lowercase
+`chest_*` form or the bare `Player_*` corpse form — those are
+dispatch-side internals only. Trace `kind` for chest opens is `"loot"`
+with `result: "opened"`. See phase-3 ADR §1.
 
 Equipping replaces the current item in that slot.
 
@@ -1196,9 +1205,16 @@ Move target:
 
 Action (3-arm — interact and loot are unified):
 - attack: { targetCharacterId }
-- loot:   { targetId }   // chests AND corpses both flow through here;
-                          // engine dispatches by id namespace
-                          // (chest_* → chest path; Player_* → corpse)
+- loot:   { targetId }   // chests AND corpses both flow through here.
+                          // Agent copies Visible.id verbatim
+                          // (convex/llm/systemPrompt.ts:69), so the
+                          // engine receives typed ids (Chest_NNN or
+                          // Corpse_Player_N) and dispatches by namespace
+                          // at the validator boundary; lowercase chest_*
+                          // and bare Player_* corpse forms are engine-
+                          // internal only (see
+                          // convex/llm/idNormalisation.ts and
+                          // convex/engine/resolution.ts:526).
 - none
 
 Say:
@@ -1249,8 +1265,17 @@ Overwatch: primary="overwatch", overwatch_stance ∈
 ```
 
 The digest carries the typed ids the agent copies verbatim into a
-target field (e.g. `chest_005` from the bullet `Chest_005, dist 6 SE`
-becomes `loot.targetId: "chest_005"`). Per-turn affordance lists are
+target field (e.g. `Chest_005` from the bullet `Chest_005, dist 6 SE`
+becomes `loot.targetId: "Chest_005"`; `Corpse_Player_5` from
+`Corpse_Player_5, dist 9 S [drained]` becomes
+`loot.targetId: "Corpse_Player_5"`). The "copy `Visible.id` verbatim"
+contract is taught in `convex/llm/systemPrompt.ts:69`. Namespace
+normalisation (typed `Chest_NNN`/`Corpse_Player_N` →
+engine-side `chest_NNN` / underlying character id) is applied
+engine-internally at the validator boundary
+(`convex/llm/idNormalisation.ts`, dispatched in
+`convex/engine/resolution.ts:526`); the agent never emits the
+lowercase or bare-`Player_*` form. Per-turn affordance lists are
 redundant once the grammar is taught and the ids are visible.
 
 ---
