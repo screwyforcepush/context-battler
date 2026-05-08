@@ -864,6 +864,19 @@ export const computePhase3Report = internalAction({
 export const persistPhase3Report = mutation({
   args: {
     matchIds: v.array(v.id("matches")),
+    /**
+     * WP-H.5 — when `true`, delete any existing row matching
+     * `(matchIdsHash, reportType)` BEFORE inserting the new one. Produces
+     * a fresh `reportId` even when re-aggregating over the same matchIds
+     * set. Default `false` preserves the idempotent no-op behaviour for
+     * harness re-fires (closing-10 dispatch, post-run reconciliation).
+     *
+     * Used by the WP-H corrective slice to land a fresh `phase-3-closing-10`
+     * row that reflects the WP-H.1 corpse-loot filter fix without changing
+     * the row's `reportType` discriminator (preserves downstream queries
+     * keyed on the literal `"phase-3-closing-10"`).
+     */
+    overwrite: v.optional(v.boolean()),
     payload: v.object({
       reportType: v.literal("phase-3-closing-10"),
       runCount: v.number(),
@@ -927,14 +940,15 @@ export const persistPhase3Report = mutation({
       meetsAllThresholds: v.boolean(),
     }),
   },
-  handler: async (ctx, { matchIds, payload }) => {
+  handler: async (ctx, { matchIds, payload, overwrite }) => {
     const matchIdsHash = await hashMatchIds(
       matchIds.map((m) => m as unknown as string),
     );
     const reportType = "phase-3-closing-10";
 
-    // Idempotency: if a phase-3-closing-10 row already exists for this set,
-    // return it unchanged.
+    // Idempotency / overwrite: if a phase-3-closing-10 row already exists
+    // for this set, either return it unchanged (default) or delete it so a
+    // fresh row is inserted below (WP-H.5 corrective slice).
     const existing = await ctx.db
       .query("reports")
       .withIndex("by_matchIdsHash_reportType", (q) =>
@@ -942,10 +956,15 @@ export const persistPhase3Report = mutation({
       )
       .unique();
     if (existing) {
-      return {
-        _id: existing._id as unknown as string,
-        existed: true,
-      };
+      if (overwrite === true) {
+        await ctx.db.delete(existing._id);
+        // Fall through to insert path below.
+      } else {
+        return {
+          _id: existing._id as unknown as string,
+          existed: true,
+        };
+      }
     }
 
     // Carry-over v1/v2 fields — populated from the phase-3 payload's
