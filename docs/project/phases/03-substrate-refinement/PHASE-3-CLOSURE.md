@@ -568,8 +568,9 @@ Phase-3 documents that together form the full record:
 - `harness/probe-reasoning.ts` + `harness/probe-reasoning-output.json`
   — Branch A probe code + recorded output.
 - `convex/reports/phase3.ts` — pure aggregator + persistence.
-- `tests/reports/phase3.test.ts` — 17 unit tests locking the
-  comparator math.
+- `tests/reports/phase3.test.ts` — 19 unit tests locking the
+  comparator math (includes WP-H.1 + back-compat regression tests for
+  the corpse-loot success filter).
 - `docs/project/spec/mental-model.md` §11 — phase-3 closure paragraph.
 
 ---
