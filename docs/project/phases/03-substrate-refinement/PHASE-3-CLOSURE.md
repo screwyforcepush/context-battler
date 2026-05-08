@@ -3,7 +3,7 @@
 > Single-file handoff for phase-4 planning. Records what the
 > substrate-refinement closing-10 produced, what proves it, and which
 > README §5 thresholds are met vs documented-why-not.
-> Closure date: 2026-05-08. Source commit at close: `57a06aa`.
+> Closure date: 2026-05-08. Source commit at close: `a2f50e3`.
 >
 > This is a closure RECORD, not a retrospective and not a phase-4 plan.
 
