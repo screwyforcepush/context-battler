@@ -126,9 +126,13 @@ export function desiredNextTile(
       stopAtRange2 = false;
       break;
     case "toward_object": {
-      const chest = state.world.chests.find(
-        (c) => c.id === move.targetObjectId,
-      );
+      // Phase-3 fix — accept both `Chest_NNN` (rendered typed-id) and
+      // `chest_NNN` (internal id). Player_* corpse ids stay case-sensitive
+      // (they round-trip through `displayName` which is `Player_N` capital).
+      const lookupId = move.targetObjectId.startsWith("Chest_")
+        ? "chest_" + move.targetObjectId.slice("Chest_".length)
+        : move.targetObjectId;
+      const chest = state.world.chests.find((c) => c.id === lookupId);
       if (chest) {
         targetTile = chest.pos;
         stopAtRange2 = true;

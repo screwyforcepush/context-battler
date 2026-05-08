@@ -49,6 +49,33 @@ import {
  *  uses range 2 for fist/improvised attacks. WP7 may revisit. */
 const DEFAULT_ATTACK_RANGE = 2;
 
+/**
+ * Normalise a chest typed-id back to its internal id form.
+ *
+ * The digest renders chests as `Chest_005` (typed-id convention per ADR §6
+ * + concept-spec §22) but the stored chest id is `chest_005` (lowercase
+ * per ADR §1 namespace dispatch). The model is instructed to "copy id
+ * verbatim" and concept-spec §22 demonstrates the lowercase target form,
+ * but in practice the model often copies the rendered `Chest_NNN` shape.
+ *
+ * This helper makes the namespace dispatch case-insensitive on the
+ * `chest_` prefix (and only that prefix — `Player_` corpse ids stay
+ * case-sensitive because they round-trip through `displayName` which is
+ * always `Player_N` with a capital P). Lowercasing the prefix before
+ * lookup means both `Chest_005` and `chest_005` resolve to the same
+ * stored chest without scattering case-insensitive checks across the
+ * codebase.
+ *
+ * Returns the input unchanged when the prefix doesn't match either case
+ * (the caller's existing namespace branches handle the rejection path).
+ */
+function normaliseChestTargetId(targetId: string): string {
+  if (targetId.startsWith("Chest_")) {
+    return "chest_" + targetId.slice("Chest_".length);
+  }
+  return targetId;
+}
+
 /** Interact + loot range — concept-spec §13 + §6 ("Interaction range: 2 tiles"). */
 const INTERACT_RANGE = 2;
 
@@ -164,17 +191,20 @@ export function validateDecision(
       break;
     }
     case "toward_object": {
-      const targetId = decision.move.targetObjectId;
-      if (!targetId) {
+      const rawTargetId = decision.move.targetObjectId;
+      if (!rawTargetId) {
         return invalid(`move.kind='toward_object' missing targetObjectId`);
       }
+      // Phase-3 fix — accept both `Chest_NNN` (rendered typed-id) and
+      // `chest_NNN` (internal id). See `normaliseChestTargetId` rationale.
+      const targetId = normaliseChestTargetId(rawTargetId);
       const isChest = state.world.chests.some((c) => c.id === targetId);
       const isCorpse = state.world.corpses.some(
         (c) => c.characterId === targetId,
       );
       if (!isChest && !isCorpse) {
         return invalid(
-          `move.kind='toward_object' targetObjectId='${targetId}' is not a known chest or corpse`,
+          `move.kind='toward_object' targetObjectId='${rawTargetId}' is not a known chest or corpse`,
         );
       }
       break;
@@ -227,22 +257,27 @@ export function validateDecision(
       // Phase-3 ADR §1 — unified loot validator with id-namespace
       // dispatch. Valid namespaces: `chest_*` (chest path), `Player_*`
       // (corpse path via displayName lookup). Anything else → reject.
-      const targetId = decision.action.targetId;
-      if (!targetId) {
+      const rawTargetId = decision.action.targetId;
+      if (!rawTargetId) {
         return invalid(`action.kind='loot' missing targetId`);
       }
+      // Phase-3 fix — accept both `Chest_NNN` (rendered typed-id) and
+      // `chest_NNN` (internal id). Player_* corpse ids stay
+      // case-sensitive (they round-trip through displayName which is
+      // always `Player_N` with capital P).
+      const targetId = normaliseChestTargetId(rawTargetId);
       if (targetId.startsWith("chest_")) {
         const chest = state.world.chests.find((c) => c.id === targetId);
         if (!chest) {
-          return invalid(`loot target '${targetId}' is not a known chest`);
+          return invalid(`loot target '${rawTargetId}' is not a known chest`);
         }
         if (chest.opened) {
-          return invalid(`loot target '${targetId}' is already opened`);
+          return invalid(`loot target '${rawTargetId}' is already opened`);
         }
         if (decision.move.kind === "none") {
           if (chebyshev(actor.pos, chest.pos) > INTERACT_RANGE) {
             return invalid(
-              `loot target '${targetId}' is beyond interact range ${INTERACT_RANGE}`,
+              `loot target '${rawTargetId}' is beyond interact range ${INTERACT_RANGE}`,
             );
           }
         }

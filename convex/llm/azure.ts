@@ -552,7 +552,15 @@ export async function callDecisionTool(
     tools: [decisionTool],
     tool_choice: "required",
     parallel_tool_calls: false,
-    reasoning: { effort: input.reasoningEffort },
+    // Phase-3 ADR §2 / WP-A.1 probe (Branch A): `reasoning.summary: "auto"`
+    // is the parameter that asks Azure to emit reasoning summary text in
+    // `output[].type === "reasoning"` items. Without it, Azure returns a
+    // reasoning item with empty `summary: []`, the extractor yields null,
+    // and the closing-10 reasoning-capture metric reads 0%. The probe
+    // (`harness/probe-reasoning.ts:104`) already verified the dev
+    // deployment accepts the param (`reasoning_summary_param_accepted:
+    // true`); persisting that decision into the production wrapper here.
+    reasoning: { effort: input.reasoningEffort, summary: "auto" },
     store: false,
     max_output_tokens: input.maxOutputTokens,
   };

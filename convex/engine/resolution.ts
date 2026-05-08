@@ -466,16 +466,23 @@ export function resolveTurn(
         //               LLM-facing literal)
         //   otherwise → result="no_target" (rejection)
         // PM lock D7: chest opens emit `kind="loot"` / `result="opened"`.
-        const targetId = action.targetId;
-        if (typeof targetId !== "string" || targetId === "") {
+        const rawTargetId = action.targetId;
+        if (typeof rawTargetId !== "string" || rawTargetId === "") {
           trace.actions.push({
             characterId: id,
             kind: "loot",
-            target: targetId ?? "",
+            target: rawTargetId ?? "",
             result: "no_target",
           });
           break;
         }
+        // Phase-3 fix — accept both `Chest_NNN` (rendered typed-id) and
+        // `chest_NNN` (internal id) on the chest namespace branch. The
+        // trace `target` field preserves the model's verbatim emit so
+        // replay/diagnostic tooling sees what the agent actually wrote.
+        const targetId = rawTargetId.startsWith("Chest_")
+          ? "chest_" + rawTargetId.slice("Chest_".length)
+          : rawTargetId;
         if (targetId.startsWith("chest_")) {
           const chestId = targetId;
           const chest = working.world.chests.find((c) => c.id === chestId);

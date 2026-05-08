@@ -123,7 +123,7 @@ describe("WP6 callDecisionTool — happy path", () => {
       tools: Array<{ name: string }>;
       tool_choice: string;
       parallel_tool_calls: boolean;
-      reasoning: { effort: string };
+      reasoning: { effort: string; summary?: string };
       store: boolean;
       max_output_tokens: number;
     };
@@ -131,6 +131,11 @@ describe("WP6 callDecisionTool — happy path", () => {
     expect(body.tool_choice).toBe("required");
     expect(body.parallel_tool_calls).toBe(false);
     expect(body.reasoning.effort).toBe("low");
+    // Phase-3 ADR §2 / WP-A.1 probe (Branch A): the production wrapper
+    // sends `reasoning.summary: "auto"` so Azure populates reasoning
+    // summary text in `output[].type === "reasoning"` items. Without
+    // this, the closing-10 reasoning-capture metric reads 0%.
+    expect(body.reasoning.summary).toBe("auto");
     expect(body.store).toBe(false);
     expect(body.max_output_tokens).toBe(256);
     expect(body.tools).toHaveLength(1);

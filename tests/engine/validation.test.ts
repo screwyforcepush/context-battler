@@ -566,6 +566,43 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       const result = validateDecision(state, "A", decision);
       expect(result.ok).toBe(true);
     });
+
+    // Phase-3 fix — case-insensitive chest namespace dispatch. The digest
+    // renders chests as `Chest_NNN` (typed-id convention per ADR §6 +
+    // concept-spec §22) but the stored chest id is `chest_NNN`. The model
+    // copies the rendered id verbatim. Without this normalisation the
+    // validator rejects every loot/toward_object on chests, driving the
+    // closing-10 fellBackToSafeDefault rate well past the ≤10% threshold.
+    it("loot.targetId Chest_001 (capital prefix from digest) → valid (case-insensitive chest namespace)", () => {
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const chest = makeChest("chest_001", { x: 6, y: 5 });
+      const state = makeState({
+        characters: [me],
+        world: { chests: [chest] },
+      });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        action: { kind: "loot", targetId: "Chest_001" },
+      };
+      const result = validateDecision(state, "A", decision);
+      expect(result.ok).toBe(true);
+    });
+
+    it("move.toward_object Chest_001 (capital prefix from digest) → valid (case-insensitive chest namespace)", () => {
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const chest = makeChest("chest_001", { x: 13, y: 5 });
+      const state = makeState({
+        characters: [me],
+        world: { chests: [chest] },
+      });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        primary: "move",
+        move: { kind: "toward_object", targetObjectId: "Chest_001" },
+      };
+      const result = validateDecision(state, "A", decision);
+      expect(result.ok).toBe(true);
+    });
   });
 
   it("§9 line 447 — move:toward_object chestA + action:interact chestB-far-away → valid (resolver no-ops post-move)", () => {

@@ -629,6 +629,59 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
     expect(chest.contents).toBeNull();
   });
 
+  // Phase-3 fix — case-insensitive chest namespace dispatch in the
+  // resolver. Mirrors the validator-side fix (validation.ts) so the model
+  // can copy the rendered `Chest_NNN` typed-id verbatim and have the
+  // resolver dispatch to the chest-open path. The trace `target` field
+  // is normalised to the lowercase internal id, keeping consumer filters
+  // (`target.startsWith("chest_")` in runStats / replay UI) honest.
+  it("§13 — chest equip dispatches under capital `Chest_NNN` typed-id (case-insensitive chest namespace)", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "rusty_blade" },
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        chests: [
+          {
+            id: "chest_007",
+            pos: { x: 1, y: 0 },
+            contents: { category: "weapon", name: "sword" },
+            opened: false,
+            lootTable: "weapons-light",
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          action: { kind: "loot", targetId: "Chest_007" },
+        }),
+      ],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+    expect(findChar(next, "A").equipped.weapon).toEqual({
+      category: "weapon",
+      name: "sword",
+    });
+    const chest = next.world.chests.find((c) => c.id === "chest_007")!;
+    expect(chest.opened).toBe(true);
+    // Trace target is the normalised lowercase form so downstream
+    // consumers (`target.startsWith("chest_")`) keep working.
+    expect(
+      trace.actions.some(
+        (act) =>
+          act.kind === "loot" &&
+          act.target === "chest_007" &&
+          act.result === "opened",
+      ),
+    ).toBe(true);
+  });
+
   it("§13 — corpse loot replaces slot, discards previous, removes from corpse", () => {
     const a = makeCharacter({
       id: "A",
