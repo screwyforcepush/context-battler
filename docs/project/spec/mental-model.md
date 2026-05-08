@@ -189,6 +189,8 @@ The success criterion is vibe, not metrics. The user is asking: *are these minds
 - Not a metrics dashboard. The closing report covers metrics. This is for what metrics can't capture.
 - Not live. Completed-match replay only.
 
+**Phase 2 v0 surfaced a substrate refinement (2026-05-08).** Stepping through replays revealed that the agent's per-turn input is missing the outcome-attribution channel needed to close the explainability loop on pillar 4. Specifically: agents don't know why their HP dropped (no record of incoming attacks in the digest), retry actions on already-resolved targets (drained corpses silently no-op), get stuck on terrain they can't see (walls were never emitted), and emit decoration into fields the engine ignores (`overwatch_priority`). The deeper read: phase 1's `Affordances:` block was a band-aid for a disjointed prompt design — system prompt, persona, scratchpad, visible digest, and tool schema were authored as independent slots rather than as one coherent rolled context. A substrate-refinement slice is therefore scoped before consumer-facing work: digest rebuild with outcome attribution, system prompt rewritten to teach the digest's shape and the action schema's grammar, schema break to unify loot/interact and replace `overwatch_priority` with a structured stance, reasoning text persisted, replay UI's expand-modal collapsed into a single raw-dump pane. None of this changes the design pillars; it makes pillar 4 (scratchpad-as-explainability) actually attainable — the scratchpad alone can't preserve what the engine never told the agent.
+
 ## 12. Open questions / live tensions
 
 Tracked here because they shape the why, not the how:
