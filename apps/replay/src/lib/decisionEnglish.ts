@@ -331,9 +331,27 @@ function renderActionIntent(
       // mangled id). The fix mirrors the engine's case-insensitive
       // dispatch and renders the original id verbatim — no
       // `corpse-of-` prefix on the chest path, no truncation.
+      //
+      // WP-I.1 fix (UAT ISSUE-001, completion-review-4): post-WP-G.1
+      // (commit 634524b) the engine emits the LLM-facing typed-id
+      // `Corpse_Player_N` verbatim in `resolution.actions[].target` (per
+      // convex/engine/resolution.ts L526-569). The corpse branch was
+      // missed in WP-F.3 and still passed the typed-id through
+      // `resolveCharacterName` — the helper at L578-590 cannot find the
+      // typed-id in the character map (keyed by Convex opaque _ids) so
+      // it fell through to `raw.slice(0,8) → "Corpse_P"`, producing
+      // garbage like `Looted from corpse-of-Corpse_P — looted` (8-char
+      // truncation PLUS double `corpse-` prefix). The fix mirrors the
+      // chest branch: recognise the typed-id namespace case-insensitively
+      // and render verbatim. Legacy Convex-id targets (opaque _ids
+      // referencing the character map) continue to render via
+      // `resolveCharacterName` so historical match data still renders.
       const targetId = a.targetId;
       if (/^chest_/i.test(targetId)) {
         return `Opened ${targetId}`;
+      }
+      if (/^corpse_/i.test(targetId)) {
+        return `Looted from ${targetId}`;
       }
       const name = resolveCharacterName(
         targetId as Id<"characters">,

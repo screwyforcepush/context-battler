@@ -503,6 +503,90 @@ describe("summariseDecision — action.kind × result vocabulary (D-P2-14)", () 
     expect(out.oneLine).not.toContain("— opened");
   });
 
+  // ── WP-I.2 UAT ISSUE-001 (completion-review-4) — corpse-loot rendering ─
+  //
+  // Post-WP-G.1 (commit 634524b) the engine emits the LLM-facing typed-id
+  // `Corpse_Player_N` verbatim in `resolution.actions[].target` (per
+  // convex/engine/resolution.ts L526-569 — both `target: rawTargetId` on
+  // every corpse path AND `traceTarget: rawTargetId` carried into the
+  // success branch). The chest branch was correctly fixed in WP-F.3
+  // (commit 53ce3cb), but the corpse branch in decisionEnglish.ts was
+  // missed and still passes the typed-id through `resolveCharacterName`
+  // — the helper at decisionEnglish.ts:578-590 cannot find the typed-id
+  // in the character map (which is keyed by Convex opaque _ids) so it
+  // falls through to `raw.slice(0,8) → "Corpse_P"`, producing garbage
+  // like `Looted from corpse-of-Corpse_P — looted` (8-char truncation
+  // PLUS a double `corpse-` prefix).
+  //
+  // UAT trace evidence: match j97a5s5e turn 18 actor=j57dp8c0
+  // target=`Corpse_Player_1` result=`looted`; match j97a5s5e turn 13
+  // actor=j577g9zc target=`Corpse_Player_2` result=`looted`.
+  //
+  // Post-fix:
+  //   - Corpse_Player_* typed-id dispatch is case-insensitive (mirrors
+  //     the engine's case-insensitive Chest_ dispatch).
+  //   - The full typed id renders verbatim (no truncation, no double
+  //     `corpse-` prefix).
+  //   - Legacy Convex-id targets (opaque _ids referencing the character
+  //     map) continue to render via `resolveCharacterName` so historical
+  //     match data still renders.
+  it("corpse-loot typed-id `Corpse_Player_5` → renders full typed id verbatim, no double `corpse-` prefix, no 8-char truncation", () => {
+    const me = makeChar("a", "Player_1");
+    const ar = makeAgentRecord(me._id, {
+      action: { kind: "loot", targetId: "Corpse_Player_5" },
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      actions: [
+        {
+          characterId: me._id,
+          kind: "loot",
+          // Engine echoes the LLM-facing typed-id verbatim on the trace
+          // target (resolution.ts L546-569). Mirror that here.
+          target: "Corpse_Player_5",
+          result: "looted",
+        },
+      ],
+    };
+    const out = summariseDecision(ar, res, characterMap(me));
+    // (a) Full typed id present verbatim — no `Corpse_P` truncation.
+    expect(out.oneLine).toContain("Corpse_Player_5");
+    // (b) No double `corpse-` prefix (the bug shape produced
+    //     `Looted from corpse-of-Corpse_P`).
+    expect(out.oneLine).not.toContain("corpse-of-");
+    // (c) No 8-char truncation of the typed id (assert against the bug
+    //     shape directly: `Corpse_P` followed by a non-letter boundary).
+    expect(out.oneLine).not.toMatch(/Corpse_P(?![a-z])/);
+    // Outcome verb still surfaces.
+    expect(out.oneLine).toContain("looted");
+  });
+
+  // Case-insensitive variant — locks the regex against future LLM
+  // emissions that lowercase the prefix (`corpse_Player_5`). The chest
+  // branch already does case-insensitive dispatch via /^chest_/i; the
+  // corpse branch must mirror that contract.
+  it("corpse-loot typed-id `corpse_Player_5` (lowercase prefix) → still renders verbatim with no truncation", () => {
+    const me = makeChar("a", "Player_1");
+    const ar = makeAgentRecord(me._id, {
+      action: { kind: "loot", targetId: "corpse_Player_5" },
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      actions: [
+        {
+          characterId: me._id,
+          kind: "loot",
+          target: "corpse_Player_5",
+          result: "looted",
+        },
+      ],
+    };
+    const out = summariseDecision(ar, res, characterMap(me));
+    expect(out.oneLine).toContain("corpse_Player_5");
+    expect(out.oneLine).not.toContain("corpse-of-");
+    expect(out.oneLine).not.toMatch(/corpse_P(?![a-z])/);
+  });
+
   // Corpse-loot parity fixture — assert the loot path renders the
   // corpse correctly with full Player_N displayName (no truncation).
   it("corpse-loot Player_5 → renders Looted from corpse-of-Player_5 with looted outcome", () => {
