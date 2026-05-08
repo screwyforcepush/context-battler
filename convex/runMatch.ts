@@ -585,6 +585,18 @@ export const advanceTurn = action({
                 }),
               ),
             },
+            // Phase-3 WP-F.4 — thread the actor's prior `decision.move` per
+            // characterId so `inputBuilder.renderMoveFragment` can render the
+            // intent direction of a wall-blocked move (North Star §1: "moved
+            // 3 SW → hit wall"). The persisted `decision.move` matches the
+            // engine `MoveDecision` shape directly (schema mirrors
+            // `decisionTool.ts`); no further adaptation needed.
+            priorMoveByActor: Object.fromEntries(
+              priorTurnRow.agentRecords.map((r) => [
+                r.characterId as string,
+                r.decision.move,
+              ]),
+            ),
           }
         : null;
 

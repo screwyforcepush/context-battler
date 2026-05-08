@@ -45,6 +45,7 @@ import type {
   EquippedSlots,
   ItemRef,
   MatchState,
+  MoveDecision,
   Tile,
   VisibleEntity,
 } from "../engine/types.js";
@@ -151,6 +152,22 @@ export type PrevTurnRow = {
       revealedBy?: string;
     }>;
   };
+  /**
+   * Phase-3 WP-F.4 — the actor's prior-turn `decision.move` keyed by
+   * characterId, threaded from the persisted `agentRecords[].decision`
+   * on the prior turn row.
+   *
+   * Used by `renderMoveFragment` to render the *intent* direction of a
+   * wall-blocked move per North Star §1: `moved 3 SW → hit wall`. The
+   * `relative` arm carries `{dx, dy}` directly; other arms (`toward_*` /
+   * `none`) lack a persisted (dx, dy) intent vector and the renderer
+   * falls back to the ADR §9 generic phrasing `tried to move → hit wall`.
+   *
+   * Optional. When absent (turn 0, missing record, legacy fixtures), the
+   * renderer gracefully falls back to the existing wording rather than
+   * throwing.
+   */
+  priorMoveByActor?: Readonly<Record<string, MoveDecision>>;
 };
 
 // ─── Identity helpers ───────────────────────────────────────────────────────
@@ -215,10 +232,20 @@ function corpseDrained(contents: CorpseState["contents"]): boolean {
 /**
  * Render the move-outcome fragment for the actor's own row. Shape:
  *   - normal move: `moved <dist> <bearing>` (e.g. "moved 3 NE")
- *   - wall-blocked: `tried to move → hit wall` (per ADR §9; the intended
- *     direction isn't on the moves[] entry — `from === to` for wall
- *     blocks — so the renderer falls back to the wall-block phrasing)
- *   - no entry: returns null (caller drops the fragment)
+ *   - wall-blocked WITH prior `relative` decision intent (WP-F.4):
+ *     `moved <dist> <bearing> → hit wall` (e.g. "moved 3 SW → hit wall"
+ *     per North Star §1). The intent vector comes from
+ *     `prev.priorMoveByActor[characterId]` (the actor's persisted
+ *     `decision.move` from the prior turn); chebyshev distance and the
+ *     existing 8-octant `compassDirection` helper render the bearing.
+ *   - wall-blocked WITHOUT a usable intent vector (no `priorMoveByActor`,
+ *     non-`relative` move kind, or zero-magnitude vector): falls back to
+ *     the ADR §9 generic `tried to move → hit wall`. Non-`relative` kinds
+ *     (`toward_entity` / `toward_object` / `toward_evac` / `none`) carry
+ *     no persisted (dx, dy) — the engine resolved a step at runtime that
+ *     we never recorded — so we cannot synthesise a bearing without
+ *     duplicating engine-side path math.
+ *   - no entry: returns null (caller drops the fragment).
  */
 function renderMoveFragment(
   prev: PrevTurnRow,
@@ -229,6 +256,20 @@ function renderMoveFragment(
   );
   if (!entry) return null;
   if (entry.blockedBy === "wall") {
+    const intent = prev.priorMoveByActor?.[characterId];
+    if (intent && intent.kind === "relative") {
+      const dist = Math.max(Math.abs(intent.dx), Math.abs(intent.dy));
+      if (dist > 0) {
+        // Synthetic from→to: compassDirection only reads (dx, dy) so a
+        // zero-origin pair faithfully encodes the intent vector without
+        // depending on the actor's actual prior position.
+        const dir = compassDirection(
+          { x: 0, y: 0 },
+          { x: intent.dx, y: intent.dy },
+        );
+        if (dir) return `moved ${dist} ${dir} → hit wall`;
+      }
+    }
     return "tried to move → hit wall";
   }
   const dist = chebyshev(entry.from, entry.to);

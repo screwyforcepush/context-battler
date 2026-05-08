@@ -44,6 +44,7 @@ import {
   type ChestState,
   type CorpseState,
   type MatchState,
+  type MoveDecision,
   type PersonaId,
   type Tile,
   type Wall,
@@ -130,8 +131,9 @@ function makeState(opts: {
  *  populate the fields they exercise. */
 function makePrevTurn(
   partial: Partial<PrevTurnRow["resolution"]> = {},
+  opts: { priorMoveByActor?: Record<string, MoveDecision> } = {},
 ): PrevTurnRow {
-  return {
+  const row: PrevTurnRow = {
     resolution: {
       consumed: [],
       speech: [],
@@ -142,6 +144,10 @@ function makePrevTurn(
       ...partial,
     },
   };
+  if (opts.priorMoveByActor !== undefined) {
+    row.priorMoveByActor = opts.priorMoveByActor;
+  }
+  return row;
 }
 
 // ─── Test 1 — You: line, base shape ────────────────────────────────────────
@@ -283,6 +289,156 @@ describe("WP-C.1 — Last turn (you) line", () => {
     });
     const digest = buildVisibleStateDigest(state, "P1", prev);
     expect(digest).toMatch(/Last turn \(you\):.*hit wall/);
+  });
+
+  // ─── WP-F.4 — wall-blocked move outcome carries directional vector ──────
+  // North Star §1: `Last turn (you): moved 3 SW → hit wall, ...`. Recovery
+  // path: combine moves[].blockedBy === 'wall' with the actor's prior
+  // decision.move (carried via PrevTurnRow.priorMoveByActor) to render the
+  // INTENT direction. Phase-3 ADR §9.
+
+  it("WP-F.4 — wall block + prior relative move renders 'moved 3 SW → hit wall' (North Star §1)", () => {
+    // Engine convention: x→east, y→south. dx=-3, dy=3 ⇒ SW bearing.
+    // Chebyshev distance = max(|dx|, |dy|) = 3.
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn(
+      {
+        moves: [
+          {
+            characterId: "P1",
+            from: { x: 10, y: 10 },
+            to: { x: 10, y: 10 },
+            blockedBy: "wall",
+          },
+        ],
+      },
+      {
+        priorMoveByActor: {
+          P1: { kind: "relative", dx: -3, dy: 3 },
+        },
+      },
+    );
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/Last turn \(you\):.*moved 3 SW → hit wall/);
+  });
+
+  it("WP-F.4 — non-wall move outcome is unchanged when prior decision is present", () => {
+    // Successful move with prior relative decision: existing 'moved N <bearing>'
+    // wording renders; no 'hit wall' wording.
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn(
+      {
+        moves: [
+          { characterId: "P1", from: { x: 7, y: 13 }, to: { x: 10, y: 10 } },
+        ],
+      },
+      {
+        priorMoveByActor: {
+          P1: { kind: "relative", dx: 3, dy: -3 },
+        },
+      },
+    );
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/Last turn \(you\): moved 3 NE/);
+    expect(digest).not.toContain("hit wall");
+  });
+
+  it("WP-F.4 — wall block WITHOUT prior decision falls back to 'tried to move → hit wall'", () => {
+    // Defensive fallback: when priorMoveByActor is absent (turn 0 in the
+    // chain, missing record, etc.), the directional render is suppressed
+    // and the existing wall-block fragment wording is preserved.
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn({
+      moves: [
+        {
+          characterId: "P1",
+          from: { x: 10, y: 10 },
+          to: { x: 10, y: 10 },
+          blockedBy: "wall",
+        },
+      ],
+    });
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/Last turn \(you\):.*tried to move → hit wall/);
+    expect(digest).not.toMatch(/moved \d+ [NESW]/);
+  });
+
+  it("WP-F.4 — wall block with non-relative prior move kind falls back to existing wording", () => {
+    // toward_entity / toward_object / toward_evac don't carry a (dx,dy)
+    // intent vector; the renderer can't compute a bearing, so the existing
+    // fallback wording is preserved. Only the relative arm is enriched.
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn(
+      {
+        moves: [
+          {
+            characterId: "P1",
+            from: { x: 10, y: 10 },
+            to: { x: 10, y: 10 },
+            blockedBy: "wall",
+          },
+        ],
+      },
+      {
+        priorMoveByActor: {
+          P1: { kind: "toward_entity", targetCharacterId: "P3" },
+        },
+      },
+    );
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/Last turn \(you\):.*tried to move → hit wall/);
+    expect(digest).not.toMatch(/moved \d+ [NESW]/);
+  });
+
+  it("WP-F.4 — wall block with prior relative dx=0,dy=-1 renders 'moved 1 N → hit wall'", () => {
+    // Single-step cardinal vector. Confirms the bearing helper handles
+    // axis-aligned vectors and the chebyshev distance computation matches
+    // max(|dx|, |dy|).
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn(
+      {
+        moves: [
+          {
+            characterId: "P1",
+            from: { x: 10, y: 10 },
+            to: { x: 10, y: 10 },
+            blockedBy: "wall",
+          },
+        ],
+      },
+      {
+        priorMoveByActor: {
+          P1: { kind: "relative", dx: 0, dy: -1 },
+        },
+      },
+    );
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/Last turn \(you\):.*moved 1 N → hit wall/);
   });
 
   it("renders attack action outcome (kind/target/result)", () => {
