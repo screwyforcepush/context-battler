@@ -42,6 +42,17 @@ export function Replay(props: {
   const [loaded, setLoaded] = useState<boolean>(false);
   const [currentTurn, setCurrentTurn] = useState<number>(initialTurn);
 
+  // Mirror prop.turn (driven by useHashRoute) into local state so browser
+  // back/forward and direct URL edits update the rendered turn. Closure-
+  // readiness UAT ISSUE-002 — without this effect the initial useState seed
+  // is the only path from URL into state. The TurnStepper's own URL writes
+  // use history.replaceState, which doesn't fire hashchange, so this effect
+  // is only triggered by user-driven navigation (popstate / direct edit).
+  useEffect(() => {
+    if (props.turn === null) return;
+    setCurrentTurn(props.turn);
+  }, [props.turn]);
+
   // Hover state — owned by the wrapping div around the Grid; a delegated
   // mouseover listener reads the data-* attributes Grid.tsx emits.
   const [hoverTarget, setHoverTarget] = useState<HoverTarget | null>(null);
@@ -255,7 +266,9 @@ export function Replay(props: {
           onMouseOut={onGridMouseOut}
         >
           {snapshot ? (
-            <Grid snapshot={snapshot} worldState={bundle.worldState} />
+            <div style={gridSquareStyle}>
+              <Grid snapshot={snapshot} worldState={bundle.worldState} />
+            </div>
           ) : null}
         </div>
         <div style={feedColStyle}>
@@ -336,7 +349,10 @@ const mainStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "0.875rem",
-  minHeight: "100vh",
+  // Cap to viewport so the body row has a bounded height for the
+  // square grid + scrollable feed (closure-readiness UAT ISSUE-001).
+  height: "100vh",
+  boxSizing: "border-box",
 };
 
 const headerStyle: React.CSSProperties = {
@@ -394,15 +410,27 @@ const bodyLayoutStyle: React.CSSProperties = {
 const gridColStyle: React.CSSProperties = {
   flex: "0 0 60%",
   display: "flex",
-  alignItems: "flex-start",
+  alignItems: "center",
   justifyContent: "center",
   minWidth: 0,
+  minHeight: 0,
+};
+
+// Square wrapper that fills the smaller of the grid column's width / height.
+// `height: 100%` + `aspect-ratio: 1/1` gives a square as tall as the cell;
+// `max-width: 100%` clamps the square to the column's width when the column
+// is narrower than the available height. Net: the grid is always square and
+// always fits within the remaining viewport (closure-readiness UAT ISSUE-001).
+const gridSquareStyle: React.CSSProperties = {
+  height: "100%",
+  aspectRatio: "1 / 1",
+  maxWidth: "100%",
+  display: "flex",
 };
 
 const feedColStyle: React.CSSProperties = {
   flex: "1 1 40%",
   display: "flex",
   minWidth: 0,
-  // Cap feed height to viewport so the inner scroll behaves predictably.
-  maxHeight: "calc(100vh - 12rem)",
+  minHeight: 0,
 };

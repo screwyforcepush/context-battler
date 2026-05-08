@@ -347,6 +347,14 @@ function LlmTab(props: { agentRecord: AgentRecord }): React.ReactElement {
     }
   }, [llm.rawArguments]);
 
+  // Post-validator parsed decision — the centerpiece per concept-spec §2.4.
+  // Stable JSON.stringify is sufficient here; the decision payload is
+  // small and the modal opens infrequently.
+  const prettyDecision = useMemo(
+    () => JSON.stringify(props.agentRecord.decision, null, 2),
+    [props.agentRecord.decision],
+  );
+
   const usageLine = llm.usage ? formatUsage(coerceUsage(llm.usage)) : "—";
 
   return (
@@ -391,6 +399,9 @@ function LlmTab(props: { agentRecord: AgentRecord }): React.ReactElement {
           <CopyablePre text={llm.httpBodyExcerpt} />
         </>
       ) : null}
+
+      <h3 style={subTitleStyle}>decision (post-validator parsed)</h3>
+      <CopyablePre text={prettyDecision} />
 
       <h3 style={subTitleStyle}>rawArguments (pre-validator LLM tool input)</h3>
       {prettyRawArgs !== null ? (

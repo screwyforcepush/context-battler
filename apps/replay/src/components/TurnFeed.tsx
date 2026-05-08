@@ -47,6 +47,7 @@ const PERSONA_COLOURS: Record<string, string> = {
 const FALLBACK_COLOUR = "#444";
 
 const SCRATCHPAD_AFTER_BUDGET = 500;
+const SCRATCHPAD_PREVIEW_BUDGET = 100;
 
 export function TurnFeed(props: TurnFeedProps): React.ReactElement {
   const { bundle, currentTurn, onOpenModal } = props;
@@ -240,6 +241,14 @@ function FeedRow(props: {
         </div>
         <div style={oneLineStyle}>{summary.oneLine}</div>
         {sayText ? <div style={sayStyle}>“{sayText}”</div> : null}
+        {agentRecord.scratchpadAfter.length > 0 ? (
+          <div style={scratchpadPreviewStyle} title="scratchpadAfter (preview)">
+            {truncateOneLine(
+              agentRecord.scratchpadAfter,
+              SCRATCHPAD_PREVIEW_BUDGET,
+            )}
+          </div>
+        ) : null}
 
         {expanded ? (
           <div style={expandedBodyStyle}>
@@ -296,6 +305,17 @@ function FeedRow(props: {
 function truncateToBudget(s: string, budget: number): string {
   if (s.length <= budget) return s;
   return s.slice(0, Math.max(0, budget - 1)) + "…";
+}
+
+/**
+ * Single-line preview helper: collapses any whitespace runs (newlines, tabs,
+ * CRLF) into one space, then clamps to `budget` with an ellipsis suffix when
+ * over. Used for the collapsed feed row's scratchpadAfter preview so a
+ * multi-line scratchpad never breaks row alignment.
+ */
+export function truncateOneLine(s: string, budget: number): string {
+  const oneLine = s.replace(/\s+/g, " ");
+  return truncateToBudget(oneLine, budget);
 }
 
 function Swatch(props: { colour: string; dimmed?: boolean }): React.ReactElement {
@@ -434,6 +454,16 @@ const sayStyle: React.CSSProperties = {
   fontSize: "0.8125rem",
   color: "#444",
   fontStyle: "italic",
+};
+
+const scratchpadPreviewStyle: React.CSSProperties = {
+  fontSize: "0.75rem",
+  color: "#888",
+  fontFamily:
+    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace',
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 
 const inactiveMarkerStyle: React.CSSProperties = {

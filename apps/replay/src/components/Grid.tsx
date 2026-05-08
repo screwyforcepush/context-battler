@@ -253,11 +253,13 @@ export function Grid({ snapshot, worldState }: GridProps): React.ReactElement {
   );
 }
 
+// Fit-to-viewport: SVG fills its parent container's box. The square
+// constraint is owned by the wrapping div in `Replay.tsx` (`gridColStyle` +
+// inner square wrapper) so the grid stays square within whatever the side
+// panel + header leave available — bounded by BOTH axes, never overflowing.
 const svgStyle: React.CSSProperties = {
   width: "100%",
   height: "100%",
-  maxWidth: "90vh",
-  aspectRatio: "1 / 1",
   background: "#fafafa",
   border: "1px solid #ddd",
   display: "block",

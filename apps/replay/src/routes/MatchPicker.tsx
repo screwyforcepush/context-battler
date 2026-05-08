@@ -2,20 +2,30 @@
 //
 // Paginated, reverse-chronological, completed-only table of matches read
 // from the user's own Convex dev deployment via `replay.listMatches`. Each
-// row links (via hash route) to `#/match/<id>`, where WP-B's replay view
-// will live.
+// row links (via hash route) to `#/match/<id>`, where the replay view
+// lives.
 //
-// Columns (from work-packages.md WP-A scope, anchored to `convex/schema.ts`
-// `matches` row shape — `outcome.lastSurvivor` is `v.id("characters")` per
-// schema.ts:453, NOT a displayName, so we render the truncated id; display
-// name resolution lands in WP-B once the bundle's `characters[]` is loaded):
+// Columns (anchored to `convex/schema.ts` `matches` row shape):
 //
 //   matchId   — truncated to 8 chars
 //   started   — ISO datetime + relative ("3h ago") in muted text
 //   status    — terminal status literal (always "completed" given the filter)
 //   turn      — `match.turn` (last advanced turn — equals 50 for clean runs)
 //   extracted — `outcome.extracted.length`
-//   survivor  — `outcome.lastSurvivor` truncated to 8 chars or "—"
+//
+// The opaque "last survivor" column was dropped per UAT ISSUE-004 — the
+// truncated `outcome.lastSurvivor` id was not user-meaningful and resolving
+// it to a `displayName` would require a server-side N+1 lookup against
+// `characters` for every page row. The remaining columns disambiguate
+// matches well enough on their own.
+//
+// Error UI (UAT ISSUE-003): the picker fails opaquely with a 404-like
+// `replay:listMatches` error if the user hasn't pushed `convex/replay.ts`
+// to their dev deployment. `usePaginatedQuery` throws those errors (its
+// positional form does not expose error state per
+// `convex/dist/esm-types/react/use_paginated_query.d.ts`), so a
+// component-local error boundary catches the throw and renders a friendly
+// hint pointing at `npx convex dev` + `VITE_CONVEX_URL`.
 //
 // Only type-only imports cross the convex/ slice boundary
 // (architecture-decisions.md §7).
@@ -23,7 +33,7 @@
 import React from "react";
 import { usePaginatedQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
-import type { Doc, Id } from "../../../../convex/_generated/dataModel";
+import type { Doc } from "../../../../convex/_generated/dataModel";
 
 const PAGE_SIZE = 20;
 
@@ -54,7 +64,6 @@ function MatchRow({
   match: Doc<"matches">;
 }): React.ReactElement {
   const started = formatStarted(match.startedAt);
-  const survivorId: Id<"characters"> | undefined = match.outcome.lastSurvivor;
   const extractedCount = match.outcome.extracted.length;
   return (
     <tr style={rowStyle}>
@@ -70,20 +79,118 @@ function MatchRow({
       <td style={cellStyle}>{match.status}</td>
       <td style={cellStyle}>{match.turn}</td>
       <td style={cellStyle}>{extractedCount}</td>
-      <td style={cellStyle}>
-        {survivorId === undefined ? "—" : truncateId(survivorId)}
-      </td>
     </tr>
   );
 }
 
-export function MatchPicker(): React.ReactElement {
+// ─────────────────────────────────────────────────────────────────────────────
+// Picker body — unchanged data-fetch path. Wrapped by `MatchPicker` below
+// in an error boundary so a missing `replay:listMatches` deployment renders
+// a friendly hint instead of a blank page + console stack trace.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function MatchPickerBody(): React.ReactElement {
   const { results, status, loadMore } = usePaginatedQuery(
     api.replay.listMatches,
     {},
     { initialNumItems: PAGE_SIZE },
   );
 
+  if (status === "LoadingFirstPage") {
+    return <p>Loading matches…</p>;
+  }
+  if (results.length === 0) {
+    return (
+      <p>
+        No completed matches found in this deployment. Run a match via the
+        harness (<code>npm run harness</code>) and refresh.
+      </p>
+    );
+  }
+  return (
+    <>
+      <table style={tableStyle}>
+        <thead>
+          <tr>
+            <th style={thStyle}>matchId</th>
+            <th style={thStyle}>started</th>
+            <th style={thStyle}>status</th>
+            <th style={thStyle}>turn</th>
+            <th style={thStyle}>extracted</th>
+          </tr>
+        </thead>
+        <tbody>
+          {results.map((match) => (
+            <MatchRow key={match._id} match={match} />
+          ))}
+        </tbody>
+      </table>
+      <div style={loadMoreRowStyle}>
+        <button
+          type="button"
+          onClick={() => loadMore(PAGE_SIZE)}
+          disabled={status !== "CanLoadMore"}
+          style={loadMoreBtnStyle}
+        >
+          {status === "CanLoadMore"
+            ? "Load more"
+            : status === "LoadingMore"
+              ? "Loading…"
+              : "No more matches"}
+        </button>
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PickerErrorBoundary — narrow component-level boundary that catches the
+// throw from `usePaginatedQuery` when the dev deployment doesn't expose
+// `replay:listMatches` (the UAT ISSUE-003 onboarding cliff). Renders a
+// readable hint instead of a blank screen. Other errors get the same
+// friendly frame because the failure mode the user actually hits in
+// practice is the function-not-found path.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type PickerErrorBoundaryState = { error: Error | null };
+
+class PickerErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  PickerErrorBoundaryState
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error): PickerErrorBoundaryState {
+    return { error };
+  }
+  override componentDidCatch(error: Error): void {
+    console.error("MatchPicker query failed:", error);
+  }
+  override render(): React.ReactNode {
+    if (this.state.error) {
+      return (
+        <div role="alert" style={errorBoxStyle}>
+          <p style={errorTitleStyle}>Couldn’t load matches.</p>
+          <p style={errorBodyStyle}>
+            Convex deployment doesn’t expose <code>replay:listMatches</code>.
+            Run <code>npx convex dev</code> from the repo root and ensure
+            <code> VITE_CONVEX_URL</code> in <code>apps/replay/.env</code>
+            points at it.
+          </p>
+          <p style={errorDetailStyle}>
+            <span style={mutedStyle}>error:</span>{" "}
+            <code>{this.state.error.message}</code>
+          </p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export function MatchPicker(): React.ReactElement {
   return (
     <main style={mainStyle}>
       <header style={headerStyle}>
@@ -93,49 +200,9 @@ export function MatchPicker(): React.ReactElement {
           step through it.
         </p>
       </header>
-
-      {status === "LoadingFirstPage" ? (
-        <p>Loading matches…</p>
-      ) : results.length === 0 ? (
-        <p>
-          No completed matches found in this deployment. Run a match via the
-          harness (<code>npm run harness</code>) and refresh.
-        </p>
-      ) : (
-        <>
-          <table style={tableStyle}>
-            <thead>
-              <tr>
-                <th style={thStyle}>matchId</th>
-                <th style={thStyle}>started</th>
-                <th style={thStyle}>status</th>
-                <th style={thStyle}>turn</th>
-                <th style={thStyle}>extracted</th>
-                <th style={thStyle}>last survivor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {results.map((match) => (
-                <MatchRow key={match._id} match={match} />
-              ))}
-            </tbody>
-          </table>
-          <div style={loadMoreRowStyle}>
-            <button
-              type="button"
-              onClick={() => loadMore(PAGE_SIZE)}
-              disabled={status !== "CanLoadMore"}
-              style={loadMoreBtnStyle}
-            >
-              {status === "CanLoadMore"
-                ? "Load more"
-                : status === "LoadingMore"
-                  ? "Loading…"
-                  : "No more matches"}
-            </button>
-          </div>
-        </>
-      )}
+      <PickerErrorBoundary>
+        <MatchPickerBody />
+      </PickerErrorBoundary>
     </main>
   );
 }
@@ -211,4 +278,30 @@ const loadMoreBtnStyle: React.CSSProperties = {
   border: "1px solid #ccc",
   borderRadius: "4px",
   background: "#f6f8fa",
+};
+
+const errorBoxStyle: React.CSSProperties = {
+  padding: "1rem 1.25rem",
+  border: "1px solid #d73a49",
+  borderLeft: "4px solid #d73a49",
+  borderRadius: "4px",
+  background: "#fff5f6",
+  color: "#1a1a1a",
+};
+
+const errorTitleStyle: React.CSSProperties = {
+  margin: "0 0 0.5rem 0",
+  fontWeight: 600,
+  fontSize: "0.9375rem",
+};
+
+const errorBodyStyle: React.CSSProperties = {
+  margin: "0 0 0.5rem 0",
+  fontSize: "0.875rem",
+  lineHeight: 1.45,
+};
+
+const errorDetailStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.8125rem",
 };

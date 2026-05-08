@@ -4,6 +4,20 @@ Browser-local app for the project's Outcome Steward to step through
 completed matches turn-by-turn against their own Convex dev deployment.
 Diagnostic-grade — single user, no auth, no deploy.
 
+## Prerequisites
+
+The renderer is read-only against the user's own Convex dev deployment.
+Before `npm run dev:replay` will produce useful results:
+
+- **`replay:listMatches` must be exposed by the dev deployment.** Either
+  run `npx convex dev` from the repo root in another terminal (keeps
+  pushing schema + functions on save), or have pushed at least once so
+  the dev deployment has the `convex/replay.ts` module deployed.
+  Without this, the picker fails with a function-not-found error.
+- **`VITE_CONVEX_URL` must be set in `apps/replay/.env`** and point at
+  that same dev deployment URL (the one `npx convex dev` prints, e.g.
+  `https://<slug>.convex.cloud`).
+
 ## Quick start
 
 ```bash
@@ -23,7 +37,11 @@ npm run dev:replay
 ## Routes
 
 - `#/` — match picker (paginated, completed-only, reverse-chronological).
-- `#/match/<matchId>` — replay view (WP-B will land the grid + stepper).
+- `#/match/<matchId>` — replay view: bird's-eye SVG grid, turn stepper
+  (slider + Next + arrow keys), per-turn side-panel feed with
+  decisions in English, hover details on agents/chests/corpses, and a
+  click-to-expand modal surfacing the full persona prompt, system
+  prompt, visible-state digest, scratchpad diff, and LLM trace.
 
 ## Why this is a sub-package
 

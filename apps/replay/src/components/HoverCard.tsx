@@ -30,7 +30,7 @@
 //
 // Per ADR §7: type-only imports across the slice boundary are allowed.
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import type { HoverTarget } from "../lib/hoverTypes";
 import type { ReplayBundle, EntitySnapshot } from "../lib/reconstruct";
@@ -422,10 +422,6 @@ function Row(props: { label: string; value: string }): React.ReactElement {
     </div>
   );
 }
-
-// Hush the `useEffect` import unused-warning when the file is parsed by ESLint
-// in strict modes — `useEffect` may be needed for future hover-debounce work.
-void useEffect;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inline styles
