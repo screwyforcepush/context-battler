@@ -119,6 +119,8 @@ These omissions are load-bearing for the product identity:
 
 ## 10. Current focus — phase 1
 
+> **Status: CLOSED — 2026-05-07.** All 6 done-bar thresholds met on the persisted Convex closing-50 report (`reportId jd760kqja7sfwvt71mn0gdcexh8686jd`): extraction 96%, kill 96%, equip 100%, speech 100%, persona spread 28 pp, 0 crashes. Per-(run, agent, turn) introspection live via `convex run turns:getAgentTurn`. Closure record: `docs/project/phases/01-engine-and-harness/PHASE-1-CLOSURE.md`. The spec below is preserved as the record of what the bar was; phase 2 dispatch is the next decision.
+
 The first delivery slice is **simulation + evaluation harness**:
 - 8 pre-baked agent personas with minimal behavioural prompts. The 8 preset cards in `concept-spec.md` (Rat, Duelist, Trader, Betrayer, Paranoid, Camper, Sprinter, Vulture) are **illustrative, not prescribed** — the only requirements are that the roster is 8 personas and that they are *sufficiently differentiated* in behaviour to register on the simulation report.
 - Full turn loop: visible state → LLM call → decision → engine resolution → next turn.
@@ -156,7 +158,38 @@ Parallelism is required from stage 2 onward — sequential 50-run passes would b
 
 Player input, rendered playback, progression, public leaderboards, and prompt-injection item naming are all downstream of phase 1.
 
-## 11. Open questions / live tensions
+## 11. Current focus — phase 2 (replay overseer, v0)
+
+> **Status: dispatched 2026-05-08.** Phase 1 closed with persona-differentiated stats on a 50-run report (extraction 96%, kill 96%, persona spread 28 pp). Stats are a coarse signal. Phase 2's first slice is a **personal replay overseer** — a local browser tool the user runs against their Convex dev deployment to *look an actual run in the eye*.
+
+This is **not** the eventual consumer-facing spectator experience (third-person POV, vision masks, terrain, speech bubbles, multi-watcher). That is a later phase. This v0 is the **diagnostic-grade overseer** the user needs *before* committing to a consumer renderer:
+
+- One user (the project's Outcome Steward / operator). No auth, no public deploy.
+- **Ground truth, always.** No fog-of-war. The user sees what every agent is doing, not what one agent saw. Per-agent visibility lives in the `visibleStateDigest` field of the trace, surfaced as inspectable text — not as a rendered fog mask.
+- **Bird's-eye grid.** The 100×100 reference map, fit to viewport. No zoom, no pan, no textures. Glyphs and colors. A grid is enough to *feel* whether the agents are playing the game.
+- **Step, don't stream.** Forward-only turn stepper. No timer, no animation. The user controls the cadence because the value is *reading the moment*, not watching it.
+- **The tool call is the explainability surface.** Each turn's per-agent decision (move + action + say + overwatch + consume + scratchpad delta) is rendered in human English, not raw JSON. Verbose surfaces (full persona prompt, full visibleStateDigest, full scratchpad-before/after) are click-to-expand so the feed stays skimmable.
+- **Visual analogue of `harness/analyze-match.ts`.** Same data, different modality. The CLI tool is for agent introspection (per `feedback_observability_targets_agents`); this overseer is for *human* intuition.
+
+The success criterion is vibe, not metrics. The user is asking: *are these minds messy in the way the design pillars promise? does the substrate actually produce watchable, attributable behaviour?* If the user can step through three matches and form a confident answer, the v0 has done its job.
+
+**Architectural posture (carried into phase 2):**
+- Renderer slice subscribes to State only — no engine coupling, per architecture §1. The renderer reads `matches`, `turns`, `worldState`, `characters` and reconstructs entity positions by walking `resolution.moves[]`. The engine doesn't push events to the renderer.
+- **Batch fetch over reactive subscribe** for v0. The replay target is a *completed* match. Live spectate (in-progress matches) is a different feature, deferred to whichever phase ships the consumer renderer.
+- Tech stack is intentionally pragmatic — local browser, "whatever runs". The consumer renderer will be re-cooked from scratch when its own constraints (fog-of-war, animation, multi-watcher, mobile) drive the choice. Decoupled from this v0.
+
+**What this slice unblocks:**
+- Decisions about persona behaviour the report can't show (e.g. *why* rat extracts; *what* trader's 1 583 speech events actually look like; *whether* paranoid's evac-corner camp is interesting or boring to watch).
+- Decisions about cursed-item flavour text moderation — the user needs a sense of how speech and item names actually feel in-context before authoring aggressive prompt-injection content.
+- Eventual specification of the consumer-facing third-person POV experience — the v0 reveals which inspection surfaces are load-bearing for *understanding* a match, which informs what the consumer version must replicate (probably less than this overseer shows) versus what's diagnostic-only.
+
+**What this slice deliberately is not:**
+- Not a public spectator. Not authed. Not deployed.
+- Not the consumer renderer. The eventual third-person POV with division/textures/fog of war is a re-cook, not an extension of this v0.
+- Not a metrics dashboard. The closing report covers metrics. This is for what metrics can't capture.
+- Not live. Completed-match replay only.
+
+## 12. Open questions / live tensions
 
 Tracked here because they shape the why, not the how:
 
@@ -164,6 +197,7 @@ Tracked here because they shape the why, not the how:
 - **Does formal trade belong eventually?** Speech alone may be sufficient. Adding trade earns depth; loses minimalism.
 - **Daily-seed mode as the sticky hook?** Possibly the leaderboard format that converts curiosity into return visits.
 - **Guest → account conversion trigger.** "Save this idiot" is a candidate; not yet validated.
+- **Content moderation vs. deception language.** Surfaced in phase 1: the original "betrayer" archetype tripped Azure content moderation persistently and was archetype-swapped to "opportunist" mid-phase. Phase 2's cursed-item layer leans on aggressive in-world text (threats, lies, corpse notes, prompt-injection inscriptions); the moderation layer is a real constraint on what content can ship. Worth a deliberate design pass before phase 2 starts authoring item flavour text.
 
 ---
 
