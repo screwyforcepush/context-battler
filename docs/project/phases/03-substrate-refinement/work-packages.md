@@ -854,3 +854,167 @@ After WP-D and WP-E land:
 
 The reviewer-before-close pattern from phases 1 and 2 carries over.
 Reviews go *before* the phase closes, not after.
+
+---
+
+## WP-F — corrective slice 1 (substrate-correctness fix-bundle)
+
+This corrective slice landed between the original WP-E close and the first
+phase-close attempt, in response to completion-review-1 reviewer-B's Fail
+verdict (Decision Record D24: persistence adapter dropped engine-emitted
+trace fields by overwriting them with unconditional `undefined`s, masking
+substrate behaviour the engine had actually produced). The slice is six
+substrate-correctness fixes (no behaviour tuning, no goalpost moves) plus
+a closing-10 rerun and a paperwork pair to align the closure record and
+mental-model §11 against the substrate-correct ledger. Canonical narrative
+anchor: `PHASE-3-CLOSURE.md` §3.0.
+
+**WP-F.1 — Persistence adapter conditional-spread.** Made
+`adaptResolutionForSchema` in `convex/runMatch.ts` lines 447–470
+preserve engine-emitted `moves[].blockedBy`, `actions[].fromOverwatch`,
+and `actions[].stance` through the Convex round-trip via the
+conditional-spread pattern (`...(field !== undefined ? { field } : {})`),
+rather than the prior unconditional spread that overwrote present values
+with `undefined`. Closes Decision Record D24 — the substrate-contract
+bug that masked overwatch counter-fire and wall-block trace data on the
+first closing-10. Commit: 76484da (bundled with WP-F.5).
+
+**WP-F.2 — Display-id normalisation at validator boundary.**
+`Player_N` display-form ids emitted by the LLM are normalised to the
+engine's `_id` form before validator dispatch, via the new helper
+`convex/llm/idNormalisation.ts`. Bridges the validator-vs-engine id-shape
+gap that was producing target-not-found rejections on otherwise valid
+decisions. Commit: 5420073.
+
+**WP-F.3 — Chest-loot full-id render with no corpse-of- prefix.**
+`apps/replay/src/lib/decisionEnglish.ts` chest dispatch made
+case-insensitive (`/^chest_/i`) so `Chest_NNN` no longer falls through to
+the corpse-of fallback (where `resolveCharacterName` was truncating the
+bogus id to 8 chars). Closes UAT-001 round-1 — the first cosmetic surface
+issue surfaced by user replay-UI walkthrough. Commit: 53ce3cb.
+
+**WP-F.4 — Wall-blocked outcome carries directional vector.**
+`convex/llm/inputBuilder.ts` extended its `priorMoveByActor` map so the
+`Last turn (you):` line emits the (`dist`, `bearing`) pair on
+`blockedBy === "wall"` entries (e.g. "moved 3 SW → hit wall"), not just
+the textual hit-wall marker. Restores ADR §9 outcome-attribution shape on
+the digest side. Commit: 04177f5.
+
+**WP-F.5 — Concept-spec phase-3 digest alignment.**
+`docs/project/spec/concept-spec.md` lines 130 and 406 re-aligned to the
+live phase-3 digest shape, replacing stale phase-1/2 vocabulary that had
+drifted from the inputBuilder rewrite. Doc-only synchronisation; no
+runtime change. Commit: 76484da (bundled with WP-F.1 — same commit covers
+the persistence-adapter fix and the spec re-alignment).
+
+**WP-F.6 — schemaMirror live-validator parity test.**
+`tests/llm/schemaMirror.test.ts` rewritten to import live exports from
+`convex/schema.ts` and `convex/_internal_runMatch.ts` and compare them
+field-by-field, rather than asserting against hand-copied literal sets
+that drift silently. Closes the WP-A.5 risk-of-mirror-drift open issue
+with a live-source guard. Commit: 6eafbab.
+
+**WP-F.7 — Closing-10 rerun #2.** Harness re-execution of
+`harness/run.ts --runs 10 --concurrency 5` against the dev deployment on
+the substrate-correct ledger. 10/10 matches completed (~8.5 min,
+durationMs=513056); new phase-3-closing-10 reportId
+`jd7ecmx2fgqa0yd7g8h18cv3n986bmwe` (11/14 thresholds met). No source
+commit (harness output only); the report row is the artifact.
+
+**WP-F.8 — PHASE-3-CLOSURE.md rewrite against rerun #2.** Closure record
+re-anchored to the new reportId, §3.0 narrative added (the WP-F
+fix-bundle as the corrective slice between the two closing-10s), §3.1–3.3
+rewritten as substrate-correctness readings rather than substrate-bug
+explanations. Commit: c1a7665.
+
+**WP-F.9 — Mental-model §11 cite new closing-10 reportId.**
+`docs/project/spec/mental-model.md` §11 phase-3 closure paragraph updated
+to hyperlink the new reportId and reflect the 11/14 threshold count.
+Doc-only synchronisation with the rewritten closure record. Commit:
+e19a7b9.
+
+---
+
+## WP-G — corrective slice 2 (LLM↔engine contract fix)
+
+This corrective slice landed in response to completion-review-2
+reviewer-B's Fail verdict (Decision Records D36/D38/D39: the LLM↔engine
+id-contract leaked `Corpse_Player_N` display-form into engine dispatch
+without normalisation, and the Azure-side JSON Schema `required[]` was
+out of sync with the Zod-side `.strict()` requirement set, producing 207
+of 234 schema-fallback failures). The slice extends the WP-F id-bridge
+pattern to the corpse namespace, aligns the JSON Schema field-list with
+the PM-locked 7-field contract, polishes one residual chest-loot phrasing
+issue from UAT-001 round-2, and closes with a closing-10 rerun + sister
+paperwork commits. Canonical narrative anchor: `PHASE-3-CLOSURE.md` §3.0
+(extended in WP-G.6).
+
+**WP-G.1 — Corpse-id contract fix at validator/engine boundary.**
+Extends `convex/llm/idNormalisation.ts` with `normaliseCorpseTargetId`
+(maps `Corpse_Player_N` → `Player_N` → engine `characterId`) and wires it
+into `convex/engine/validation.ts` (loot dispatch + `toward_object`),
+`convex/engine/resolution.ts` (loot dispatch), and
+`convex/engine/movement.ts` (`toward_object`). Cover_X_Y option (b) RETAIN
+exclusion from `toward_object` grammar — Cover is a tile flag not an
+entity, and agents already have `relative dx,dy` for tile-targeted moves
+(per Decision Record D38). Tests added: 5+3+2+1 across
+validation/resolution/movement/systemPrompt suites. Commit: 634524b.
+
+**WP-G.2 — Schema field alignment.** `convex/llm/decisionTool.ts:166`
+JSON Schema `required[]` extended from 4 to 7 fields (added `say`,
+`overwatch_stance`, `scratchpad_update`) to match the Zod-side
+`.strict()` requirement set per Decision Record D39 PM-lock.
+Azure-side-only fix; Zod schema unchanged. Test
+`tests/llm/decisionTool.test.ts:62-68` updated to assert the sorted
+7-field list. Commit: f296f5b.
+
+**WP-G.3 — Chest-loot phrasing polish.**
+`apps/replay/src/lib/decisionEnglish.ts` collapses redundant
+`Opened Chest_005 — opened.` to `Opened Chest_005.` via new
+`isOutcomeRedundantWithIntent()` helper (Option A: drop the `— opened`
+suffix when the intent verb already encodes the outcome state). Wired
+into `oneLine` + `bullets` composition; corpse-loot path untouched
+(WP-F.3 split preserved); `intentVsOutcome` modal keeps both columns for
+engine traceability. Closes UAT-001 round-2. Commit: b86fe01.
+
+**WP-G.4 — Validate gate.** `npm run lint && npm run typecheck && npm
+test && npm run build` against HEAD with all three corrective commits
+integrated (634524b + f296f5b + b86fe01). All green: 619 tests pass, 4
+skipped, no warnings. No source commit (validate-gate is a precondition
+for the rerun, not a code change).
+
+**WP-G.5 — Closing-10 rerun #3.** Harness re-execution against the dev
+Convex deployment `calculating-meerkat-923`. 10/10 matches completed
+(~8.76 min, durationMs=525542); new phase-3-closing-10 reportId
+`jd769hc5vap1v11bd6jsy307ts86ab05` (12/14 thresholds met; headline:
+schema-validity flipped from 18.73% → 8.256%, well under the ≤10%
+threshold). Carry-over phase-1 reportId
+`jd78d1rxtdgen91b4xebgjbnzs86b8yz`. No source commit (harness output
+only); the report row is the artifact.
+
+**WP-G.6 — PHASE-3-CLOSURE.md rewrite + mental-model §11 refresh.**
+Closure record re-anchored to the rerun-#3 reportId; §2 tables updated
+(12/14 PASS, 2 MISS); §3.0 extended to cite the WP-G commits and
+reviewer-B HIGH-1/HIGH-2 findings; §3.1 reframed as why-it-PASSED; §3.2
+reframed as combat-economy-tuning (substrate is now correct); §3.3 number
+refreshed (65.0% → 68.82%); §4 proof points + §7 follow-ups refreshed.
+Mental-model §11 hyperlink updated. Commits: WP-G.6 paperwork commits
+land in parallel with this WP-G.7 commit (sister doc work; document-agent
+in WP-G.9 may finalise hashes).
+
+**WP-G.7 — work-packages.md addendum.** This commit. Appends the WP-F
+and WP-G sections to the phase-3 work-packages document so the planning
+artifact gains coverage of both corrective slices (10 commits, 18+
+sub-items) that previously lived only in commit history + closure §3.0 +
+Decision Records D24–D31, D36–D41. Single discrete doc commit.
+
+**WP-G.8 — README phase-status update.** Sister paperwork commit
+updating the project README's phase-status section to reflect the
+phase-3 close on the rerun-#3 reportId. Doc-only; lands in parallel with
+this commit.
+
+**WP-G.9 — Final validate gate + closure.** Final
+`npm run lint && npm run typecheck && npm test && npm run build` against
+HEAD with all WP-G paperwork commits integrated. Phase-3 close
+re-asserted on the substrate-correct ledger; document-agent finalises any
+TBD hashes left in WP-G.6.
