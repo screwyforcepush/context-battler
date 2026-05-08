@@ -118,6 +118,24 @@ describe("WP-C.2 — action-grammar block — move arms", () => {
     // Both the move arm and the action arm teach a `none` literal.
     expect(SYSTEM_PROMPT).toMatch(/\bnone\b/);
   });
+
+  it("WP-G.1 D38 — toward_object grammar listing excludes Cover_X_Y", () => {
+    // Cover is a tile flag in `WorldState.coverTiles: Tile[]`, NOT an entity.
+    // The engine's `toward_object` resolver only knows chest + corpse
+    // semantics (stop at Chebyshev range 2 of the entity tile). Telling
+    // agents they can `toward_object Cover_X_Y` would silently route
+    // through the chest+corpse lookup which always misses, driving safe-
+    // default fallback. The grammar listing must NOT advertise Cover_X_Y
+    // on the toward_object arm — agents move TO cover via `relative dx,dy`.
+    // Cover_X_Y still appears in the typed-id glossary (line 65) so agents
+    // can identify cover bullets in Visible; it just isn't a valid
+    // toward_object target. This test pins that.
+    const towardObjectLine = SYSTEM_PROMPT.split("\n").find((l) =>
+      l.includes("toward_object"),
+    );
+    expect(towardObjectLine).toBeDefined();
+    expect(towardObjectLine!).not.toContain("Cover_X_Y");
+  });
 });
 
 // ─── Section 2: action grammar (action arms) ────────────────────────────────

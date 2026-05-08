@@ -601,3 +601,86 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
     expect(move?.blockedBy).toBeUndefined();
   });
 });
+
+// ─── WP-G.1 Corpse_Player_N toward_object routing — D38 PM-lock ──────────
+//
+// Reviewer-B HIGH-1: digest renders `Corpse_Player_N` typed-id but the
+// `toward_object` movement resolver only matched corpses by raw
+// `targetObjectId === characterId`, never by the rendered typed-id.
+// PM-lock D38: fix at engine boundary; do NOT change digest rendering.
+
+describe("WP-G.1 Corpse_Player_N toward_object routing — D38", () => {
+  it("toward_object 'Corpse_Player_N' (digest typed-id) routes toward corpse tile (test-fixture: characterId === Player_N)", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const state = makeState({
+      characters: [a],
+      world: {
+        corpses: [
+          {
+            characterId: "Player_5",
+            pos: { x: 5, y: 0 },
+            contents: { weapon: { category: "weapon", name: "axe" } },
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        moveDecision({
+          kind: "toward_object",
+          targetObjectId: "Corpse_Player_5",
+        }),
+      ],
+    ]);
+    const { state: next } = simulateMovement(state, decisions);
+    // toward_object stops at Chebyshev 2 of corpse at (5,0): A ends at (3,0).
+    expect(findChar(next, "A").pos).toEqual({ x: 3, y: 0 });
+  });
+
+  it("toward_object 'Corpse_Player_N' resolves via displayName lookup when corpse.characterId is opaque (production shape)", () => {
+    const a = makeCharacter({ id: "char_opaque_a", pos: { x: 0, y: 0 } });
+    a.displayName = "Player_1";
+    // Production shape: corpse.characterId is the engine `_id`, not Player_N.
+    const state = makeState({
+      characters: [a],
+      world: {
+        corpses: [
+          {
+            characterId: "char_opaque_e",
+            pos: { x: 5, y: 0 },
+            contents: { weapon: { category: "weapon", name: "axe" } },
+          },
+        ],
+      },
+    });
+    // Push a dead character so the displayName→characterId lookup resolves.
+    const dead: CharacterState = {
+      characterId: "char_opaque_e",
+      personaId: "rat",
+      spawnIndex: 4,
+      displayName: "Player_5",
+      hp: 0,
+      maxHp: 100,
+      pos: { x: 5, y: 0 },
+      equipped: {},
+      scratchpad: "",
+      hidden: false,
+      alive: false,
+      lastKnown: [],
+    };
+    state.characters.push(dead);
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "char_opaque_a",
+        moveDecision({
+          kind: "toward_object",
+          targetObjectId: "Corpse_Player_5",
+        }),
+      ],
+      ["char_opaque_e", noMoveDecision()],
+    ]);
+    const { state: next } = simulateMovement(state, decisions);
+    expect(findChar(next, "char_opaque_a").pos).toEqual({ x: 3, y: 0 });
+  });
+});

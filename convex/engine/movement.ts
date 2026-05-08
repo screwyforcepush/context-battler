@@ -31,6 +31,7 @@
 // / `toward_evac` / `relative`, the target tile is fixed at start-of-turn.
 
 import { chebyshev } from "./distance.js";
+import { normaliseCorpseTargetId } from "../llm/idNormalisation.js";
 import type {
   MatchState,
   ParsedDecision,
@@ -129,16 +130,43 @@ export function desiredNextTile(
       // Phase-3 fix — accept both `Chest_NNN` (rendered typed-id) and
       // `chest_NNN` (internal id). Player_* corpse ids stay case-sensitive
       // (they round-trip through `displayName` which is `Player_N` capital).
-      const lookupId = move.targetObjectId.startsWith("Chest_")
-        ? "chest_" + move.targetObjectId.slice("Chest_".length)
-        : move.targetObjectId;
+      const rawObjectId = move.targetObjectId;
+      // WP-G.1 D38 — accept the digest's `Corpse_<displayName>` typed-id
+      // form. Resolve to the engine `characterId` so the corpse lookup
+      // matches in production where `corpse.characterId` is a Convex Id.
+      // PM-lock D38: engine-boundary normalisation; do NOT change digest.
+      if (rawObjectId.startsWith("Corpse_")) {
+        const corpseCharId = normaliseCorpseTargetId(
+          rawObjectId,
+          state.characters,
+        );
+        let corpse = corpseCharId
+          ? state.world.corpses.find((c) => c.characterId === corpseCharId)
+          : undefined;
+        if (!corpse) {
+          // Test-fixture path: corpse.characterId itself is the typed
+          // `Player_N` literal.
+          corpse = state.world.corpses.find(
+            (c) => rawObjectId === `Corpse_${c.characterId}`,
+          );
+        }
+        if (corpse) {
+          targetTile = corpse.pos;
+          stopAtRange2 = true;
+        }
+        if (!targetTile) return null;
+        break;
+      }
+      const lookupId = rawObjectId.startsWith("Chest_")
+        ? "chest_" + rawObjectId.slice("Chest_".length)
+        : rawObjectId;
       const chest = state.world.chests.find((c) => c.id === lookupId);
       if (chest) {
         targetTile = chest.pos;
         stopAtRange2 = true;
       } else {
         const corpse = state.world.corpses.find(
-          (c) => c.characterId === move.targetObjectId,
+          (c) => c.characterId === rawObjectId,
         );
         if (corpse) {
           targetTile = corpse.pos;

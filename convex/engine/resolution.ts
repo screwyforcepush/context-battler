@@ -50,7 +50,10 @@ import { chebyshev } from "./distance.js";
 import { isInCover } from "./hiding.js";
 import { updateLastKnown } from "./lastKnown.js";
 import { simulateMovement } from "./movement.js";
-import { normaliseCharacterTargetId } from "../llm/idNormalisation.js";
+import {
+  normaliseCharacterTargetId,
+  normaliseCorpseTargetId,
+} from "../llm/idNormalisation.js";
 import type {
   ActionDecision,
   CharacterState,
@@ -494,11 +497,15 @@ export function resolveTurn(
       }
       case "loot": {
         // Phase-3 ADR §1 — unified loot dispatch by id namespace.
-        //   chest_*   → chest-open path
-        //   Player_*  → corpse-loot path (resolved via displayName lookup
-        //               so production Convex Ids round-trip through the
-        //               LLM-facing literal)
-        //   otherwise → result="no_target" (rejection)
+        //   chest_*       → chest-open path
+        //   Corpse_*      → corpse-loot path (rendered typed-id from
+        //                   digest, e.g. `Corpse_Player_5`); WP-G.1 D38
+        //                   normalises via inner displayName lookup.
+        //   Player_*      → corpse-loot path (legacy / direct displayName
+        //                   form; resolved via displayName lookup so
+        //                   production Convex Ids round-trip through the
+        //                   LLM-facing literal).
+        //   otherwise     → result="no_target" (rejection)
         // PM lock D7: chest opens emit `kind="loot"` / `result="opened"`.
         const rawTargetId = action.targetId;
         if (typeof rawTargetId !== "string" || rawTargetId === "") {
@@ -507,6 +514,57 @@ export function resolveTurn(
             kind: "loot",
             target: rawTargetId ?? "",
             result: "no_target",
+          });
+          break;
+        }
+        // WP-G.1 D38 — Corpse_<displayName> typed-id branch. Resolve the
+        // inner displayName to the engine `characterId` so the corpse
+        // lookup matches in production where `corpse.characterId` is a
+        // Convex Id. Trace `target` preserves the LLM verbatim emit so
+        // replay/diagnostic tooling sees what the agent actually wrote
+        // (mirrors the Player_* branch's `traceTarget` convention).
+        if (rawTargetId.startsWith("Corpse_")) {
+          let corpseCharId = normaliseCorpseTargetId(
+            rawTargetId,
+            working.characters,
+          );
+          let corpse = corpseCharId
+            ? working.world.corpses.find(
+                (c) => c.characterId === corpseCharId,
+              )
+            : undefined;
+          if (!corpse) {
+            // Test-fixture path: corpse.characterId is itself the typed
+            // `Player_N` literal — match against `Corpse_<characterId>`.
+            corpse = working.world.corpses.find(
+              (c) => rawTargetId === `Corpse_${c.characterId}`,
+            );
+            if (corpse) {
+              corpseCharId = corpse.characterId;
+            }
+          }
+          if (!corpse) {
+            trace.actions.push({
+              characterId: id,
+              kind: "loot",
+              target: rawTargetId,
+              result: "no_corpse",
+            });
+            break;
+          }
+          if (chebyshev(actor.pos, corpse.pos) > INTERACT_RANGE) {
+            trace.actions.push({
+              characterId: id,
+              kind: "loot",
+              target: rawTargetId,
+              result: "out_of_range",
+            });
+            break;
+          }
+          loots.push({
+            actorId: id,
+            corpseId: corpseCharId ?? corpse.characterId,
+            traceTarget: rawTargetId,
           });
           break;
         }

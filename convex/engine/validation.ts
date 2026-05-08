@@ -35,7 +35,10 @@
 
 import { chebyshev } from "./distance.js";
 import { computeVisibleEntities } from "./vision.js";
-import { normaliseCharacterTargetId } from "../llm/idNormalisation.js";
+import {
+  normaliseCharacterTargetId,
+  normaliseCorpseTargetId,
+} from "../llm/idNormalisation.js";
 import {
   SAFE_DEFAULT_DECISION,
   WEAPONS,
@@ -208,6 +211,31 @@ export function validateDecision(
       if (!rawTargetId) {
         return invalid(`move.kind='toward_object' missing targetObjectId`);
       }
+      // Phase-3 WP-G.1 — accept the digest's `Corpse_<displayName>` typed-id
+      // form (rendered by `convex/llm/inputBuilder.ts:516`). Resolve to the
+      // engine `characterId` so `state.world.corpses.find(c =>
+      // c.characterId === resolved)` matches in production where
+      // `corpse.characterId` is the Convex `_id`. PM-lock D38: validator-
+      // boundary normalisation only; digest rendering stays as-is.
+      if (rawTargetId.startsWith("Corpse_")) {
+        const corpseCharId = normaliseCorpseTargetId(
+          rawTargetId,
+          state.characters,
+        );
+        const corpse = corpseCharId
+          ? state.world.corpses.find((c) => c.characterId === corpseCharId)
+          : state.world.corpses.find((c) =>
+              // Test-fixture path: corpse.characterId may itself be the
+              // typed Player_N literal — match against `Corpse_<corpse.characterId>`.
+              rawTargetId === `Corpse_${c.characterId}`,
+            );
+        if (!corpse) {
+          return invalid(
+            `move.kind='toward_object' targetObjectId='${rawTargetId}' is not a known chest or corpse`,
+          );
+        }
+        break;
+      }
       // Phase-3 fix — accept both `Chest_NNN` (rendered typed-id) and
       // `chest_NNN` (internal id). See `normaliseChestTargetId` rationale.
       const targetId = normaliseChestTargetId(rawTargetId);
@@ -283,6 +311,44 @@ export function validateDecision(
       const rawTargetId = decision.action.targetId;
       if (!rawTargetId) {
         return invalid(`action.kind='loot' missing targetId`);
+      }
+      // Phase-3 WP-G.1 — accept the digest's `Corpse_<displayName>` typed-id
+      // form (rendered by `convex/llm/inputBuilder.ts:516`). Resolve to the
+      // engine `characterId` so `state.world.corpses.find(c =>
+      // c.characterId === resolved)` matches in production where
+      // `corpse.characterId` is the Convex `_id`. PM-lock D38: validator-
+      // boundary normalisation only; digest rendering stays as-is, and the
+      // decision.action.targetId is preserved verbatim so the resolver's
+      // trace emits what the agent literally wrote (mirrors WP-F.2's
+      // `traceTarget` convention at resolution.ts:454).
+      if (rawTargetId.startsWith("Corpse_")) {
+        const corpseCharId = normaliseCorpseTargetId(
+          rawTargetId,
+          state.characters,
+        );
+        let corpse = corpseCharId
+          ? state.world.corpses.find((c) => c.characterId === corpseCharId)
+          : undefined;
+        if (!corpse) {
+          // Test-fixture path: `corpse.characterId` is itself the typed
+          // `Player_N` literal — match against `Corpse_<corpse.characterId>`.
+          corpse = state.world.corpses.find(
+            (c) => rawTargetId === `Corpse_${c.characterId}`,
+          );
+        }
+        if (!corpse) {
+          return invalid(
+            `loot target '${rawTargetId}' is not a known corpse`,
+          );
+        }
+        if (decision.move.kind === "none") {
+          if (chebyshev(actor.pos, corpse.pos) > INTERACT_RANGE) {
+            return invalid(
+              `loot target '${rawTargetId}' is beyond loot range ${INTERACT_RANGE}`,
+            );
+          }
+        }
+        break;
       }
       // Phase-3 fix — accept both `Chest_NNN` (rendered typed-id) and
       // `chest_NNN` (internal id). Player_* corpse ids stay

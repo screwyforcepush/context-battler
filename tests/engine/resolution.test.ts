@@ -2080,3 +2080,135 @@ describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
     expect(attackEntry!.result).toBe("no_target");
   });
 });
+
+// ─── WP-G.1 Corpse_Player_N corpse-loot dispatch — D38 PM-lock ───────────
+//
+// Reviewer-B HIGH-1: digest renders `Corpse_Player_N` typed-id (cf.
+// `convex/llm/inputBuilder.ts:516`), system prompt instructs "loot
+// <Visible.id> — copy id verbatim", but resolution.ts:559 only branched on
+// `Player_*` and emitted `result="no_target"` for `Corpse_Player_*` —
+// 0% corpse-loot was rejection-at-validator/resolver, NOT propensity.
+//
+// PM-lock D38: fix at the validator/engine boundary by extending
+// normalisation; do NOT change the digest/prompt rendering.
+describe("WP-G.1 Corpse_Player_N corpse-loot dispatch — D38", () => {
+  it("Corpse_Player_N typed-id (digest form) → corpse-loot path (kind='loot', result='looted')", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const state = makeState({
+      characters: [a],
+      world: {
+        corpses: [
+          {
+            characterId: "Player_5", // test fixture: characterId === displayName
+            pos: { x: 1, y: 0 },
+            contents: { weapon: { category: "weapon", name: "axe" } },
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          action: { kind: "loot", targetId: "Corpse_Player_5" },
+        }),
+      ],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+    // Loot succeeded: A picked up the axe.
+    expect(
+      next.characters.find((c) => c.characterId === "A")?.equipped.weapon,
+    ).toEqual({ category: "weapon", name: "axe" });
+    const looted = trace.actions.find(
+      (act) =>
+        act.characterId === "A" &&
+        act.kind === "loot" &&
+        act.result === "looted",
+    );
+    expect(looted).toBeDefined();
+    // Trace target preserves the LLM-emitted typed id verbatim so replay
+    // sees what the model actually wrote (mirrors WP-F.2 traceTarget convention).
+    expect(looted!.target).toBe("Corpse_Player_5");
+  });
+
+  it("Corpse_<displayName> with opaque engine characterId resolves via displayName lookup → engine id", () => {
+    // Production shape: corpse.characterId is a Convex Id (opaque), the
+    // dead character's displayName is `Player_N`. The LLM emits
+    // `Corpse_Player_N` (the rendered typed id from the digest).
+    const a = makeCharacter({ id: "char_opaque_a", pos: { x: 0, y: 0 } });
+    a.displayName = "Player_1";
+    const state = makeState({
+      characters: [a],
+      world: {
+        corpses: [
+          {
+            characterId: "char_opaque_e", // engine id, NOT Player_5
+            pos: { x: 1, y: 0 },
+            contents: { armour: { category: "armour", name: "plate" } },
+          },
+        ],
+      },
+    });
+    // Add a dead character entry whose displayName is Player_5 so the
+    // displayName→characterId lookup resolves.
+    const dead: CharacterState = {
+      characterId: "char_opaque_e",
+      personaId: "rat",
+      spawnIndex: 4,
+      displayName: "Player_5",
+      hp: 0,
+      maxHp: 100,
+      pos: { x: 1, y: 0 },
+      equipped: {},
+      scratchpad: "",
+      hidden: false,
+      alive: false,
+      lastKnown: [],
+    };
+    state.characters.push(dead);
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "char_opaque_a",
+        nullDecision({
+          action: { kind: "loot", targetId: "Corpse_Player_5" },
+        }),
+      ],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+    // A equipped plate from the corpse.
+    expect(
+      next.characters.find((c) => c.characterId === "char_opaque_a")?.equipped
+        .armour,
+    ).toEqual({ category: "armour", name: "plate" });
+    const looted = trace.actions.find(
+      (act) =>
+        act.characterId === "char_opaque_a" &&
+        act.kind === "loot" &&
+        act.result === "looted",
+    );
+    expect(looted).toBeDefined();
+    expect(looted!.target).toBe("Corpse_Player_5");
+  });
+
+  it("Corpse_Player_99 (unknown) → result='no_corpse' on the corpse-loot branch (NOT no_target)", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const state = makeState({ characters: [a] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          action: { kind: "loot", targetId: "Corpse_Player_99" },
+        }),
+      ],
+    ]);
+    const { trace } = resolveTurn(state, decisions);
+    const noCorpse = trace.actions.find(
+      (act) =>
+        act.characterId === "A" &&
+        act.kind === "loot" &&
+        act.target === "Corpse_Player_99" &&
+        act.result === "no_corpse",
+    );
+    expect(noCorpse).toBeDefined();
+  });
+});

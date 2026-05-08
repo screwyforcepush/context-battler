@@ -813,4 +813,232 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     const result = validateDecision(state, "A", decision);
     expect(result.ok).toBe(true);
   });
+
+  // ─── WP-G.1 Corpse_Player_N typed-id normalisation at validator boundary ─
+  //
+  // Per North Star §1 + the system prompt's "loot <Visible.id> — copy id
+  // verbatim" instruction, the agent emits corpse loot/toward_object targets
+  // as the digest's typed id `Corpse_Player_N` (rendered by
+  // `convex/llm/inputBuilder.ts:516`). The validator/engine historically
+  // only accepted `chest_*`/`Player_*` namespaces, rejecting all
+  // `Corpse_Player_*` loot attempts as "invalid namespace prefix"
+  // (reviewer-B completion-review-2 HIGH-1).
+  //
+  // PM-lock D38: fix at the validator/engine boundary by extending
+  // normalisation; do NOT change the digest rendering. Mirrors WP-F.2's
+  // approach for `Player_N` and the WP-B.10 fix for `Chest_NNN`.
+  describe("WP-G.1 Corpse_Player_N corpse-target normalisation — D38", () => {
+    it("loot.targetId 'Corpse_Player_5' (typed-id from digest) → valid (resolves to corpse via displayName lookup)", () => {
+      const me: CharacterState = {
+        characterId: "char_opaque_a",
+        personaId: "rat",
+        spawnIndex: 0,
+        displayName: "Player_1",
+        hp: 100,
+        maxHp: 100,
+        pos: { x: 5, y: 5 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      };
+      // Dead character whose engine characterId is opaque, displayName Player_5.
+      const dead: CharacterState = {
+        characterId: "char_opaque_e",
+        personaId: "rat",
+        spawnIndex: 4,
+        displayName: "Player_5",
+        hp: 0,
+        maxHp: 100,
+        pos: { x: 6, y: 5 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: false,
+        lastKnown: [],
+      };
+      const corpse: CorpseState = {
+        characterId: "char_opaque_e", // engine-side id, NOT the typed id
+        pos: { x: 6, y: 5 },
+        contents: { weapon: { category: "weapon", name: "axe" } },
+      };
+      const state = makeState({
+        characters: [me, dead],
+        world: { corpses: [corpse] },
+      });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        action: { kind: "loot", targetId: "Corpse_Player_5" },
+      };
+      const result = validateDecision(state, "char_opaque_a", decision);
+      expect(result.ok).toBe(true);
+    });
+
+    it("loot.targetId 'Corpse_Player_99' (no such character) → safe-default with corpse reason", () => {
+      const me: CharacterState = {
+        characterId: "char_opaque_a",
+        personaId: "rat",
+        spawnIndex: 0,
+        displayName: "Player_1",
+        hp: 100,
+        maxHp: 100,
+        pos: { x: 5, y: 5 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      };
+      const state = makeState({ characters: [me] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        action: { kind: "loot", targetId: "Corpse_Player_99" },
+      };
+      const result = validateDecision(state, "char_opaque_a", decision);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toMatch(/corpse|Corpse_Player_99/i);
+        expect(result.safeDefault).toEqual(SAFE_DEFAULT_DECISION);
+      }
+    });
+
+    it("loot.targetId 'Corpse_Player_5' validator preserves verbatim targetId (resolver normalises + emits verbatim trace, mirrors WP-F.2 pattern)", () => {
+      // PM-lock D38 + WP-F.2 pattern (resolution.ts:454): validator does
+      // normalisation for ACCEPTANCE, but does NOT rewrite the decision.
+      // The resolver re-normalises and preserves the verbatim emit on
+      // `trace.actions[].target` so replay/diagnostics see what the
+      // agent actually wrote. Asserting verbatim preservation here pins
+      // the convention so a future "validator rewrites action.targetId"
+      // refactor can't silently corrupt the trace.
+      const me: CharacterState = {
+        characterId: "char_opaque_a",
+        personaId: "rat",
+        spawnIndex: 0,
+        displayName: "Player_1",
+        hp: 100,
+        maxHp: 100,
+        pos: { x: 5, y: 5 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      };
+      const dead: CharacterState = {
+        characterId: "char_opaque_e",
+        personaId: "rat",
+        spawnIndex: 4,
+        displayName: "Player_5",
+        hp: 0,
+        maxHp: 100,
+        pos: { x: 6, y: 5 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: false,
+        lastKnown: [],
+      };
+      const corpse: CorpseState = {
+        characterId: "char_opaque_e",
+        pos: { x: 6, y: 5 },
+        contents: { weapon: { category: "weapon", name: "axe" } },
+      };
+      const state = makeState({
+        characters: [me, dead],
+        world: { corpses: [corpse] },
+      });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        action: { kind: "loot", targetId: "Corpse_Player_5" },
+      };
+      const result = validateDecision(state, "char_opaque_a", decision);
+      expect(result.ok).toBe(true);
+      if (result.ok && result.decision.action.kind === "loot") {
+        expect(result.decision.action.targetId).toBe("Corpse_Player_5");
+      }
+    });
+
+    it("move:toward_object 'Corpse_Player_5' (typed-id from digest) → valid (resolves to corpse tile)", () => {
+      const me: CharacterState = {
+        characterId: "char_opaque_a",
+        personaId: "rat",
+        spawnIndex: 0,
+        displayName: "Player_1",
+        hp: 100,
+        maxHp: 100,
+        pos: { x: 5, y: 5 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      };
+      const dead: CharacterState = {
+        characterId: "char_opaque_e",
+        personaId: "rat",
+        spawnIndex: 4,
+        displayName: "Player_5",
+        hp: 0,
+        maxHp: 100,
+        pos: { x: 13, y: 5 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: false,
+        lastKnown: [],
+      };
+      const corpse: CorpseState = {
+        characterId: "char_opaque_e",
+        pos: { x: 13, y: 5 },
+        contents: { weapon: { category: "weapon", name: "axe" } },
+      };
+      const state = makeState({
+        characters: [me, dead],
+        world: { corpses: [corpse] },
+      });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        primary: "move",
+        move: { kind: "toward_object", targetObjectId: "Corpse_Player_5" },
+      };
+      const result = validateDecision(state, "char_opaque_a", decision);
+      expect(result.ok).toBe(true);
+    });
+
+    it("move:toward_object 'Corpse_Player_99' (unknown) → safe-default", () => {
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const state = makeState({ characters: [me] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        primary: "move",
+        move: { kind: "toward_object", targetObjectId: "Corpse_Player_99" },
+      };
+      const result = validateDecision(state, "A", decision);
+      expect(result.ok).toBe(false);
+    });
+
+    it("test-fixture path: Corpse_<displayName> when displayName === characterId resolves directly", () => {
+      // In test fixtures, characterId often equals displayName (e.g. "B").
+      // The Corpse_<id> form must still resolve when there is no separate
+      // displayName mapping (handles tests + edge cases where a corpse has
+      // a Player_N literal as characterId).
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const corpse: CorpseState = {
+        characterId: "Player_5",
+        pos: { x: 6, y: 5 },
+        contents: { weapon: { category: "weapon", name: "axe" } },
+      };
+      const state = makeState({
+        characters: [me],
+        world: { corpses: [corpse] },
+      });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        action: { kind: "loot", targetId: "Corpse_Player_5" },
+      };
+      const result = validateDecision(state, "A", decision);
+      expect(result.ok).toBe(true);
+    });
+  });
 });
