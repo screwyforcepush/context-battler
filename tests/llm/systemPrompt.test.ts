@@ -3,7 +3,7 @@
 // Phase-3 substrate refinement promotes `systemPrompt.ts` from a static
 // laws-of-the-game blurb to a SCHEMA TEACHER. The prompt explains:
 //   - the typed-id glossary the digest uses (`Player_N`, `Chest_NNN`,
-//     `Corpse_PlayerN`, `Cover_X_Y`, `Wall_X_Y`, `Evac`);
+//     `Corpse_Player_N`, `Cover_X_Y`, `Wall_X_Y`, `Evac`);
 //   - per-Visible observation brackets and what they mean;
 //   - the action grammar (move arms, action arms, overwatch with
 //     `overwatch_stance`);
@@ -64,8 +64,17 @@ describe("WP-C.2 — typed-id glossary (How to read Visible)", () => {
     expect(SYSTEM_PROMPT).toContain("Chest_NNN");
   });
 
-  it("teaches Corpse_PlayerN", () => {
-    expect(SYSTEM_PROMPT).toContain("Corpse_PlayerN");
+  it("teaches Corpse_Player_N", () => {
+    // WP-I.4 (Reviewer A LOW): align prompt-teaching shape with the
+    // digest's verbatim form. inputBuilder.ts:516 renders
+    // `Corpse_${displayName}` where displayName is the typed-id
+    // `Player_N` form, so the digest emits `Corpse_Player_N`. The
+    // prompt must teach that shape verbatim — the underscore-less
+    // `Corpse_PlayerN` was a doc-only inconsistency (zero production
+    // impact: trace audit shows 0 rejections of either shape, since
+    // the "copy id verbatim" instruction makes the digest authoritative).
+    expect(SYSTEM_PROMPT).toContain("Corpse_Player_N");
+    expect(SYSTEM_PROMPT).not.toMatch(/Corpse_PlayerN\b/);
   });
 
   it("teaches Cover_X_Y", () => {

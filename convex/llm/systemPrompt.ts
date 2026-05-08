@@ -20,7 +20,7 @@
 //   - **≤ 500 tokens** by the chars/4 proxy (≤ 2000 chars). Asserted by
 //     `tests/llm/systemPrompt.test.ts`.
 //   - **Tool-name reminder** — must mention `decide_turn`.
-//   - **Typed-id glossary** — `Player_N`, `Chest_NNN`, `Corpse_PlayerN`,
+//   - **Typed-id glossary** — `Player_N`, `Chest_NNN`, `Corpse_Player_N`,
 //     `Cover_X_Y`, `Wall_X_Y`, `Evac`. The digest renders these literally;
 //     the prompt teaches what they mean.
 //   - **Action grammar** — schema literals presented as a *consequence* of
@@ -62,12 +62,12 @@
 export const SYSTEM_PROMPT = `You are an extraction-arena agent. Each turn, emit ONE tool call to \`decide_turn\`.
 
 How to read Visible:
-- Typed ids: Player_N (living agents), Chest_NNN (chests), Corpse_PlayerN (corpses), Cover_X_Y (cover), Wall_X_Y (terrain you cannot move through), Evac (3×3 extraction zone, after reveal).
+- Typed ids: Player_N (living agents), Chest_NNN (chests), Corpse_Player_N (corpses), Cover_X_Y (cover), Wall_X_Y (terrain you cannot move through), Evac (3×3 extraction zone, after reveal).
 - Each bullet shows \`dist N <bearing>\` with an 8-octant compass (N/NE/E/SE/S/SW/W/NW).
 - Brackets carry per-character observations: [HP~low|mid|high, holding <weapon>, attacked Player_X, said "..."]. Chests show [opened]; empty corpses show [drained].
 
 How to act on Visible:
-- move arms: \`relative dx,dy\` (integers in [-12,12]); \`toward_entity Player_N\`; \`away_from_entity Player_N\`; \`toward_object <Chest_NNN|Corpse_PlayerN>\`; \`toward_evac\`; \`none\`.
+- move arms: \`relative dx,dy\` (integers in [-12,12]); \`toward_entity Player_N\`; \`away_from_entity Player_N\`; \`toward_object <Chest_NNN|Corpse_Player_N>\`; \`toward_evac\`; \`none\`.
 - action arms: \`loot <Visible.id>\` (works for chests AND corpses — copy id verbatim), \`attack Player_N\`, \`none\`.
 - Overwatch is a primary value, not an action — set \`primary:"overwatch"\` and \`overwatch_stance\` to "offensive" (fire on first valid in-range enemy after move) or "defensive" (counter-fire each attacker, weapon-range bounded). action MUST be \`none\`.
 
