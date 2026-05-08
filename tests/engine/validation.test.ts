@@ -605,6 +605,192 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     });
   });
 
+  // ─── WP-F.2 display-id normalisation at the validator boundary ────────
+  //
+  // Per North Star §1 (locked design decision #1) and the system prompt,
+  // the LLM emits attack / move-toward / move-away targets as typed
+  // display ids (`Player_N`, the `displayName`). The validator must
+  // bridge that to the engine `characterId` so production targets
+  // resolve correctly — historically every `Player_N` target was
+  // rejected as "not a living character", driving the safe-default
+  // fallback rate well past the closing-10 ≤10% threshold.
+  describe("WP-F.2 display-id (Player_N) target normalisation — ADR §1", () => {
+    it("attack target=displayName 'Player_3' (engine id is opaque) → valid", () => {
+      const me: CharacterState = {
+        characterId: "char_opaque_a",
+        personaId: "rat",
+        spawnIndex: 0,
+        displayName: "Player_1",
+        hp: 100,
+        maxHp: 100,
+        pos: { x: 5, y: 5 },
+        equipped: { weapon: { category: "weapon", name: "sword" } },
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      };
+      const target: CharacterState = {
+        characterId: "char_opaque_b",
+        personaId: "rat",
+        spawnIndex: 2,
+        displayName: "Player_3",
+        hp: 100,
+        maxHp: 100,
+        pos: { x: 6, y: 6 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      };
+      const state = makeState({ characters: [me, target] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        action: { kind: "attack", targetCharacterId: "Player_3" },
+      };
+      const result = validateDecision(state, "char_opaque_a", decision);
+      expect(result.ok).toBe(true);
+    });
+
+    it("attack target=Player_99 (no such character) → safe-default with 'not a living character' reason", () => {
+      const me: CharacterState = {
+        characterId: "char_opaque_a",
+        personaId: "rat",
+        spawnIndex: 0,
+        displayName: "Player_1",
+        hp: 100,
+        maxHp: 100,
+        pos: { x: 5, y: 5 },
+        equipped: { weapon: { category: "weapon", name: "sword" } },
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      };
+      const state = makeState({ characters: [me] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        action: { kind: "attack", targetCharacterId: "Player_99" },
+      };
+      const result = validateDecision(state, "char_opaque_a", decision);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        // Closing-10 reports key off the "not a living character" wording.
+        expect(result.reason).toMatch(/not a living character/);
+        expect(result.reason).toContain("Player_99");
+        expect(result.safeDefault).toEqual(SAFE_DEFAULT_DECISION);
+      }
+    });
+
+    it("move:toward_entity targetCharacterId='Player_3' → valid (engine id is opaque)", () => {
+      const me: CharacterState = {
+        characterId: "char_opaque_a",
+        personaId: "rat",
+        spawnIndex: 0,
+        displayName: "Player_1",
+        hp: 100,
+        maxHp: 100,
+        pos: { x: 5, y: 5 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      };
+      const target: CharacterState = {
+        characterId: "char_opaque_b",
+        personaId: "rat",
+        spawnIndex: 2,
+        displayName: "Player_3",
+        hp: 100,
+        maxHp: 100,
+        pos: { x: 8, y: 5 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      };
+      const state = makeState({ characters: [me, target] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        primary: "move",
+        move: { kind: "toward_entity", targetCharacterId: "Player_3" },
+      };
+      const result = validateDecision(state, "char_opaque_a", decision);
+      expect(result.ok).toBe(true);
+    });
+
+    it("move:toward_entity targetCharacterId='Player_99' (unknown) → safe-default", () => {
+      const me: CharacterState = {
+        characterId: "char_opaque_a",
+        personaId: "rat",
+        spawnIndex: 0,
+        displayName: "Player_1",
+        hp: 100,
+        maxHp: 100,
+        pos: { x: 5, y: 5 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      };
+      const state = makeState({ characters: [me] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        primary: "move",
+        move: { kind: "toward_entity", targetCharacterId: "Player_99" },
+      };
+      const result = validateDecision(state, "char_opaque_a", decision);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toMatch(/not a living character/);
+        expect(result.reason).toContain("Player_99");
+      }
+    });
+
+    it("move:away_from_entity targetCharacterId='Player_3' → valid (engine id is opaque)", () => {
+      const me: CharacterState = {
+        characterId: "char_opaque_a",
+        personaId: "rat",
+        spawnIndex: 0,
+        displayName: "Player_1",
+        hp: 100,
+        maxHp: 100,
+        pos: { x: 5, y: 5 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      };
+      const target: CharacterState = {
+        characterId: "char_opaque_b",
+        personaId: "rat",
+        spawnIndex: 2,
+        displayName: "Player_3",
+        hp: 100,
+        maxHp: 100,
+        pos: { x: 8, y: 5 },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      };
+      const state = makeState({ characters: [me, target] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        primary: "move",
+        move: { kind: "away_from_entity", targetCharacterId: "Player_3" },
+      };
+      const result = validateDecision(state, "char_opaque_a", decision);
+      expect(result.ok).toBe(true);
+    });
+  });
+
   it("§9 line 447 — move:toward_object chestA + action:interact chestB-far-away → valid (resolver no-ops post-move)", () => {
     // Validator must not reject this; the resolver's post-move chebyshev
     // check at resolution.ts:446 will record result:"out_of_range" cleanly.

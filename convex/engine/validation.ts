@@ -35,6 +35,7 @@
 
 import { chebyshev } from "./distance.js";
 import { computeVisibleEntities } from "./vision.js";
+import { normaliseCharacterTargetId } from "../llm/idNormalisation.js";
 import {
   SAFE_DEFAULT_DECISION,
   WEAPONS,
@@ -171,21 +172,33 @@ export function validateDecision(
     }
     case "toward_entity":
     case "away_from_entity": {
-      const targetId = decision.move.targetCharacterId;
-      if (!targetId) {
+      const rawTargetId = decision.move.targetCharacterId;
+      if (!rawTargetId) {
         return invalid(
           `move.kind === '${decision.move.kind}' missing targetCharacterId`,
+        );
+      }
+      // Phase-3 WP-F.2 — bridge the LLM-contract id space (typed
+      // displayName, e.g. `Player_3`) to the engine `characterId`
+      // space. See `convex/llm/idNormalisation.ts` for the rationale.
+      const targetId = normaliseCharacterTargetId(
+        rawTargetId,
+        state.characters,
+      );
+      if (!targetId) {
+        return invalid(
+          `move target '${rawTargetId}' is not a living character`,
         );
       }
       const target = state.characters.find((c) => c.characterId === targetId);
       if (!target || !target.alive) {
         return invalid(
-          `move target '${targetId}' is not a living character`,
+          `move target '${rawTargetId}' is not a living character`,
         );
       }
       if (!visibleCharacterIds.has(targetId)) {
         return invalid(
-          `move target '${targetId}' is not visible to actor`,
+          `move target '${rawTargetId}' is not visible to actor`,
         );
       }
       break;
@@ -230,16 +243,26 @@ export function validateDecision(
   // ── action ───────────────────────────────────────────────────────────
   switch (decision.action.kind) {
     case "attack": {
-      const targetId = decision.action.targetCharacterId;
-      if (!targetId) {
+      const rawTargetId = decision.action.targetCharacterId;
+      if (!rawTargetId) {
         return invalid(`action.kind='attack' missing targetCharacterId`);
+      }
+      // Phase-3 WP-F.2 — bridge the LLM-contract id space (typed
+      // displayName, e.g. `Player_3`) to the engine `characterId`
+      // space. See `convex/llm/idNormalisation.ts` for the rationale.
+      const targetId = normaliseCharacterTargetId(
+        rawTargetId,
+        state.characters,
+      );
+      if (!targetId) {
+        return invalid(`attack target '${rawTargetId}' is not a living character`);
       }
       const target = state.characters.find((c) => c.characterId === targetId);
       if (!target || !target.alive) {
-        return invalid(`attack target '${targetId}' is not a living character`);
+        return invalid(`attack target '${rawTargetId}' is not a living character`);
       }
       if (!visibleCharacterIds.has(targetId)) {
-        return invalid(`attack target '${targetId}' is not visible to actor`);
+        return invalid(`attack target '${rawTargetId}' is not visible to actor`);
       }
       // Range check skipped when actor is moving — resolver gates against
       // post-move position (concept-spec §9 line 447). See header note.
@@ -247,7 +270,7 @@ export function validateDecision(
         const range = weaponRange(actor);
         if (chebyshev(actor.pos, target.pos) > range) {
           return invalid(
-            `attack target '${targetId}' is beyond weapon range ${range}`,
+            `attack target '${rawTargetId}' is beyond weapon range ${range}`,
           );
         }
       }

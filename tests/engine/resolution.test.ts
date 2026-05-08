@@ -1938,3 +1938,145 @@ describe("WP7 resolution — end-to-end short scenario", () => {
     expect(state.turn).toBe(4);
   });
 });
+
+// ─── WP-F.2 display-id normalisation through resolution ──────────────────
+//
+// Per North Star §1 (locked design decision #1) and the system prompt,
+// the LLM emits attack / move-toward / move-away targets as typed
+// display ids (`Player_N`, the `displayName`). In production the engine
+// `characterId` is a Convex opaque `_id`, NOT `Player_N`. The
+// normalisation helper at `convex/llm/idNormalisation.ts` bridges the
+// two id spaces; resolution.ts applies it at the attack site and at the
+// move-decision-collection site (so `simulateMovement` sees engine ids).
+// These tests confirm Player_N targets resolve end-to-end through the
+// engine when the engine `characterId` is opaque.
+describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
+  it("attack with targetCharacterId='Player_3' resolves against opaque engine id and applies damage", () => {
+    const a = makeCharacter({
+      id: "char_opaque_a",
+      pos: { x: 5, y: 5 },
+      weapon: { category: "weapon", name: "sword" },
+    });
+    a.displayName = "Player_1";
+    const b = makeCharacter({
+      id: "char_opaque_b",
+      pos: { x: 6, y: 5 },
+      hp: 100,
+    });
+    b.displayName = "Player_3";
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "char_opaque_a",
+        nullDecision({
+          action: { kind: "attack", targetCharacterId: "Player_3" },
+        }),
+      ],
+      ["char_opaque_b", nullDecision()],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+    // sword (15) - 0 = 15 damage; B was 100 → 85.
+    expect(findChar(next, "char_opaque_b").hp).toBe(85);
+    // Trace echoes the model's verbatim emit on the target field
+    // (matches the corpse-loot path's traceTarget convention) so replay
+    // tooling sees what the agent actually wrote.
+    const attackEntry = trace.actions.find(
+      (act) => act.characterId === "char_opaque_a" && act.kind === "attack",
+    );
+    expect(attackEntry).toBeDefined();
+    expect(attackEntry!.target).toBe("Player_3");
+    expect(attackEntry!.result).toBe("dmg 15");
+  });
+
+  it("move:toward_entity with targetCharacterId='Player_3' steps toward opaque target", () => {
+    const a = makeCharacter({
+      id: "char_opaque_a",
+      pos: { x: 0, y: 0 },
+    });
+    a.displayName = "Player_1";
+    const b = makeCharacter({
+      id: "char_opaque_b",
+      pos: { x: 30, y: 0 },
+    });
+    b.displayName = "Player_3";
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "char_opaque_a",
+        nullDecision({
+          primary: "move",
+          move: { kind: "toward_entity", targetCharacterId: "Player_3" },
+        }),
+      ],
+      ["char_opaque_b", nullDecision()],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+    // Default budget = 8; A starts at (0,0), target at (30,0), so A
+    // should step 8 tiles toward target → x=8.
+    expect(findChar(next, "char_opaque_a").pos.x).toBe(8);
+    expect(
+      trace.moves.find((m) => m.characterId === "char_opaque_a"),
+    ).toBeTruthy();
+  });
+
+  it("move:away_from_entity with targetCharacterId='Player_3' steps away from opaque target", () => {
+    const a = makeCharacter({
+      id: "char_opaque_a",
+      pos: { x: 5, y: 0 },
+    });
+    a.displayName = "Player_1";
+    const b = makeCharacter({
+      id: "char_opaque_b",
+      pos: { x: 0, y: 0 },
+    });
+    b.displayName = "Player_3";
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "char_opaque_a",
+        nullDecision({
+          primary: "move",
+          move: { kind: "away_from_entity", targetCharacterId: "Player_3" },
+        }),
+      ],
+      ["char_opaque_b", nullDecision()],
+    ]);
+    const { state: next } = resolveTurn(state, decisions);
+    // A at x=5 fleeing target at x=0 → moves +x. After 8 substeps, x=13.
+    expect(findChar(next, "char_opaque_a").pos.x).toBe(13);
+  });
+
+  it("attack with targetCharacterId='Player_99' (no such character) → result='no_target', no damage", () => {
+    const a = makeCharacter({
+      id: "char_opaque_a",
+      pos: { x: 5, y: 5 },
+      weapon: { category: "weapon", name: "sword" },
+    });
+    a.displayName = "Player_1";
+    const b = makeCharacter({
+      id: "char_opaque_b",
+      pos: { x: 6, y: 5 },
+      hp: 100,
+    });
+    b.displayName = "Player_3";
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "char_opaque_a",
+        nullDecision({
+          action: { kind: "attack", targetCharacterId: "Player_99" },
+        }),
+      ],
+      ["char_opaque_b", nullDecision()],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+    // No-one took damage.
+    expect(findChar(next, "char_opaque_b").hp).toBe(100);
+    const attackEntry = trace.actions.find(
+      (act) => act.characterId === "char_opaque_a" && act.kind === "attack",
+    );
+    expect(attackEntry).toBeDefined();
+    expect(attackEntry!.target).toBe("Player_99");
+    expect(attackEntry!.result).toBe("no_target");
+  });
+});

@@ -50,6 +50,7 @@ import { chebyshev } from "./distance.js";
 import { isInCover } from "./hiding.js";
 import { updateLastKnown } from "./lastKnown.js";
 import { simulateMovement } from "./movement.js";
+import { normaliseCharacterTargetId } from "../llm/idNormalisation.js";
 import type {
   ActionDecision,
   CharacterState,
@@ -289,12 +290,36 @@ export function resolveTurn(
   // ── Phase 4 — Movement ────────────────────────────────────────────────
   // Filter to ONLY decisions where primary === "move"; pass speedActiveIds.
   // Detect "leaving cover" reveal per-mover after the substep loop.
+  //
+  // Phase-3 WP-F.2 — for `toward_entity` / `away_from_entity` move arms,
+  // the LLM emits `targetCharacterId` as a typed display id (`Player_N`,
+  // per North Star §1 + the system prompt). The validator boundary
+  // accepts that form; here we normalise it to the engine `characterId`
+  // before handing the decision to `simulateMovement` so the
+  // sub-substep `state.characters.find((c) => c.characterId === ...)`
+  // lookup inside `desiredNextTile` resolves correctly. Single
+  // normalisation point — engine-id flows through to movement.
   const moveDecisions = new Map<string, ParsedDecision>();
   for (const id of liveActorIds) {
     const decision = decisions.get(id)!;
-    if (decision.primary === "move") {
-      moveDecisions.set(id, decision);
+    if (decision.primary !== "move") continue;
+    if (
+      decision.move.kind === "toward_entity" ||
+      decision.move.kind === "away_from_entity"
+    ) {
+      const engineId = normaliseCharacterTargetId(
+        decision.move.targetCharacterId,
+        working.characters,
+      );
+      if (engineId && engineId !== decision.move.targetCharacterId) {
+        moveDecisions.set(id, {
+          ...decision,
+          move: { ...decision.move, targetCharacterId: engineId },
+        });
+        continue;
+      }
     }
+    moveDecisions.set(id, decision);
   }
   const moveResult = simulateMovement(working, moveDecisions, {
     speedActiveIds,
@@ -420,15 +445,24 @@ export function resolveTurn(
       case "none":
         break;
       case "attack": {
-        const targetId = action.targetCharacterId;
-        const target = working.characters.find(
-          (c) => c.characterId === targetId,
-        );
+        // Phase-3 WP-F.2 — normalise the LLM-facing typed display id
+        // (`Player_N`) to the engine `characterId` before the lookup.
+        // `traceTarget` preserves the model's verbatim emit so the
+        // persisted trace mirrors what the agent wrote (consistent with
+        // the corpse-loot path's `traceTarget` convention).
+        const rawTargetId = action.targetCharacterId;
+        const traceTarget = rawTargetId ?? "";
+        const targetId = rawTargetId
+          ? normaliseCharacterTargetId(rawTargetId, working.characters)
+          : null;
+        const target = targetId
+          ? working.characters.find((c) => c.characterId === targetId)
+          : undefined;
         if (!target || !target.alive) {
           trace.actions.push({
             characterId: id,
             kind: "attack",
-            target: targetId ?? "",
+            target: traceTarget,
             result: "no_target",
           });
           break;
@@ -438,7 +472,7 @@ export function resolveTurn(
           trace.actions.push({
             characterId: id,
             kind: "attack",
-            target: targetId,
+            target: traceTarget,
             result: "out_of_range",
           });
           break;
@@ -446,14 +480,14 @@ export function resolveTurn(
         const dmg = damageFor(actor.equipped.weapon, target.equipped.armour);
         attacks.push({
           attackerId: id,
-          defenderId: targetId,
+          defenderId: target.characterId,
           dmg,
           fromOverwatch: false,
         });
         trace.actions.push({
           characterId: id,
           kind: "attack",
-          target: targetId,
+          target: traceTarget,
           result: `dmg ${dmg}`,
         });
         break;
