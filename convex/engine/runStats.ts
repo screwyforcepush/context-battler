@@ -211,11 +211,17 @@ export function aggregateRunStats(
     }
 
     // ── equips: chest-equip + corpse-loot-equip ────────────────────────
+    // Phase-3 PM lock D7: chest opens emit `kind="loot"` (the resolved-
+    // engine-path, unified under loot per ADR §1). Chests are
+    // disambiguated from corpse loots by the `chest_*` target prefix.
     for (const a of t.resolution.actions) {
       const isChestEquip =
-        a.kind === "interact" && a.result === "opened";
+        a.kind === "loot" &&
+        a.result === "opened" &&
+        a.target.startsWith("chest_");
       const isCorpseLootEquip =
-        a.kind === "loot" && a.result === "looted";
+        a.kind === "loot" &&
+        a.result === "looted";
       if (!isChestEquip && !isCorpseLootEquip) continue;
       equips += 1;
       const persona = personaIndex.get(a.characterId);

@@ -94,6 +94,49 @@ reviewers run before WP-E, not after.
   data (`npx convex run --no-push <wipe-script>` or per-table
   `convex run` mutations) and document the wipe command in this WP's
   acceptance.
+
+  **WP-A.3 wipe-command record (2026-05-08):** the wipe shipped via a
+  one-shot mutation pair in `convex/spike.ts`:
+  - `spike:wipeOneTable` — paginated per-table delete (page size 64)
+    that respects Convex's 16 MB single-execution byte budget; the
+    `turns` table is large enough to require pagination after a
+    closing-50 phase-1 run.
+  - `spike:smokeCreateMatch` — minimal `matches`-row insert under the
+    new schema, used to prove the read/write path post-wipe.
+
+  The push → wipe → push procedure required temporarily setting
+  `schemaValidation: false` on the schema export so the wipe mutation
+  could run against legacy rows; the flag was removed (default `true`
+  restored) before the final push. Sequence:
+
+  ```bash
+  # 1. Push with schemaValidation: false (transient).
+  npx convex dev --once
+
+  # 2. Wipe each table to empty (loop until moreToGo === false).
+  for t in turns characters worldState runs reports matches; do
+    while true; do
+      out=$(npx convex run spike:wipeOneTable "{\"table\":\"$t\"}")
+      echo "$t: $out"
+      echo "$out" | grep -q '"moreToGo": false' && break
+    done
+  done
+
+  # 3. Restore schemaValidation default and re-push.
+  npx convex dev --once
+
+  # 4. Smoke roundtrip — create + read.
+  match_id=$(npx convex run spike:smokeCreateMatch | tr -d '"')
+  npx convex run matches:get "{\"id\":\"$match_id\"}"
+  npx convex run spike:wipeOneTable '{"table":"matches"}'  # cleanup
+  ```
+
+  Smoke result (2026-05-08): match row `j974sv8tys7rd99ypj2a3y4p9s86ajsp`
+  created with the new shape (`reasoningEffort: "low"` set; `outcome`
+  empty; no decision rows yet — empty trace) and read back cleanly via
+  `matches:get`. The wipe + smoke mutations remain in `convex/spike.ts`
+  for re-use during WP-B/C/D smoke runs (idempotent: empty-input wipe is
+  a no-op).
 - **Concept-spec edits (WP-A.4).** Diff-targeted edits to
   `docs/project/spec/concept-spec.md` §7, §8, §11, §13, §21, §22, §23
   per ADR §8 (surface expanded by PM lock D12 after review round 2 to

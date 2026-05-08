@@ -206,18 +206,48 @@ export type MoveDecision =
   | { kind: "none" };
 
 /**
- * Action sub-decision — locked discriminated union per ADR §4. Concrete
- * targets only (no predicates / fallbacks per `mental-model.md` §9).
+ * Action sub-decision — phase-3 ADR §1 (replaces phase-1 ADR §4).
+ * 3-arm union (was 4-arm): the `interact` arm is REMOVED; chest opens
+ * flow through the `loot` arm with a `chest_*`-prefixed targetId.
+ *
+ * `loot.targetId` accepts BOTH chest ids (`chest_NNN`) and corpse ids
+ * (e.g. `Player_3`). Engine dispatches by id namespace per
+ * `convex/engine/resolution.ts`; semantic validator (`validation.ts`)
+ * gates id-namespace validity.
+ *
+ * Concrete targets only (no predicates / fallbacks per
+ * `mental-model.md` §9).
  */
 export type ActionDecision =
   | { kind: "attack"; targetCharacterId: string }
-  | { kind: "interact"; targetObjectId: string }
-  | { kind: "loot"; targetCorpseId: string }
+  | { kind: "loot"; targetId: string }
   | { kind: "none" };
 
 /**
- * The full per-turn decision returned by `callDecisionTool` (WP6) or by
- * the safe-default fallback. Mirrors the JSON Schema in ADR §4 exactly.
+ * Overwatch stance — phase-3 ADR §1 (replaces `overwatch_priority`).
+ *
+ * Required when `primary === "overwatch"`, must be `null` otherwise.
+ * The Zod refinement in `decisionTool.ts` rejects mismatches.
+ *  - `"offensive"` — fires on first valid in-range visible enemy after
+ *    move resolution (ADR §3 — offensive overwatch).
+ *  - `"defensive"` — counter-fires once per attacker who hits the
+ *    overwatcher this turn, bounded by weapon range (ADR §3).
+ *  - `null` — applicable only when primary is "move" or
+ *    "stationary_action".
+ */
+export type OverwatchStance = "offensive" | "defensive" | null;
+
+/**
+ * The full per-turn decision returned by `callDecisionTool` or by the
+ * safe-default fallback. Mirrors the JSON Schema in ADR §1 exactly.
+ *
+ * Phase-3 changes vs phase-1:
+ *   - `overwatch_priority: string | null` → `overwatch_stance: OverwatchStance`.
+ *   - `action` becomes 3-arm (interact dropped; loot.targetCorpseId →
+ *     loot.targetId).
+ *   - On Branch A (probe outcome — Azure exposes reasoning text), no
+ *     `rationale` field is added; reasoning text persists at
+ *     `agentRecord.llm.reasoning`.
  */
 export type ParsedDecision = {
   consume: ConsumeChoice;
@@ -225,14 +255,19 @@ export type ParsedDecision = {
   move: MoveDecision;
   action: ActionDecision;
   say: string | null;
-  overwatch_priority: string | null;
+  overwatch_stance: OverwatchStance;
   scratchpad_update: string | null;
 };
 
 /**
- * Safe default per ADR §4 / §2A.3. The wrapper returns this on every
+ * Safe default per ADR §1 / §2A.3. The wrapper returns this on every
  * failure mode; the engine resolves it as "consume nothing, do nothing,
- * say nothing." Imported by WP6 (wrapper) and WP10 (per-turn fallback).
+ * say nothing." Imported by the wrapper (`convex/llm/azure.ts`) and the
+ * per-turn fallback path (`convex/runMatch.ts`).
+ *
+ * `primary === "stationary_action"` so `overwatch_stance` is `null`
+ * — the stance/primary consistency refinement in `decisionTool.ts`
+ * accepts this round-trip.
  */
 export const SAFE_DEFAULT_DECISION: ParsedDecision = {
   consume: "none",
@@ -240,7 +275,7 @@ export const SAFE_DEFAULT_DECISION: ParsedDecision = {
   move: { kind: "none" },
   action: { kind: "none" },
   say: null,
-  overwatch_priority: null,
+  overwatch_stance: null,
   scratchpad_update: null,
 };
 

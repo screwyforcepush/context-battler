@@ -183,22 +183,25 @@ const moveValidator = v.union(
   v.object({ kind: v.literal("none") }),
 );
 
+// Phase-3 ADR §1 — 3-arm action union (interact arm REMOVED;
+// loot.targetCorpseId renamed to loot.targetId; chests + corpses both
+// flow through loot, dispatched by id namespace in the engine).
 const actionValidator = v.union(
   v.object({
     kind: v.literal("attack"),
     targetCharacterId: v.string(),
   }),
   v.object({
-    kind: v.literal("interact"),
-    targetObjectId: v.string(),
-  }),
-  v.object({
     kind: v.literal("loot"),
-    targetCorpseId: v.string(),
+    targetId: v.string(),
   }),
   v.object({ kind: v.literal("none") }),
 );
 
+// Phase-3 ADR §1 — `overwatch_priority` REMOVED; replaced by structured
+// `overwatch_stance` (`"offensive" | "defensive" | null`). Stance/primary
+// consistency is enforced by the Zod refinement in
+// `convex/llm/decisionTool.ts` BEFORE persistence reaches this validator.
 const decisionValidator = v.object({
   consume: v.union(v.literal("none"), v.literal("heal"), v.literal("speed")),
   primary: v.union(
@@ -208,9 +211,13 @@ const decisionValidator = v.object({
   ),
   move: moveValidator,
   action: actionValidator,
-  // Nullable strings (per ADR §4 — JSON Schema `["string", "null"]`).
+  // Nullable strings (JSON Schema `["string", "null"]`).
   say: v.union(v.string(), v.null()),
-  overwatch_priority: v.union(v.string(), v.null()),
+  overwatch_stance: v.union(
+    v.literal("offensive"),
+    v.literal("defensive"),
+    v.null(),
+  ),
   scratchpad_update: v.union(v.string(), v.null()),
 });
 
@@ -257,6 +264,17 @@ const agentLlmValidator = v.object({
   // guesswork — the Phase E.1 cautionary tale.
   // Optional + additive: existing rows validate cleanly; no migration.
   httpBodyExcerpt: v.optional(v.string()),
+  // Phase-3 ADR §2 / PM lock D13 — captured reasoning text.
+  // REQUIRED-NULLABLE (`v.union(v.string(), v.null())`), NOT
+  // `v.optional(v.string())` — the closing-10 metric `reasoning !== null`
+  // must be well-defined on every persisted row. Persisted as `null` on
+  // every non-captured path: fallback rows, Branch A responses without
+  // reasoning items, transient extraction failures.
+  // Branch A (per de-risking.md D-P3-1 probe outcome): the wrapper
+  // extracts reasoning text from `output[]` items of type "reasoning",
+  // sanitises via the existing http-body sanitiser, and truncates to
+  // ≤ 4 KB before persistence.
+  reasoning: v.union(v.string(), v.null()),
 });
 
 const agentRecordValidator = v.object({
@@ -294,6 +312,12 @@ const resolutionValidator = v.object({
       characterId: v.id("characters"),
       from: tileValidator,
       to: tileValidator,
+      // Phase-3 ADR §9 — wall-blocked move marker. Present iff the
+      // entry has `from === to` AND the agent attempted a move whose
+      // next-step tile was blocked by a wall. The closing-10 wall-
+      // blocked-move-rate metric reads this directly (single source of
+      // truth — no aggregator-side derivation).
+      blockedBy: v.optional(v.literal("wall")),
     }),
   ),
   actions: v.array(
@@ -302,6 +326,15 @@ const resolutionValidator = v.object({
       kind: v.string(),
       target: v.string(),
       result: v.string(),
+      // Phase-3 ADR §3 — overwatch-stance attribution emitted by the
+      // engine. `fromOverwatch=true` + `stance="defensive"` for
+      // counter-fire entries; `stance="offensive"` (fromOverwatch
+      // omitted/false) for offensive overwatch fire entries; both
+      // omitted for non-overwatch attacks.
+      fromOverwatch: v.optional(v.boolean()),
+      stance: v.optional(
+        v.union(v.literal("offensive"), v.literal("defensive")),
+      ),
     }),
   ),
   deaths: v.array(v.id("characters")),

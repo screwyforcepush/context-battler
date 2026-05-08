@@ -1,13 +1,13 @@
-// Phase 02 / WP-D — Click-to-expand verbose modal.
+// Phase 03 / WP-D.1 — Click-to-expand raw-dump modal.
 //
-// THE EXPLAINABILITY DEEP-DIVE. When the user spots something interesting in
-// the side-panel feed (a persona acting against type, a "Truce?" said before
-// an attack, an out_of_range failure), this modal surfaces the FULL persona
-// prompt + scratchpad + visibleStateDigest + LLM trace for one (turn, agent)
-// tuple — so they can read the agent's mind without falling back to ad-hoc
-// `npx convex run` queries.
+// THE EXPLAINABILITY DEEP-DIVE (substrate-refinement variant). When the
+// user spots something interesting in the side-panel feed (a counter-fire,
+// a wall-blocked move, a chest finally opened), this modal surfaces the
+// FULL LLM input + the model's reasoning + the parsed tool-call decision
+// for one (turn, agent) tuple — the three sections that let the user
+// reason about *why* the model made the call it did.
 //
-// Render contract (per work-packages.md WP-D + ADR §7 / §11):
+// Render contract (per phase-3 ADR §1, §2 + work-packages.md WP-D.1):
 //   - Modal overlay: full-viewport `position: fixed` semi-transparent
 //     backdrop. Centered card max-width 1200px, max-height 90vh, internal
 //     scroll. Close on backdrop click / Escape / explicit close button.
@@ -16,34 +16,29 @@
 //     turn-number-keyed, NEVER array-index (D-P2-13).
 //   - If no record (agent died/extracted earlier or turn === 0), render a
 //     "No agentRecord at turn N for this character" placeholder + back link.
-//   - Five tabs (default = Persona):
-//       1. Persona prompt — `agentRecord.input.personaPromptText` (per ADR §7
-//          per-row capture; NOT live `personas/*.md`). Header note explains
-//          why historical replays may differ from current personas.
-//       2. System prompt — `agentRecord.input.systemPromptText` collapsed
-//          via <details>. `systemPromptHash` shown alongside.
-//       3. Visible state digest — `agentRecord.input.visibleStateDigest`
-//          (the agent's own view incl. equipped + HP at start of turn).
-//       4. Scratchpad — `scratchpadBefore` and `scratchpadAfter` side-by-side
-//          (or stacked on narrow widths). Diff highlight: identical lines
-//          greyed; differing lines highlighted.
-//       5. LLM trace — `responseId`, `callId`, `latencyMs`, `httpStatus`,
-//          `usage`, `fellBackToSafeDefault`, `failureReason`,
-//          `validatorReason`, `httpBodyExcerpt`, AND full `rawArguments`
-//          pretty-printed JSON (critical for failure-mode debugging).
-//   - All verbose content rendered as read-only <pre> blocks with copy-to-
-//     clipboard buttons (`navigator.clipboard.writeText`) + "copied!" feedback.
+//   - Three vertical raw-dump sections, each a read-only <pre> with a copy
+//     button:
+//       1. **Full LLM input** — `composeFullLlmInput(agentRecord)` — the
+//          system role + user role concatenation that went on the wire.
+//       2. **Reasoning text** — `composeReasoningText(agentRecord)` —
+//          `agentRecord.llm.reasoning ?? "(no reasoning captured)"`. The
+//          phase-3 schema does NOT carry a `decision.rationale` field —
+//          Branch A (Azure exposes reasoning items in `output[]`) is
+//          confirmed; the fallback is the literal string.
+//       3. **Tool call JSON** — `composeDecisionJson(agentRecord)` —
+//          pretty-printed `agentRecord.decision`.
 //
 // Per ADR §7: type-only imports across the slice boundary are allowed.
 
 import React, { useEffect, useMemo, useState } from "react";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import type { ReplayBundle } from "../lib/reconstruct";
+import { truncateMid } from "../lib/formatters";
 import {
-  formatLatencyMs,
-  formatUsage,
-  truncateMid,
-} from "../lib/formatters";
+  composeDecisionJson,
+  composeFullLlmInput,
+  composeReasoningText,
+} from "../lib/rawPane";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public props (LOCKED contract — must match WP-C's stub).
@@ -55,15 +50,6 @@ export type ExpandModalProps = {
   onClose: () => void;
 };
 
-type TabId = "persona" | "system" | "digest" | "scratchpad" | "llm";
-const TABS: ReadonlyArray<{ id: TabId; label: string }> = [
-  { id: "persona", label: "Persona prompt" },
-  { id: "system", label: "System prompt" },
-  { id: "digest", label: "Visible state digest" },
-  { id: "scratchpad", label: "Scratchpad" },
-  { id: "llm", label: "LLM trace" },
-];
-
 // ─────────────────────────────────────────────────────────────────────────────
 // ExpandModal — top-level dispatcher. Returns null when no target.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -72,16 +58,6 @@ export function ExpandModal(
   props: ExpandModalProps,
 ): React.ReactElement | null {
   const { target, bundle, onClose } = props;
-  const [activeTab, setActiveTab] = useState<TabId>("persona");
-
-  const targetTurn = target?.turn ?? null;
-  const targetCharId = target?.characterId ?? null;
-
-  // Reset to default tab whenever the (turn, character) target changes so
-  // the user's last-tab choice doesn't bleed across rows.
-  useEffect(() => {
-    if (target) setActiveTab("persona");
-  }, [targetTurn, targetCharId, target]);
 
   // Escape key closes the modal. Handler is attached/detached only while
   // the modal is open (target !== null) to avoid hijacking other key
@@ -143,24 +119,6 @@ export function ExpandModal(
           </button>
         </header>
 
-        <nav style={tabBarStyle} role="tablist">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                ...tabBtnStyle,
-                ...(activeTab === tab.id ? tabBtnActiveStyle : null),
-              }}
-              role="tab"
-              aria-selected={activeTab === tab.id}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-
         <section style={contentStyle}>
           {!lookup?.agentRecord ? (
             <div style={emptyStyle}>
@@ -179,7 +137,7 @@ export function ExpandModal(
               </button>
             </div>
           ) : (
-            <TabContent tab={activeTab} agentRecord={lookup.agentRecord} />
+            <RawPane agentRecord={lookup.agentRecord} />
           )}
         </section>
       </div>
@@ -188,280 +146,42 @@ export function ExpandModal(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TabContent dispatcher.
+// RawPane — three vertical read-only <pre> sections (LLM input / reasoning /
+// tool call JSON), each with its own copy-to-clipboard button.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AgentRecord = Doc<"turns">["agentRecords"][number];
 
-function TabContent(props: {
-  tab: TabId;
-  agentRecord: AgentRecord;
-}): React.ReactElement {
-  const { tab, agentRecord } = props;
-  switch (tab) {
-    case "persona":
-      return <PersonaTab agentRecord={agentRecord} />;
-    case "system":
-      return <SystemTab agentRecord={agentRecord} />;
-    case "digest":
-      return <DigestTab agentRecord={agentRecord} />;
-    case "scratchpad":
-      return <ScratchpadTab agentRecord={agentRecord} />;
-    case "llm":
-      return <LlmTab agentRecord={agentRecord} />;
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tab 1 — Persona prompt. From `agentRecord.input.personaPromptText` (per-row
-// capture per ADR §7 — NOT live `personas/*.md`).
-// ─────────────────────────────────────────────────────────────────────────────
-
-function PersonaTab(props: { agentRecord: AgentRecord }): React.ReactElement {
-  const text = props.agentRecord.input.personaPromptText;
-  const hash = props.agentRecord.input.personaPromptHash;
-  return (
-    <div>
-      <p style={tabHeaderNoteStyle}>
-        Captured at match-start — may differ from current{" "}
-        <code>personas/*.md</code>. This is intentional: historical replays
-        stay valid after persona edits.
-      </p>
-      <div style={hashRowStyle}>hash: {truncateMid(hash, 24)}</div>
-      <CopyablePre text={text} />
-    </div>
+function RawPane(props: { agentRecord: AgentRecord }): React.ReactElement {
+  // Memoise the three composition strings — `agentRecord` is stable per
+  // open-modal lookup, but JSON.stringify is non-trivial and the user
+  // can re-render multiple times via React's strict-mode double-invoke
+  // or hover-card-driven re-renders.
+  const llmInput = useMemo(
+    () => composeFullLlmInput(props.agentRecord),
+    [props.agentRecord],
   );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tab 2 — System prompt. Collapsed by default via <details> (large content).
-// `systemPromptHash` shown alongside.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function SystemTab(props: { agentRecord: AgentRecord }): React.ReactElement {
-  const text = props.agentRecord.input.systemPromptText;
-  const hash = props.agentRecord.input.systemPromptHash;
-  return (
-    <div>
-      <div style={hashRowStyle}>hash: {truncateMid(hash, 24)}</div>
-      <details style={detailsStyle}>
-        <summary style={summaryStyle}>
-          Click to expand system prompt ({text.length} chars)
-        </summary>
-        <CopyablePre text={text} />
-      </details>
-    </div>
+  const reasoning = useMemo(
+    () => composeReasoningText(props.agentRecord),
+    [props.agentRecord],
   );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tab 3 — Visible state digest. `agentRecord.input.visibleStateDigest` —
-// agent's own view (incl. equipped + HP at start of turn).
-// ─────────────────────────────────────────────────────────────────────────────
-
-function DigestTab(props: { agentRecord: AgentRecord }): React.ReactElement {
-  const text = props.agentRecord.input.visibleStateDigest;
-  return (
-    <div>
-      <p style={tabHeaderNoteStyle}>
-        The agent's own view of the world at the start of this turn —
-        includes equipped items and HP from the agent's perspective (per
-        D-P2-11; substrate doesn't persist these globally).
-      </p>
-      <CopyablePre text={text} />
-    </div>
+  const decisionJson = useMemo(
+    () => composeDecisionJson(props.agentRecord),
+    [props.agentRecord],
   );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tab 4 — Scratchpad. Side-by-side `scratchpadBefore` / `scratchpadAfter` with
-// line-by-line equality highlight. Identical lines greyed, differing lines
-// highlighted. No diff library — line-equality check is sufficient for v0.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ScratchpadTab(props: { agentRecord: AgentRecord }): React.ReactElement {
-  const before = props.agentRecord.input.scratchpadBefore;
-  const after = props.agentRecord.scratchpadAfter;
-  return (
-    <div>
-      <p style={tabHeaderNoteStyle}>
-        Side-by-side comparison: differing lines highlighted, identical lines
-        greyed. Truncation (≤500 chars per side) is enforced upstream by the
-        engine.
-      </p>
-      <div style={diffSplitStyle}>
-        <DiffPane label="scratchpadBefore" text={before} other={after} />
-        <DiffPane label="scratchpadAfter" text={after} other={before} />
-      </div>
-    </div>
-  );
-}
-
-function DiffPane(props: {
-  label: string;
-  text: string;
-  other: string;
-}): React.ReactElement {
-  const myLines = props.text.split("\n");
-  const otherLines = props.other.split("\n");
-  const otherSet = new Set(otherLines);
-  return (
-    <div style={diffPaneStyle}>
-      <div style={diffPaneHeaderStyle}>
-        <span>{props.label}</span>
-        <CopyButton text={props.text} />
-      </div>
-      <pre style={diffPreStyle}>
-        {myLines.map((line, i) => {
-          const same = otherSet.has(line);
-          return (
-            <div key={i} style={same ? diffLineSameStyle : diffLineDiffStyle}>
-              {line === "" ? " " : line}
-            </div>
-          );
-        })}
-      </pre>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tab 5 — LLM trace. `responseId`, `callId`, `latencyMs`, `httpStatus`,
-// `usage`, flags, failure-mode keys, AND full `rawArguments` (parsed +
-// pretty-printed). Critical for substrate-debugging.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function LlmTab(props: { agentRecord: AgentRecord }): React.ReactElement {
-  const llm = props.agentRecord.llm;
-  // rawArguments is stored as a string (per schema — `v.union(v.string(),
-  // v.null())`). We parse + pretty-print for readability; if it's not
-  // valid JSON (engine never emitted parsed content), fall back to the
-  // raw string.
-  const prettyRawArgs = useMemo(() => {
-    if (llm.rawArguments === null) return null;
-    try {
-      const parsed = JSON.parse(llm.rawArguments);
-      return JSON.stringify(parsed, null, 2);
-    } catch {
-      return llm.rawArguments;
-    }
-  }, [llm.rawArguments]);
-
-  // Post-validator parsed decision — the centerpiece per concept-spec §2.4.
-  // Stable JSON.stringify is sufficient here; the decision payload is
-  // small and the modal opens infrequently.
-  const prettyDecision = useMemo(
-    () => JSON.stringify(props.agentRecord.decision, null, 2),
-    [props.agentRecord.decision],
-  );
-
-  const usageLine = llm.usage ? formatUsage(coerceUsage(llm.usage)) : "—";
 
   return (
     <div>
-      <h3 style={subTitleStyle}>Identifiers</h3>
-      <div style={kvBlockStyle}>
-        {llm.responseId !== null ? (
-          <KvRow label="responseId" value={llm.responseId} />
-        ) : null}
-        {llm.callId !== null ? (
-          <KvRow label="callId" value={llm.callId} />
-        ) : null}
-      </div>
+      <h3 style={subTitleStyle}>Full LLM input</h3>
+      <CopyablePre text={llmInput} />
 
-      <h3 style={subTitleStyle}>Timing &amp; usage</h3>
-      <div style={kvBlockStyle}>
-        <KvRow label="latencyMs" value={formatLatencyMs(llm.latencyMs)} />
-        <KvRow
-          label="httpStatus"
-          value={llm.httpStatus !== null ? String(llm.httpStatus) : "—"}
-        />
-        <KvRow label="usage" value={usageLine} />
-      </div>
+      <h3 style={subTitleStyle}>Reasoning text</h3>
+      <CopyablePre text={reasoning} />
 
-      <h3 style={subTitleStyle}>Failure-mode flags</h3>
-      <div style={kvBlockStyle}>
-        <KvRow
-          label="fellBackToSafeDefault"
-          value={String(llm.fellBackToSafeDefault)}
-        />
-        {llm.failureReason !== undefined ? (
-          <KvRow label="failureReason" value={llm.failureReason} />
-        ) : null}
-        {llm.validatorReason !== undefined ? (
-          <KvRow label="validatorReason" value={llm.validatorReason} />
-        ) : null}
-      </div>
-
-      {llm.httpBodyExcerpt !== undefined ? (
-        <>
-          <h3 style={subTitleStyle}>HTTP body excerpt</h3>
-          <CopyablePre text={llm.httpBodyExcerpt} />
-        </>
-      ) : null}
-
-      <h3 style={subTitleStyle}>decision (post-validator parsed)</h3>
-      <CopyablePre text={prettyDecision} />
-
-      <h3 style={subTitleStyle}>rawArguments (pre-validator LLM tool input)</h3>
-      {prettyRawArgs !== null ? (
-        <CopyablePre text={prettyRawArgs} />
-      ) : (
-        <p style={mutedStyle}>(no rawArguments captured)</p>
-      )}
+      <h3 style={subTitleStyle}>Tool call JSON</h3>
+      <CopyablePre text={decisionJson} />
     </div>
   );
-}
-
-/**
- * Coerce the schema's `v.any()` usage payload into the shape `formatUsage`
- * expects. The Azure responses API returns usage with snake_case keys
- * (`prompt_tokens`, `completion_tokens`, `total_tokens`,
- * `reasoning_tokens` nested under `output_tokens_details`); we fall back
- * across both naming conventions defensively. Anything we can't recognise
- * is dropped (formatUsage will render "—" if all fields are absent).
- */
-function coerceUsage(usage: unknown): {
-  promptTokens?: number;
-  completionTokens?: number;
-  totalTokens?: number;
-  reasoningTokens?: number;
-} {
-  if (!usage || typeof usage !== "object") return {};
-  const u = usage as Record<string, unknown>;
-  const pick = (k: string): number | undefined => {
-    const v = u[k];
-    return typeof v === "number" ? v : undefined;
-  };
-  const promptTokens =
-    pick("promptTokens") ?? pick("prompt_tokens") ?? pick("input_tokens");
-  const completionTokens =
-    pick("completionTokens") ??
-    pick("completion_tokens") ??
-    pick("output_tokens");
-  const totalTokens = pick("totalTokens") ?? pick("total_tokens");
-  let reasoningTokens =
-    pick("reasoningTokens") ?? pick("reasoning_tokens");
-  if (reasoningTokens === undefined) {
-    const detail = u["output_tokens_details"];
-    if (detail && typeof detail === "object") {
-      const d = detail as Record<string, unknown>;
-      const r = d["reasoning_tokens"];
-      if (typeof r === "number") reasoningTokens = r;
-    }
-  }
-  // Strip undefined keys so formatUsage's "no fields → em-dash" path triggers.
-  const clean: {
-    promptTokens?: number;
-    completionTokens?: number;
-    totalTokens?: number;
-    reasoningTokens?: number;
-  } = {};
-  if (promptTokens !== undefined) clean.promptTokens = promptTokens;
-  if (completionTokens !== undefined) clean.completionTokens = completionTokens;
-  if (reasoningTokens !== undefined) clean.reasoningTokens = reasoningTokens;
-  if (totalTokens !== undefined) clean.totalTokens = totalTokens;
-  return clean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -496,15 +216,6 @@ function CopyButton(props: { text: string }): React.ReactElement {
     <button type="button" onClick={onClick} style={copyBtnStyle}>
       {copied ? "copied!" : "copy"}
     </button>
-  );
-}
-
-function KvRow(props: { label: string; value: string }): React.ReactElement {
-  return (
-    <div style={kvRowStyle}>
-      <span style={kvLabelStyle}>{props.label}</span>
-      <span style={kvValueStyle}>{props.value}</span>
-    </div>
   );
 }
 
@@ -579,68 +290,11 @@ const closeBtnStyle: React.CSSProperties = {
   padding: 0,
 };
 
-const tabBarStyle: React.CSSProperties = {
-  display: "flex",
-  gap: "0.25rem",
-  padding: "0.5rem 1.25rem 0 1.25rem",
-  borderBottom: "1px solid #eee",
-  flexWrap: "wrap",
-};
-
-const tabBtnStyle: React.CSSProperties = {
-  border: "1px solid transparent",
-  borderBottom: "none",
-  background: "transparent",
-  padding: "0.5rem 0.875rem",
-  cursor: "pointer",
-  fontSize: "0.8125rem",
-  borderRadius: "4px 4px 0 0",
-  color: "#444",
-};
-
-const tabBtnActiveStyle: React.CSSProperties = {
-  border: "1px solid #ddd",
-  borderBottom: "1px solid #fff",
-  background: "#fff",
-  marginBottom: -1,
-  fontWeight: 600,
-  color: "#1a1a1a",
-};
-
 const contentStyle: React.CSSProperties = {
   padding: "1rem 1.25rem",
   overflowY: "auto",
   flex: 1,
   minHeight: 0,
-};
-
-const tabHeaderNoteStyle: React.CSSProperties = {
-  margin: "0 0 0.75rem 0",
-  fontSize: "0.8125rem",
-  color: "#555",
-  background: "#fffbe6",
-  border: "1px solid #ffe58f",
-  borderRadius: 4,
-  padding: "0.5rem 0.75rem",
-};
-
-const hashRowStyle: React.CSSProperties = {
-  fontSize: "0.75rem",
-  color: "#666",
-  fontFamily:
-    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace',
-  marginBottom: "0.5rem",
-};
-
-const detailsStyle: React.CSSProperties = { marginTop: "0.5rem" };
-
-const summaryStyle: React.CSSProperties = {
-  cursor: "pointer",
-  padding: "0.375rem 0.5rem",
-  background: "#f6f8fa",
-  borderRadius: 4,
-  fontSize: "0.8125rem",
-  marginBottom: "0.5rem",
 };
 
 const preWrapStyle: React.CSSProperties = {
@@ -702,90 +356,4 @@ const subTitleStyle: React.CSSProperties = {
   fontSize: "0.875rem",
   fontWeight: 600,
   color: "#1a1a1a",
-};
-
-const kvBlockStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.25rem",
-  background: "#f6f8fa",
-  padding: "0.5rem 0.75rem",
-  borderRadius: 4,
-  border: "1px solid #e1e4e8",
-};
-
-const kvRowStyle: React.CSSProperties = {
-  display: "flex",
-  gap: "0.75rem",
-  fontSize: "0.8125rem",
-  fontFamily:
-    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace',
-};
-
-const kvLabelStyle: React.CSSProperties = {
-  color: "#666",
-  minWidth: 160,
-};
-
-const kvValueStyle: React.CSSProperties = {
-  color: "#1a1a1a",
-  flex: 1,
-  wordBreak: "break-all",
-};
-
-const mutedStyle: React.CSSProperties = {
-  color: "#888",
-  fontStyle: "italic",
-  fontSize: "0.875rem",
-};
-
-const diffSplitStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: "0.5rem",
-};
-
-const diffPaneStyle: React.CSSProperties = {
-  border: "1px solid #ddd",
-  borderRadius: 4,
-  background: "#fff",
-  display: "flex",
-  flexDirection: "column",
-  minWidth: 0,
-};
-
-const diffPaneHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  padding: "0.25rem 0.5rem",
-  borderBottom: "1px solid #e1e4e8",
-  background: "#f6f8fa",
-  fontSize: "0.75rem",
-  fontWeight: 600,
-  color: "#444",
-};
-
-const diffPreStyle: React.CSSProperties = {
-  margin: 0,
-  padding: "0.5rem",
-  fontFamily:
-    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace',
-  fontSize: "0.75rem",
-  lineHeight: 1.5,
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-  maxHeight: 480,
-  overflowY: "auto",
-};
-
-const diffLineSameStyle: React.CSSProperties = {
-  color: "#999",
-};
-
-const diffLineDiffStyle: React.CSSProperties = {
-  color: "#1a1a1a",
-  background: "#fff8c5",
-  borderLeft: "3px solid #f9c513",
-  paddingLeft: "0.25rem",
 };

@@ -17,11 +17,13 @@
 //   - D-P2-12: opened-chest contents are not persisted (engine clears
 //     `worldState.chests[i].contents` on open — `resolution.ts:537`). Walk
 //     just flips `opened=true`; hover card shows "contents not persisted".
-//   - D-P2-14: result-string vocabulary canonical source is
-//     `convex/engine/resolution.ts:374-586`. The walk consults `result`
-//     ONLY for `kind === "interact" && result === "opened"`. Death
-//     detection comes from `resolution.deaths[]`, NEVER from a result
-//     string.
+//   - D-P2-14 + phase-3 ADR §1 / PM lock D7: result-string vocabulary
+//     canonical source is `convex/engine/resolution.ts`. Phase-3 unifies
+//     `interact`+`loot` into a single `loot` kind dispatched by id
+//     namespace. The walk consults `result` ONLY for
+//     `kind === "loot" && result === "opened" && target.startsWith("chest_")`.
+//     Death detection comes from `resolution.deaths[]`, NEVER from a
+//     result string.
 //   - Phase-8 extraction (NOT a `kind:"extract"` action) is read from the
 //     terminal `bundle.characters[c].extractedAtTurn` row.
 //
@@ -185,8 +187,9 @@ function synthesiseTurnZero(bundle: ReplayBundle): EntitySnapshot {
 // Internal: apply one turn's resolution to the snapshot. Returns NEW state.
 // Order mirrors concept-spec.md §23 (and engine resolution.ts):
 //   1. moves         — set named characters' pos to move.to
-//   2. actions       — interact+opened flips chests; loot/attack are no-ops
-//                      (per D-P2-11/D-P2-12; HP & equipment not snapshot-tracked)
+//   2. actions       — loot/opened/chest_* flips chests; corpse-loot and
+//                      attack are no-ops (per D-P2-11/D-P2-12; HP &
+//                      equipment not snapshot-tracked)
 //   3. deaths        — flip alive=false, set diedAtTurn=t, push corpse at
 //                      character's CURRENT pos (post-movement; §1.2)
 //   4. visibilityUpdates — applied LAST (§1.4)
@@ -212,12 +215,19 @@ function applyTurn(
   });
 
   // ── 2) Actions ────────────────────────────────────────────────────────
-  // Per ADR §4 walk rules: only `interact` with `result: "opened"` mutates
-  // the snapshot (chest's `opened` flips true). Other action results are
-  // no-ops at the snapshot layer — equipment/HP are NOT tracked (D-P2-11).
+  // Per phase-3 ADR §1 / PM lock D7 walk rules: only `loot` with
+  // `result === "opened"` AND `target.startsWith("chest_")` mutates the
+  // snapshot (chest's `opened` flips true). Corpse loots — same `kind:
+  // "loot"` — must NOT trigger the chest-flip (the target id namespace
+  // disambiguates). Other action results are no-ops at the snapshot
+  // layer — equipment/HP are NOT tracked (D-P2-11).
   let chests = prev.chests;
   for (const a of resolution.actions) {
-    if (a.kind === "interact" && a.result === "opened") {
+    if (
+      a.kind === "loot" &&
+      a.result === "opened" &&
+      a.target.startsWith("chest_")
+    ) {
       const targetId = a.target;
       let mutated = false;
       const next = chests.map((c) => {
@@ -229,10 +239,10 @@ function applyTurn(
       });
       if (mutated) chests = next;
     }
-    // attack / loot / interact-other-results → snapshot is unchanged. The
-    // side-panel feed (WP-C decisionEnglish) renders the outcome string
-    // separately; the snapshot only tracks position + chest-open-state +
-    // alive/hidden + extraction.
+    // attack / corpse loot / chest-loot-other-results → snapshot is
+    // unchanged. The side-panel feed (decisionEnglish) renders the
+    // outcome string separately; the snapshot only tracks position +
+    // chest-open-state + alive/hidden + extraction.
   }
 
   // ── 3) Deaths ─────────────────────────────────────────────────────────

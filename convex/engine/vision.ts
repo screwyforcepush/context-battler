@@ -146,11 +146,13 @@ function hpBucket(hp: number, maxHp: number): "low" | "mid" | "high" {
  *  - Chests within Chebyshev 20 with LOS.
  *  - Corpses within Chebyshev 20 with LOS.
  *  - Cover tiles within Chebyshev 20 with LOS, capped at 12 closest.
+ *  - Wall tiles within Chebyshev 20 (no LOS check — Phase-3 ADR §5: walls
+ *    themselves ARE the LOS blockers; emit unconditionally within range).
  *
- * Walls are not emitted as visible entities — WP8's digest will mention
- * them only if a future iteration adds an explicit "wall blocks LOS east"
- * affordance. For now the wall data is consumed implicitly via the LOS
- * check.
+ * Wall emission is uncapped at the engine layer; `inputBuilder.ts` (WP-C)
+ * applies a per-turn safety ceiling of 12 walls in the rendered digest
+ * (per ADR §5). The reference map's wall density never approaches this
+ * ceiling within any 20-tile vision sphere.
  */
 export function computeVisibleEntities(
   state: MatchState,
@@ -207,6 +209,23 @@ export function computeVisibleEntities(
     .slice(0, COVER_TILE_CAP);
   for (const { t } of candidateCovers) {
     visible.push({ kind: "cover", pos: t });
+  }
+
+  // Wall tiles — Phase-3 ADR §5. Iterate every wall rectangle, emit each
+  // contained tile that falls within Chebyshev 20 of the observer. NO LOS
+  // check (walls block LOS for OTHER entities; a wall tile itself is
+  // "visible" by being within range — so an agent next to a wall sees it
+  // even if the wall is at the edge of their vision sphere).
+  // Engine emits uncapped; inputBuilder.ts (WP-C) applies the 12-wall
+  // safety ceiling at render time.
+  for (const w of state.world.walls) {
+    for (let dx = 0; dx < w.w; dx++) {
+      for (let dy = 0; dy < w.h; dy++) {
+        const tile: Tile = { x: w.x + dx, y: w.y + dy };
+        if (chebyshev(observer.pos, tile) > VISION_RANGE) continue;
+        visible.push({ kind: "wall", pos: tile });
+      }
+    }
   }
 
   return { visible };

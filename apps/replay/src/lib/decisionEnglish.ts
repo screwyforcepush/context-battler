@@ -91,10 +91,14 @@ export function summariseDecision(
     ? renderConsumeOutcome(consumeEntry)
     : null;
 
-  // ── 4) Say + overwatch_priority ───────────────────────────────────────
+  // ── 4) Say + overwatch_stance ─────────────────────────────────────────
+  // Phase-3 ADR §1 — structured `overwatch_stance: "offensive" |
+  // "defensive" | null`. Render the stance directly; counter-fire and
+  // offensive-fire attribution lives in `renderActionOutcome` per
+  // ADR §3 (engine-emit `fromOverwatch` + `stance` on the trace entry).
   const sayClause = decision.say ? `Said: "${decision.say}"` : null;
-  const overwatchClause = decision.overwatch_priority
-    ? `Watching for: ${decision.overwatch_priority}`
+  const overwatchClause = decision.overwatch_stance
+    ? `Stance: ${decision.overwatch_stance}`
     : null;
   const overwatchMode = decision.primary === "overwatch";
 
@@ -249,7 +253,13 @@ function renderMoveOutcome(
 ): string | null {
   const entry = resolution.moves.find((m) => m.characterId === me);
   if (!entry) return null;
-  return `(${entry.from.x},${entry.from.y}) → (${entry.to.x},${entry.to.y})`;
+  // Phase-3 ADR §9 — wall-blocked moves carry `blockedBy: "wall"` on the
+  // ledger entry (engine-emit, not derived). Append the suffix so the
+  // user reads the wall block directly without cross-referencing the
+  // movement validator.
+  const base = `(${entry.from.x},${entry.from.y}) → (${entry.to.x},${entry.to.y})`;
+  if (entry.blockedBy === "wall") return `${base} → hit wall`;
+  return base;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -271,11 +281,16 @@ function renderActionIntent(
       );
       return `Attacked ${name}`;
     }
-    case "interact":
-      return `Interacted with ${a.targetObjectId}`;
     case "loot": {
+      // Phase-3 ADR §1 — unified loot. Disambiguate by id namespace
+      // (chest_* → "Opened chest_NNN"; otherwise → "Looted corpse-of-X").
+      // WP-D.2 elaborates this with counter-fire / stance copy on
+      // overwatch entries.
+      if (a.targetId.startsWith("chest_")) {
+        return `Opened ${a.targetId}`;
+      }
       const name = resolveCharacterName(
-        a.targetCorpseId as Id<"characters">,
+        a.targetId as Id<"characters">,
         characterById,
       );
       return `Looted from corpse-of-${name}`;
@@ -318,20 +333,34 @@ function findOverwatchFireEntry(
  * Convert a `resolution.actions[]` entry into the user-facing outcome
  * fragment, applying the death-detection suffix where applicable.
  *
- * Vocabulary table (D-P2-14, ADR §5 — canonical source
- * `convex/engine/resolution.ts:374-586`):
+ * Vocabulary table (phase-3 ADR §1 / §3, PM lock D7 — canonical source
+ * `convex/engine/resolution.ts`):
  *
  *   attack    | "dmg N"           → "hit (dealt N damage)" + maybe killed-suffix
  *   attack    | "no_target"       → "target not found"
  *   attack    | "out_of_range"    → "out of range"
- *   interact  | "opened"          → "opened"
- *   interact  | "already_opened"  → "already opened"
- *   interact  | "no_chest"        → "chest not found"
- *   interact  | "out_of_range"    → "out of range"
- *   loot      | "looted"          → "looted"
- *   loot      | "no_corpse"       → "corpse not found"
- *   loot      | "out_of_range"    → "out of range"
- *   overwatch | "dmg N"           → "overwatch fire (dealt N damage)"
+ *
+ *   loot/chest_* (target.startsWith("chest_")):
+ *     loot    | "opened"          → "opened"
+ *     loot    | "already_opened"  → "already opened"
+ *     loot    | "no_chest"        → "chest not found"
+ *     loot    | "out_of_range"    → "out of range"
+ *
+ *   loot/corpse Player_* (or other target):
+ *     loot    | "looted"          → "looted"
+ *     loot    | "no_corpse"       → "corpse not found"
+ *     loot    | "empty"           → "corpse already drained"
+ *     loot    | "out_of_range"    → "out of range"
+ *
+ *   overwatch (engine-emit per ADR §3):
+ *     fromOverwatch=true + stance="defensive" + "dmg N"
+ *                                 → "counter-fired Player_X — dmg N"
+ *     fromOverwatch=true + stance="defensive" + non-dmg result
+ *                                 → "counter-fire <english result>"
+ *     stance="offensive"          + "dmg N"
+ *                                 → "overwatch (offensive) fired on Player_X, dealt N damage"
+ *     no stance fields            + "dmg N"
+ *                                 → "overwatch fire (dealt N damage)"
  *
  * Anything else → "(unknown result: <raw>)" so future engine extensions
  * surface as visible TODOs, not silent omissions.
@@ -367,22 +396,65 @@ function renderActionOutcome(
     return `(unknown result: ${result})`;
   }
 
-  if (kind === "interact") {
+  if (kind === "loot") {
+    // Phase-3 ADR §1 / PM lock D7 — unified loot vocabulary.  Chest
+    // results (opened / already_opened / no_chest) and corpse results
+    // (looted / no_corpse / empty) both flow through here; the renderer
+    // disambiguates by the result string itself, not by kind.
     if (result === "opened") return "opened";
     if (result === "already_opened") return "already opened";
     if (result === "no_chest") return "chest not found";
-    if (result === "out_of_range") return "out of range";
-    return `(unknown result: ${result})`;
-  }
-
-  if (kind === "loot") {
     if (result === "looted") return "looted";
     if (result === "no_corpse") return "corpse not found";
+    if (result === "empty") return "corpse already drained";
+    if (result === "no_target") return "target not found";
     if (result === "out_of_range") return "out of range";
     return `(unknown result: ${result})`;
   }
 
   if (kind === "overwatch") {
+    // Phase-3 ADR §3 — engine emits stance attribution directly into the
+    // ledger. Defensive counter-fire uses the dedicated copy
+    // ("counter-fired Player_X — dmg N"); offensive overwatch uses the
+    // elaborated copy ("overwatch (offensive) fired on Player_X, dealt N
+    // damage"); back-compat (no stance fields) keeps the legacy generic.
+    const targetName = resolveCharacterName(
+      target as Id<"characters">,
+      characterById,
+    );
+
+    if (entry.fromOverwatch === true && entry.stance === "defensive") {
+      if (dmgMatch) {
+        const n = Number.parseInt(dmgMatch[1]!, 10);
+        return `counter-fired ${targetName} — dmg ${n}`;
+      }
+      // Counter-fire that didn't land (out_of_range / no_target). Surface
+      // the english result still under the counter-fire branch so the
+      // diagnostic loop can see range-bounded counter-fire attempts.
+      const englishResult =
+        result === "out_of_range"
+          ? "out of range"
+          : result === "no_target"
+            ? "target not found"
+            : `(unknown result: ${result})`;
+      return `counter-fire ${targetName} — ${englishResult}`;
+    }
+
+    if (entry.stance === "offensive") {
+      if (dmgMatch) {
+        const n = Number.parseInt(dmgMatch[1]!, 10);
+        return `overwatch (offensive) fired on ${targetName}, dealt ${n} damage`;
+      }
+      const englishResult =
+        result === "out_of_range"
+          ? "out of range"
+          : result === "no_target"
+            ? "target not found"
+            : `(unknown result: ${result})`;
+      return `overwatch (offensive) fired on ${targetName}, ${englishResult}`;
+    }
+
+    // Back-compat: no stance fields → generic copy (legacy phase-1 shape).
     if (dmgMatch) {
       const n = Number.parseInt(dmgMatch[1]!, 10);
       return `overwatch fire (dealt ${n} damage)`;

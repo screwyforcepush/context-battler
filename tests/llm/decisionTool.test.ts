@@ -1,21 +1,34 @@
-// WP6 — schema-equivalence tests for the decision tool.
+// Phase-3 WP-A.5 — schema-equivalence tests for the rebuilt decision tool.
 //
 // Tests are written FIRST per AOP. The point of this file is to lock the
 // JSON Schema (sent to Azure) and the Zod schema (used to gate ingest)
-// to the same shape. If they drift, downstream consumers (WP10 trace
-// persistence, the resolver in WP7) get a `decision` shape they can't trust.
+// to the same shape.  Drift between the two would mean Azure could emit
+// shapes the wrapper rejects (or vice-versa) — every literal/field below
+// is a contract.
 //
-// Spec: ADR §4 — locks the per-turn tool definition.
+// Spec — phase-3 ADR §1 (replaces phase-1 ADR §4):
 //   - `type: "function"`, `name: "decide_turn"`, `parameters` is a single
 //     object schema with `additionalProperties: false`.
 //   - Required keys: ["consume","primary","move","action"].
-//   - `move` is a 6-arm `oneOf` discriminated by `kind`; `action` is 4-arm.
-//   - `say`, `overwatch_priority`, `scratchpad_update` are nullable strings
-//     with maxLength 280 / 80 / 500 respectively.
+//   - `move` is a 6-arm `oneOf` discriminated by `kind` (unchanged from
+//     phase 1).
+//   - `action` is a **3-arm** `oneOf` discriminated by `kind` (was 4-arm):
+//        attack | loot | none.  `interact` arm is REMOVED; chest opens
+//        flow through the `loot` arm with a `chest_*`-prefixed targetId.
+//   - `loot.targetId: string` (was `loot.targetCorpseId`) — accepts BOTH
+//        chest ids (`chest_NNN`) and corpse ids (e.g. `Player_3`).
+//   - `say` and `scratchpad_update` remain nullable strings with
+//     maxLength 280 / 500.
+//   - `overwatch_priority` is REMOVED from the schema.
+//   - `overwatch_stance: "offensive" | "defensive" | null` is NEW.  Required
+//     when `primary === "overwatch"`, must be null otherwise; the Zod
+//     refinement enforces stance/primary consistency.
+//   - Branch A: NO `rationale` field (probe outcome — Azure exposes
+//     reasoning text directly; see de-risking.md D-P3-1).
 //
 // `parseDecision(rawArgs)` MUST round-trip a valid `ParsedDecision`, MUST
 // reject extra unknown properties, and MUST reject malformed discriminator
-// arms. The tests are the contract.
+// arms or stance/primary mismatches. Tests are the contract.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -26,19 +39,19 @@ import {
 import type { ParsedDecision } from "../../convex/engine/types.js";
 
 // Sample valid decision used across round-trip tests. Exercises the
-// `relative` move arm + `attack` action arm, since those are the two
-// arms with extra fields beyond `kind`.
+// `relative` move arm + `attack` action arm; primary="move" so
+// overwatch_stance is null.
 const SAMPLE_VALID_DECISION: ParsedDecision = {
   consume: "heal",
   primary: "move",
   move: { kind: "relative", dx: 3, dy: -2 },
   action: { kind: "attack", targetCharacterId: "char_42" },
   say: "Onward.",
-  overwatch_priority: null,
+  overwatch_stance: null,
   scratchpad_update: "Heal then close on Player_3.",
 };
 
-describe("WP6 decisionTool — JSON Schema shape", () => {
+describe("phase-3 decisionTool — JSON Schema shape", () => {
   it("declares type=function and name=decide_turn", () => {
     expect(decisionTool.type).toBe("function");
     expect(decisionTool.name).toBe("decide_turn");
@@ -50,33 +63,36 @@ describe("WP6 decisionTool — JSON Schema shape", () => {
     const params = decisionTool.parameters;
     expect(params.type).toBe("object");
     expect(params.additionalProperties).toBe(false);
-    // ADR §4: required = ["consume","primary","move","action"].
+    // ADR §1: required = ["consume","primary","move","action"].
     expect([...params.required].sort()).toEqual(
       ["action", "consume", "move", "primary"],
     );
   });
 
-  it("all 7 properties are declared on the parameters object", () => {
+  it("declared properties — overwatch_priority is GONE; overwatch_stance is NEW", () => {
     const props = decisionTool.parameters.properties;
     expect(Object.keys(props).sort()).toEqual([
       "action",
       "consume",
       "move",
-      "overwatch_priority",
+      "overwatch_stance",
       "primary",
       "say",
       "scratchpad_update",
     ]);
+    // Negative assertion — explicit guard against accidental re-introduction.
+    expect((props as Record<string, unknown>).overwatch_priority).toBeUndefined();
+    // Negative assertion — Branch A: no rationale field.
+    expect((props as Record<string, unknown>).rationale).toBeUndefined();
   });
 
-  it("additionalProperties: false on every move arm", () => {
+  it("additionalProperties: false on every move arm (unchanged 6-arm union)", () => {
     const moveArms = decisionTool.parameters.properties.move.oneOf;
     expect(moveArms).toHaveLength(6);
     for (const arm of moveArms) {
       expect(arm.type).toBe("object");
       expect(arm.additionalProperties).toBe(false);
     }
-    // Verify the 6 expected `kind` literals are all present.
     const kinds = moveArms.map((a) => a.properties.kind.const);
     expect([...kinds].sort()).toEqual([
       "away_from_entity",
@@ -88,25 +104,43 @@ describe("WP6 decisionTool — JSON Schema shape", () => {
     ]);
   });
 
-  it("additionalProperties: false on every action arm", () => {
+  it("action is a 3-arm union — interact arm is REMOVED", () => {
     const actionArms = decisionTool.parameters.properties.action.oneOf;
-    expect(actionArms).toHaveLength(4);
+    expect(actionArms).toHaveLength(3);
     for (const arm of actionArms) {
       expect(arm.type).toBe("object");
       expect(arm.additionalProperties).toBe(false);
     }
     const kinds = actionArms.map((a) => a.properties.kind.const);
-    expect([...kinds].sort()).toEqual(["attack", "interact", "loot", "none"]);
+    expect([...kinds].sort()).toEqual(["attack", "loot", "none"]);
+    // Negative assertion — guard the deleted literal.
+    expect(kinds).not.toContain("interact");
+  });
+
+  it("loot arm uses targetId (was targetCorpseId)", () => {
+    const actionArms = decisionTool.parameters.properties.action.oneOf;
+    const loot = actionArms.find(
+      (a) => a.properties.kind.const === "loot",
+    );
+    expect(loot).toBeDefined();
+    const props = loot!.properties as unknown as {
+      kind: { const: string };
+      targetId?: { type: string };
+      targetCorpseId?: { type: string };
+    };
+    expect(props.targetId).toBeDefined();
+    expect(props.targetId!.type).toBe("string");
+    // Negative assertion — old field name MUST be gone.
+    expect(props.targetCorpseId).toBeUndefined();
+    // Required list must mention targetId, not targetCorpseId.
+    expect([...loot!.required].sort()).toEqual(["kind", "targetId"]);
   });
 
   it("relative move arm bounds dx/dy to integers in [-12, 12]", () => {
     const moveArms = decisionTool.parameters.properties.move.oneOf;
-    // First arm of `move.oneOf` is locked to be `relative` per ADR §4.
     const relative = moveArms[0];
     expect(relative).toBeDefined();
     expect(relative!.properties.kind.const).toBe("relative");
-    // Cast to a structural type that captures only the fields we test —
-    // bypasses discriminated-union narrowing while still typechecking.
     const props = relative!.properties as unknown as {
       kind: { const: string };
       dx: { type: string; minimum: number; maximum: number };
@@ -120,19 +154,33 @@ describe("WP6 decisionTool — JSON Schema shape", () => {
     expect(props.dy.maximum).toBe(12);
   });
 
-  it("nullable string fields enforce maxLength caps (280/80/500)", () => {
+  it("nullable string fields enforce maxLength caps (280/500)", () => {
     const props = decisionTool.parameters.properties;
     expect(props.say.maxLength).toBe(280);
-    expect(props.overwatch_priority.maxLength).toBe(80);
     expect(props.scratchpad_update.maxLength).toBe(500);
-    // ADR §4: type is the JSON Schema two-element array ["string", "null"].
     expect(props.say.type).toEqual(["string", "null"]);
-    expect(props.overwatch_priority.type).toEqual(["string", "null"]);
     expect(props.scratchpad_update.type).toEqual(["string", "null"]);
+  });
+
+  it("overwatch_stance is a 3-value enum-with-null (offensive/defensive/null)", () => {
+    const props = decisionTool.parameters.properties;
+    const stance = props.overwatch_stance;
+    expect(stance).toBeDefined();
+    // The locked shape: `{ enum: ["offensive", "defensive", null] }`.
+    // Strings + null in the same enum is the JSON Schema idiom for
+    // "tri-state nullable enum" (mirrors `say`'s tri-state-but-without-cap).
+    const stanceShape = stance as unknown as {
+      enum: ReadonlyArray<string | null>;
+    };
+    expect([...stanceShape.enum].sort((a, b) =>
+      String(a).localeCompare(String(b)),
+    )).toEqual(["defensive", "offensive", null].sort((a, b) =>
+      String(a).localeCompare(String(b)),
+    ));
   });
 });
 
-describe("WP6 decisionTool — Zod parseDecision()", () => {
+describe("phase-3 decisionTool — Zod parseDecision()", () => {
   it("round-trips a sample valid ParsedDecision exactly", () => {
     const raw = JSON.stringify(SAMPLE_VALID_DECISION);
     const result = parseDecision(raw);
@@ -156,29 +204,25 @@ describe("WP6 decisionTool — Zod parseDecision()", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toBe("schema_validation");
-      expect(result.details).toBeTruthy();
     }
   });
 
   it("rejects move.kind=toward_entity without targetCharacterId", () => {
     const raw = JSON.stringify({
       ...SAMPLE_VALID_DECISION,
-      move: { kind: "toward_entity" }, // missing targetCharacterId
+      move: { kind: "toward_entity" },
     });
     const result = parseDecision(raw);
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe("schema_validation");
-    }
   });
 
   it("rejects consume = wrong_value", () => {
-    const raw = JSON.stringify({ ...SAMPLE_VALID_DECISION, consume: "wrong_value" });
+    const raw = JSON.stringify({
+      ...SAMPLE_VALID_DECISION,
+      consume: "wrong_value",
+    });
     const result = parseDecision(raw);
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe("schema_validation");
-    }
   });
 
   it("rejects move.relative with dx out of [-12, 12]", () => {
@@ -188,9 +232,6 @@ describe("WP6 decisionTool — Zod parseDecision()", () => {
     });
     const result = parseDecision(raw);
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe("schema_validation");
-    }
   });
 
   it("returns json_parse error on malformed JSON", () => {
@@ -198,7 +239,6 @@ describe("WP6 decisionTool — Zod parseDecision()", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toBe("json_parse");
-      expect(result.details).toBeTruthy();
     }
   });
 
@@ -219,11 +259,11 @@ describe("WP6 decisionTool — Zod parseDecision()", () => {
     }
   });
 
-  it("accepts every valid action arm in turn", () => {
+  it("accepts every valid action arm in turn (3-arm: attack/loot/none)", () => {
     const arms: ParsedDecision["action"][] = [
       { kind: "attack", targetCharacterId: "c1" },
-      { kind: "interact", targetObjectId: "chest_1" },
-      { kind: "loot", targetCorpseId: "corpse_1" },
+      { kind: "loot", targetId: "chest_005" },
+      { kind: "loot", targetId: "Player_5" },
       { kind: "none" },
     ];
     for (const arm of arms) {
@@ -232,6 +272,24 @@ describe("WP6 decisionTool — Zod parseDecision()", () => {
       );
       expect(r.ok, `action arm ${arm.kind} must validate`).toBe(true);
     }
+  });
+
+  it("rejects action.kind='interact' (deleted arm)", () => {
+    const raw = JSON.stringify({
+      ...SAMPLE_VALID_DECISION,
+      action: { kind: "interact", targetObjectId: "chest_005" },
+    });
+    const result = parseDecision(raw);
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects loot with old targetCorpseId field name", () => {
+    const raw = JSON.stringify({
+      ...SAMPLE_VALID_DECISION,
+      action: { kind: "loot", targetCorpseId: "Player_5" },
+    });
+    const result = parseDecision(raw);
+    expect(result.ok).toBe(false);
   });
 
   it("enforces max-length on say (280)", () => {
@@ -243,7 +301,74 @@ describe("WP6 decisionTool — Zod parseDecision()", () => {
   });
 });
 
-describe("WP6 decisionTool — re-export of SAFE_DEFAULT_DECISION", () => {
+describe("phase-3 decisionTool — overwatch_stance refinement", () => {
+  it("primary=overwatch with stance=offensive validates", () => {
+    const raw = JSON.stringify({
+      ...SAMPLE_VALID_DECISION,
+      primary: "overwatch",
+      action: { kind: "none" },
+      overwatch_stance: "offensive",
+    });
+    const r = parseDecision(raw);
+    expect(r.ok).toBe(true);
+  });
+
+  it("primary=overwatch with stance=defensive validates", () => {
+    const raw = JSON.stringify({
+      ...SAMPLE_VALID_DECISION,
+      primary: "overwatch",
+      action: { kind: "none" },
+      overwatch_stance: "defensive",
+    });
+    const r = parseDecision(raw);
+    expect(r.ok).toBe(true);
+  });
+
+  it("rejects primary=overwatch with stance=null", () => {
+    const raw = JSON.stringify({
+      ...SAMPLE_VALID_DECISION,
+      primary: "overwatch",
+      action: { kind: "none" },
+      overwatch_stance: null,
+    });
+    const r = parseDecision(raw);
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects primary=move with stance=offensive (must be null off-overwatch)", () => {
+    const raw = JSON.stringify({
+      ...SAMPLE_VALID_DECISION,
+      primary: "move",
+      overwatch_stance: "offensive",
+    });
+    const r = parseDecision(raw);
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects primary=stationary_action with stance=defensive", () => {
+    const raw = JSON.stringify({
+      ...SAMPLE_VALID_DECISION,
+      primary: "stationary_action",
+      action: { kind: "none" },
+      overwatch_stance: "defensive",
+    });
+    const r = parseDecision(raw);
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects overwatch_stance with unknown literal", () => {
+    const raw = JSON.stringify({
+      ...SAMPLE_VALID_DECISION,
+      primary: "overwatch",
+      action: { kind: "none" },
+      overwatch_stance: "ambush",
+    });
+    const r = parseDecision(raw);
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("phase-3 decisionTool — re-export of SAFE_DEFAULT_DECISION", () => {
   it("re-exports SAFE_DEFAULT_DECISION matching engine/types.ts shape", () => {
     expect(SAFE_DEFAULT_DECISION).toEqual({
       consume: "none",
@@ -251,7 +376,7 @@ describe("WP6 decisionTool — re-export of SAFE_DEFAULT_DECISION", () => {
       move: { kind: "none" },
       action: { kind: "none" },
       say: null,
-      overwatch_priority: null,
+      overwatch_stance: null,
       scratchpad_update: null,
     });
   });

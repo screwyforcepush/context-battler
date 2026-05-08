@@ -130,7 +130,7 @@ const VALID_DECISION: ParsedDecision = {
   move: { kind: "relative", dx: 1, dy: 0 },
   action: { kind: "none" },
   say: null,
-  overwatch_priority: null,
+  overwatch_stance: null,
   scratchpad_update: null,
 };
 
@@ -230,6 +230,10 @@ describe("WP10.5 B.3 — validatorReason persists into agent-llm trace record", 
     usage: null,
     latencyMs: 12,
     httpStatus: 200,
+    // Phase-3 ADR §2 — required-nullable reasoning. Tests for the
+    // existing failureReason / validatorReason invariants don't care
+    // about reasoning content; persisting null keeps them honest.
+    reasoning: null,
   };
 
   it("includes validatorReason when the engine validator rejected the decision", () => {

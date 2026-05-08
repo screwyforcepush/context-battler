@@ -293,3 +293,120 @@ describe("WP5 — computeVisibleEntities (concept-spec §7)", () => {
     expect(ids).not.toContain("B");
   });
 });
+
+// ─── WP-B.1 / Phase-3 ADR §5 — wall emission ─────────────────────────────
+//
+// Vision emits `{ kind: "wall", pos }` entries for every wall TILE within
+// Chebyshev 20 of the observer, with NO LOS check on walls themselves
+// (walls block LOS for OTHER entities; a wall tile is "visible" by being
+// within range — see ADR §5). The engine emits without cap; downstream
+// `inputBuilder.ts` (WP-C) caps at 12 per turn.
+
+describe("WP-B.1 vision walls — Phase-3 ADR §5", () => {
+  it("emits wall entries for every wall tile within Chebyshev 20", () => {
+    const observer = makeCharacter({ id: "A", pos: { x: 10, y: 10 } });
+    // 1×1 wall at (12, 10) — distance 2 from observer.
+    const wall: Wall = { x: 12, y: 10, w: 1, h: 1 };
+    const state = makeState({
+      characters: [observer],
+      world: { walls: [wall] },
+    });
+    const { visible } = computeVisibleEntities(state, "A");
+    const walls = visible.filter((v) => v.kind === "wall");
+    expect(walls).toHaveLength(1);
+    expect(walls[0]).toEqual({ kind: "wall", pos: { x: 12, y: 10 } });
+  });
+
+  it("emits one entry per tile in a multi-tile wall rectangle", () => {
+    const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    // 3-wide × 2-tall wall starting at (5,5) — covers tiles
+    // (5,5) (6,5) (7,5) (5,6) (6,6) (7,6) → 6 tiles.
+    const wall: Wall = { x: 5, y: 5, w: 3, h: 2 };
+    const state = makeState({
+      characters: [observer],
+      world: { walls: [wall] },
+    });
+    const { visible } = computeVisibleEntities(state, "A");
+    const walls = visible.filter((v) => v.kind === "wall");
+    expect(walls).toHaveLength(6);
+    const positions = walls
+      .map((w) => (w.kind === "wall" ? `${w.pos.x},${w.pos.y}` : ""))
+      .sort();
+    expect(positions).toEqual(
+      ["5,5", "5,6", "6,5", "6,6", "7,5", "7,6"].sort(),
+    );
+  });
+
+  it("excludes wall tiles outside Chebyshev 20", () => {
+    const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    // In-range wall at (20, 0) — Chebyshev 20.
+    const inRange: Wall = { x: 20, y: 0, w: 1, h: 1 };
+    // Out-of-range wall at (21, 0) — Chebyshev 21.
+    const outOfRange: Wall = { x: 21, y: 0, w: 1, h: 1 };
+    const state = makeState({
+      characters: [observer],
+      world: { walls: [inRange, outOfRange] },
+    });
+    const { visible } = computeVisibleEntities(state, "A");
+    const walls = visible.filter((v) => v.kind === "wall");
+    expect(walls).toHaveLength(1);
+    expect(walls[0]).toEqual({ kind: "wall", pos: { x: 20, y: 0 } });
+  });
+
+  it("emits walls regardless of LOS (a wall behind another wall is still visible)", () => {
+    // Per ADR §5: LOS on walls is not checked — walls within vision range
+    // are visible regardless of LOS (they ARE the LOS blockers).
+    const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    // Two walls in a line: (5,0) and (10,0). LOS to (10,0) goes through
+    // (5,0) which is itself a wall. Both must still be emitted.
+    const w1: Wall = { x: 5, y: 0, w: 1, h: 1 };
+    const w2: Wall = { x: 10, y: 0, w: 1, h: 1 };
+    const state = makeState({
+      characters: [observer],
+      world: { walls: [w1, w2] },
+    });
+    const { visible } = computeVisibleEntities(state, "A");
+    const walls = visible.filter((v) => v.kind === "wall");
+    const positions = walls
+      .map((w) => (w.kind === "wall" ? `${w.pos.x},${w.pos.y}` : ""))
+      .sort();
+    expect(positions).toEqual(["10,0", "5,0"]);
+  });
+
+  it("12-wall safety ceiling — observer in wall-densest map corner emits all walls within Chebyshev 20 (no engine-side cap)", () => {
+    // Reference-map wall-densest area is the centre arena around evac
+    // (48,48). Observer at (48,48) sees the full ring of inner walls at
+    // (44,40), (52,40), (40,44), (56,44), (40,52), (56,52), (44,56),
+    // (52,56) PLUS the outer ring at (12,48), (84,48 - out of range),
+    // (48,12), (48,84 - out of range). Within Chebyshev 20: many of the
+    // inner+evac-perimeter walls. The engine MUST emit all of them — the
+    // 12 cap is applied later at the inputBuilder layer (WP-C).
+    const observer = makeCharacter({ id: "A", pos: { x: 48, y: 48 } });
+    // Synthetic high-density wall fixture: 14 individual 1×1 wall tiles
+    // ringed within Chebyshev 20 of (48,48). The engine must emit all 14;
+    // a 12-cap at engine level would silently truncate (the bug we test).
+    const wallTiles: Wall[] = [];
+    for (let i = 0; i < 14; i++) {
+      // Tiles at distance ~i from observer, all within Chebyshev 20.
+      // i=0 collides with observer pos so start at i=1; ensure distinct tiles.
+      wallTiles.push({ x: 48 + i + 1, y: 48, w: 1, h: 1 });
+    }
+    const state = makeState({
+      characters: [observer],
+      world: { walls: wallTiles },
+    });
+    const { visible } = computeVisibleEntities(state, "A");
+    const walls = visible.filter((v) => v.kind === "wall");
+    // All 14 walls within Chebyshev 20 must be emitted (engine has no
+    // 12-cap; WP-C inputBuilder caps at 12 in the digest, not here).
+    expect(walls).toHaveLength(14);
+  });
+
+  it("no walls in the world → no wall entries in visible", () => {
+    const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const state = makeState({ characters: [observer] });
+    const { visible } = computeVisibleEntities(state, "A");
+    const walls = visible.filter((v) => v.kind === "wall");
+    expect(walls).toHaveLength(0);
+  });
+});

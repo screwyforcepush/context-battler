@@ -10,7 +10,6 @@
 
 import type * as _data_personas from "../_data/personas.js";
 import type * as _internal_runMatch from "../_internal_runMatch.js";
-import type * as engine_affordances from "../engine/affordances.js";
 import type * as engine_combat from "../engine/combat.js";
 import type * as engine_distance from "../engine/distance.js";
 import type * as engine_hiding from "../engine/hiding.js";
@@ -46,7 +45,6 @@ import type {
 declare const fullApi: ApiFromModules<{
   "_data/personas": typeof _data_personas;
   _internal_runMatch: typeof _internal_runMatch;
-  "engine/affordances": typeof engine_affordances;
   "engine/combat": typeof engine_combat;
   "engine/distance": typeof engine_distance;
   "engine/hiding": typeof engine_hiding;

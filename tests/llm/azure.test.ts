@@ -31,7 +31,7 @@ const VALID_DECISION: ParsedDecision = {
   move: { kind: "relative", dx: 1, dy: 0 },
   action: { kind: "none" },
   say: null,
-  overwatch_priority: null,
+  overwatch_stance: null,
   scratchpad_update: null,
 };
 
@@ -1005,6 +1005,169 @@ describe("Gate-2.5 — httpBodyExcerpt sanitisation hardening", () => {
       // Email was redacted (head sits at offset 0; well under the cap).
       expect(excerpt).not.toContain("john.doe@example.com");
       expect(excerpt).toContain("[REDACTED:email]");
+    });
+
+    it("phase-3 WP-A: reasoning text extracted from output[] reasoning items (Branch A)", async () => {
+      // Per de-risking.md D-P3-1 Branch A: Azure exposes reasoning items
+      // in `response.output[]` with shape:
+      //   { type: "reasoning", id, summary: [{ type: "summary_text",
+      //     text: "..." }] }
+      // The wrapper extracts the joined `summary[].text` strings as the
+      // captured reasoning, sanitises via the existing sanitiseHttpBody
+      // helper, and truncates to ≤ 4 KB. Persisted as `null` on every
+      // non-captured path (failure rows, responses without reasoning items).
+      const reasoningText =
+        "**Deciding movement strategy**\n\nMove cautiously toward the chest.";
+      const fetchImpl = vi.fn(async () =>
+        jsonResponse({
+          id: "resp_with_reasoning",
+          status: "completed",
+          incomplete_details: null,
+          output: [
+            {
+              type: "reasoning",
+              id: "rs_abc",
+              summary: [{ type: "summary_text", text: reasoningText }],
+            },
+            {
+              type: "function_call",
+              name: "decide_turn",
+              call_id: "call_1",
+              arguments: JSON.stringify(VALID_DECISION),
+            },
+          ],
+          usage: {
+            input_tokens: 50,
+            output_tokens: 30,
+            output_tokens_details: { reasoning_tokens: 197 },
+          },
+        }),
+      );
+      const result = await callDecisionTool({ ...baseInput, fetchImpl });
+
+      expect(result.fellBackToSafeDefault).toBe(false);
+      expect(result.raw.reasoning).toBe(reasoningText);
+    });
+
+    it("phase-3 WP-A: reasoning is null (NEVER undefined) when no reasoning items appear", async () => {
+      // Per ADR §2 nullability: every non-captured path persists `null`,
+      // never `undefined`. This guards against the `undefined !== null`
+      // counting bug (PM lock D13) — the closing-10 metric's
+      // `reasoning !== null` comparison must be well-defined on every row.
+      const fetchImpl = vi.fn(async () => jsonResponse(happyResponseBody()));
+      const result = await callDecisionTool({ ...baseInput, fetchImpl });
+      expect(result.raw.reasoning).toBeNull();
+      expect(result.raw.reasoning).not.toBeUndefined();
+    });
+
+    it("phase-3 WP-A: reasoning is null on every failure path (http_non_200)", async () => {
+      const fetchImpl = vi.fn(
+        async () => new Response("server error body", { status: 500 }),
+      );
+      const result = await callDecisionTool({
+        ...baseInput,
+        fetchImpl,
+        retryDelayMs: 5,
+      });
+      expect(result.fellBackToSafeDefault).toBe(true);
+      expect(result.raw.reasoning).toBeNull();
+    });
+
+    it("phase-3 WP-A: multiple reasoning items concatenate with double newline", async () => {
+      const t1 = "Step one: scan the grid.";
+      const t2 = "Step two: move SW.";
+      const fetchImpl = vi.fn(async () =>
+        jsonResponse({
+          id: "resp_multi",
+          status: "completed",
+          incomplete_details: null,
+          output: [
+            {
+              type: "reasoning",
+              id: "rs_1",
+              summary: [{ type: "summary_text", text: t1 }],
+            },
+            {
+              type: "reasoning",
+              id: "rs_2",
+              summary: [{ type: "summary_text", text: t2 }],
+            },
+            {
+              type: "function_call",
+              name: "decide_turn",
+              call_id: "call_x",
+              arguments: JSON.stringify(VALID_DECISION),
+            },
+          ],
+          usage: {},
+        }),
+      );
+      const result = await callDecisionTool({ ...baseInput, fetchImpl });
+      expect(result.raw.reasoning).toBe(`${t1}\n\n${t2}`);
+    });
+
+    it("phase-3 WP-A: reasoning text is truncated to ≤ 4 KB", async () => {
+      const longText = "x".repeat(5000); // > 4 KB
+      const fetchImpl = vi.fn(async () =>
+        jsonResponse({
+          id: "resp_long",
+          status: "completed",
+          incomplete_details: null,
+          output: [
+            {
+              type: "reasoning",
+              id: "rs_long",
+              summary: [{ type: "summary_text", text: longText }],
+            },
+            {
+              type: "function_call",
+              name: "decide_turn",
+              call_id: "call_long",
+              arguments: JSON.stringify(VALID_DECISION),
+            },
+          ],
+          usage: {},
+        }),
+      );
+      const result = await callDecisionTool({ ...baseInput, fetchImpl });
+      expect(result.raw.reasoning).not.toBeNull();
+      expect(result.raw.reasoning!.length).toBeLessThanOrEqual(4096);
+    });
+
+    it("phase-3 WP-A: reasoning sanitiser scrubs api keys but preserves prose", async () => {
+      // Reasoning content should be sanitised via the same sanitiser used
+      // for HTTP error bodies — Gate-2.5 hardening generalises here. The
+      // legitimate-prose case must NOT be eaten (no false-positive on
+      // numbers like "Player_5" or "(turn 7)").
+      const reasoningText =
+        "Attack Player_5; he's at 12 HP. api-key=AKIASECRETXX12345 leaked here.";
+      const fetchImpl = vi.fn(async () =>
+        jsonResponse({
+          id: "resp_sanitise",
+          status: "completed",
+          incomplete_details: null,
+          output: [
+            {
+              type: "reasoning",
+              id: "rs_s",
+              summary: [{ type: "summary_text", text: reasoningText }],
+            },
+            {
+              type: "function_call",
+              name: "decide_turn",
+              call_id: "call_s",
+              arguments: JSON.stringify(VALID_DECISION),
+            },
+          ],
+          usage: {},
+        }),
+      );
+      const result = await callDecisionTool({ ...baseInput, fetchImpl });
+      expect(result.raw.reasoning).not.toBeNull();
+      // Legitimate prose preserved.
+      expect(result.raw.reasoning!).toContain("Player_5");
+      // API key scrubbed.
+      expect(result.raw.reasoning!).not.toContain("AKIASECRETXX12345");
     });
 
     it("redact-then-truncate: an email straddling the 2KB boundary is fully redacted, not partially leaked", async () => {

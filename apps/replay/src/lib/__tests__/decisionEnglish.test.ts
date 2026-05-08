@@ -19,7 +19,7 @@
 //   - move.kind=none / relative (8 compass directions × chebyshev distance)
 //                   / toward_entity / away_from_entity / toward_object
 //                   / toward_evac
-//   - action.kind=none / attack / interact / loot
+//   - action.kind=none / attack / loot (chest_* + corpse Player_*)
 //     × every literal `result` in the engine vocabulary table
 //   - "dmg N" template parsed as a positive integer (incl. 0)
 //   - Death-detection rule: actor+target both in resolution.deaths[] for the
@@ -27,9 +27,15 @@
 //   - Unrecognised result string → "(unknown result: <raw>)"
 //   - consume = none / heal / speed (with effect from resolution.consumed[])
 //   - say: null collapses; non-null wrapped in `Said: "…"`
-//   - overwatch_priority null collapses; non-null prefixed with "Watching for: "
+//   - overwatch_stance null collapses; non-null prefixed with "Stance: <s>"
 //   - primary === "overwatch" marks row with overwatch glyph regardless of
-//     priority
+//     stance
+//   - Counter-fire (defensive): fromOverwatch=true + stance="defensive" →
+//     "counter-fired Player_X — dmg N"
+//   - Offensive overwatch: stance="offensive" → "overwatch (offensive) fired
+//     on Player_X, dealt N damage"
+//   - Wall-blocked move: resolution.moves[].blockedBy === "wall" → outcome
+//     fragment appended with " → hit wall"
 //   - Scratchpad delta detection — identical text omits; changed text
 //     produces a truncated diff line (≤ ~120 chars).
 //   - intentVsOutcome correctly pairs the actor's intent with the matching
@@ -111,7 +117,7 @@ function makeAgentRecord(
       move: { kind: "none" },
       action: { kind: "none" },
       say: null,
-      overwatch_priority: null,
+      overwatch_stance: null,
       scratchpad_update: null,
       ...decision,
     },
@@ -124,6 +130,8 @@ function makeAgentRecord(
       latencyMs: 0,
       httpStatus: null,
       fellBackToSafeDefault: false,
+      // Phase-3 ADR §2 — required-nullable reasoning.
+      reasoning: null,
     },
     ...overrides,
   };
@@ -374,43 +382,48 @@ describe("summariseDecision — action.kind × result vocabulary (D-P2-14)", () 
     expect(out.oneLine).toContain("out of range");
   });
 
-  // ── interact × result ─────────────────────────────────────────────────
+  // ── loot × result (chest variants — D7 schema unify) ──────────────────
   it.each([
     ["opened", "opened"],
     ["already_opened", "already opened"],
     ["no_chest", "chest not found"],
     ["out_of_range", "out of range"],
-  ])('interact + "%s" → "%s"', (raw, english) => {
+  ])('chest-open via loot + "%s" → "%s"', (raw, english) => {
+    // Phase-3 ADR §1 — chests flow through the unified loot arm with a
+    // `chest_*`-prefixed targetId. Trace `kind` is "loot" per PM lock D7.
+    // The renderer disambiguates by the result string itself (no separate
+    // `interact` arm).
     const me = makeChar("a", "Player_1");
     const ar = makeAgentRecord(me._id, {
-      action: { kind: "interact", targetObjectId: "chest_004" },
+      action: { kind: "loot", targetId: "chest_004" },
     });
     const res: TurnResolution = {
       ...emptyResolution(),
       actions: [
         {
           characterId: me._id,
-          kind: "interact",
+          kind: "loot",
           target: "chest_004",
           result: raw,
         },
       ],
     };
     const out = summariseDecision(ar, res, characterMap(me));
-    expect(out.oneLine).toContain("Interacted with chest_004");
+    expect(out.oneLine).toContain("Opened chest_004");
     expect(out.oneLine).toContain(english);
   });
 
-  // ── loot × result ─────────────────────────────────────────────────────
+  // ── loot × result (corpse variants — phase-3 ADR §4 adds "empty") ─────
   it.each([
     ["looted", "looted"],
     ["no_corpse", "corpse not found"],
+    ["empty", "corpse already drained"],
     ["out_of_range", "out of range"],
-  ])('loot + "%s" → "%s"', (raw, english) => {
+  ])('loot corpse + "%s" → "%s"', (raw, english) => {
     const me = makeChar("a", "Player_1");
     const dead = makeChar("b", "Player_5");
     const ar = makeAgentRecord(me._id, {
-      action: { kind: "loot", targetCorpseId: dead._id },
+      action: { kind: "loot", targetId: dead._id },
     });
     const res: TurnResolution = {
       ...emptyResolution(),
@@ -430,17 +443,16 @@ describe("summariseDecision — action.kind × result vocabulary (D-P2-14)", () 
   });
 
   // ── overwatch (kind on resolution.actions, not on decision.action) ────
-  it('overwatch fire result "dmg 7" → "overwatch fire (dealt 7 damage)" in intentVsOutcome', () => {
-    // Overwatch is a primary mode; the decision.action is typically `none`,
-    // but the engine emits `kind: "overwatch", result: "dmg N"` on
-    // resolution.actions[] when the overwatcher fires (resolution.ts:374).
-    // The renderer must surface that outcome alongside the watching intent.
+  // Back-compat path: an entry without explicit stance fields renders the
+  // generic "overwatch fire (dealt N damage)" copy (legacy phase-1 shape /
+  // unset cases).
+  it('overwatch fire result "dmg 7" with no stance fields → generic "overwatch fire (dealt 7 damage)"', () => {
     const me = makeChar("a", "Player_1");
     const target = makeChar("b", "Player_5");
     const ar = makeAgentRecord(me._id, {
       primary: "overwatch",
       action: { kind: "none" },
-      overwatch_priority: "nearest enemy",
+      overwatch_stance: "offensive",
     });
     const res: TurnResolution = {
       ...emptyResolution(),
@@ -450,6 +462,7 @@ describe("summariseDecision — action.kind × result vocabulary (D-P2-14)", () 
           kind: "overwatch",
           target: target._id,
           result: "dmg 7",
+          // Neither fromOverwatch nor stance — legacy/back-compat path.
         },
       ],
     };
@@ -459,6 +472,161 @@ describe("summariseDecision — action.kind × result vocabulary (D-P2-14)", () 
         p.outcome.includes("overwatch fire (dealt 7 damage)"),
       ),
     ).toBe(true);
+  });
+
+  // Phase-3 ADR §3 — offensive overwatch fire renders elaborated copy
+  // surfacing both the stance and the target displayName.
+  it('offensive overwatch fire (stance="offensive") → "overwatch (offensive) fired on Player_5, dealt 7 damage"', () => {
+    const me = makeChar("a", "Player_1");
+    const target = makeChar("b", "Player_5");
+    const ar = makeAgentRecord(me._id, {
+      primary: "overwatch",
+      action: { kind: "none" },
+      overwatch_stance: "offensive",
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      actions: [
+        {
+          characterId: me._id,
+          kind: "overwatch",
+          target: target._id,
+          result: "dmg 7",
+          stance: "offensive",
+        },
+      ],
+    };
+    const out = summariseDecision(ar, res, characterMap(me, target));
+    expect(
+      out.intentVsOutcome.some((p) =>
+        p.outcome.includes(
+          "overwatch (offensive) fired on Player_5, dealt 7 damage",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  // Phase-3 ADR §3 — defensive counter-fire renders the dedicated copy
+  // surfacing both the counter-fire attribution and the attacker
+  // displayName. Engine emits fromOverwatch=true + stance="defensive".
+  it('defensive counter-fire (fromOverwatch=true + stance="defensive") → "counter-fired Player_5 — dmg 7"', () => {
+    const me = makeChar("a", "Player_1");
+    const attacker = makeChar("b", "Player_5");
+    const ar = makeAgentRecord(me._id, {
+      primary: "overwatch",
+      action: { kind: "none" },
+      overwatch_stance: "defensive",
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      actions: [
+        {
+          characterId: me._id,
+          kind: "overwatch",
+          target: attacker._id,
+          result: "dmg 7",
+          fromOverwatch: true,
+          stance: "defensive",
+        },
+      ],
+    };
+    const out = summariseDecision(ar, res, characterMap(me, attacker));
+    expect(
+      out.intentVsOutcome.some((p) =>
+        p.outcome.includes("counter-fired Player_5 — dmg 7"),
+      ),
+    ).toBe(true);
+  });
+
+  // Out-of-range counter-fire (defensive but range-bounded out) still
+  // renders via the counter-fire branch but surfaces the failure result.
+  it('defensive counter-fire with "out_of_range" → still under counter-fire branch', () => {
+    const me = makeChar("a", "Player_1");
+    const attacker = makeChar("b", "Player_5");
+    const ar = makeAgentRecord(me._id, {
+      primary: "overwatch",
+      action: { kind: "none" },
+      overwatch_stance: "defensive",
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      actions: [
+        {
+          characterId: me._id,
+          kind: "overwatch",
+          target: attacker._id,
+          result: "out_of_range",
+          fromOverwatch: true,
+          stance: "defensive",
+        },
+      ],
+    };
+    const out = summariseDecision(ar, res, characterMap(me, attacker));
+    // Range-bounded counter-fire still attributed to the defensive branch.
+    expect(
+      out.intentVsOutcome.some(
+        (p) =>
+          p.intent.includes("[Overwatch fire]") &&
+          p.outcome.includes("out of range"),
+      ),
+    ).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Wall-blocked move (phase-3 ADR §9 — moves[].blockedBy === "wall")
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("summariseDecision — wall-blocked move outcome", () => {
+  it('blockedBy="wall" on the actor\'s move entry → outcome appended with " → hit wall"', () => {
+    const me = makeChar("a", "Player_1");
+    const ar = makeAgentRecord(me._id, {
+      primary: "move",
+      move: { kind: "relative", dx: 1, dy: 0 },
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      moves: [
+        {
+          characterId: me._id,
+          from: { x: 10, y: 10 },
+          to: { x: 10, y: 10 },
+          blockedBy: "wall",
+        },
+      ],
+    };
+    const out = summariseDecision(ar, res, characterMap(me));
+    const movePair = out.intentVsOutcome.find((p) =>
+      p.intent.toLowerCase().startsWith("moved"),
+    );
+    expect(movePair).toBeDefined();
+    expect(movePair!.outcome).toContain("→ hit wall");
+    // Coordinates still rendered as before; the suffix is appended.
+    expect(movePair!.outcome).toMatch(/\(10,10\)\s*→\s*\(10,10\)/);
+  });
+
+  it("no blockedBy field → outcome string is plain (no wall suffix)", () => {
+    const me = makeChar("a", "Player_1");
+    const ar = makeAgentRecord(me._id, {
+      primary: "move",
+      move: { kind: "relative", dx: 1, dy: 0 },
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      moves: [
+        {
+          characterId: me._id,
+          from: { x: 10, y: 10 },
+          to: { x: 11, y: 10 },
+        },
+      ],
+    };
+    const out = summariseDecision(ar, res, characterMap(me));
+    const movePair = out.intentVsOutcome.find((p) =>
+      p.intent.toLowerCase().startsWith("moved"),
+    );
+    expect(movePair).toBeDefined();
+    expect(movePair!.outcome).not.toContain("hit wall");
   });
 });
 
@@ -555,14 +723,14 @@ describe("summariseDecision — death detection (resolution.deaths[])", () => {
     const me = makeChar("a", "Player_1");
     const target = makeChar("b", "Player_5");
     const ar = makeAgentRecord(me._id, {
-      action: { kind: "interact", targetObjectId: "chest_004" },
+      action: { kind: "loot", targetId: "chest_004" },
     });
     const res: TurnResolution = {
       ...emptyResolution(),
       actions: [
         {
           characterId: me._id,
-          kind: "interact",
+          kind: "loot",
           target: "chest_004",
           result: "opened",
         },
@@ -644,10 +812,10 @@ describe("summariseDecision — consume vocabulary", () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// Say + overwatch_priority null collapse
+// Say + overwatch_stance null collapse (phase-3 ADR §1)
 // ───────────────────────────────────────────────────────────────────────────
 
-describe("summariseDecision — say / overwatch_priority null collapse", () => {
+describe("summariseDecision — say / overwatch_stance null collapse", () => {
   it("say: null collapses (no `Said:` clause)", () => {
     const me = makeChar("a", "Player_1");
     const ar = makeAgentRecord(me._id, { say: null });
@@ -662,28 +830,28 @@ describe("summariseDecision — say / overwatch_priority null collapse", () => {
     expect(out.oneLine).toContain('Said: "Truce?"');
   });
 
-  it("overwatch_priority null collapses (no `Watching for:` clause)", () => {
+  it("overwatch_stance null collapses (no `Stance:` clause)", () => {
     const me = makeChar("a", "Player_1");
-    const ar = makeAgentRecord(me._id, { overwatch_priority: null });
+    const ar = makeAgentRecord(me._id, { overwatch_stance: null });
     const out = summariseDecision(ar, emptyResolution(), characterMap(me));
-    expect(out.oneLine).not.toContain("Watching for:");
+    expect(out.oneLine).not.toContain("Stance:");
   });
 
-  it('overwatch_priority "nearest enemy" → "Watching for: nearest enemy"', () => {
+  it('overwatch_stance "offensive" + primary "overwatch" → "Stance: offensive"', () => {
     const me = makeChar("a", "Player_1");
     const ar = makeAgentRecord(me._id, {
       primary: "overwatch",
-      overwatch_priority: "nearest enemy",
+      overwatch_stance: "offensive",
     });
     const out = summariseDecision(ar, emptyResolution(), characterMap(me));
-    expect(out.oneLine).toContain("Watching for: nearest enemy");
+    expect(out.oneLine).toContain("Stance: offensive");
   });
 
   it("primary === overwatch marks the row regardless of priority", () => {
     const me = makeChar("a", "Player_1");
     const ar = makeAgentRecord(me._id, {
       primary: "overwatch",
-      overwatch_priority: null,
+      overwatch_stance: null,
     });
     const out = summariseDecision(ar, emptyResolution(), characterMap(me));
     // ADR §5: "When `primary === 'overwatch'`, mark with overwatch glyph
@@ -840,17 +1008,19 @@ describe("summariseDecision — intentVsOutcome pairing", () => {
     expect(pair!.outcome).toContain("target not found");
   });
 
-  it("interact intent paired with opened outcome", () => {
+  it("loot intent paired with opened outcome (chest_*)", () => {
+    // Phase-3 ADR §1 / PM lock D7 — chests flow through unified loot
+    // arm with `chest_*` targetId; trace `kind` is "loot".
     const me = makeChar("a", "Player_1");
     const ar = makeAgentRecord(me._id, {
-      action: { kind: "interact", targetObjectId: "chest_004" },
+      action: { kind: "loot", targetId: "chest_004" },
     });
     const res: TurnResolution = {
       ...emptyResolution(),
       actions: [
         {
           characterId: me._id,
-          kind: "interact",
+          kind: "loot",
           target: "chest_004",
           result: "opened",
         },
@@ -858,7 +1028,7 @@ describe("summariseDecision — intentVsOutcome pairing", () => {
     };
     const out = summariseDecision(ar, res, characterMap(me));
     const pair = out.intentVsOutcome.find((p) =>
-      p.intent.includes("Interacted with chest_004"),
+      p.intent.includes("Opened chest_004"),
     );
     expect(pair).toBeDefined();
     expect(pair!.outcome).toContain("opened");
@@ -868,7 +1038,7 @@ describe("summariseDecision — intentVsOutcome pairing", () => {
     const me = makeChar("a", "Player_1");
     const dead = makeChar("b", "Player_5");
     const ar = makeAgentRecord(me._id, {
-      action: { kind: "loot", targetCorpseId: dead._id },
+      action: { kind: "loot", targetId: dead._id },
     });
     const res: TurnResolution = {
       ...emptyResolution(),

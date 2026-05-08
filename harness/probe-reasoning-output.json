@@ -1,0 +1,365 @@
+{
+  "probedAt": "2026-05-08T15:22:45.233Z",
+  "requestAttempt": "with_summary",
+  "azureModel": "gpt-5.4-mini",
+  "httpStatus": 200,
+  "branch": "A",
+  "reasoning_summary_param_accepted": true,
+  "reasoningItemCount": 1,
+  "reasoningHasText": true,
+  "reasoning_tokens": 197,
+  "output_types": [
+    "reasoning",
+    "function_call"
+  ],
+  "fullResponse": {
+    "id": "resp_04f2f2f124372e170169fdffc15a7c8194b7557a9bd480139a",
+    "object": "response",
+    "created_at": 1778253761,
+    "status": "incomplete",
+    "background": false,
+    "completed_at": null,
+    "content_filters": [
+      {
+        "blocked": false,
+        "source_type": "prompt",
+        "content_filter_raw": [],
+        "content_filter_results": {
+          "hate": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "sexual": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "self_harm": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "violence": {
+            "filtered": false,
+            "severity": "safe"
+          }
+        },
+        "content_filter_offsets": {
+          "start_offset": 30,
+          "end_offset": 317,
+          "check_offset": 0
+        }
+      },
+      {
+        "blocked": false,
+        "source_type": "completion",
+        "content_filter_raw": [],
+        "content_filter_results": {
+          "violence": {
+            "filtered": false,
+            "severity": "low"
+          },
+          "sexual": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "hate": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "self_harm": {
+            "filtered": false,
+            "severity": "safe"
+          }
+        },
+        "content_filter_offsets": {
+          "start_offset": 0,
+          "end_offset": 2050,
+          "check_offset": 0
+        }
+      }
+    ],
+    "error": null,
+    "frequency_penalty": 0,
+    "incomplete_details": {
+      "reason": "max_output_tokens"
+    },
+    "instructions": null,
+    "max_output_tokens": 256,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-mini",
+    "output": [
+      {
+        "id": "rs_04f2f2f124372e170169fdffc1cab48194b449c1f541c1f858",
+        "type": "reasoning",
+        "summary": [
+          {
+            "type": "summary_text",
+            "text": "**Deciding movement strategy**\n\nI need to call the function to decide my next move. It seems best to cautiously approach the chest instead of engaging with the visible enemy to the south-east. So, I've got to choose my coordinates, likely moving four spaces southwest. I’m thinking that if the situation looks risky, I might retreat instead of risking action. If I decide to stay put, I could open the chest, but I need to weigh my options carefully before finalizing my decision."
+          }
+        ]
+      },
+      {
+        "id": "fc_04f2f2f124372e170169fdffc4c2948194845d593e9e2d28c7",
+        "type": "function_call",
+        "status": "incomplete",
+        "arguments": "{\"consume\":\"none\",\"primary\":\"move\",\"move\":{\"kind\":\"move\",\"dx\":-4,\"dy\":4},\"action\":{\"kind\":\"none\"},\"say\":\"Moving to the chest cautiously.\",\"overwatch_priority\":\"avoid",
+        "call_id": "call_QrxOlLetX6JaSt3cn9XKi8Xz",
+        "name": "decide_turn"
+      }
+    ],
+    "parallel_tool_calls": false,
+    "presence_penalty": 0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "low",
+      "summary": "detailed"
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "required",
+    "tools": [
+      {
+        "type": "function",
+        "description": "Emit the agent's full per-turn decision: optional consumable, primary commitment (move/stationary_action/overwatch), a move sub-decision, an action sub-decision, optional say, optional overwatch priority, optional scratchpad update.",
+        "name": "decide_turn",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "consume",
+            "primary",
+            "move",
+            "action"
+          ],
+          "properties": {
+            "consume": {
+              "enum": [
+                "none",
+                "heal",
+                "speed"
+              ]
+            },
+            "primary": {
+              "enum": [
+                "move",
+                "stationary_action",
+                "overwatch"
+              ]
+            },
+            "move": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "dx",
+                    "dy"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "relative"
+                    },
+                    "dx": {
+                      "type": "integer",
+                      "minimum": -12,
+                      "maximum": 12
+                    },
+                    "dy": {
+                      "type": "integer",
+                      "minimum": -12,
+                      "maximum": 12
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "targetCharacterId"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "toward_entity"
+                    },
+                    "targetCharacterId": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "targetCharacterId"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "away_from_entity"
+                    },
+                    "targetCharacterId": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "targetObjectId"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "toward_object"
+                    },
+                    "targetObjectId": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "toward_evac"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              ]
+            },
+            "action": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "targetCharacterId"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "attack"
+                    },
+                    "targetCharacterId": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "targetObjectId"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "interact"
+                    },
+                    "targetObjectId": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "targetCorpseId"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "loot"
+                    },
+                    "targetCorpseId": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              ]
+            },
+            "say": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 280
+            },
+            "overwatch_priority": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 80
+            },
+            "scratchpad_update": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 500
+            }
+          }
+        },
+        "strict": false
+      }
+    ],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 496,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 256,
+      "output_tokens_details": {
+        "reasoning_tokens": 197
+      },
+      "total_tokens": 752
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

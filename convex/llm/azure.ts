@@ -81,6 +81,31 @@ export type CallResult = {
      * `wp10-5-phase-a-findings.md`.
      */
     httpBodyExcerpt?: string;
+    /**
+     * Phase-3 WP-A.2 / ADR §2 — captured reasoning text.
+     *
+     * Per de-risking.md D-P3-1 probe outcome (Branch A): the project's
+     * Azure deployment exposes reasoning items in `response.output[]`
+     * with shape:
+     *   { type: "reasoning", id, summary: [{ type: "summary_text",
+     *     text: "..." }] }
+     *
+     * The wrapper extracts the joined `summary[].text` strings as the
+     * captured reasoning, sanitises via the existing `sanitiseHttpBody`
+     * helper, and truncates to ≤ 4 KB.
+     *
+     * REQUIRED-NULLABLE (`string | null`), NEVER `undefined`. Persisted
+     * as `null` on every non-captured path:
+     *   - HTTP/network failures
+     *   - Status-not-completed / incomplete_details / content-filter
+     *   - Happy-path responses without any reasoning items
+     *   - JSON-parse / schema-validation failures
+     *
+     * Per PM lock D13 the schema validator is `v.union(v.string(),
+     * v.null())`, NOT `v.optional(v.string())`, so the closing-10
+     * metric `reasoning !== null` is well-defined on every row.
+     */
+    reasoning: string | null;
   };
 };
 
@@ -178,7 +203,12 @@ function isContentFilterBlocked(body: unknown): boolean {
   return false;
 }
 
-/** Build the safe-default `CallResult` from a partial — saves boilerplate. */
+/** Build the safe-default `CallResult` from a partial — saves boilerplate.
+ *
+ * Phase-3 ADR §2: every failure path must populate
+ * `raw.reasoning: null` (never `undefined`). The shape is required-
+ * nullable; persisting `null` on every non-captured path keeps the
+ * downstream metric `reasoning !== null` well-defined. */
 function safeDefaultResult(args: {
   failureReason: FailureReason;
   callId?: string | null;
@@ -191,6 +221,10 @@ function safeDefaultResult(args: {
   /** WP10.5 Pass F — captured non-OK HTTP body (sanitised+truncated). Only
    *  set on `failureReason: "http_non_200"`; absent on every other path. */
   httpBodyExcerpt?: string;
+  /** Phase-3 ADR §2 — captured reasoning text (Branch A). Defaults to
+   *  null; the wrapper sets it on the happy path when an
+   *  `output[].type === "reasoning"` item is present. */
+  reasoning?: string | null;
 }): CallResult {
   return {
     decision: SAFE_DEFAULT_DECISION,
@@ -209,6 +243,8 @@ function safeDefaultResult(args: {
       ...(args.httpBodyExcerpt !== undefined
         ? { httpBodyExcerpt: args.httpBodyExcerpt }
         : {}),
+      // Required-nullable: pass-through with null fallback.
+      reasoning: args.reasoning ?? null,
     },
   };
 }
@@ -339,6 +375,84 @@ function buildHttpBodyExcerpt(
   const sanitised = sanitiseHttpBody(raw, azureApiKey);
   if (sanitised.length <= HTTP_BODY_EXCERPT_MAX_LEN) return sanitised;
   return sanitised.slice(0, HTTP_BODY_EXCERPT_MAX_LEN);
+}
+
+// ─── Phase-3 WP-A.2 — reasoning extraction (Branch A) ───────────────────────
+//
+// Per de-risking.md D-P3-1 probe outcome (Branch A): the project's Azure
+// deployment exposes reasoning items in `response.output[]` with shape:
+//   { type: "reasoning", id, summary: [{ type: "summary_text", text:
+//     "..." }] }
+//
+// Multiple reasoning items concatenate with a double newline. The
+// joined text is sanitised through the same `sanitiseHttpBody` helper
+// (api-keys / bearer tokens / PII redacted) — Gate-2.5 hardening
+// generalises here, and legitimate reasoning prose ("Player_5",
+// timestamps, etc.) is preserved by the conservative regex set per
+// ADR §2 risk mitigation. Output is truncated to ≤ 4 KB.
+
+/** Maximum bytes (chars; we truncate the JS string by code units) of the
+ *  captured reasoning excerpt. 4 KB sits between the 2 KB http-body cap
+ *  and the typical per-turn reasoning length seen in the WP-A.1 probe
+ *  (~ 500-1000 chars), with headroom for verbose chain-of-thought. */
+const REASONING_EXCERPT_MAX_LEN = 4096;
+
+type ReasoningItem = {
+  type?: unknown;
+  text?: unknown;
+  summary?: unknown;
+};
+
+function isReasoningItem(item: unknown): item is ReasoningItem {
+  return (
+    typeof item === "object" &&
+    item !== null &&
+    (item as { type?: unknown }).type === "reasoning"
+  );
+}
+
+/** Extract joined reasoning text from `output[]` reasoning items.
+ *  Returns `null` when no item carries usable text (Branch A's
+ *  no-reasoning-emitted case — a non-error condition that still
+ *  persists `null`, never undefined). */
+function extractReasoningText(
+  output: unknown[],
+  azureApiKey?: string,
+): string | null {
+  const fragments: string[] = [];
+  for (const item of output) {
+    if (!isReasoningItem(item)) continue;
+    // Per the probe's recorded shape, the canonical Azure path is
+    // `summary: [{ type: "summary_text", text: "..." }]`. We also
+    // accept a direct `item.text` string in case a future deployment
+    // exposes that shape.
+    if (typeof item.text === "string" && item.text.length > 0) {
+      fragments.push(item.text);
+      continue;
+    }
+    if (Array.isArray(item.summary)) {
+      const parts: string[] = [];
+      for (const s of item.summary) {
+        if (
+          typeof s === "object" &&
+          s !== null &&
+          typeof (s as { text?: unknown }).text === "string"
+        ) {
+          const t = (s as { text: string }).text;
+          if (t.length > 0) parts.push(t);
+        }
+      }
+      if (parts.length > 0) fragments.push(parts.join("\n"));
+    }
+  }
+  if (fragments.length === 0) return null;
+  const joined = fragments.join("\n\n");
+  // Sanitise (defence-in-depth — reasoning prose typically doesn't
+  // contain credentials, but the trace is durable so the cost of false
+  // negatives compounds), then truncate.
+  const sanitised = sanitiseHttpBody(joined, azureApiKey);
+  if (sanitised.length <= REASONING_EXCERPT_MAX_LEN) return sanitised;
+  return sanitised.slice(0, REASONING_EXCERPT_MAX_LEN);
 }
 
 // ─── WP10.5 Pass D — minimal retry policy ────────────────────────────────────
@@ -674,6 +788,12 @@ export async function callDecisionTool(
       });
     }
 
+    // Phase-3 WP-A.2 — extract reasoning text from output[] reasoning
+    // items (Branch A path per de-risking.md D-P3-1). The extractor
+    // returns `null` when no usable reasoning content is present —
+    // never `undefined` — so the persisted row is unambiguous.
+    const reasoning = extractReasoningText(output, azureApiKey);
+
     // Happy path (or multiple_function_calls — same return shape but
     // failureReason is set for telemetry).
     return {
@@ -688,6 +808,7 @@ export async function callDecisionTool(
         latencyMs: Date.now() - start,
         httpStatus,
         retried,
+        reasoning,
       },
     };
   } catch (e) {

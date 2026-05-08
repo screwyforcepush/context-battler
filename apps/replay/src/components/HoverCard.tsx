@@ -308,6 +308,13 @@ function ChestHover(props: {
  * Walk `bundle.turns` for the action that opened this chest. Returns the
  * turn-number, or null if not found (e.g. inconsistent terminal state).
  * Per D-P2-13, lookup is by `row.turn` not array index.
+ *
+ * Phase-3 ADR §1 / PM lock D7 — chest opens emit
+ * `kind: "loot"`, `result: "opened"`, with the chest id (chest_*) as the
+ * target. The id-namespace gate (`target.startsWith("chest_")`) prevents
+ * a corpse loot of the same `result: "opened"` from being misread as a
+ * chest open, even though the engine's chest-open path always writes
+ * `chest_*` and the corpse path writes the character id.
  */
 function findChestOpenTurn(
   bundle: ReplayBundle,
@@ -315,7 +322,12 @@ function findChestOpenTurn(
 ): number | null {
   for (const row of bundle.turns) {
     for (const a of row.resolution.actions) {
-      if (a.kind === "interact" && a.target === chestId && a.result === "opened") {
+      if (
+        a.kind === "loot" &&
+        a.result === "opened" &&
+        a.target.startsWith("chest_") &&
+        a.target === chestId
+      ) {
         return row.turn;
       }
     }

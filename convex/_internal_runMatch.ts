@@ -92,22 +92,25 @@ const moveValidator = v.union(
   v.object({ kind: v.literal("none") }),
 );
 
+// Phase-3 ADR §1 mirror — kept in lockstep with `convex/schema.ts`.
+// Drift would reject every new-shape `recordTurn` mutation row at runtime.
+// 3-arm action union; interact REMOVED; loot.targetCorpseId →
+// loot.targetId; chests + corpses both flow through loot, dispatched
+// by id namespace in the engine.
 const actionValidator = v.union(
   v.object({
     kind: v.literal("attack"),
     targetCharacterId: v.string(),
   }),
   v.object({
-    kind: v.literal("interact"),
-    targetObjectId: v.string(),
-  }),
-  v.object({
     kind: v.literal("loot"),
-    targetCorpseId: v.string(),
+    targetId: v.string(),
   }),
   v.object({ kind: v.literal("none") }),
 );
 
+// Phase-3 ADR §1 mirror — `overwatch_priority` REMOVED; replaced by
+// structured `overwatch_stance` (`"offensive" | "defensive" | null`).
 const decisionValidator = v.object({
   consume: v.union(v.literal("none"), v.literal("heal"), v.literal("speed")),
   primary: v.union(
@@ -118,7 +121,11 @@ const decisionValidator = v.object({
   move: moveValidator,
   action: actionValidator,
   say: v.union(v.string(), v.null()),
-  overwatch_priority: v.union(v.string(), v.null()),
+  overwatch_stance: v.union(
+    v.literal("offensive"),
+    v.literal("defensive"),
+    v.null(),
+  ),
   scratchpad_update: v.union(v.string(), v.null()),
 });
 
@@ -146,6 +153,11 @@ const agentLlmValidator = v.object({
   // WP10.5 Pass F — mirrors `convex/schema.ts` agentLlmValidator. Captured
   // non-OK HTTP body (sanitised+truncated). Optional+additive.
   httpBodyExcerpt: v.optional(v.string()),
+  // Phase-3 ADR §2 / PM lock D13 — mirrors `convex/schema.ts`
+  // agentLlmValidator. Required-nullable (`v.union(v.string(), v.null())`),
+  // NOT `v.optional(v.string())`. Persisted as `null` on every
+  // non-captured path.
+  reasoning: v.union(v.string(), v.null()),
 });
 
 const agentRecordValidator = v.object({
@@ -176,6 +188,8 @@ const resolutionValidator = v.object({
       characterId: v.id("characters"),
       from: tileValidator,
       to: tileValidator,
+      // Phase-3 ADR §9 mirror — wall-blocked move marker (optional).
+      blockedBy: v.optional(v.literal("wall")),
     }),
   ),
   actions: v.array(
@@ -184,6 +198,14 @@ const resolutionValidator = v.object({
       kind: v.string(),
       target: v.string(),
       result: v.string(),
+      // Phase-3 ADR §3 mirror — overwatch-stance attribution
+      // (optional). `fromOverwatch=true` + `stance="defensive"` for
+      // counter-fire entries; `stance="offensive"` for offensive
+      // overwatch fire entries; both omitted for non-overwatch attacks.
+      fromOverwatch: v.optional(v.boolean()),
+      stance: v.optional(
+        v.union(v.literal("offensive"), v.literal("defensive")),
+      ),
     }),
   ),
   deaths: v.array(v.id("characters")),

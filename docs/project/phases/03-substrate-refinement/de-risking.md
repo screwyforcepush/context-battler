@@ -86,9 +86,47 @@ counts). No ambiguous middle ground — the response shape is empirical.
 - Replay UI's raw-pane reads `agentRecord.llm.reasoning ??
   agentRecord.decision.rationale ?? "(no reasoning captured)"`.
 
-**Status.** OPEN — to be resolved by WP-A.1 spike. Pre-spike
-expectation: Branch B, based on Perplexity research. Branch A would be
-a pleasant surprise.
+**Status.** RESOLVED 2026-05-08 — **Branch A** (reasoning text exposed).
+
+**Probe result.** `harness/probe-reasoning.ts` ran one tool-use call
+against the project's dev Azure deployment (`AZURE_MODEL=gpt-5.4-mini`,
+endpoint `webfoundtrack.cognitiveservices.azure.com`, api-version
+`2025-04-01-preview`) with `reasoning.effort: "low"` AND
+`reasoning.summary: "auto"`. Both parameters were honoured. HTTP 200.
+
+`response.output[]` contained 2 items in order:
+  1. `{ type: "reasoning", id: "rs_…", summary: [{ type:
+     "summary_text", text: "**Deciding movement strategy**\\n\\n..." }] }`
+  2. `{ type: "function_call", arguments: "...", call_id: "…", name:
+     "decide_turn" }`
+
+`response.usage.output_tokens_details.reasoning_tokens = 197`.
+The deployment echoed `reasoning.summary: "detailed"` back on the
+response, indicating Azure normalised `auto` to `detailed`.
+
+Full dump preserved at `harness/probe-reasoning-output.json`.
+
+**Branch A wiring (now binding for WP-A.2 onward).**
+
+- WP-A.2 schema: `agentRecord.llm.reasoning: v.union(v.string(),
+  v.null())` per ADR §2 / PM lock D13. Required-nullable; persisted as
+  `null` on every non-captured path (failure rows, responses without
+  reasoning items).
+- WP-A.2 `azure.ts`: extract reasoning text by walking `output[]` for
+  items with `type === "reasoning"`. For each, prefer the joined
+  `summary[].text` strings (`summary` is the canonical Azure shape
+  per the probe); fall back to `item.text` if a future deployment
+  exposes that. Multiple reasoning items concatenate with double
+  newline. Sanitise via `sanitiseHttpBody` (already tested to leave
+  legitimate prose intact); truncate to ≤ 4 KB.
+- `decision.rationale` is **NOT** added to the tool schema (Branch A
+  saves the tokens).
+- ADR §7 Section 5b conditional rationale ask is **omitted** from the
+  WP-C system-prompt rewrite (Branch A path; saves tokens).
+- Replay UI raw-pane reads `agentRecord.llm.reasoning ?? "(no reasoning
+  captured)"` (no rationale fallback layer needed on Branch A).
+- `tests/llm/systemPrompt.test.ts` (WP-C) asserts the rationale ask is
+  ABSENT in the rendered prompt.
 
 ---
 
@@ -255,7 +293,7 @@ WP-C smoke run shows.
 
 | Item | Status | Owner | Resolves at |
 |---|---|---|---|
-| D-P3-1 reasoning text on Azure | OPEN | WP-A.1 spike | WP-A.1 deliverable |
+| D-P3-1 reasoning text on Azure | RESOLVED — Branch A | WP-A.1 spike | resolved 2026-05-08 |
 | D-P3-2 counter-fire under multi-attacker | OPEN | WP-B test cases | WP-B gate |
 | D-P3-3 token-budget overshoot | OPEN | WP-C tests + smoke | WP-C gate |
 | D-P3-4 outcome-attribution calibration | OPEN | WP-E aggregator | WP-E.4 deliverable |

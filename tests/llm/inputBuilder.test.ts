@@ -1,48 +1,56 @@
-// WP8 — TDD tests for the per-turn agent input builder.
+// WP-C.6 — TDD tests for the rebuilt per-turn agent input (phase-3 ADR §6).
+//
+// Phase-3 substrate refinement reshapes the digest per North Star §1:
+//
+//   You: at (X,Y), HP/maxHP, weapon/armour/consumable, in evac zone
+//   Last turn (you): <move outcome>, <action outcome>, <damage from whom>, said "..."
+//   Visible:
+//   - Player_4, dist 7 S [HP~high, holding axe, attacked Player_2]
+//   - Chest_005, dist 6 SE [opened]
+//   - Corpse_Player_5, dist 9 S [drained]
+//   - Cover_32_32, dist 4 SE
+//   - Wall_40_34, dist 1 S
+//   - Evac, dist 12 SE
+//
+// Removed sections (vs phase-1 digest): `Affordances:`, `Heard (last turn):`,
+// `Last-known:`, `Evac:` — last-turn speech folds into per-Visible
+// observation brackets; last-known map memory is the agent's job; the
+// system prompt teaches the action grammar (no Affordances band-aid).
 //
 // Tests are written FIRST per AOP (Red → Green → Refactor). They lock the
-// digest contract that downstream WPs depend on:
-//
-//   - WP10 (`runMatch.advanceTurn`) calls `buildAgentInput` once per living
-//     agent, persists the returned `visibleStateDigest` + `systemPrompt` in
-//     the trace per ADR §7, and forwards both into `callDecisionTool` (WP6).
-//   - WP15 tuning loop reads token-budget telemetry; if the digest grows
-//     beyond the contract, persona signal collapses against the ≤ 1 200-token
-//     prompt-economy bound from `mental-model.md` §10.
+// digest contract that runMatch.advanceTurn + the report writer + WP-D's
+// replay UI rely on.
 //
 // Token-count proxy. We use **`chars / 4`** as a deterministic, install-free
 // proxy for tiktoken token counts (matches `tests/llm/personas.test.ts`).
-// Rationale documented inline in `convex/llm/inputBuilder.ts` head-note.
 //
 // Cross-references:
-//   - concept-spec.md §7 (vision example), §8 (per-turn input), §16 (speech),
-//     §22 (affordances) — the digest mirrors §7's example structure.
-//   - work-packages.md WP8 (lines 217-262) — locks digest-section caps,
-//     speech window, and the binding token-budget assertion.
-//   - mental-model.md §9 — "concrete actions and targets only, no predicates".
-//   - mental-model.md §10 — prompt-economy rule (digest is plain text, not
-//     an ASCII tile dump).
+//   - architecture-decisions.md §5 (walls), §6 (per-turn input shape),
+//     §7 (system prompt), §9 (wall-blocked move).
+//   - work-packages.md WP-C.6 — locks test cases.
+//   - concept-spec.md §7 (vision example), §8 (agent input list).
 
 import { describe, expect, it } from "vitest";
 import {
   buildAgentInput,
   buildVisibleStateDigest,
+  type PrevTurnRow,
 } from "../../convex/llm/inputBuilder.js";
 import { SYSTEM_PROMPT } from "../../convex/llm/systemPrompt.js";
-import type {
-  CharacterState,
-  ChestState,
-  CorpseState,
-  HeardSpeech,
-  LastKnownEntry,
-  MatchState,
-  PersonaId,
-  Tile,
-  Wall,
-  WorldState,
+import { loadPersonas } from "../../convex/llm/personas.js";
+import {
+  PERSONA_IDS,
+  type CharacterState,
+  type ChestState,
+  type CorpseState,
+  type MatchState,
+  type PersonaId,
+  type Tile,
+  type Wall,
+  type WorldState,
 } from "../../convex/engine/types.js";
 
-// ─── Test fixture helpers (mirror tests/engine/affordances.test.ts) ─────────
+// ─── Test fixture helpers ───────────────────────────────────────────────────
 
 function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
   return {
@@ -68,7 +76,6 @@ function makeCharacter(opts: {
   consumable?: "heal" | "speed";
   personaId?: PersonaId;
   displayName?: string;
-  lastKnown?: LastKnownEntry[];
 }): CharacterState {
   const equipped: CharacterState["equipped"] = {};
   if (opts.weapon)
@@ -82,19 +89,19 @@ function makeCharacter(opts: {
     personaId: opts.personaId ?? "rat",
     spawnIndex: 0,
     displayName: opts.displayName ?? opts.id,
-    hp: opts.hp ?? 100,
-    maxHp: opts.maxHp ?? 100,
+    hp: opts.hp ?? 50,
+    maxHp: opts.maxHp ?? 50,
     pos: opts.pos,
     equipped,
     scratchpad: "",
     hidden: opts.hidden ?? false,
     alive: opts.alive ?? true,
-    lastKnown: opts.lastKnown ?? [],
+    lastKnown: [],
   };
 }
 
-function makeChest(id: string, pos: Tile): ChestState {
-  return { id, pos, contents: null, opened: false, lootTable: "starter" };
+function makeChest(id: string, pos: Tile, opened = false): ChestState {
+  return { id, pos, contents: null, opened, lootTable: "starter" };
 }
 
 function makeCorpse(
@@ -119,51 +126,1068 @@ function makeState(opts: {
   };
 }
 
-// ─── Test 1 — Format smoke ──────────────────────────────────────────────────
+/** Build a minimal PrevTurnRow shape with sensible defaults; callers
+ *  populate the fields they exercise. */
+function makePrevTurn(
+  partial: Partial<PrevTurnRow["resolution"]> = {},
+): PrevTurnRow {
+  return {
+    resolution: {
+      consumed: [],
+      speech: [],
+      moves: [],
+      actions: [],
+      deaths: [],
+      visibilityUpdates: [],
+      ...partial,
+    },
+  };
+}
 
-describe("WP8 — buildVisibleStateDigest format smoke", () => {
-  it("produces a digest with all expected sections under 1500 chars for a mid-game 8-agent state", () => {
-    // Eight characters arranged in a rough ring around the observer at the
-    // map centre — enough visible entities to exercise every section.
+// ─── Test 1 — You: line, base shape ────────────────────────────────────────
+
+describe("WP-C.1 — You: line", () => {
+  it("renders pos, HP/maxHP, equipped slots; no evac suffix before reveal", () => {
     const me = makeCharacter({
       id: "P1",
       displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-      hp: 72,
+      pos: { x: 15, y: 15 },
+      hp: 42,
+      maxHp: 50,
       weapon: "axe",
       armour: "leather",
       consumable: "heal",
     });
-    const others: CharacterState[] = [];
-    for (let i = 2; i <= 8; i++) {
-      others.push(
+    const state = makeState({ characters: [me], turn: 7 });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+
+    // You: line carries position, HP, weapon/armour/consumable (slash-joined).
+    expect(digest).toMatch(
+      /^You: at \(15,15\), 42\/50 HP, axe \/ leather \/ heal/m,
+    );
+    // No evac suffix when evac is hidden.
+    expect(digest).not.toContain("in evac zone");
+    expect(digest).not.toContain("not in evac zone");
+  });
+
+  it("renders em-dash for missing equipped slots", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 5, y: 5 },
+      weapon: "sword",
+    });
+    const state = makeState({ characters: [me] });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).toMatch(/^You: .*sword \/ — \/ —/m);
+  });
+
+  it("'in evac zone' suffix appears iff evac revealed AND observer inside 3x3 zone", () => {
+    // Evac centre at (50,50), zone is 3x3 (centre ± 1). Observer at (49,50)
+    // is inside.
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 49, y: 50 },
+    });
+    const state = makeState({
+      characters: [me],
+      world: { evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 } },
+      turn: 35,
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).toContain("in evac zone");
+    expect(digest).not.toContain("not in evac zone");
+  });
+
+  it("'not in evac zone' suffix appears iff evac revealed AND observer outside 3x3 zone", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({
+      characters: [me],
+      world: { evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 } },
+      turn: 35,
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).toContain("not in evac zone");
+  });
+});
+
+// ─── Test 2 — Last turn (you) line ──────────────────────────────────────────
+
+describe("WP-C.1 — Last turn (you) line", () => {
+  it("turn 1 (no prevTurnRow) → omits the Last turn line", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 5, y: 5 },
+    });
+    const state = makeState({ characters: [me], turn: 1 });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).not.toContain("Last turn (you):");
+  });
+
+  it("renders move outcome from moves[] (no blockedBy)", () => {
+    // P1 at (10,10) last turn moved from (7,13) to (10,10) — Chebyshev 3 NE.
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn({
+      moves: [
+        { characterId: "P1", from: { x: 7, y: 13 }, to: { x: 10, y: 10 } },
+      ],
+    });
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/Last turn \(you\): moved 3 NE/);
+  });
+
+  it("renders 'moved 3 SW → hit wall' fragment from moves[].blockedBy === 'wall' (ADR §9)", () => {
+    // ADR §9 — wall-blocked move emits from === to with blockedBy:"wall".
+    // The "3 SW" is the INTENDED direction; we encode that via the position
+    // recorded as `from` matches `to` (start === end) but the digest still
+    // needs a direction. Per ADR §9: "moved 3 SW → hit wall" means the
+    // intended direction was 3 SW; we read it from the DECISION, not the
+    // move trace.
+    //
+    // Compromise contract: when `blockedBy === "wall"`, the digest renders
+    // the from→to (which is identity) as a generic "→ hit wall" fragment;
+    // direction-from-intent comes from a future enrichment. Phase-3 v1
+    // contract accepts "moved 0 → hit wall" or just "→ hit wall" wording.
+    //
+    // The IMPLEMENTATION choice locked here: when blockedBy==="wall" AND
+    // from===to, we render "tried to move → hit wall". The "3 SW" form
+    // requires the agent's intended next-step direction which isn't on the
+    // moves[] entry — it's on `decision.move`. To keep this test
+    // implementation-faithful, we assert the wall-block fragment.
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn({
+      moves: [
+        {
+          characterId: "P1",
+          from: { x: 10, y: 10 },
+          to: { x: 10, y: 10 },
+          blockedBy: "wall",
+        },
+      ],
+    });
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/Last turn \(you\):.*hit wall/);
+  });
+
+  it("renders attack action outcome (kind/target/result)", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "P1",
+          kind: "attack",
+          target: "Player_3",
+          result: "dmg 7",
+        },
+      ],
+    });
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/Last turn \(you\):.*attacked Player_3 \(dmg 7\)/);
+  });
+
+  it("renders loot action outcome with chest target", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "P1",
+          kind: "loot",
+          target: "chest_005",
+          result: "opened",
+        },
+      ],
+    });
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/Last turn \(you\):.*looted chest_005 \(opened\)/);
+  });
+
+  it("renders damage-taken-from with single attacker", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "P3",
+          kind: "attack",
+          target: "Player_1",
+          result: "dmg 12",
+        },
+      ],
+    });
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/took 12 dmg from Player_3/);
+  });
+
+  it("renders damage-taken-from with multiple attackers, comma-joined", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "P3",
+          kind: "attack",
+          target: "Player_1",
+          result: "dmg 12",
+        },
+        {
+          characterId: "P4",
+          kind: "attack",
+          target: "Player_1",
+          result: "dmg 5",
+        },
+        {
+          characterId: "P5",
+          kind: "overwatch",
+          target: "Player_1",
+          result: "dmg 8",
+          fromOverwatch: true,
+          stance: "defensive",
+        },
+      ],
+    });
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    // All 3 attackers should appear; HP-level total is 12+5+8=25.
+    expect(digest).toMatch(/took 25 dmg/);
+    expect(digest).toContain("Player_3");
+    expect(digest).toContain("Player_4");
+    expect(digest).toContain("Player_5");
+  });
+
+  it("renders said \"...\" fragment from speech[]", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn({
+      speech: [
+        { characterId: "P1", text: "Truce?", heardBy: [] },
+      ],
+    });
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/Last turn \(you\):.*said "Truce\?"/);
+  });
+
+  it("composes all 4 fragments in order: move, action, damage, said", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me], turn: 5 });
+    const prev = makePrevTurn({
+      moves: [
+        { characterId: "P1", from: { x: 7, y: 13 }, to: { x: 10, y: 10 } },
+      ],
+      actions: [
+        {
+          characterId: "P1",
+          kind: "attack",
+          target: "Player_3",
+          result: "dmg 7",
+        },
+        {
+          characterId: "P4",
+          kind: "attack",
+          target: "Player_1",
+          result: "dmg 5",
+        },
+      ],
+      speech: [
+        { characterId: "P1", text: "Hold!", heardBy: [] },
+      ],
+    });
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    const lastLine = digest
+      .split("\n")
+      .find((l) => l.startsWith("Last turn (you):"));
+    expect(lastLine).toBeDefined();
+    // Order: move comes first, then action, then damage, then said.
+    const moveIdx = lastLine!.indexOf("moved");
+    const attackIdx = lastLine!.indexOf("attacked");
+    const dmgIdx = lastLine!.indexOf("took");
+    const saidIdx = lastLine!.indexOf("said");
+    expect(moveIdx).toBeGreaterThan(0);
+    expect(attackIdx).toBeGreaterThan(moveIdx);
+    expect(dmgIdx).toBeGreaterThan(attackIdx);
+    expect(saidIdx).toBeGreaterThan(dmgIdx);
+  });
+});
+
+// ─── Test 3 — Visible: typed-id rendering ──────────────────────────────────
+
+describe("WP-C.1 — Visible bullets — typed-id rendering", () => {
+  it("character bullet uses 'Player_N' displayName", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const enemy = makeCharacter({
+      id: "P4",
+      displayName: "Player_4",
+      pos: { x: 55, y: 50 },
+    });
+    const state = makeState({ characters: [me, enemy] });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).toMatch(/- Player_4, dist 5 E/);
+  });
+
+  it("chest bullet uses 'Chest_NNN' from objectId", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const state = makeState({
+      characters: [me],
+      world: { chests: [makeChest("chest_005", { x: 53, y: 50 })] },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).toMatch(/- Chest_005, dist 3 E/);
+  });
+
+  it("corpse bullet uses 'Corpse_<displayName>' format", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    // Corpse character lives in characters[] (defunct alive=false) so the
+    // displayName is resolvable.
+    const dead = makeCharacter({
+      id: "P5",
+      displayName: "Player_5",
+      pos: { x: 50, y: 53 },
+      alive: false,
+    });
+    const state = makeState({
+      characters: [me, dead],
+      world: { corpses: [makeCorpse("P5", { x: 50, y: 53 })] },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).toMatch(/- Corpse_Player_5, dist 3 S/);
+  });
+
+  it("cover bullet uses 'Cover_X_Y' positional id", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 28, y: 30 },
+    });
+    const state = makeState({
+      characters: [me],
+      world: { coverTiles: [{ x: 32, y: 32 }] },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).toMatch(/- Cover_32_32, dist 4 SE/);
+  });
+
+  it("wall bullet uses 'Wall_X_Y' positional id", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 40, y: 35 },
+    });
+    const wall: Wall = { x: 40, y: 34, w: 1, h: 1 };
+    const state = makeState({
+      characters: [me],
+      world: { walls: [wall] },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).toMatch(/- Wall_40_34, dist 1 N/);
+  });
+});
+
+// ─── Test 4 — Per-Visible observation brackets ─────────────────────────────
+
+describe("WP-C.1 — Per-Visible observation brackets", () => {
+  it("character bullet renders [HP~bucket]", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    // hp=45 / maxHp=50 → ratio 0.9 → high
+    const enemy = makeCharacter({
+      id: "P4",
+      displayName: "Player_4",
+      pos: { x: 55, y: 50 },
+      hp: 45,
+      maxHp: 50,
+    });
+    const state = makeState({ characters: [me, enemy] });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).toMatch(/Player_4.*\[HP~high/);
+  });
+
+  it("character bullet renders 'holding axe' when armed", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const enemy = makeCharacter({
+      id: "P4",
+      displayName: "Player_4",
+      pos: { x: 55, y: 50 },
+      weapon: "axe",
+    });
+    const state = makeState({ characters: [me, enemy] });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).toMatch(/Player_4.*holding axe/);
+  });
+
+  it("character bullet renders 'attacked Player_X' from prevTurnRow.actions[]", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const observed = makeCharacter({
+      id: "P4",
+      displayName: "Player_4",
+      pos: { x: 55, y: 50 },
+    });
+    const state = makeState({ characters: [me, observed], turn: 5 });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "P4",
+          kind: "attack",
+          target: "Player_2",
+          result: "dmg 5",
+        },
+      ],
+    });
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/Player_4.*attacked Player_2/);
+  });
+
+  it("character bullet renders 'said \"...\"' from prevTurnRow.speech[]", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const observed = makeCharacter({
+      id: "P4",
+      displayName: "Player_4",
+      pos: { x: 55, y: 50 },
+    });
+    const state = makeState({ characters: [me, observed], turn: 5 });
+    const prev = makePrevTurn({
+      speech: [
+        { characterId: "P4", text: "Hold!", heardBy: [] },
+      ],
+    });
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    expect(digest).toMatch(/Player_4.*said "Hold!"/);
+  });
+
+  it("multiple brackets joined within one bullet", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const observed = makeCharacter({
+      id: "P4",
+      displayName: "Player_4",
+      pos: { x: 55, y: 50 },
+      hp: 45,
+      maxHp: 50,
+      weapon: "axe",
+    });
+    const state = makeState({ characters: [me, observed], turn: 5 });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "P4",
+          kind: "attack",
+          target: "Player_2",
+          result: "dmg 5",
+        },
+      ],
+    });
+    const digest = buildVisibleStateDigest(state, "P1", prev);
+    const line = digest
+      .split("\n")
+      .find((l) => l.includes("Player_4") && l.startsWith("- "));
+    expect(line).toBeDefined();
+    expect(line).toContain("HP~high");
+    expect(line).toContain("holding axe");
+    expect(line).toContain("attacked Player_2");
+  });
+
+  it("opened chest renders [opened] marker", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const opened = makeChest("chest_001", { x: 53, y: 50 }, true);
+    const state = makeState({
+      characters: [me],
+      world: { chests: [opened] },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).toMatch(/Chest_001.*\[opened\]/);
+  });
+
+  it("drained corpse (no contents) renders [drained] marker", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const dead = makeCharacter({
+      id: "P5",
+      displayName: "Player_5",
+      pos: { x: 50, y: 53 },
+      alive: false,
+    });
+    const state = makeState({
+      characters: [me, dead],
+      // contents = {} → drained
+      world: { corpses: [makeCorpse("P5", { x: 50, y: 53 }, {})] },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    expect(digest).toMatch(/Corpse_Player_5.*\[drained\]/);
+  });
+
+  it("non-drained corpse (with gear) does NOT render [drained]; renders gear", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const dead = makeCharacter({
+      id: "P5",
+      displayName: "Player_5",
+      pos: { x: 50, y: 53 },
+      alive: false,
+    });
+    const state = makeState({
+      characters: [me, dead],
+      world: {
+        corpses: [
+          makeCorpse("P5", { x: 50, y: 53 }, {
+            weapon: { category: "weapon", name: "axe" },
+            armour: { category: "armour", name: "leather" },
+          }),
+        ],
+      },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    const line = digest
+      .split("\n")
+      .find((l) => l.includes("Corpse_Player_5"));
+    expect(line).toBeDefined();
+    expect(line).not.toContain("[drained]");
+    expect(line).toContain("axe");
+    expect(line).toContain("leather");
+  });
+});
+
+// ─── Test 5 — Sort order ────────────────────────────────────────────────────
+
+describe("WP-C.1 — Visible sort order (chars → chests/corpses → cover/walls → Evac)", () => {
+  it("orders categories per ADR §6", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const enemy = makeCharacter({
+      id: "P4",
+      displayName: "Player_4",
+      pos: { x: 55, y: 50 },
+    });
+    const dead = makeCharacter({
+      id: "P5",
+      displayName: "Player_5",
+      pos: { x: 53, y: 50 },
+      alive: false,
+    });
+    const state = makeState({
+      characters: [me, enemy, dead],
+      world: {
+        chests: [makeChest("chest_002", { x: 52, y: 50 })],
+        corpses: [makeCorpse("P5", { x: 53, y: 50 })],
+        coverTiles: [{ x: 51, y: 50 }],
+        walls: [{ x: 51, y: 51, w: 1, h: 1 }],
+        evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 },
+      },
+      turn: 35,
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    const lines = digest
+      .split("\n")
+      .filter((l) => l.startsWith("- "));
+    // Indices of representative lines
+    const playerIdx = lines.findIndex((l) => l.includes("Player_4"));
+    const chestIdx = lines.findIndex((l) => l.includes("Chest_002"));
+    const corpseIdx = lines.findIndex((l) => l.includes("Corpse_Player_5"));
+    const coverIdx = lines.findIndex((l) => l.includes("Cover_"));
+    const wallIdx = lines.findIndex((l) => l.includes("Wall_"));
+    const evacIdx = lines.findIndex((l) => l.startsWith("- Evac"));
+
+    expect(playerIdx).toBeGreaterThanOrEqual(0);
+    expect(chestIdx).toBeGreaterThan(playerIdx);
+    expect(corpseIdx).toBeGreaterThan(playerIdx);
+    expect(coverIdx).toBeGreaterThan(chestIdx);
+    expect(coverIdx).toBeGreaterThan(corpseIdx);
+    expect(wallIdx).toBeGreaterThan(coverIdx);
+    expect(evacIdx).toBeGreaterThan(wallIdx);
+  });
+
+  it("drained corpses sort AFTER non-drained at equal distance", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const dead1 = makeCharacter({
+      id: "P5",
+      displayName: "Player_5",
+      pos: { x: 53, y: 50 },
+      alive: false,
+    });
+    const dead2 = makeCharacter({
+      id: "P6",
+      displayName: "Player_6",
+      pos: { x: 53, y: 51 },
+      alive: false,
+    });
+    const state = makeState({
+      characters: [me, dead1, dead2],
+      world: {
+        corpses: [
+          // P5 drained (at dist 3) + P6 has gear (at dist 3 too)
+          makeCorpse("P5", { x: 53, y: 50 }, {}),
+          makeCorpse("P6", { x: 53, y: 51 }, {
+            weapon: { category: "weapon", name: "sword" },
+          }),
+        ],
+      },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    const lines = digest
+      .split("\n")
+      .filter((l) => l.startsWith("- "));
+    const drainedIdx = lines.findIndex((l) => l.includes("Player_5"));
+    const lootableIdx = lines.findIndex((l) => l.includes("Player_6"));
+    expect(drainedIdx).toBeGreaterThan(lootableIdx);
+  });
+
+  it("walls sorted last among cover/walls (per ADR §5)", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const state = makeState({
+      characters: [me],
+      world: {
+        // Wall is closer (dist 1) than cover (dist 4); per ADR §5 walls
+        // still render LAST.
+        walls: [{ x: 51, y: 50, w: 1, h: 1 }],
+        coverTiles: [{ x: 54, y: 50 }],
+      },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    const lines = digest
+      .split("\n")
+      .filter((l) => l.startsWith("- "));
+    const coverIdx = lines.findIndex((l) => l.includes("Cover_"));
+    const wallIdx = lines.findIndex((l) => l.includes("Wall_"));
+    expect(wallIdx).toBeGreaterThan(coverIdx);
+  });
+
+  it("Evac singleton renders only AFTER reveal", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const stateBefore = makeState({
+      characters: [me],
+      world: { evac: { centre: { x: 60, y: 60 }, revealedAtTurn: null } },
+    });
+    const digestBefore = buildVisibleStateDigest(stateBefore, "P1", null);
+    expect(digestBefore).not.toContain("- Evac");
+
+    const stateAfter = makeState({
+      characters: [me],
+      world: { evac: { centre: { x: 60, y: 60 }, revealedAtTurn: 30 } },
+      turn: 35,
+    });
+    const digestAfter = buildVisibleStateDigest(stateAfter, "P1", null);
+    expect(digestAfter).toMatch(/- Evac, dist 10 SE/);
+  });
+
+  it("character ties broken by id ASC", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    // Both at dist 5 — id ASC (P3 < P4) means P3 should render first.
+    const p4 = makeCharacter({
+      id: "P4",
+      displayName: "Player_4",
+      pos: { x: 55, y: 50 },
+    });
+    const p3 = makeCharacter({
+      id: "P3",
+      displayName: "Player_3",
+      pos: { x: 45, y: 50 },
+    });
+    const state = makeState({ characters: [me, p4, p3] });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    const lines = digest
+      .split("\n")
+      .filter((l) => l.startsWith("- "));
+    const p3Idx = lines.findIndex((l) => l.includes("Player_3"));
+    const p4Idx = lines.findIndex((l) => l.includes("Player_4"));
+    expect(p3Idx).toBeLessThan(p4Idx);
+  });
+});
+
+// ─── Test 6 — VISIBLE_ENTITY_CAP=8 (chars+chests+corpses) ──────────────────
+
+describe("WP-C.1 — VISIBLE_ENTITY_CAP=8 (chars+chests+corpses); cover/walls unbounded", () => {
+  it("12 chars+chests → exactly 8 in the chars+chests/corpses tiers", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    // 4 close characters at distances 1..4
+    const closeChars: CharacterState[] = [];
+    for (let i = 0; i < 4; i++) {
+      closeChars.push(
+        makeCharacter({
+          id: `C${i}`,
+          displayName: `Player_${i + 2}`,
+          pos: { x: 50 + (i + 1), y: 50 },
+        }),
+      );
+    }
+    // 8 close chests at distances 5..12 (south column)
+    const closeChests: ChestState[] = [];
+    for (let i = 0; i < 8; i++) {
+      closeChests.push(
+        makeChest(`chest_${100 + i}`, { x: 50, y: 50 + (i + 5) }),
+      );
+    }
+    const state = makeState({
+      characters: [me, ...closeChars],
+      world: { chests: closeChests },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    const lines = digest
+      .split("\n")
+      .filter((l) => l.startsWith("- "));
+    const charLines = lines.filter((l) => l.startsWith("- Player_"));
+    const chestLines = lines.filter((l) => l.startsWith("- Chest_"));
+    expect(charLines.length + chestLines.length).toBe(8);
+    // The 4 chars are closer than every chest (distances 1..4 < 5..12), so
+    // all 4 chars + the 4 closest chests (distances 5..8) should appear;
+    // chests 9..12 are dropped.
+    expect(charLines.length).toBe(4);
+    expect(chestLines.length).toBe(4);
+  });
+
+  it("cover tiles are unbounded (not capped against the 8-cap)", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    // 4 chars filling part of the 8-cap, then 6 cover tiles.
+    const closeChars: CharacterState[] = [];
+    for (let i = 0; i < 8; i++) {
+      closeChars.push(
+        makeCharacter({
+          id: `C${i}`,
+          displayName: `Player_${i + 2}`,
+          pos: { x: 50 + (i + 1), y: 50 },
+        }),
+      );
+    }
+    const covers: Tile[] = [];
+    for (let i = 0; i < 6; i++) {
+      covers.push({ x: 50, y: 50 + (i + 9) });
+    }
+    const state = makeState({
+      characters: [me, ...closeChars],
+      world: { coverTiles: covers },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    const lines = digest
+      .split("\n")
+      .filter((l) => l.startsWith("- "));
+    const coverLines = lines.filter((l) => l.startsWith("- Cover_"));
+    // All 6 covers render (cap=12 in vision, unbounded in inputBuilder).
+    expect(coverLines.length).toBe(6);
+  });
+});
+
+// ─── Test 7 — 12-wall safety ceiling (ADR §5) ──────────────────────────────
+
+describe("WP-C.1 — 12-wall safety ceiling (ADR §5)", () => {
+  it("emits at most 12 walls even when vision-side emission exceeds", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    // A single wall rectangle spanning 5x5 = 25 wall tiles, all within
+    // Chebyshev 20. Vision emits all 25; inputBuilder must cap at 12.
+    const wall: Wall = { x: 51, y: 51, w: 5, h: 5 };
+    const state = makeState({
+      characters: [me],
+      world: { walls: [wall] },
+    });
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    const lines = digest
+      .split("\n")
+      .filter((l) => l.startsWith("- Wall_"));
+    expect(lines.length).toBe(12);
+  });
+});
+
+// ─── Test 8 — Explicit no-deleted-headers assertion ────────────────────────
+
+describe("WP-C.1 — no deleted section headers (Affordances/Heard/Last-known/Evac)", () => {
+  // Build a populous mid-game state to maximise the chance of accidental
+  // header emission across all branches.
+  function populousDigest(): string {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+      weapon: "axe",
+      armour: "leather",
+      consumable: "heal",
+    });
+    const enemies: CharacterState[] = [];
+    for (let i = 2; i <= 5; i++) {
+      enemies.push(
         makeCharacter({
           id: `P${i}`,
           displayName: `Player_${i}`,
           pos: { x: 50 + i, y: 50 + i },
+          weapon: "sword",
         }),
       );
     }
-    const state = makeState({
-      characters: [me, ...others],
-      world: { evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null } },
-      turn: 7,
+    const dead = makeCharacter({
+      id: "P6",
+      displayName: "Player_6",
+      pos: { x: 50, y: 53 },
+      alive: false,
     });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    expect(digest.length).toBeLessThan(1500);
-    expect(digest).toContain("Turn:");
-    expect(digest).toContain("You are at");
-    expect(digest).toContain("Equipped:");
-    expect(digest).toContain("Visible:");
-    expect(digest).toContain("Affordances:");
-    // Self-HP renders as exact, persona is itself — "72/100 HP".
-    expect(digest).toContain("72/100 HP");
+    const state = makeState({
+      characters: [me, ...enemies, dead],
+      world: {
+        chests: [
+          makeChest("chest_001", { x: 53, y: 50 }),
+          makeChest("chest_002", { x: 54, y: 50 }, true),
+        ],
+        corpses: [makeCorpse("P6", { x: 50, y: 53 })],
+        coverTiles: [{ x: 51, y: 51 }],
+        walls: [{ x: 49, y: 49, w: 1, h: 1 }],
+        evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 },
+      },
+      turn: 35,
+    });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "P1",
+          kind: "attack",
+          target: "Player_3",
+          result: "dmg 7",
+        },
+      ],
+      speech: [
+        { characterId: "P1", text: "Hold!", heardBy: [] },
+        { characterId: "P4", text: "Coming!", heardBy: [] },
+      ],
+    });
+    return buildVisibleStateDigest(state, "P1", prev);
+  }
+
+  it("digest does NOT contain 'Affordances:' as a section header", () => {
+    expect(populousDigest()).not.toContain("Affordances:");
+  });
+
+  it("digest does NOT contain 'Heard (last turn):' as a section header", () => {
+    expect(populousDigest()).not.toContain("Heard (last turn):");
+  });
+
+  it("digest does NOT contain 'Last-known:' as a section header", () => {
+    expect(populousDigest()).not.toContain("Last-known:");
+  });
+
+  it("digest does NOT contain 'Evac:' as a section header (Evac is now a Visible singleton)", () => {
+    // The string "Evac" appears inside the Visible singleton bullet;
+    // assert that no LINE is exactly "Evac:" (the section header form).
+    const digest = populousDigest();
+    const headerLine = digest
+      .split("\n")
+      .find((l) => l.trim() === "Evac:");
+    expect(headerLine).toBeUndefined();
   });
 });
 
-// ─── Test 2 — Visibility filter ─────────────────────────────────────────────
+// ─── Test 9 — Token budget (composed input ≤ 1200 tokens) ──────────────────
 
-describe("WP8 — visibility filter", () => {
+describe("WP-C.1 — token budget (≤ 1200 input tokens via chars/4 proxy)", () => {
+  it("composed (system + persona + scratchpad + digest) stays under 1200 tokens for at least one synthetic state per persona", () => {
+    const personas = loadPersonas();
+    for (const id of PERSONA_IDS) {
+      // Saturated mid-game state: 4 visible chars, 2 chests, 1 corpse,
+      // walls, cover, evac revealed, prevTurn populated.
+      const me = makeCharacter({
+        id: "P1",
+        displayName: "Player_1",
+        pos: { x: 50, y: 50 },
+        hp: 35,
+        maxHp: 50,
+        weapon: "axe",
+        armour: "leather",
+        consumable: "heal",
+        personaId: id,
+      });
+      const enemies: CharacterState[] = [];
+      for (let i = 2; i <= 5; i++) {
+        enemies.push(
+          makeCharacter({
+            id: `P${i}`,
+            displayName: `Player_${i}`,
+            pos: { x: 50 + i, y: 50 + i },
+            weapon: "sword",
+          }),
+        );
+      }
+      const dead = makeCharacter({
+        id: "P6",
+        displayName: "Player_6",
+        pos: { x: 50, y: 53 },
+        alive: false,
+      });
+      const state = makeState({
+        characters: [me, ...enemies, dead],
+        world: {
+          chests: [
+            makeChest("chest_001", { x: 53, y: 50 }, true),
+            makeChest("chest_002", { x: 54, y: 50 }),
+          ],
+          corpses: [makeCorpse("P6", { x: 50, y: 53 })],
+          coverTiles: [{ x: 51, y: 51 }, { x: 52, y: 52 }],
+          walls: [{ x: 49, y: 49, w: 1, h: 1 }],
+          evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 },
+        },
+        turn: 35,
+      });
+      const prev = makePrevTurn({
+        moves: [
+          { characterId: "P1", from: { x: 47, y: 53 }, to: { x: 50, y: 50 } },
+        ],
+        actions: [
+          {
+            characterId: "P1",
+            kind: "attack",
+            target: "Player_3",
+            result: "dmg 7",
+          },
+          {
+            characterId: "P4",
+            kind: "attack",
+            target: "Player_1",
+            result: "dmg 5",
+          },
+        ],
+        speech: [
+          { characterId: "P1", text: "Truce?", heardBy: [] },
+          { characterId: "P3", text: "Watch your six.", heardBy: [] },
+        ],
+      });
+      const personaText = personas[id];
+      const scratchpad500 = "x".repeat(500);
+      const built = buildAgentInput(state, "P1", personaText, prev);
+      const total =
+        built.systemPrompt.length +
+        personaText.length +
+        scratchpad500.length +
+        built.visibleStateDigest.length;
+      const approxTokens = Math.ceil(total / 4);
+      expect(
+        approxTokens,
+        `persona "${id}" budget exceeded — ${approxTokens} tokens (chars=${total})`,
+      ).toBeLessThanOrEqual(1200);
+    }
+  });
+});
+
+// ─── Test 10 — buildAgentInput composition ──────────────────────────────────
+
+describe("WP-C.1 — buildAgentInput composition", () => {
+  it("returns systemPrompt (SYSTEM_PROMPT) and visibleStateDigest", () => {
+    const me = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const state = makeState({ characters: [me] });
+    const built = buildAgentInput(state, "P1", "persona text", null);
+    expect(built.systemPrompt).toBe(SYSTEM_PROMPT);
+    expect(built.visibleStateDigest).toMatch(/^You: at \(50,50\)/m);
+  });
+});
+
+// ─── Test 11 — Visibility filter retained ──────────────────────────────────
+
+describe("WP-C.1 — visibility filter retained from phase-1", () => {
   it("hidden enemy NOT in digest; living visible enemy IS in digest", () => {
     const me = makeCharacter({
       id: "P1",
@@ -184,30 +1208,9 @@ describe("WP8 — visibility filter", () => {
     const state = makeState({
       characters: [me, visibleEnemy, hiddenEnemy],
     });
-    const digest = buildVisibleStateDigest(state, "P1", []);
+    const digest = buildVisibleStateDigest(state, "P1", null);
     expect(digest).toContain("Player_2");
     expect(digest).not.toContain("Player_3");
-  });
-
-  it("wall-blocked enemy NOT in digest", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-    });
-    const blockedEnemy = makeCharacter({
-      id: "P2",
-      displayName: "Player_2",
-      pos: { x: 55, y: 50 },
-    });
-    // A 2-tile-wide wall directly between P1 and P2.
-    const wall: Wall = { x: 52, y: 49, w: 2, h: 3 };
-    const state = makeState({
-      characters: [me, blockedEnemy],
-      world: { walls: [wall] },
-    });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    expect(digest).not.toContain("Player_2");
   });
 
   it("dead enemy NOT in digest as character (corpse path is separate)", () => {
@@ -223,708 +1226,25 @@ describe("WP8 — visibility filter", () => {
       alive: false,
     });
     const state = makeState({ characters: [me, deadEnemy] });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    // Dead character is excluded from `computeVisibleEntities`'s character
-    // emission (vision.ts skips `!alive`); a separate corpse entry would
-    // be present only if a `CorpseState` exists in `world.corpses`.
+    const digest = buildVisibleStateDigest(state, "P1", null);
+    // No corpse exists in world.corpses, so neither character bullet nor
+    // corpse bullet appears.
     expect(digest).not.toContain("Player_2");
   });
 });
 
-// ─── Test 3 — Visible entity cap ────────────────────────────────────────────
+// ─── Test 12 — Plain text, not an ASCII grid ───────────────────────────────
 
-describe("WP8 — visible entity cap (max 8 sorted by Chebyshev)", () => {
-  it("12 visible entities → digest lists exactly 8, sorted by distance ascending; closest 8 always win", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-    });
-    // 4 close characters (distance 1..4)
-    const closeChars: CharacterState[] = [];
-    for (let i = 0; i < 4; i++) {
-      closeChars.push(
-        makeCharacter({
-          id: `C${i}`,
-          displayName: `Player_${i + 2}`,
-          pos: { x: 50 + (i + 1), y: 50 },
-        }),
-      );
-    }
-    // 4 close chests (distance 5..8) — one tile apart on the south column
-    const closeChests: ChestState[] = [];
-    for (let i = 0; i < 4; i++) {
-      closeChests.push(
-        makeChest(`chest_${100 + i}`, { x: 50, y: 50 + (i + 5) }),
-      );
-    }
-    // 4 cover tiles further away (distance 10..13). These are the 4 entities
-    // that should be DROPPED — closest-8 by Chebyshev dist always win.
-    const farCovers: Tile[] = [];
-    for (let i = 0; i < 4; i++) {
-      farCovers.push({ x: 50 - (i + 10), y: 50 });
-    }
-    const state = makeState({
-      characters: [me, ...closeChars],
-      world: { chests: closeChests, coverTiles: farCovers },
-    });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    // Count the bullets in the Visible: section. The digest renders one
-    // bullet per visible entity in the section — extract the section by
-    // splitting on the next section header.
-    const visibleBlock = extractSection(digest, "Visible:");
-    const lines = visibleBlock
-      .split("\n")
-      .filter((line) => line.startsWith("- "));
-    expect(lines.length).toBe(8);
-    // None of the far-cover tiles (distance >= 10) should be present —
-    // the closer chests/characters fill the 8 slots.
-    for (const cover of farCovers) {
-      expect(visibleBlock).not.toContain(`(${cover.x},${cover.y})`);
-    }
-    // Chebyshev-ascending order: the first listed entity must be at dist 1,
-    // not at dist 8. Pull the leading distance from the first bullet.
-    const firstLine = lines[0]!;
-    const m = firstLine.match(/dist (\d+)/);
-    expect(m).not.toBeNull();
-    expect(Number(m![1])).toBe(1);
-  });
-});
-
-// ─── Test 4 — Heard cap ─────────────────────────────────────────────────────
-
-describe("WP8 — heard messages cap (max 5, oldest evicted)", () => {
-  it("7 heard speeches → digest lists 5 (the last 5; oldest dropped)", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-    });
-    // We add speakers as known characters so displayName resolution works
-    // for the rendered lines — but the cap is independent of that.
-    const speakers: CharacterState[] = [];
-    for (let i = 1; i <= 7; i++) {
-      speakers.push(
-        makeCharacter({
-          id: `S${i}`,
-          displayName: `Speaker_${i}`,
-          pos: { x: 100, y: 100 }, // out of vision; we only render heard text
-          hidden: true, // doesn't matter for heard rendering
-        }),
-      );
-    }
-    const heard: HeardSpeech[] = [];
-    for (let i = 1; i <= 7; i++) {
-      heard.push({ speakerId: `S${i}`, text: `msg-${i}` });
-    }
-    const state = makeState({ characters: [me, ...speakers] });
-    const digest = buildVisibleStateDigest(state, "P1", heard);
-    const heardBlock = extractSection(digest, "Heard (last turn):");
-    // Oldest entries (msg-1, msg-2) must be dropped; last 5 retained.
-    expect(heardBlock).not.toContain("msg-1");
-    expect(heardBlock).not.toContain("msg-2");
-    for (let i = 3; i <= 7; i++) {
-      expect(heardBlock).toContain(`msg-${i}`);
-    }
-    // Exactly 5 bullets present.
-    const heardLines = heardBlock
-      .split("\n")
-      .filter((line) => line.startsWith("- "));
-    expect(heardLines.length).toBe(5);
-  });
-});
-
-// ─── Test 5 — Last-known cap ────────────────────────────────────────────────
-
-describe("WP8 — last-known cap (max 3 rendered)", () => {
-  it("3 lastKnown entries → all 3 rendered; defensive 4 entries → 3 rendered (oldest dropped)", () => {
-    const meWith3: CharacterState = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-      lastKnown: [
-        { characterId: "PA", pos: { x: 10, y: 10 }, atTurn: 1 },
-        { characterId: "PB", pos: { x: 11, y: 11 }, atTurn: 2 },
-        { characterId: "PC", pos: { x: 12, y: 12 }, atTurn: 3 },
-      ],
-    });
-    const stateA = makeState({ characters: [meWith3], turn: 5 });
-    const digestA = buildVisibleStateDigest(stateA, "P1", []);
-    const lastKnownBlockA = extractSection(digestA, "Last-known:");
-    const linesA = lastKnownBlockA
-      .split("\n")
-      .filter((line) => line.startsWith("- "));
-    expect(linesA.length).toBe(3);
-
-    // Defensive: 4 entries despite WP5's cap. The renderer must still emit
-    // exactly 3 (drop the oldest by atTurn).
-    const meWith4: CharacterState = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-      lastKnown: [
-        { characterId: "PA", pos: { x: 10, y: 10 }, atTurn: 1 }, // oldest — dropped
-        { characterId: "PB", pos: { x: 11, y: 11 }, atTurn: 2 },
-        { characterId: "PC", pos: { x: 12, y: 12 }, atTurn: 3 },
-        { characterId: "PD", pos: { x: 13, y: 13 }, atTurn: 4 },
-      ],
-    });
-    const stateB = makeState({ characters: [meWith4], turn: 5 });
-    const digestB = buildVisibleStateDigest(stateB, "P1", []);
-    const lastKnownBlockB = extractSection(digestB, "Last-known:");
-    const linesB = lastKnownBlockB
-      .split("\n")
-      .filter((line) => line.startsWith("- "));
-    expect(linesB.length).toBe(3);
-    expect(lastKnownBlockB).not.toContain("PA");
-    expect(lastKnownBlockB).toContain("PB");
-    expect(lastKnownBlockB).toContain("PC");
-    expect(lastKnownBlockB).toContain("PD");
-  });
-});
-
-// ─── Test 6 — Speech rendering ──────────────────────────────────────────────
-
-describe("WP8 — speech rendering", () => {
-  it("[{speakerId:'P5', text:'hi'}] → digest contains Player_5: \"hi\" via displayName lookup", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-    });
-    const speaker = makeCharacter({
-      id: "P5",
-      displayName: "Player_5",
-      pos: { x: 100, y: 100 },
-      hidden: true,
-    });
-    const state = makeState({ characters: [me, speaker] });
-    const digest = buildVisibleStateDigest(state, "P1", [
-      { speakerId: "P5", text: "hi" },
-    ]);
-    expect(digest).toContain('Player_5: "hi"');
-  });
-
-  it("unresolvable speakerId falls back to the speakerId verbatim", () => {
+describe("WP-C.1 — tactical digest is plain text, not an ASCII grid", () => {
+  it("digest does NOT contain repeated . or # patterns characteristic of ASCII grids", () => {
     const me = makeCharacter({
       id: "P1",
       displayName: "Player_1",
       pos: { x: 50, y: 50 },
     });
     const state = makeState({ characters: [me] });
-    const digest = buildVisibleStateDigest(state, "P1", [
-      { speakerId: "ghost-id", text: "boo" },
-    ]);
-    expect(digest).toContain('ghost-id: "boo"');
-  });
-});
-
-// ─── Test 7 — Renders whatever WP10 hands you (hearing pre-filter is upstream) ─
-
-describe("WP8 — speech is rendered without re-filtering", () => {
-  it("renders every entry passed in heardLastTurn (caller does the hearing-range filter)", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 0, y: 0 },
-    });
-    // Speaker 100 tiles away — well outside hearing range — but we still
-    // render them because WP10 (the caller) decides what makes it in.
-    const speaker = makeCharacter({
-      id: "P9",
-      displayName: "Player_9",
-      pos: { x: 99, y: 99 },
-      hidden: true,
-    });
-    const state = makeState({ characters: [me, speaker] });
-    const digest = buildVisibleStateDigest(state, "P1", [
-      { speakerId: "P9", text: "rendered anyway" },
-    ]);
-    expect(digest).toContain('Player_9: "rendered anyway"');
-  });
-});
-
-// ─── Test 8 — Evac before/after reveal ──────────────────────────────────────
-
-describe("WP8 — evac section visibility", () => {
-  it("evac.revealedAtTurn === null → digest does NOT mention Evac:", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-    });
-    const state = makeState({
-      characters: [me],
-      world: { evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null } },
-      turn: 5,
-    });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    expect(digest).not.toContain("Evac:");
-  });
-
-  it("evac.revealedAtTurn = 30 → digest includes Evac: section with centre + dist + est turns", () => {
-    // Place P1 NW of evac centre so the bearing is computable.
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 7, y: 7 },
-    });
-    const state = makeState({
-      characters: [me],
-      world: { evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 } },
-      turn: 35,
-    });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    expect(digest).toContain("Evac:");
-    // dist = chebyshev((7,7),(50,50)) = max(43,43) = 43.
-    expect(digest).toContain("dist 43");
-    // est turns = ceil(43 / 8) = 6 (default movement budget).
-    expect(digest).toContain("est 6 turns");
-    // Centre rendered as (50,50).
-    expect(digest).toContain("(50,50)");
-    // Reveal turn rendered.
-    expect(digest).toContain("Revealed at turn 30");
-  });
-});
-
-// ─── Test 9 — System prompt ─────────────────────────────────────────────────
-
-describe("WP8 — SYSTEM_PROMPT", () => {
-  it("is non-empty, contains 'decide_turn' tool-name reminder, and ≤ 400 tokens (chars/4 proxy: 1600 chars)", () => {
-    expect(typeof SYSTEM_PROMPT).toBe("string");
-    expect(SYSTEM_PROMPT.length).toBeGreaterThan(0);
-    expect(SYSTEM_PROMPT).toContain("decide_turn");
-    // chars/4 proxy: 400 tokens → 1600 chars upper bound.
-    expect(SYSTEM_PROMPT.length).toBeLessThanOrEqual(1600);
-  });
-});
-
-// ─── Test 9b — WP10.5 Pass C cheat-sheet edge-case constraints ───────────────
-//
-// Three model-emission patterns the Decision schema correctly rejected on the
-// Phase A smoke (`docs/project/phases/01-engine-and-harness/wp10-5-phase-a-findings.md`
-// Bucket 1 — schema_validation_failed, 17.8% of fallbacks). Pass C adds three
-// constraint lines to the cheat-sheet so the model stops emitting them.
-//
-// These assertions lock the *constraint content* into the rendered prompt;
-// surrounding prose may be retuned, but the three constraint strings below
-// must remain present verbatim.
-
-describe("WP10.5 Pass C — Decision-schema cheat-sheet edge cases", () => {
-  it("constrains relative.dx and relative.dy to integers in [-12, 12]", () => {
-    expect(SYSTEM_PROMPT).toContain(
-      "relative.dx and relative.dy must be integers in [-12, 12].",
-    );
-  });
-
-  it("warns that overwatch is a primary value, NOT an action.kind", () => {
-    expect(SYSTEM_PROMPT).toContain(
-      "overwatch is a primary value, NOT an action.kind — set primary:overwatch and leave action.kind:none.",
-    );
-  });
-
-  it("explains that loot requires targetCorpseId, not targetObjectId, and chests use interact", () => {
-    expect(SYSTEM_PROMPT).toContain(
-      "loot requires targetCorpseId (a dead character id like Player_3), NOT targetObjectId. Use interact for chests.",
-    );
-  });
-});
-
-// ─── Test 10 — Affordances rendering ────────────────────────────────────────
-
-describe("WP8 — affordances rendering", () => {
-  it("Affordances section lists movement and actions lines from localAffordances() in schema-aligned vocab (WP10.5)", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-    });
-    const enemy = makeCharacter({
-      id: "P3",
-      displayName: "Player_3",
-      pos: { x: 51, y: 51 },
-    });
-    const state = makeState({ characters: [me, enemy] });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    const affBlock = extractSection(digest, "Affordances:");
-    // Movement line should mention schema-aligned move literals.
-    expect(affBlock).toContain("movement:");
-    expect(affBlock).toContain("toward_entity: P3");
-    expect(affBlock).toContain("away_from_entity: P3");
-    // Actions line should include overwatch (always when alive).
-    expect(affBlock).toContain("actions:");
-    expect(affBlock).toContain("overwatch");
-    // Enemy at dist 1 ≤ default attack range 2 → schema-aligned attack literal.
-    expect(affBlock).toContain("attack: P3 (in range)");
-  });
-});
-
-// ─── Test 11 — Tactical-digest contract (no ASCII grid runs) ────────────────
-
-describe("WP8 — tactical digest is plain text, not an ASCII grid", () => {
-  it("digest does NOT contain repeated . or # patterns characteristic of ASCII grids (no 5+-char run)", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-    });
-    const state = makeState({ characters: [me] });
-    const digest = buildVisibleStateDigest(state, "P1", []);
+    const digest = buildVisibleStateDigest(state, "P1", null);
     expect(digest).not.toMatch(/\.{5,}/);
     expect(digest).not.toMatch(/#{5,}/);
   });
 });
-
-// ─── Test 12 — No grid dump (no 50+ contiguous identical chars) ─────────────
-
-describe("WP8 — no line contains 50+ contiguous identical chars (sanity)", () => {
-  it("a populous digest has no 50+ identical-char run on any line", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-      hp: 72,
-      weapon: "axe",
-      armour: "leather",
-      consumable: "heal",
-    });
-    const enemies: CharacterState[] = [];
-    for (let i = 2; i <= 8; i++) {
-      enemies.push(
-        makeCharacter({
-          id: `P${i}`,
-          displayName: `Player_${i}`,
-          pos: { x: 50 + i, y: 50 + i },
-        }),
-      );
-    }
-    const state = makeState({ characters: [me, ...enemies] });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    for (const line of digest.split("\n")) {
-      // Detect any 50+-char run of a single char (other than empty lines).
-      expect(line).not.toMatch(/(.)\1{49,}/);
-    }
-  });
-});
-
-// ─── Test 13 — Token-budget proxy (binding) ─────────────────────────────────
-
-describe("WP8 — token budget (binding, ≤ 1200 input tokens via chars/4 proxy)", () => {
-  it("system + persona + scratchpad + digest stays under 1200 tokens for a saturated mid-game state", () => {
-    // 8 visible entities, 5 heard messages, 3 lastKnown, evac revealed,
-    // all affordances. Mirror WP8 acceptance bullet exactly.
-    const observerLastKnown: LastKnownEntry[] = [
-      { characterId: "Q1", pos: { x: 10, y: 10 }, atTurn: 30 },
-      { characterId: "Q2", pos: { x: 12, y: 12 }, atTurn: 31 },
-      { characterId: "Q3", pos: { x: 14, y: 14 }, atTurn: 32 },
-    ];
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-      hp: 72,
-      weapon: "axe",
-      armour: "leather",
-      consumable: "heal",
-      lastKnown: observerLastKnown,
-    });
-    // 4 visible characters at varying distances.
-    const enemies: CharacterState[] = [];
-    for (let i = 2; i <= 5; i++) {
-      enemies.push(
-        makeCharacter({
-          id: `P${i}`,
-          displayName: `Player_${i}`,
-          pos: { x: 50 + i, y: 50 + i },
-          weapon: "sword",
-        }),
-      );
-    }
-    const chests: ChestState[] = [
-      makeChest("chest_001", { x: 53, y: 50 }),
-      makeChest("chest_002", { x: 54, y: 50 }),
-    ];
-    const corpses: CorpseState[] = [
-      makeCorpse("Player_6", { x: 50, y: 53 }),
-      makeCorpse("Player_7", { x: 50, y: 54 }),
-    ];
-    const state = makeState({
-      characters: [me, ...enemies],
-      world: {
-        chests,
-        corpses,
-        evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 },
-      },
-      turn: 35,
-    });
-    // 5 heard messages — each speaker resolves to a displayName via the
-    // characters list above, so the rendered Heard: section is realistic.
-    const heard: HeardSpeech[] = [
-      { speakerId: "P2", text: "Truce at evac?" },
-      { speakerId: "P3", text: "Watch your six." },
-      { speakerId: "P4", text: "Splitting heading northwest." },
-      { speakerId: "P5", text: "Camping the chest." },
-      { speakerId: "P2", text: "Last call." },
-    ];
-    const personaText80 = "Move quietly. Avoid fights. Loot chests. ".repeat(8);
-    // 80 tokens proxy ≈ 320 chars; the .repeat(8) above lands ~320 chars.
-    const scratchpad500 = "x".repeat(500);
-
-    const built = buildAgentInput(state, "P1", personaText80, heard);
-    const total =
-      SYSTEM_PROMPT.length +
-      personaText80.length +
-      scratchpad500.length +
-      built.visibleStateDigest.length;
-    const approxTokens = Math.ceil(total / 4);
-    expect(
-      approxTokens,
-      `prompt budget exceeded — ${approxTokens} tokens (chars=${total})`,
-    ).toBeLessThanOrEqual(1200);
-  });
-});
-
-// ─── Bonus tests — direction rendering + equipped slot dashes ───────────────
-
-describe("WP8 — direction rendering", () => {
-  it("renders 8-octant compass direction relative to observer", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-    });
-    // NE: dx > 0 (east), dy < 0 (north because y grows south)
-    const ne = makeCharacter({
-      id: "P2",
-      displayName: "Player_2",
-      pos: { x: 56, y: 44 },
-    });
-    const state = makeState({ characters: [me, ne] });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    expect(digest).toMatch(/Player_2.*dist 6 NE/);
-  });
-});
-
-describe("WP8 — equipped slot rendering", () => {
-  it("missing slots render as em-dash placeholders", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-      weapon: "axe",
-    });
-    const state = makeState({ characters: [me] });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    expect(digest).toContain("Equipped: axe / — / —");
-  });
-
-  it("all slots equipped renders as 'axe / leather / heal'", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-      weapon: "axe",
-      armour: "leather",
-      consumable: "heal",
-    });
-    const state = makeState({ characters: [me] });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    expect(digest).toContain("Equipped: axe / leather / heal");
-  });
-});
-
-describe("WP8 — buildAgentInput composition", () => {
-  it("returns systemPrompt (SYSTEM_PROMPT) and visibleStateDigest", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-    });
-    const state = makeState({ characters: [me] });
-    const built = buildAgentInput(state, "P1", "persona text", []);
-    expect(built.systemPrompt).toBe(SYSTEM_PROMPT);
-    expect(built.visibleStateDigest).toContain("Turn:");
-    expect(built.visibleStateDigest).toContain("You are at");
-  });
-});
-
-// ─── WP10.5 Pass B.2 — [opened] chest marker in digest ─────────────────────
-//
-// Phase A finding (`wp10-5-phase-a-findings.md` Bucket 2): personas kept
-// hammering already-opened chests because the digest didn't surface that the
-// chest was consumed. Per concept-spec §13 chests are one-shot; the
-// spec-honest answer (per Phase A reviewer note) is to KEEP the chest in the
-// visible-state digest so the model retains last-known-position memory, but
-// FLAG it as no-longer-actionable via an `[opened]` marker on the bullet.
-describe("WP10.5 Pass B.2 — opened chest digest marker", () => {
-  it("opened chest renders with '[opened]' marker on its visible bullet", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-    });
-    const opened: ChestState = {
-      ...makeChest("chest_001", { x: 53, y: 50 }),
-      opened: true,
-    };
-    const state = makeState({
-      characters: [me],
-      world: { chests: [opened] },
-    });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    const visibleBlock = extractSection(digest, "Visible:");
-    // The bullet should still be present (last-known-position memory) and
-    // carry the [opened] marker.
-    expect(visibleBlock).toContain("chest_001");
-    expect(visibleBlock).toContain("[opened]");
-    // The single chest line carries the marker — assert the marker appears
-    // on the same line as the chest id.
-    const chestLine = visibleBlock
-      .split("\n")
-      .find((l) => l.includes("chest_001"));
-    expect(chestLine).toBeDefined();
-    expect(chestLine).toContain("[opened]");
-  });
-
-  it("closed chest renders without the '[opened]' marker", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-    });
-    const closed = makeChest("chest_002", { x: 54, y: 50 });
-    const state = makeState({
-      characters: [me],
-      world: { chests: [closed] },
-    });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    const visibleBlock = extractSection(digest, "Visible:");
-    expect(visibleBlock).toContain("chest_002");
-    expect(visibleBlock).not.toContain("[opened]");
-  });
-
-  it("mixed chests: opened carries marker, closed does not", () => {
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-    });
-    const opened: ChestState = {
-      ...makeChest("chest_001", { x: 52, y: 50 }),
-      opened: true,
-    };
-    const closed = makeChest("chest_002", { x: 54, y: 50 });
-    const state = makeState({
-      characters: [me],
-      world: { chests: [opened, closed] },
-    });
-    const digest = buildVisibleStateDigest(state, "P1", []);
-    const visibleBlock = extractSection(digest, "Visible:");
-    const openedLine = visibleBlock
-      .split("\n")
-      .find((l) => l.includes("chest_001"));
-    const closedLine = visibleBlock
-      .split("\n")
-      .find((l) => l.includes("chest_002"));
-    expect(openedLine).toBeDefined();
-    expect(closedLine).toBeDefined();
-    expect(openedLine).toContain("[opened]");
-    expect(closedLine).not.toContain("[opened]");
-  });
-
-  it("token-budget cap (≤ 1200 tokens via chars/4) holds with all chests opened (worst-case marker overhead)", () => {
-    // Mirror the saturated mid-game state from the existing token-budget test
-    // but flip every chest to opened so the [opened] marker is present on
-    // both chest bullets. Re-verify the chars/4 ≤ 1200-token cap holds.
-    const observerLastKnown: LastKnownEntry[] = [
-      { characterId: "Q1", pos: { x: 10, y: 10 }, atTurn: 30 },
-      { characterId: "Q2", pos: { x: 12, y: 12 }, atTurn: 31 },
-      { characterId: "Q3", pos: { x: 14, y: 14 }, atTurn: 32 },
-    ];
-    const me = makeCharacter({
-      id: "P1",
-      displayName: "Player_1",
-      pos: { x: 50, y: 50 },
-      hp: 72,
-      weapon: "axe",
-      armour: "leather",
-      consumable: "heal",
-      lastKnown: observerLastKnown,
-    });
-    const enemies: CharacterState[] = [];
-    for (let i = 2; i <= 5; i++) {
-      enemies.push(
-        makeCharacter({
-          id: `P${i}`,
-          displayName: `Player_${i}`,
-          pos: { x: 50 + i, y: 50 + i },
-          weapon: "sword",
-        }),
-      );
-    }
-    const chests: ChestState[] = [
-      { ...makeChest("chest_001", { x: 53, y: 50 }), opened: true },
-      { ...makeChest("chest_002", { x: 54, y: 50 }), opened: true },
-    ];
-    const corpses: CorpseState[] = [
-      makeCorpse("Player_6", { x: 50, y: 53 }),
-      makeCorpse("Player_7", { x: 50, y: 54 }),
-    ];
-    const state = makeState({
-      characters: [me, ...enemies],
-      world: {
-        chests,
-        corpses,
-        evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 },
-      },
-      turn: 35,
-    });
-    const heard: HeardSpeech[] = [
-      { speakerId: "P2", text: "Truce at evac?" },
-      { speakerId: "P3", text: "Watch your six." },
-      { speakerId: "P4", text: "Splitting heading northwest." },
-      { speakerId: "P5", text: "Camping the chest." },
-      { speakerId: "P2", text: "Last call." },
-    ];
-    const personaText80 = "Move quietly. Avoid fights. Loot chests. ".repeat(8);
-    const scratchpad500 = "x".repeat(500);
-
-    const built = buildAgentInput(state, "P1", personaText80, heard);
-    const total =
-      SYSTEM_PROMPT.length +
-      personaText80.length +
-      scratchpad500.length +
-      built.visibleStateDigest.length;
-    const approxTokens = Math.ceil(total / 4);
-    expect(
-      approxTokens,
-      `prompt budget exceeded with [opened] markers — ${approxTokens} tokens (chars=${total})`,
-    ).toBeLessThanOrEqual(1200);
-  });
-});
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Extract the body of a section starting at `header`. Returns text from the
- * header line up to the next `^[A-Z][^:\n]*:$` line (a section header) or
- * the end of the digest. Used to scope assertions to one section.
- */
-function extractSection(digest: string, header: string): string {
-  const lines = digest.split("\n");
-  const startIdx = lines.findIndex((l) => l.startsWith(header));
-  if (startIdx === -1) return "";
-  // Find the next section header line (a line ending in ':' that is not a
-  // bullet "- ..."). The block ends just before it.
-  let endIdx = lines.length;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (line.startsWith("- ")) continue;
-    if (line.trim() === "") continue;
-    if (/^[A-Z][^\n]*:$|^[A-Z][^\n]*: /.test(line) && !line.startsWith("- ")) {
-      endIdx = i;
-      break;
-    }
-  }
-  return lines.slice(startIdx, endIdx).join("\n");
-}

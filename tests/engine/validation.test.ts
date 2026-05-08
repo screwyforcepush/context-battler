@@ -95,7 +95,7 @@ function defaultDecision(): ParsedDecision {
     move: { kind: "none" },
     action: { kind: "none" },
     say: null,
-    overwatch_priority: null,
+    overwatch_stance: null,
     scratchpad_update: null,
   };
 }
@@ -151,7 +151,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      action: { kind: "interact", targetObjectId: "chest_001" },
+      action: { kind: "loot", targetId: "chest_001" },
     };
     const result = validateDecision(state, "A", decision);
     expect(result.ok).toBe(false);
@@ -259,7 +259,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      action: { kind: "interact", targetObjectId: "chest_001" },
+      action: { kind: "loot", targetId: "chest_001" },
     };
     const result = validateDecision(state, "A", decision);
     expect(result.ok).toBe(true);
@@ -267,14 +267,14 @@ describe("WP5 — validateDecision (ADR §4)", () => {
 
   it("§13 — loot corpse out of range → safe-default", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-    const corpse = makeCorpse("X", { x: 50, y: 50 });
+    const corpse = makeCorpse("Player_5", { x: 50, y: 50 });
     const state = makeState({
       characters: [me],
       world: { corpses: [corpse] },
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      action: { kind: "loot", targetCorpseId: "X" },
+      action: { kind: "loot", targetId: "Player_5" },
     };
     const result = validateDecision(state, "A", decision);
     expect(result.ok).toBe(false);
@@ -282,14 +282,14 @@ describe("WP5 — validateDecision (ADR §4)", () => {
 
   it("§13 — loot corpse in range → valid", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-    const corpse = makeCorpse("X", { x: 6, y: 6 });
+    const corpse = makeCorpse("Player_5", { x: 6, y: 6 });
     const state = makeState({
       characters: [me],
       world: { corpses: [corpse] },
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      action: { kind: "loot", targetCorpseId: "X" },
+      action: { kind: "loot", targetId: "Player_5" },
     };
     const result = validateDecision(state, "A", decision);
     expect(result.ok).toBe(true);
@@ -379,7 +379,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       ...defaultDecision(),
       primary: "move",
       move: { kind: "toward_object", targetObjectId: "chest_001" },
-      action: { kind: "interact", targetObjectId: "chest_001" },
+      action: { kind: "loot", targetId: "chest_001" },
     };
     const result = validateDecision(state, "A", decision);
     expect(result.ok).toBe(true);
@@ -435,13 +435,137 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     const decision: ParsedDecision = {
       ...defaultDecision(),
       // move.kind === "none" — pre-move range gating MUST still apply.
-      action: { kind: "interact", targetObjectId: "chest_001" },
+      action: { kind: "loot", targetId: "chest_001" },
     };
     const result = validateDecision(state, "A", decision);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toMatch(/range/i);
     }
+  });
+
+  // ─── WP-B.8 stance/primary consistency + loot.targetId namespace ──────
+  describe("WP-B.8 stance/primary consistency — ADR §3", () => {
+    it("primary='overwatch' with overwatch_stance=null → safe-default", () => {
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const state = makeState({ characters: [me] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        primary: "overwatch",
+        overwatch_stance: null,
+      };
+      const result = validateDecision(state, "A", decision);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toMatch(/stance|overwatch/i);
+        expect(result.safeDefault).toEqual(SAFE_DEFAULT_DECISION);
+      }
+    });
+
+    it("primary='stationary_action' with overwatch_stance='offensive' → safe-default", () => {
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const state = makeState({ characters: [me] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        primary: "stationary_action",
+        overwatch_stance: "offensive",
+      };
+      const result = validateDecision(state, "A", decision);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toMatch(/stance|overwatch/i);
+      }
+    });
+
+    it("primary='move' with overwatch_stance='defensive' → safe-default", () => {
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const state = makeState({ characters: [me] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        primary: "move",
+        move: { kind: "relative", dx: 1, dy: 0 },
+        overwatch_stance: "defensive",
+      };
+      const result = validateDecision(state, "A", decision);
+      expect(result.ok).toBe(false);
+    });
+
+    it("primary='overwatch' + stance='offensive' → valid", () => {
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const state = makeState({ characters: [me] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        primary: "overwatch",
+        overwatch_stance: "offensive",
+      };
+      const result = validateDecision(state, "A", decision);
+      expect(result.ok).toBe(true);
+    });
+
+    it("primary='overwatch' + stance='defensive' → valid", () => {
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const state = makeState({ characters: [me] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        primary: "overwatch",
+        overwatch_stance: "defensive",
+      };
+      const result = validateDecision(state, "A", decision);
+      expect(result.ok).toBe(true);
+    });
+
+    it("primary='stationary_action' with stance=null → valid (round-trip with safe-default)", () => {
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const state = makeState({ characters: [me] });
+      const result = validateDecision(state, "A", SAFE_DEFAULT_DECISION);
+      expect(result.ok).toBe(true);
+    });
+  });
+
+  describe("WP-B.8 loot.targetId namespace validity — ADR §1", () => {
+    it("loot.targetId with bogus prefix (neither chest_ nor Player_) → safe-default", () => {
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const state = makeState({ characters: [me] });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        action: { kind: "loot", targetId: "garbage_id_xyz" },
+      };
+      const result = validateDecision(state, "A", decision);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toMatch(/loot|target|namespace|prefix/i);
+      }
+    });
+
+    it("loot.targetId chest_001 (in range, exists, not opened) → valid", () => {
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const chest = makeChest("chest_001", { x: 6, y: 5 });
+      const state = makeState({
+        characters: [me],
+        world: { chests: [chest] },
+      });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        action: { kind: "loot", targetId: "chest_001" },
+      };
+      const result = validateDecision(state, "A", decision);
+      expect(result.ok).toBe(true);
+    });
+
+    it("loot.targetId Player_5 (corpse exists in range) → valid", () => {
+      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const corpse = makeCorpse("Player_5", { x: 6, y: 5 });
+      const state = makeState({
+        characters: [me],
+        world: { corpses: [corpse] },
+      });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        action: { kind: "loot", targetId: "Player_5" },
+      };
+      const result = validateDecision(state, "A", decision);
+      expect(result.ok).toBe(true);
+    });
   });
 
   it("§9 line 447 — move:toward_object chestA + action:interact chestB-far-away → valid (resolver no-ops post-move)", () => {
@@ -461,7 +585,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       ...defaultDecision(),
       primary: "move",
       move: { kind: "toward_object", targetObjectId: "chest_a" },
-      action: { kind: "interact", targetObjectId: "chest_b" },
+      action: { kind: "loot", targetId: "chest_b" },
     };
     const result = validateDecision(state, "A", decision);
     expect(result.ok).toBe(true);

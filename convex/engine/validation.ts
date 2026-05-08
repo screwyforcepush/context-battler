@@ -81,6 +81,28 @@ export function validateDecision(
     return invalid(`actor '${characterId}' is not alive`);
   }
 
+  // Phase-3 ADR §3 — stance/primary consistency check.
+  // overwatch_stance must be non-null iff primary === "overwatch", and
+  // the schema's Zod refinement already enforces this upstream. The
+  // engine validator is defence-in-depth (concept-spec §2A.3 — engine
+  // never trusts the wrapper on a structural claim).
+  if (decision.primary === "overwatch") {
+    if (
+      decision.overwatch_stance !== "offensive" &&
+      decision.overwatch_stance !== "defensive"
+    ) {
+      return invalid(
+        `primary='overwatch' requires overwatch_stance ∈ {"offensive","defensive"}; got ${JSON.stringify(decision.overwatch_stance)}`,
+      );
+    }
+  } else {
+    if (decision.overwatch_stance !== null) {
+      return invalid(
+        `primary='${decision.primary}' requires overwatch_stance=null; got ${JSON.stringify(decision.overwatch_stance)}`,
+      );
+    }
+  }
+
   // Compute visible entities once — used by both move-target and action
   // validation. (Pure: same observer state → same visible list.)
   const { visible } = computeVisibleEntities(state, characterId);
@@ -201,50 +223,66 @@ export function validateDecision(
       }
       break;
     }
-    case "interact": {
-      const targetId = decision.action.targetObjectId;
-      if (!targetId) {
-        return invalid(`action.kind='interact' missing targetObjectId`);
-      }
-      const chest = state.world.chests.find((c) => c.id === targetId);
-      if (!chest) {
-        return invalid(`interact target '${targetId}' is not a known chest`);
-      }
-      if (chest.opened) {
-        return invalid(`interact target '${targetId}' is already opened`);
-      }
-      // Range check skipped when actor is moving — resolver gates against
-      // post-move position (concept-spec §9 line 447). See header note.
-      if (decision.move.kind === "none") {
-        if (chebyshev(actor.pos, chest.pos) > INTERACT_RANGE) {
-          return invalid(
-            `interact target '${targetId}' is beyond interact range ${INTERACT_RANGE}`,
-          );
-        }
-      }
-      break;
-    }
     case "loot": {
-      const targetId = decision.action.targetCorpseId;
+      // Phase-3 ADR §1 — unified loot validator with id-namespace
+      // dispatch. Valid namespaces: `chest_*` (chest path), `Player_*`
+      // (corpse path via displayName lookup). Anything else → reject.
+      const targetId = decision.action.targetId;
       if (!targetId) {
-        return invalid(`action.kind='loot' missing targetCorpseId`);
+        return invalid(`action.kind='loot' missing targetId`);
       }
-      const corpse = state.world.corpses.find(
-        (c) => c.characterId === targetId,
-      );
-      if (!corpse) {
-        return invalid(`loot target '${targetId}' is not a known corpse`);
-      }
-      // Range check skipped when actor is moving — resolver gates against
-      // post-move position (concept-spec §9 line 447). See header note.
-      if (decision.move.kind === "none") {
-        if (chebyshev(actor.pos, corpse.pos) > INTERACT_RANGE) {
-          return invalid(
-            `loot target '${targetId}' is beyond loot range ${INTERACT_RANGE}`,
-          );
+      if (targetId.startsWith("chest_")) {
+        const chest = state.world.chests.find((c) => c.id === targetId);
+        if (!chest) {
+          return invalid(`loot target '${targetId}' is not a known chest`);
         }
+        if (chest.opened) {
+          return invalid(`loot target '${targetId}' is already opened`);
+        }
+        if (decision.move.kind === "none") {
+          if (chebyshev(actor.pos, chest.pos) > INTERACT_RANGE) {
+            return invalid(
+              `loot target '${targetId}' is beyond interact range ${INTERACT_RANGE}`,
+            );
+          }
+        }
+        break;
       }
-      break;
+
+      if (targetId.startsWith("Player_")) {
+        // Player_* dispatch: resolve via direct match first (test
+        // fixtures), then via displayName lookup → characterId →
+        // corpse (production: corpse.characterId is a Convex Id).
+        let corpse = state.world.corpses.find(
+          (c) => c.characterId === targetId,
+        );
+        if (!corpse) {
+          const ch = state.characters.find(
+            (c) => c.displayName === targetId,
+          );
+          if (ch) {
+            corpse = state.world.corpses.find(
+              (c) => c.characterId === ch.characterId,
+            );
+          }
+        }
+        if (!corpse) {
+          return invalid(`loot target '${targetId}' is not a known corpse`);
+        }
+        if (decision.move.kind === "none") {
+          if (chebyshev(actor.pos, corpse.pos) > INTERACT_RANGE) {
+            return invalid(
+              `loot target '${targetId}' is beyond loot range ${INTERACT_RANGE}`,
+            );
+          }
+        }
+        break;
+      }
+
+      // Bogus namespace — neither chest_ nor Player_ prefix.
+      return invalid(
+        `loot target '${targetId}' has invalid namespace prefix; expected chest_* or Player_*`,
+      );
     }
     case "none":
       break;

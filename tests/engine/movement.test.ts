@@ -78,7 +78,7 @@ function moveDecision(move: ParsedDecision["move"]): ParsedDecision {
     move,
     action: { kind: "none" },
     say: null,
-    overwatch_priority: null,
+    overwatch_stance: null,
     scratchpad_update: null,
   };
 }
@@ -90,7 +90,7 @@ function noMoveDecision(): ParsedDecision {
     move: { kind: "none" },
     action: { kind: "none" },
     say: null,
-    overwatch_priority: null,
+    overwatch_stance: null,
     scratchpad_update: null,
   };
 }
@@ -413,7 +413,7 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
       move: { kind: "relative", dx: 5, dy: 0 },
       action: { kind: "none" },
       say: null,
-      overwatch_priority: null,
+      overwatch_stance: null,
       scratchpad_update: null,
     };
     const decisions = new Map<string, ParsedDecision>([["A", stationary]]);
@@ -430,7 +430,7 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
       move: { kind: "relative", dx: 5, dy: 0 },
       action: { kind: "none" },
       say: null,
-      overwatch_priority: null,
+      overwatch_stance: null,
       scratchpad_update: null,
     };
     const decisions = new Map<string, ParsedDecision>([["A", ow]]);
@@ -463,5 +463,141 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
       from: { x: 0, y: 0 },
       to: { x: 3, y: 0 },
     });
+  });
+});
+
+// ─── WP-B.7 Wall-blocked move emission — Phase-3 ADR §9 ──────────────────
+//
+// `MoveTraceEntry.blockedBy: "wall"` is emitted when:
+//   - `start === end` (mover did not move at all this turn) AND
+//   - the agent's intended next-step direction was a wall tile.
+// Other start===end cases (no-move decision, character-blocked, off-grid)
+// emit nothing — existing absence is the correct behaviour.
+
+describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
+  it("wall directly east blocks A's relative-east move → emits {from===to, blockedBy:'wall'}", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    // Wall immediately east at (6,5).
+    const wall: Wall = { x: 6, y: 5, w: 1, h: 1 };
+    const state = makeState({ characters: [a], world: { walls: [wall] } });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "relative", dx: 1, dy: 0 })],
+    ]);
+    const { moves } = simulateMovement(state, decisions);
+    expect(moves).toHaveLength(1);
+    expect(moves[0]).toEqual({
+      characterId: "A",
+      from: { x: 5, y: 5 },
+      to: { x: 5, y: 5 },
+      blockedBy: "wall",
+    });
+  });
+
+  it("wall in each of the 4 cardinal directions emits blockedBy='wall'", () => {
+    // North.
+    {
+      const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const wall: Wall = { x: 5, y: 4, w: 1, h: 1 };
+      const state = makeState({ characters: [a], world: { walls: [wall] } });
+      const decisions = new Map<string, ParsedDecision>([
+        ["A", moveDecision({ kind: "relative", dx: 0, dy: -1 })],
+      ]);
+      const { moves } = simulateMovement(state, decisions);
+      expect(moves).toHaveLength(1);
+      expect(moves[0]?.blockedBy).toBe("wall");
+    }
+    // South.
+    {
+      const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const wall: Wall = { x: 5, y: 6, w: 1, h: 1 };
+      const state = makeState({ characters: [a], world: { walls: [wall] } });
+      const decisions = new Map<string, ParsedDecision>([
+        ["A", moveDecision({ kind: "relative", dx: 0, dy: 1 })],
+      ]);
+      const { moves } = simulateMovement(state, decisions);
+      expect(moves).toHaveLength(1);
+      expect(moves[0]?.blockedBy).toBe("wall");
+    }
+    // West.
+    {
+      const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+      const wall: Wall = { x: 4, y: 5, w: 1, h: 1 };
+      const state = makeState({ characters: [a], world: { walls: [wall] } });
+      const decisions = new Map<string, ParsedDecision>([
+        ["A", moveDecision({ kind: "relative", dx: -1, dy: 0 })],
+      ]);
+      const { moves } = simulateMovement(state, decisions);
+      expect(moves).toHaveLength(1);
+      expect(moves[0]?.blockedBy).toBe("wall");
+    }
+    // East already covered above.
+  });
+
+  it("wall at NE diagonal blocks dx=1,dy=-1 diagonal step → emits blockedBy='wall'", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    // Wall directly NE at (6,4).
+    const wall: Wall = { x: 6, y: 4, w: 1, h: 1 };
+    const state = makeState({ characters: [a], world: { walls: [wall] } });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "relative", dx: 1, dy: -1 })],
+    ]);
+    const { moves } = simulateMovement(state, decisions);
+    expect(moves).toHaveLength(1);
+    expect(moves[0]?.blockedBy).toBe("wall");
+  });
+
+  it("no-move decision (move.kind='none') emits NOTHING (no blockedBy entry)", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const state = makeState({ characters: [a] });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", noMoveDecision()],
+    ]);
+    const { moves } = simulateMovement(state, decisions);
+    expect(moves).toHaveLength(0);
+  });
+
+  it("character-blocked (no wall) → emits NOTHING (no blockedBy entry)", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const b = makeCharacter({ id: "B", pos: { x: 6, y: 5 } });
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "relative", dx: 1, dy: 0 })],
+      ["B", noMoveDecision()],
+    ]);
+    const { moves } = simulateMovement(state, decisions);
+    // A could not enter (6,5) because B occupies it. Per ADR §9, NO entry
+    // is pushed for character-blocked moves (existing absence is correct).
+    expect(moves.find((m) => m.characterId === "A")).toBeUndefined();
+  });
+
+  it("off-grid block (boundary) → emits NOTHING (no blockedBy entry)", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const state = makeState({ characters: [a] });
+    const decisions = new Map<string, ParsedDecision>([
+      // dx=-1 → would step to (-1, 0), off-grid.
+      ["A", moveDecision({ kind: "relative", dx: -1, dy: 0 })],
+    ]);
+    const { moves } = simulateMovement(state, decisions);
+    expect(moves.find((m) => m.characterId === "A")).toBeUndefined();
+  });
+
+  it("partial-progress move (one step succeeds, then blocked by wall) → emits the actual movement WITHOUT blockedBy", () => {
+    // A moves dx=5, but a wall at (8,5) — dx=3 succeeds, then blocked by
+    // wall on substep 4. Final pos: (8,5)? No — A starts at (5,5), wants
+    // dx=5 → wants (10,5). Wall at (8,5) blocks substep 4. A ends at
+    // (7,5) — moved 2 tiles, then blocked. Trace shows from===to NOT
+    // satisfied (start≠end), so no blockedBy field, just normal move.
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const wall: Wall = { x: 8, y: 5, w: 1, h: 1 };
+    const state = makeState({ characters: [a], world: { walls: [wall] } });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "relative", dx: 5, dy: 0 })],
+    ]);
+    const { moves } = simulateMovement(state, decisions);
+    const move = moves.find((m) => m.characterId === "A");
+    expect(move).toBeDefined();
+    expect(move?.from).toEqual({ x: 5, y: 5 });
+    expect(move?.to).toEqual({ x: 7, y: 5 });
+    expect(move?.blockedBy).toBeUndefined();
   });
 });

@@ -113,11 +113,11 @@ describe("WP12 — runs.aggregate top-level counts", () => {
     const roster = defaultRoster();
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
-        { characterId: "c0", kind: "interact", target: "chest_001", result: "opened" },
-        { characterId: "c1", kind: "interact", target: "chest_002", result: "opened" },
-        { characterId: "c2", kind: "interact", target: "chest_003", result: "opened" },
+        { characterId: "c0", kind: "loot", target: "chest_001", result: "opened" },
+        { characterId: "c1", kind: "loot", target: "chest_002", result: "opened" },
+        { characterId: "c2", kind: "loot", target: "chest_003", result: "opened" },
         // already_opened is NOT counted as an equip
-        { characterId: "c3", kind: "interact", target: "chest_001", result: "already_opened" },
+        { characterId: "c3", kind: "loot", target: "chest_001", result: "already_opened" },
       ] } }),
     ];
     const result = aggregateRunStats(turns, roster);
@@ -204,7 +204,7 @@ describe("WP12 — runs.aggregate per-persona breakdown (consistency invariant)"
     // c0=rat, c1=duelist, c4=paranoid (per default roster ordering)
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
-        { characterId: "c0", kind: "interact", target: "chest_001", result: "opened" },
+        { characterId: "c0", kind: "loot", target: "chest_001", result: "opened" },
         { characterId: "c1", kind: "loot", target: "c4", result: "looted" },
       ] } }),
     ];
@@ -295,11 +295,11 @@ describe("WP12 — runs.aggregate WP12 acceptance scenario", () => {
     ];
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
-        { characterId: "c0", kind: "interact", target: "chest_001", result: "opened" },
-        { characterId: "c3", kind: "interact", target: "chest_002", result: "opened" },
-        { characterId: "c4", kind: "interact", target: "chest_003", result: "opened" },
+        { characterId: "c0", kind: "loot", target: "chest_001", result: "opened" },
+        { characterId: "c3", kind: "loot", target: "chest_002", result: "opened" },
+        { characterId: "c4", kind: "loot", target: "chest_003", result: "opened" },
         // 4th chest open with no equip — emitted as already_opened or out_of_range
-        { characterId: "c5", kind: "interact", target: "chest_001", result: "already_opened" },
+        { characterId: "c5", kind: "loot", target: "chest_001", result: "already_opened" },
       ] } }),
       turn({ turn: 5, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: ["c1"], actions: [
         { characterId: "c0", kind: "attack", target: "c1", result: "dmg 100" },
@@ -396,7 +396,7 @@ function nullDecision(overrides: Partial<ParsedDecision> = {}): ParsedDecision {
     move: { kind: "none" },
     action: { kind: "none" },
     say: null,
-    overwatch_priority: null,
+    overwatch_stance: null,
     scratchpad_update: null,
     ...overrides,
   };
@@ -469,8 +469,8 @@ describe("Fix #1 — equip ground-truth (chest)", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ action: { kind: "interact", targetObjectId: "chest_001" } })],
-      ["B", nullDecision({ action: { kind: "interact", targetObjectId: "chest_001" } })],
+      ["A", nullDecision({ action: { kind: "loot", targetId: "chest_001" } })],
+      ["B", nullDecision({ action: { kind: "loot", targetId: "chest_001" } })],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
 
@@ -521,14 +521,20 @@ describe("Fix #1 — equip ground-truth (chest)", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ action: { kind: "interact", targetObjectId: "chest_dud" } })],
+      ["A", nullDecision({ action: { kind: "loot", targetId: "chest_dud" } })],
     ]);
     const { trace, state: next } = resolveTurn(state, decisions);
 
     // No success trace was emitted (it may have a non-success result OR be
     // absent entirely — both are acceptable per the fix).
+    // Phase-3 PM lock D7: chest opens emit `kind="loot"` / `result="opened"`
+    // (the resolved-engine-path, unified under loot per ADR §1).
     const successOpens = trace.actions.filter(
-      (act) => act.kind === "interact" && act.result === "opened",
+      (act) =>
+        act.kind === "loot" &&
+        act.result === "opened" &&
+        typeof act.target === "string" &&
+        act.target.startsWith("chest_"),
     );
     expect(successOpens).toHaveLength(0);
 
@@ -561,7 +567,7 @@ describe("Fix #1 — equip ground-truth (corpse-loot)", () => {
       world: {
         corpses: [
           {
-            characterId: "deadGuy",
+            characterId: "Player_3",
             pos: { x: 1, y: 0 },
             contents: { weapon: { category: "weapon", name: "axe" } },
           },
@@ -569,8 +575,8 @@ describe("Fix #1 — equip ground-truth (corpse-loot)", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ action: { kind: "loot", targetCorpseId: "deadGuy" } })],
-      ["B", nullDecision({ action: { kind: "loot", targetCorpseId: "deadGuy" } })],
+      ["A", nullDecision({ action: { kind: "loot", targetId: "Player_3" } })],
+      ["B", nullDecision({ action: { kind: "loot", targetId: "Player_3" } })],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
 
@@ -602,7 +608,7 @@ describe("Fix #1 — equip ground-truth (corpse-loot)", () => {
       world: {
         corpses: [
           {
-            characterId: "emptyCorpse",
+            characterId: "Player_7",
             pos: { x: 1, y: 0 },
             contents: {},
           },
@@ -610,7 +616,7 @@ describe("Fix #1 — equip ground-truth (corpse-loot)", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ action: { kind: "loot", targetCorpseId: "emptyCorpse" } })],
+      ["A", nullDecision({ action: { kind: "loot", targetId: "Player_7" } })],
     ]);
     const { trace, state: next } = resolveTurn(state, decisions);
 
@@ -651,7 +657,13 @@ describe("Fix #2 — overwatch kill attribution (T42 scenario)", () => {
     });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ primary: "overwatch" })],
+      [
+        "A",
+        nullDecision({
+          primary: "overwatch",
+          overwatch_stance: "offensive",
+        }),
+      ],
       ["B", nullDecision()],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);

@@ -19,6 +19,7 @@ import React, { useMemo, useState } from "react";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import type { ReplayBundle } from "../lib/reconstruct";
 import { summariseDecision } from "../lib/decisionEnglish";
+import { hasReasoningIndicator } from "../lib/rawPane";
 
 export type TurnFeedProps = {
   bundle: ReplayBundle;
@@ -204,6 +205,15 @@ function FeedRow(props: {
   const scratchpadChanged =
     agentRecord.decision.scratchpad_update !== null &&
     agentRecord.decision.scratchpad_update !== agentRecord.input.scratchpadBefore;
+  // Phase-3 ADR §2 — reasoning indicator. Lights up when reasoning text
+  // is present so the user knows the raw-pane modal has substrate-mind
+  // content to surface.
+  const reasoningPresent = hasReasoningIndicator(agentRecord);
+  // Phase-3 ADR §3 — stance display when the agent is overwatching.
+  const overwatchStance =
+    agentRecord.decision.primary === "overwatch"
+      ? agentRecord.decision.overwatch_stance
+      : null;
 
   return (
     <div
@@ -229,6 +239,15 @@ function FeedRow(props: {
               ✎
             </span>
           ) : null}
+          {reasoningPresent ? (
+            <span
+              style={reasoningIndicatorStyle}
+              title="Reasoning text captured — open raw-pane to read"
+              aria-label="Reasoning captured"
+            >
+              🧠
+            </span>
+          ) : null}
           <button
             type="button"
             onClick={onExpandClick}
@@ -252,6 +271,12 @@ function FeedRow(props: {
 
         {expanded ? (
           <div style={expandedBodyStyle}>
+            {overwatchStance !== null ? (
+              <div style={expandedSectionStyle}>
+                <div style={expandedSectionTitleStyle}>Overwatch stance</div>
+                <div style={stanceLineStyle}>Stance: {overwatchStance}</div>
+              </div>
+            ) : null}
             <div style={expandedSectionStyle}>
               <div style={expandedSectionTitleStyle}>Decision bullets</div>
               <ul style={bulletsListStyle}>
@@ -445,6 +470,20 @@ const scratchpadDeltaIndicatorStyle: React.CSSProperties = {
   fontSize: "0.875rem",
   color: "#aa5500",
   marginLeft: "0.125rem",
+};
+
+const reasoningIndicatorStyle: React.CSSProperties = {
+  fontSize: "0.875rem",
+  marginLeft: "0.125rem",
+  // Visible-but-subtle to signal "raw-pane has content" without competing
+  // with the scratchpad-delta affordance.
+};
+
+const stanceLineStyle: React.CSSProperties = {
+  fontSize: "0.8125rem",
+  color: "#1a1a1a",
+  fontFamily:
+    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace',
 };
 
 const dotsBtnStyle: React.CSSProperties = {

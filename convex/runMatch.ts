@@ -64,7 +64,7 @@ import {
   type WeaponName,
   type WorldState,
 } from "./engine/types.js";
-import { buildAgentInput } from "./llm/inputBuilder.js";
+import { buildAgentInput, type PrevTurnRow } from "./llm/inputBuilder.js";
 import { callDecisionTool, type AzureUsage } from "./llm/azure.js";
 import { loadPersonas } from "./llm/personas.js";
 
@@ -326,6 +326,9 @@ export function buildAgentLlmRecord(r: {
   /** WP10.5 Pass F — captured non-OK HTTP body excerpt (already sanitised
    *  + truncated by the wrapper). Set only on `failureReason: "http_non_200"`. */
   httpBodyExcerpt?: string | undefined;
+  /** Phase-3 ADR §2 / PM lock D13 — captured reasoning text. REQUIRED-
+   *  NULLABLE: persisted as `null` on every non-captured path. */
+  reasoning: string | null;
 }): {
   responseId: string | null;
   callId: string | null;
@@ -337,6 +340,7 @@ export function buildAgentLlmRecord(r: {
   failureReason?: FailureReason;
   validatorReason?: string;
   httpBodyExcerpt?: string;
+  reasoning: string | null;
 } {
   return {
     responseId: r.responseId,
@@ -354,6 +358,11 @@ export function buildAgentLlmRecord(r: {
     ...(r.httpBodyExcerpt !== undefined
       ? { httpBodyExcerpt: r.httpBodyExcerpt }
       : {}),
+    // Phase-3 — required-nullable, NEVER conditionally spread. The
+    // schema validator is `v.union(v.string(), v.null())` (PM lock D13);
+    // every persisted row carries this field with `null` as the
+    // unambiguous "not captured" sentinel.
+    reasoning: r.reasoning,
   };
 }
 
@@ -489,7 +498,8 @@ export const advanceTurn = action({
         { w: 100, h: 100 },
       );
 
-      // ── 2. Read prior turn speech (for heard-last-turn). ────────────────
+      // ── 2. Read prior turn row (for Last turn (you) line + per-Visible
+      //      observation brackets per phase-3 ADR §6). ─────────────────────
       const priorTurnRow =
         currentTurn > 1
           ? await ctx.runQuery(api._internal_runMatch.turnByMatchTurn, {
@@ -497,11 +507,60 @@ export const advanceTurn = action({
               turn: currentTurn - 1,
             })
           : null;
+      // Adapt the persisted row's resolution to the engine string-id shape
+      // the inputBuilder consumes. The Convex Id values ARE strings at
+      // runtime; we cast via `as string` at the boundary.
+      const prevTurnRowForBuilder: PrevTurnRow | null = priorTurnRow
+        ? {
+            resolution: {
+              consumed: priorTurnRow.resolution.consumed.map((c) => ({
+                characterId: c.characterId as string,
+                item: c.item.name,
+              })),
+              speech: priorTurnRow.resolution.speech.map((s) => ({
+                characterId: s.characterId as string,
+                text: s.text,
+                heardBy: s.heardBy.map((h) => h as string),
+              })),
+              moves: priorTurnRow.resolution.moves.map((m) => ({
+                characterId: m.characterId as string,
+                from: { x: m.from.x, y: m.from.y },
+                to: { x: m.to.x, y: m.to.y },
+                ...(m.blockedBy ? { blockedBy: m.blockedBy } : {}),
+              })),
+              actions: priorTurnRow.resolution.actions.map((a) => ({
+                characterId: a.characterId as string,
+                kind: a.kind,
+                target: a.target,
+                result: a.result,
+                ...(a.fromOverwatch !== undefined
+                  ? { fromOverwatch: a.fromOverwatch }
+                  : {}),
+                ...(a.stance !== undefined ? { stance: a.stance } : {}),
+              })),
+              deaths: priorTurnRow.resolution.deaths.map((d) => d as string),
+              visibilityUpdates: priorTurnRow.resolution.visibilityUpdates.map(
+                (u) => ({
+                  characterId: u.characterId as string,
+                  hidden: u.hidden,
+                  ...(u.revealedBy !== undefined
+                    ? { revealedBy: u.revealedBy }
+                    : {}),
+                }),
+              ),
+            },
+          }
+        : null;
+
+      // Phase-1 helper kept alive for any internal speech-audience consumer
+      // that still wants a HeardSpeech[] view; the digest no longer renders
+      // a Heard: section, but `buildHeardForObserver` remains exported and
+      // unit-tested (`tests/runMatch.test.ts`).
       const priorSpeech: ResolutionTrace["speech"] =
-        priorTurnRow?.resolution.speech.map((s) => ({
-          characterId: s.characterId as string,
+        prevTurnRowForBuilder?.resolution.speech.map((s) => ({
+          characterId: s.characterId,
           text: s.text,
-          heardBy: s.heardBy.map((h) => h as string),
+          heardBy: [...s.heardBy],
         })) ?? [];
 
       // ── 3. Load personas (per-call, allows hot-edits per WP9). ──────────
@@ -526,7 +585,12 @@ export const advanceTurn = action({
       const perAgent: PerAgent[] = livingActors.map((actor) => {
         const personaText = personas[actor.personaId as PersonaId] ?? "";
         const heard = buildHeardForObserver(actor, priorSpeech, state.characters);
-        const built = buildAgentInput(state, actor.characterId, personaText, heard);
+        const built = buildAgentInput(
+          state,
+          actor.characterId,
+          personaText,
+          prevTurnRowForBuilder,
+        );
         return {
           actor,
           heard,
@@ -579,6 +643,9 @@ export const advanceTurn = action({
         /** WP10.5 Pass F — non-OK HTTP body excerpt (sanitised+truncated
          *  by the wrapper). Set only on `failureReason: "http_non_200"`. */
         httpBodyExcerpt: string | undefined;
+        /** Phase-3 ADR §2 — captured reasoning text. REQUIRED-NULLABLE:
+         *  `null` on every non-captured path. */
+        reasoning: string | null;
       };
 
       const resolved: AgentResolved[] = perAgent.map((entry, i) => {
@@ -622,6 +689,11 @@ export const advanceTurn = action({
           // excerpt. Wrapper sets it only on http_non_200; absent/undefined
           // on every other path.
           httpBodyExcerpt: result.raw.httpBodyExcerpt,
+          // Phase-3 ADR §2 — pass-through of the captured reasoning
+          // text. Wrapper sets `null` on every non-captured path
+          // (failure rows, no-reasoning-item happy paths) so the
+          // persisted shape is unambiguous.
+          reasoning: result.raw.reasoning,
         };
       });
 
@@ -677,6 +749,8 @@ export const advanceTurn = action({
           failureReason: r.failureReason,
           validatorReason: r.validatorReason,
           httpBodyExcerpt: r.httpBodyExcerpt,
+          // Phase-3 ADR §2 — required-nullable reasoning text.
+          reasoning: r.reasoning,
         }),
       }));
 

@@ -1,103 +1,103 @@
-// WP8 — per-turn agent input builder.
+// WP-C.1 — per-turn agent input builder (phase-3 ADR §6 rebuild).
 //
-// Produces the **tactical visible-state digest** described by concept-spec
-// §7 (NOT an ASCII tile dump — `mental-model.md` §10 calls this out as the
-// load-bearing prompt-economy rule). Composed with the static system prompt
-// from `./systemPrompt.js` to form the LLM's per-turn input alongside the
-// persona body and scratchpad (which the wrapper at `convex/llm/azure.ts`
-// joins under `## Persona / ## Scratchpad / ## Visible state` headers).
+// Produces the **tactical visible-state digest** described by concept-spec §7
+// (NOT an ASCII tile dump). Phase-3 reshapes the digest per North Star §1:
 //
-// Locked digest-section caps (work-packages.md WP8 + acceptance):
-//   - **Visible entities:** max 8, sorted by Chebyshev distance ascending.
-//     Cover tiles share the 8-cap with characters/chests/corpses.
-//   - **Heard messages:** max 5 — input is the previous turn's filtered
-//     speech list (WP10 owns the hearing-range filter; this builder just
-//     renders whatever it's handed). Oldest-first eviction.
-//   - **Last-known positions:** max 3 (WP5 already caps at 3; this is the
-//     defensive rendering cap for forward-compat).
-//   - **Affordances:** uncapped — `localAffordances()` already pre-bounds
-//     them via the cover-affordance cap (WP5).
+//   You: at (X,Y), HP/maxHP, weapon/armour/consumable, in evac zone
+//   Last turn (you): <move outcome>, <action outcome>, <damage from whom>, said "..."
+//   Visible:
+//   - Player_4, dist 7 S [HP~high, holding axe, attacked Player_2]
+//   - Chest_005, dist 6 SE [opened]
+//   - Corpse_Player_5, dist 9 S [drained]
+//   - Cover_32_32, dist 4 SE
+//   - Wall_40_34, dist 1 S
+//   - Evac, dist 12 SE
 //
-// Token-count proxy. We use **`chars / 4`** as a deterministic, install-free
-// proxy for tiktoken token counts. Rationale (mirrors WP9 `personas.test.ts`
-// header-note + `de-risking.md` "WP8 fallback proxy"):
-//   - `tiktoken` ships native bindings; introducing it in WP8 risks install
-//     pain on Convex/Vitest + adds maintenance surface for a single test.
-//   - `chars / 4` is the canonical Anthropic/OpenAI public-doc heuristic for
-//     English text.
-//   - The ≤ 1 200-token total budget is a tuning constraint; a slightly
-//     conservative proxy is preferable to an exact-but-fragile dependency.
+// Removed sections (vs phase-1 digest):
+//   - `Affordances:` — the system prompt now teaches the action grammar.
+//   - `Heard (last turn):` — last-turn speech folds into per-Visible
+//     observation brackets.
+//   - `Last-known:` — last-known map memory is the agent's job via
+//     scratchpad; the system prompt teaches the contract.
+//   - `Evac:` — evac is a singleton Visible bullet once revealed.
 //
 // Boundary (ADR §1): pure-function module; no Convex imports, no
 // `convex/_generated/` access, no `fetch`. Consumed by:
-//   - WP10 (`runMatch.advanceTurn`) — calls `buildAgentInput(state, charId,
-//     personaText, heardLastTurn)` once per living agent, persists
-//     `visibleStateDigest` + `systemPromptText` per-turn for ADR §7 trace
-//     introspection.
+//   - `convex/runMatch.ts` (`advanceTurn`) — calls `buildAgentInput` once
+//     per living agent with the prior turn's `turns` row threaded in.
+//
+// Token-count proxy. We use **`chars / 4`** as a deterministic, install-free
+// proxy for tiktoken token counts. The composed input (system + persona +
+// scratchpad + digest) target is ≤ 1 200 tokens; asserted in
+// `tests/llm/inputBuilder.test.ts`.
 //
 // Cross-references:
-//   - concept-spec.md §7 (vision example), §8 (per-turn input list),
-//     §16 (speech), §22 (affordances).
-//   - work-packages.md WP8 (lines 217-262).
-//   - architecture-decisions.md §7 (`agentRecords[].input.visibleStateDigest`).
+//   - architecture-decisions.md §5 (walls), §6 (per-turn input shape),
+//     §7 (system prompt), §9 (wall-blocked move).
+//   - work-packages.md WP-C.1 — locks the rewrite contract.
+//   - concept-spec.md §7 (vision example), §8 (agent input list).
 
 import { chebyshev } from "../engine/distance.js";
 import { computeVisibleEntities } from "../engine/vision.js";
-import { localAffordances } from "../engine/affordances.js";
 import type {
   CharacterState,
-  HeardSpeech,
-  LastKnownEntry,
+  CorpseState,
+  EquippedSlots,
+  ItemRef,
   MatchState,
   Tile,
   VisibleEntity,
 } from "../engine/types.js";
 import { SYSTEM_PROMPT } from "./systemPrompt.js";
 
-// ─── Caps (locked per WP8 acceptance) ───────────────────────────────────────
+// ─── Caps (locked per WP-C.1 acceptance) ────────────────────────────────────
 
+/** 8-cap on living characters + chests/corpses (categories 1+2) per ADR §6.
+ *  Cover, walls, and Evac are unbounded except for the 12-wall safety
+ *  ceiling below. */
 const VISIBLE_ENTITY_CAP = 8;
-const HEARD_CAP = 5;
-const LAST_KNOWN_CAP = 3;
-/** Default movement budget (concept-spec §4) — used to estimate evac turns
- *  on the rendered Evac: line. Speed consumable doubles this on the consuming
- *  turn but it isn't representative of "direct" turns to evac. */
-const DEFAULT_MOVEMENT = 8;
 
-// ─── Direction (8-octant compass) ───────────────────────────────────────────
+/** 12-wall safety ceiling at the inputBuilder layer per ADR §5. Vision
+ *  emits walls uncapped; this cap defends against pathological vision
+ *  positions without trimming actionable entities. */
+const WALL_CAP = 12;
+
+/** Half-size of the 3×3 evac zone (centre ± 1) per concept-spec §15. */
+const EVAC_HALF_SIZE = 1;
+
+// ─── 8-octant compass bearing ───────────────────────────────────────────────
 
 /**
  * 8-octant compass bearing from `from` to `to`. Coordinate system is
  * `(0,0)` top-left, x→east, y→south (per types.ts), so a target with
- * `dy < 0` is north and `dx > 0` is east. Returns one of N / NE / E / SE
- * / S / SW / W / NW. Same-tile returns `""` (caller renders nothing).
+ * `dy < 0` is north and `dx > 0` is east.
  *
- * Bucketing rule: if either |dx| or |dy| dominates by ≥ 2× the other,
- * pick the cardinal; otherwise pick the diagonal. This keeps NE meaningful
- * (12 east + 5 north reads as ENE → "NE" in the 8-octant scheme).
+ * Bucketing rule: angle-based using `Math.atan2(dy, dx)` and 45° sectors.
+ * Each sector is centred on its compass bearing (i.e. E spans -22.5°..+22.5°),
+ * so equal-magnitude diagonals like (4,2) bucket as SE rather than E. This
+ * matches the ADR §6 canonical example "Cover_32_32, dist 4 SE" for an
+ * observer at (28,30) sighting cover at (32,32).
  */
 function compassDirection(from: Tile, to: Tile): string {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   if (dx === 0 && dy === 0) return "";
-  const absX = Math.abs(dx);
-  const absY = Math.abs(dy);
-  // Dominant-axis: cardinal if one axis ≥ 2× the other.
-  if (absX >= 2 * absY) return dx > 0 ? "E" : "W";
-  if (absY >= 2 * absX) return dy > 0 ? "S" : "N";
-  // Otherwise diagonal.
-  if (dx > 0 && dy > 0) return "SE";
-  if (dx > 0 && dy < 0) return "NE";
-  if (dx < 0 && dy > 0) return "SW";
-  return "NW";
+  // atan2 returns radians in (-π, π]. Normalise to [0, 360°) and bucket
+  // into eight 45° sectors, each centred on its compass label.
+  const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const normalised = (angleDeg + 360) % 360;
+  // y-down convention: dx>0 is E, dy>0 is S. Sector 0 is centred on E and
+  // sectors increase clockwise through SE, S, SW, W, NW, N, NE.
+  const compass = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"] as const;
+  const sector = Math.floor((normalised + 22.5) / 45) % 8;
+  return compass[sector] ?? "";
 }
 
 // ─── Equipped slot rendering ────────────────────────────────────────────────
 
 /**
  * Render the agent's equipped slots as `weapon / armour / consumable`,
- * substituting `—` (em-dash) for empty slots. Consumed by the Equipped:
- * line of the digest.
+ * substituting `—` for empty slots. Used on the You: line.
  */
 function renderEquipped(actor: CharacterState): string {
   const w = actor.equipped.weapon?.name ?? "—";
@@ -106,7 +106,54 @@ function renderEquipped(actor: CharacterState): string {
   return `${w} / ${a} / ${c}`;
 }
 
-// ─── Visible entity → bullet line ───────────────────────────────────────────
+// ─── PrevTurnRow shape ──────────────────────────────────────────────────────
+
+/**
+ * The subset of the previous turn's `turns` row this builder reads. Mirrors
+ * the engine's `ResolutionTrace` (modulo Convex Id ↔ string boundary,
+ * which `runMatch.ts` adapts at the call site).
+ *
+ * Fields used:
+ *   - `moves[]` for the Last turn (you) move outcome (consumes
+ *     `blockedBy === "wall"` per ADR §9).
+ *   - `actions[]` for both (a) the actor's own action outcome on the Last
+ *     turn line, (b) damage-taken-from-whom on the Last turn line, and
+ *     (c) per-Visible observation brackets ("attacked Player_X").
+ *   - `speech[]` for (a) the actor's own said-"..." fragment, and (b)
+ *     per-Visible observation brackets ("said \"...\"").
+ */
+export type PrevTurnRow = {
+  resolution: {
+    consumed: ReadonlyArray<{ characterId: string; item: string }>;
+    speech: ReadonlyArray<{
+      characterId: string;
+      text: string;
+      heardBy: ReadonlyArray<string>;
+    }>;
+    moves: ReadonlyArray<{
+      characterId: string;
+      from: Tile;
+      to: Tile;
+      blockedBy?: "wall";
+    }>;
+    actions: ReadonlyArray<{
+      characterId: string;
+      kind: string;
+      target: string;
+      result: string;
+      fromOverwatch?: boolean;
+      stance?: "offensive" | "defensive";
+    }>;
+    deaths: ReadonlyArray<string>;
+    visibilityUpdates: ReadonlyArray<{
+      characterId: string;
+      hidden: boolean;
+      revealedBy?: string;
+    }>;
+  };
+};
+
+// ─── Identity helpers ───────────────────────────────────────────────────────
 
 /**
  * Resolve a `characterId` to its `displayName` via `state.characters`. If
@@ -119,241 +166,542 @@ function resolveDisplayName(state: MatchState, characterId: string): string {
 }
 
 /**
- * Render one `VisibleEntity` as a digest bullet. Mirrors the §7 example:
- *   - `Player_3, dist 12 NE, HP~mid, holding sword`
- *   - `Chest chest_002, dist 6 W`
- *   - `Corpse Player_5, dist 9 S, axe + leather`
- *   - `Cover at (28,32), dist 4 NW`
+ * Resolve a `characterId` to its typed-id rendering (`Player_N`).
+ *
+ * Used for fragments that name characters who may not be in `state.characters`
+ * — e.g. damage attackers from the prior turn whose entries we never need to
+ * fold into the current observer's vision (a wounding shot from outside vision
+ * range, or an attacker whose record has been pruned). Production data shape
+ * is locked in `convex/matches.ts:255` (`displayName: \`Player_${spawnIndex+1}\``)
+ * and `characterId` is `"P${n}"` (per spawn ordering), so the regex fallback
+ * `^P(\d+)$` → `Player_$1` matches the stable convention.
+ *
+ * Lookup-hit path: when the character IS in `state.characters`, prefer the
+ * stored `displayName` so any future rename still flows through.
+ *
+ * Lookup-miss path: apply the `P${n}` → `Player_${n}` regex; for non-matching
+ * synthetic ids (tests, teardown), fall back to the bare id verbatim so the
+ * digest still surfaces *something* identifiable.
  */
-function renderVisibleBullet(
-  entity: VisibleEntity,
-  observerPos: Tile,
+function renderCharacterTypedId(
   state: MatchState,
+  characterId: string,
 ): string {
-  const dist = chebyshev(observerPos, entityPos(entity));
-  const dir = compassDirection(observerPos, entityPos(entity));
-  const distFragment = dir ? `dist ${dist} ${dir}` : `dist ${dist}`;
-  switch (entity.kind) {
-    case "character": {
-      const name = resolveDisplayName(state, entity.characterId);
-      const parts: string[] = [name, distFragment, `HP~${entity.hpBucket}`];
-      if (entity.weapon) parts.push(`holding ${entity.weapon}`);
-      return `- ${parts.join(", ")}`;
-    }
-    case "chest": {
-      // WP10.5 Pass B.2 — append `[opened]` marker for chests that have
-      // already been opened. The chest stays in the digest so the model
-      // retains last-known-position memory (concept-spec §13 — chests are
-      // one-shot but their *presence* is durable map information), but the
-      // marker flags it as no-longer-actionable so personas don't keep
-      // emitting `interact: <chestId>` against it. Phase A finding —
-      // `wp10-5-phase-a-findings.md` Bucket 2 (62.2% of fallbacks).
-      const openedSuffix = entity.opened ? " [opened]" : "";
-      return `- Chest ${entity.objectId}, ${distFragment}${openedSuffix}`;
-    }
-    case "corpse": {
-      const name = resolveDisplayName(state, entity.objectId);
-      const gear: string[] = [];
-      if (entity.contents.weapon) gear.push(entity.contents.weapon.name);
-      if (entity.contents.armour) gear.push(entity.contents.armour.name);
-      if (entity.contents.consumable)
-        gear.push(entity.contents.consumable.name);
-      const gearFragment = gear.length > 0 ? `, ${gear.join(" + ")}` : "";
-      return `- Corpse ${name}, ${distFragment}${gearFragment}`;
-    }
-    case "cover": {
-      return `- Cover at (${entity.pos.x},${entity.pos.y}), ${distFragment}`;
-    }
-    case "wall": {
-      // Walls aren't currently emitted by `computeVisibleEntities` (per
-      // vision.ts head-note) but we handle the discriminant exhaustively.
-      return `- Wall at (${entity.pos.x},${entity.pos.y}), ${distFragment}`;
-    }
-  }
+  const c = state.characters.find((c) => c.characterId === characterId);
+  if (c) return c.displayName;
+  const m = /^P(\d+)$/.exec(characterId);
+  if (m) return `Player_${m[1]}`;
+  return characterId;
 }
-
-function entityPos(entity: VisibleEntity): Tile {
-  return entity.pos;
-}
-
-// ─── Section builders ───────────────────────────────────────────────────────
 
 /**
- * Build the Visible: section bullets. Caps at `VISIBLE_ENTITY_CAP` after
- * sorting by Chebyshev distance ascending. Cover tiles share the 8-cap
- * with characters/chests/corpses — the closest 8 by distance always win.
+ * Extract the numeric chest id (e.g. `"chest_005"` → `"005"`) and render
+ * as `Chest_005`. Falls back to the raw object id if it doesn't match the
+ * chest namespace.
+ */
+function renderChestId(objectId: string): string {
+  const m = /^chest_(\d+)$/.exec(objectId);
+  if (!m) return objectId;
+  return `Chest_${m[1]}`;
+}
+
+/** True iff a corpse's contents has no remaining loot slot. */
+function corpseDrained(contents: CorpseState["contents"]): boolean {
+  return !contents.weapon && !contents.armour && !contents.consumable;
+}
+
+// ─── Last turn (you) line ───────────────────────────────────────────────────
+
+/**
+ * Render the move-outcome fragment for the actor's own row. Shape:
+ *   - normal move: `moved <dist> <bearing>` (e.g. "moved 3 NE")
+ *   - wall-blocked: `tried to move → hit wall` (per ADR §9; the intended
+ *     direction isn't on the moves[] entry — `from === to` for wall
+ *     blocks — so the renderer falls back to the wall-block phrasing)
+ *   - no entry: returns null (caller drops the fragment)
+ */
+function renderMoveFragment(
+  prev: PrevTurnRow,
+  characterId: string,
+): string | null {
+  const entry = prev.resolution.moves.find(
+    (m) => m.characterId === characterId,
+  );
+  if (!entry) return null;
+  if (entry.blockedBy === "wall") {
+    return "tried to move → hit wall";
+  }
+  const dist = chebyshev(entry.from, entry.to);
+  if (dist === 0) return null;
+  const dir = compassDirection(entry.from, entry.to);
+  return dir ? `moved ${dist} ${dir}` : `moved ${dist}`;
+}
+
+/**
+ * Render the action-outcome fragment for the actor's own row. Renders
+ * non-overwatch action entries the actor produced.
+ *
+ * Shape:
+ *   - attack: `attacked <target> (<result>)`  (e.g. "attacked Player_3 (dmg 7)")
+ *   - loot:   `looted <target> (<result>)`    (e.g. "looted chest_005 (opened)")
+ *   - other:  `<kind> <target> (<result>)`    (defensive)
+ *
+ * Returns null when no own-action entry exists.
+ */
+function renderActionFragment(
+  prev: PrevTurnRow,
+  characterId: string,
+): string | null {
+  // Skip overwatch counter-fire rows in this fragment — those are the
+  // actor's REACTIVE damage to attackers. The actor's "primary action"
+  // is what they explicitly chose. fromOverwatch===true is reactive.
+  const entry = prev.resolution.actions.find(
+    (a) => a.characterId === characterId && a.fromOverwatch !== true,
+  );
+  if (!entry) return null;
+  const target = entry.target || "";
+  const result = entry.result || "";
+  if (entry.kind === "attack") {
+    return result ? `attacked ${target} (${result})` : `attacked ${target}`;
+  }
+  if (entry.kind === "loot") {
+    return result ? `looted ${target} (${result})` : `looted ${target}`;
+  }
+  if (entry.kind === "overwatch") {
+    // Offensive overwatch fire — the actor committed to overwatch and an
+    // enemy walked into range. Render distinctly so the agent learns the
+    // arm worked.
+    return result
+      ? `overwatch hit ${target} (${result})`
+      : `overwatch hit ${target}`;
+  }
+  return result
+    ? `${entry.kind} ${target} (${result})`
+    : `${entry.kind} ${target}`;
+}
+
+/**
+ * Render the damage-taken-from fragment. Sums the `dmg N` results in
+ * incoming attack/overwatch entries against this character's displayName,
+ * and lists the attackers comma-joined.
+ *
+ * Returns null when no incoming damage exists.
+ */
+function renderDamageFragment(
+  prev: PrevTurnRow,
+  state: MatchState,
+  characterId: string,
+): string | null {
+  const myDisplayName = resolveDisplayName(state, characterId);
+  const attackers: string[] = [];
+  let totalDmg = 0;
+  for (const a of prev.resolution.actions) {
+    if (a.target !== myDisplayName) continue;
+    if (a.kind !== "attack" && a.kind !== "overwatch") continue;
+    // result format is "dmg N" or "out_of_range" / etc. Extract N.
+    const m = /^dmg (\d+)$/.exec(a.result);
+    if (!m) continue;
+    totalDmg += Number(m[1]);
+    // Use the typed-id helper so attackers who aren't in state.characters
+    // (e.g. an attacker outside the observer's current vision but whose
+    // damage entry still threads through the prior turn's resolution)
+    // still surface as `Player_N` rather than the bare characterId.
+    const attackerName = renderCharacterTypedId(state, a.characterId);
+    if (!attackers.includes(attackerName)) attackers.push(attackerName);
+  }
+  if (totalDmg === 0 || attackers.length === 0) return null;
+  return `took ${totalDmg} dmg from ${attackers.join(", ")}`;
+}
+
+/**
+ * Render the said-"..." fragment for the actor's own speech.
+ */
+function renderSaidFragment(
+  prev: PrevTurnRow,
+  characterId: string,
+): string | null {
+  const entry = prev.resolution.speech.find(
+    (s) => s.characterId === characterId,
+  );
+  if (!entry) return null;
+  return `said "${entry.text}"`;
+}
+
+/**
+ * Compose the full `Last turn (you):` line. Returns null on turn 1 (no
+ * prevTurnRow) — the caller suppresses the line entirely.
+ *
+ * Order: move outcome, action outcome, damage taken from whom, said.
+ * Empty fragments are dropped; if every fragment is null, the line is
+ * `Last turn (you): no-op` (the actor took no observable action).
+ */
+export function buildLastTurnLine(
+  state: MatchState,
+  characterId: string,
+  prev: PrevTurnRow | null,
+): string | null {
+  if (!prev) return null;
+  const fragments: string[] = [];
+  const move = renderMoveFragment(prev, characterId);
+  if (move) fragments.push(move);
+  const action = renderActionFragment(prev, characterId);
+  if (action) fragments.push(action);
+  const damage = renderDamageFragment(prev, state, characterId);
+  if (damage) fragments.push(damage);
+  const said = renderSaidFragment(prev, characterId);
+  if (said) fragments.push(said);
+  if (fragments.length === 0) {
+    return "Last turn (you): no-op";
+  }
+  return `Last turn (you): ${fragments.join(", ")}`;
+}
+
+// ─── Per-Visible observation brackets ──────────────────────────────────────
+
+/**
+ * Per-visible-character observations gathered from the prior turn's
+ * resolution. Filtered to only what THIS observer could see at turn N+1
+ * start (the visible-entity emission already does that).
+ */
+type VisibleObservation = {
+  attackedTarget?: string;
+  saidText?: string;
+};
+
+/**
+ * Build a map of `characterId → VisibleObservation` for every character
+ * that appears in the prior turn's actions or speech. Filtering by
+ * visibility happens at render time (only Visible character bullets pull
+ * from this map).
+ */
+function buildObservationMap(
+  prev: PrevTurnRow | null,
+): Map<string, VisibleObservation> {
+  const out = new Map<string, VisibleObservation>();
+  if (!prev) return out;
+  for (const a of prev.resolution.actions) {
+    if (a.kind !== "attack") continue;
+    if (a.fromOverwatch === true) continue; // reactive — not a chosen attack
+    if (!a.target) continue;
+    const obs = out.get(a.characterId) ?? {};
+    obs.attackedTarget = a.target;
+    out.set(a.characterId, obs);
+  }
+  for (const s of prev.resolution.speech) {
+    const obs = out.get(s.characterId) ?? {};
+    obs.saidText = s.text;
+    out.set(s.characterId, obs);
+  }
+  return out;
+}
+
+// ─── Visible entity → bullet line ──────────────────────────────────────────
+
+/** Internal representation of a visible-bullet, before rendering. The sort
+ *  comparator works on this shape. */
+type BulletEntry = {
+  /** Sort tier per ADR §6: 1=character, 2=chest/corpse, 3=cover, 4=wall, 5=evac. */
+  tier: 1 | 2 | 3 | 4 | 5;
+  /** Chebyshev distance to observer for sort. */
+  dist: number;
+  /** Whether the entry is a drained corpse — drained sorts after non-drained
+   *  at equal distance. */
+  drained: boolean;
+  /** Stable secondary key (id / displayName) for tie-breaking ASC. */
+  sortKey: string;
+  rendered: string;
+};
+
+function renderHpBucket(bucket: "low" | "mid" | "high"): string {
+  return `HP~${bucket}`;
+}
+
+function renderCharacterBullet(
+  entity: VisibleEntity & { kind: "character" },
+  observerPos: Tile,
+  state: MatchState,
+  observations: Map<string, VisibleObservation>,
+): BulletEntry {
+  const dist = chebyshev(observerPos, entity.pos);
+  const dir = compassDirection(observerPos, entity.pos);
+  const distFragment = dir ? `dist ${dist} ${dir}` : `dist ${dist}`;
+  const name = resolveDisplayName(state, entity.characterId);
+  const brackets: string[] = [renderHpBucket(entity.hpBucket)];
+  if (entity.weapon) brackets.push(`holding ${entity.weapon}`);
+  const obs = observations.get(entity.characterId);
+  if (obs?.attackedTarget) {
+    brackets.push(`attacked ${obs.attackedTarget}`);
+  }
+  if (obs?.saidText !== undefined) {
+    brackets.push(`said "${obs.saidText}"`);
+  }
+  const rendered = `- ${name}, ${distFragment} [${brackets.join(", ")}]`;
+  return {
+    tier: 1,
+    dist,
+    drained: false,
+    sortKey: entity.characterId,
+    rendered,
+  };
+}
+
+function renderChestBullet(
+  entity: VisibleEntity & { kind: "chest" },
+  observerPos: Tile,
+): BulletEntry {
+  const dist = chebyshev(observerPos, entity.pos);
+  const dir = compassDirection(observerPos, entity.pos);
+  const distFragment = dir ? `dist ${dist} ${dir}` : `dist ${dist}`;
+  const id = renderChestId(entity.objectId);
+  const suffix = entity.opened ? " [opened]" : "";
+  return {
+    tier: 2,
+    dist,
+    drained: false,
+    sortKey: id,
+    rendered: `- ${id}, ${distFragment}${suffix}`,
+  };
+}
+
+function renderCorpseBullet(
+  entity: VisibleEntity & { kind: "corpse" },
+  observerPos: Tile,
+  state: MatchState,
+): BulletEntry {
+  const dist = chebyshev(observerPos, entity.pos);
+  const dir = compassDirection(observerPos, entity.pos);
+  const distFragment = dir ? `dist ${dist} ${dir}` : `dist ${dist}`;
+  const name = resolveDisplayName(state, entity.objectId);
+  const id = `Corpse_${name}`;
+  const drained = corpseDrained(entity.contents);
+  if (drained) {
+    return {
+      tier: 2,
+      dist,
+      drained: true,
+      sortKey: id,
+      rendered: `- ${id}, ${distFragment} [drained]`,
+    };
+  }
+  const gear: string[] = [];
+  if (entity.contents.weapon) gear.push(entity.contents.weapon.name);
+  if (entity.contents.armour) gear.push(entity.contents.armour.name);
+  if (entity.contents.consumable) gear.push(entity.contents.consumable.name);
+  const gearFragment = gear.length > 0 ? ` [${gear.join(" + ")}]` : "";
+  return {
+    tier: 2,
+    dist,
+    drained: false,
+    sortKey: id,
+    rendered: `- ${id}, ${distFragment}${gearFragment}`,
+  };
+}
+
+function renderCoverBullet(
+  entity: VisibleEntity & { kind: "cover" },
+  observerPos: Tile,
+): BulletEntry {
+  const dist = chebyshev(observerPos, entity.pos);
+  const dir = compassDirection(observerPos, entity.pos);
+  const distFragment = dir ? `dist ${dist} ${dir}` : `dist ${dist}`;
+  const id = `Cover_${entity.pos.x}_${entity.pos.y}`;
+  return {
+    tier: 3,
+    dist,
+    drained: false,
+    sortKey: id,
+    rendered: `- ${id}, ${distFragment}`,
+  };
+}
+
+function renderWallBullet(
+  entity: VisibleEntity & { kind: "wall" },
+  observerPos: Tile,
+): BulletEntry {
+  const dist = chebyshev(observerPos, entity.pos);
+  const dir = compassDirection(observerPos, entity.pos);
+  const distFragment = dir ? `dist ${dist} ${dir}` : `dist ${dist}`;
+  const id = `Wall_${entity.pos.x}_${entity.pos.y}`;
+  return {
+    tier: 4,
+    dist,
+    drained: false,
+    sortKey: id,
+    rendered: `- ${id}, ${distFragment}`,
+  };
+}
+
+function renderEvacBullet(
+  observerPos: Tile,
+  centre: Tile,
+): BulletEntry {
+  const dist = chebyshev(observerPos, centre);
+  const dir = compassDirection(observerPos, centre);
+  const distFragment = dir ? `dist ${dist} ${dir}` : `dist ${dist}`;
+  return {
+    tier: 5,
+    dist,
+    drained: false,
+    sortKey: "Evac",
+    rendered: `- Evac, ${distFragment}`,
+  };
+}
+
+// ─── Sort + cap ─────────────────────────────────────────────────────────────
+
+/**
+ * Comparator implementing ADR §6 sort: tier ASC, then within-tier dist ASC,
+ * then drained corpses AFTER non-drained at equal dist (tier 2 only), then
+ * sortKey ASC for stable ties.
+ *
+ * Walls in tier 4 share the tier with cover (tier 3) — we keep walls in
+ * tier 4 so they always render after cover regardless of distance, per
+ * ADR §5 ("walls last per the cover→walls visual contract").
+ */
+function bulletComparator(a: BulletEntry, b: BulletEntry): number {
+  if (a.tier !== b.tier) return a.tier - b.tier;
+  if (a.dist !== b.dist) return a.dist - b.dist;
+  // Same dist within same tier: drained AFTER non-drained.
+  if (a.drained !== b.drained) return a.drained ? 1 : -1;
+  return a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0;
+}
+
+/**
+ * Build the Visible: section bullets. Implements ADR §6 sort + caps:
+ *   - tier 1 (chars) + tier 2 (chests/corpses) share the
+ *     `VISIBLE_ENTITY_CAP=8`.
+ *   - tier 3 (cover) is unbounded.
+ *   - tier 4 (walls) is capped at `WALL_CAP=12` (ADR §5 safety ceiling).
+ *   - tier 5 (Evac singleton) is unbounded — at most 1 entry.
  */
 function buildVisibleLines(
   state: MatchState,
   observer: CharacterState,
+  observations: Map<string, VisibleObservation>,
 ): string[] {
   const { visible } = computeVisibleEntities(state, observer.characterId);
-  const sorted = [...visible].sort(
-    (a, b) =>
-      chebyshev(observer.pos, entityPos(a)) -
-      chebyshev(observer.pos, entityPos(b)),
-  );
-  const capped = sorted.slice(0, VISIBLE_ENTITY_CAP);
-  return capped.map((e) => renderVisibleBullet(e, observer.pos, state));
+
+  // Group by tier so caps can be applied per-tier independently.
+  const charBullets: BulletEntry[] = [];
+  const lootBullets: BulletEntry[] = [];
+  const coverBullets: BulletEntry[] = [];
+  const wallBullets: BulletEntry[] = [];
+
+  for (const e of visible) {
+    switch (e.kind) {
+      case "character":
+        charBullets.push(
+          renderCharacterBullet(e, observer.pos, state, observations),
+        );
+        break;
+      case "chest":
+        lootBullets.push(renderChestBullet(e, observer.pos));
+        break;
+      case "corpse":
+        lootBullets.push(renderCorpseBullet(e, observer.pos, state));
+        break;
+      case "cover":
+        coverBullets.push(renderCoverBullet(e, observer.pos));
+        break;
+      case "wall":
+        wallBullets.push(renderWallBullet(e, observer.pos));
+        break;
+    }
+  }
+
+  // Sort each tier independently then merge with the cross-tier
+  // comparator (tier ranks come first, so concat-then-sort is fine).
+  const tier1and2 = [...charBullets, ...lootBullets].sort(bulletComparator);
+  const cap12 = tier1and2.slice(0, VISIBLE_ENTITY_CAP);
+  const cover = coverBullets.sort(bulletComparator);
+  const walls = wallBullets.sort(bulletComparator).slice(0, WALL_CAP);
+
+  const merged: BulletEntry[] = [...cap12, ...cover, ...walls];
+
+  // Evac singleton — append once revealed.
+  if (state.world.evac.revealedAtTurn !== null) {
+    merged.push(renderEvacBullet(observer.pos, state.world.evac.centre));
+  }
+
+  return merged.map((b) => b.rendered);
 }
 
-/**
- * Build the Heard (last turn): section bullets. Caps at `HEARD_CAP` with
- * oldest-first eviction (the input list is already in chronological order
- * — per WP10's intended emit shape — so we keep the LAST `HEARD_CAP`
- * entries). Speaker IDs resolve to displayNames where possible.
- */
-function buildHeardLines(
-  state: MatchState,
-  heard: readonly HeardSpeech[],
-): string[] {
-  const capped = heard.slice(-HEARD_CAP);
-  return capped.map((entry) => {
-    const name = resolveDisplayName(state, entry.speakerId);
-    return `- ${name}: "${entry.text}"`;
-  });
-}
+// ─── You: line composition ─────────────────────────────────────────────────
 
 /**
- * Build the Last-known: section bullets. Caps at `LAST_KNOWN_CAP` with
- * oldest-first eviction (sort by `atTurn` ascending → keep the last 3).
- * Renders position + observed turn + age (turns ago) per §7's example
- * (`Player_2 at (15,18), turn 4 (3 turns ago)`).
+ * True iff observer's position is inside the 3×3 evac zone (centre ± 1).
+ * Returns false when evac is not yet revealed (the suffix is suppressed
+ * before reveal regardless of position).
  */
-function buildLastKnownLines(
+function observerInEvacZone(
   state: MatchState,
   observer: CharacterState,
-  currentTurn: number,
-): string[] {
-  if (observer.lastKnown.length === 0) return [];
-  // Sort ascending by `atTurn` (oldest first), then keep the last 3.
-  const sorted = [...observer.lastKnown].sort(
-    (a: LastKnownEntry, b: LastKnownEntry) => a.atTurn - b.atTurn,
-  );
-  const capped = sorted.slice(-LAST_KNOWN_CAP);
-  return capped.map((entry: LastKnownEntry) => {
-    const name = resolveDisplayName(state, entry.characterId);
-    const age = currentTurn - entry.atTurn;
-    return `- ${name} at (${entry.pos.x},${entry.pos.y}), turn ${entry.atTurn} (${age} turns ago)`;
-  });
-}
-
-/**
- * Build the Evac: section bullets. Returns an empty list when evac is
- * still hidden (`revealedAtTurn === null`). Once revealed, renders the
- * reveal turn, centre, distance, and an estimated turns-to-evac under
- * the default 8-tile movement budget.
- */
-function buildEvacLines(state: MatchState, observer: CharacterState): string[] {
+): boolean {
   const evac = state.world.evac;
-  if (evac.revealedAtTurn === null) return [];
-  const dist = chebyshev(observer.pos, evac.centre);
-  const dir = compassDirection(observer.pos, evac.centre);
-  const est = Math.ceil(dist / DEFAULT_MOVEMENT);
-  const distFragment = dir ? `dist ${dist} ${dir}` : `dist ${dist}`;
-  return [
-    `- Revealed at turn ${evac.revealedAtTurn}, centre at (${evac.centre.x},${evac.centre.y}), ${distFragment}, est ${est} turns`,
-  ];
+  if (evac.revealedAtTurn === null) return false;
+  return (
+    Math.abs(observer.pos.x - evac.centre.x) <= EVAC_HALF_SIZE &&
+    Math.abs(observer.pos.y - evac.centre.y) <= EVAC_HALF_SIZE
+  );
 }
 
-/**
- * Build the Affordances: section bullets. Renders two lines —
- * `- movement: ...` and `- actions: ...` — joining each list with commas.
- * Empty lists produce a bullet whose body is empty (e.g. `- movement: `);
- * callers should normally have at least `to relative tile` / `overwatch`
- * by virtue of `localAffordances()` adding them unconditionally for living
- * agents.
- */
-function buildAffordanceLines(
-  state: MatchState,
-  characterId: string,
-): string[] {
-  const aff = localAffordances(state, characterId);
-  return [
-    `- movement: ${aff.movement.join(", ")}`,
-    `- actions: ${aff.actions.join(", ")}`,
-  ];
+function buildYouLine(state: MatchState, observer: CharacterState): string {
+  const equipped = renderEquipped(observer);
+  const base = `You: at (${observer.pos.x},${observer.pos.y}), ${observer.hp}/${observer.maxHp} HP, ${equipped}`;
+  // Evac suffix appears ONLY after reveal; before reveal the suffix is
+  // omitted entirely (no "not in evac zone" leakage either).
+  if (state.world.evac.revealedAtTurn === null) return base;
+  return observerInEvacZone(state, observer)
+    ? `${base}, in evac zone`
+    : `${base}, not in evac zone`;
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 /**
  * Build the per-turn tactical visible-state digest for `characterId`.
- * Plain text (NOT an ASCII grid — see concept-spec.md §7 example), terse,
- * mirroring §7 closely. Sections (in order):
+ * Plain text (NOT an ASCII grid). Sections (in order):
  *
- *   1. `Turn: N/50`
- *   2. `You are at X/maxHp HP.` (max HP is the shared phase-1 tuning
- *      constant `CHARACTER_MAX_HP` from `convex/engine/types.ts`; the
- *      digest renders `${observer.hp}/${observer.maxHp}` directly, so a
- *      tuning change in `CHARACTER_MAX_HP` flows through without edits
- *      here.)
- *   3. `Equipped: weapon / armour / consumable`
- *   4. `Visible:` ≤ 8 bullets (Chebyshev-ascending)
- *   5. `Heard (last turn):` ≤ 5 bullets (omit section when empty)
- *   6. `Last-known:` ≤ 3 bullets (omit section when empty)
- *   7. `Evac:` 1 bullet (omit section before evac.revealedAtTurn)
- *   8. `Affordances:` 2 bullets (`movement:` + `actions:`)
+ *   1. `You: at (X,Y), HP/maxHP, weapon/armour/consumable[, in evac zone]`
+ *   2. `Last turn (you): <fragments>` (omitted on turn 1)
+ *   3. `Visible:`
+ *      - characters (closest first; ties → id ASC)
+ *      - chests/corpses (closest first; drained corpses after non-drained
+ *        at equal distance) — categories 1+2 share the 8-cap
+ *      - cover (closest first; unbounded)
+ *      - walls (closest first; capped at 12 — ADR §5 safety ceiling)
+ *      - Evac singleton (only after reveal)
  *
  * Defensive contract: if `characterId` is unknown, returns a minimal
- * digest with `Turn: N/50` only (the engine should never reach this
- * branch — WP10 only calls for living characters — but the function
- * does not throw).
+ * digest with the You: line skipped (the engine never calls this for
+ * unknown ids; the fallback exists for tests).
  */
 export function buildVisibleStateDigest(
   state: MatchState,
   characterId: string,
-  heardLastTurn: HeardSpeech[],
+  prev: PrevTurnRow | null,
 ): string {
   const observer = state.characters.find(
     (c) => c.characterId === characterId,
   );
   if (!observer) {
-    return `Turn: ${state.turn}/50`;
+    return `Visible:`;
   }
 
+  const observations = buildObservationMap(prev);
   const lines: string[] = [];
 
-  // 1. Turn line.
-  lines.push(`Turn: ${state.turn}/50`);
-  // 2. Self HP — exact, not bucketed (the agent IS itself; bucketing buys
-  //    nothing here and obscures the heal/no-heal decision).
-  lines.push(`You are at ${observer.hp}/${observer.maxHp} HP.`);
-  // 3. Equipped slots.
-  lines.push(`Equipped: ${renderEquipped(observer)}`);
+  // 1. You: line.
+  lines.push(buildYouLine(state, observer));
 
-  // 4. Visible.
-  const visibleLines = buildVisibleLines(state, observer);
+  // 2. Last turn (you):.
+  const lastTurnLine = buildLastTurnLine(state, characterId, prev);
+  if (lastTurnLine !== null) lines.push(lastTurnLine);
+
+  // 3. Visible:.
+  const visibleLines = buildVisibleLines(state, observer, observations);
   lines.push("Visible:");
   for (const line of visibleLines) lines.push(line);
-
-  // 5. Heard — only emit the section header when there's at least one
-  //    rendered line. An empty Heard section is noise.
-  const heardLines = buildHeardLines(state, heardLastTurn);
-  if (heardLines.length > 0) {
-    lines.push("Heard (last turn):");
-    for (const line of heardLines) lines.push(line);
-  }
-
-  // 6. Last-known — same suppress-when-empty rule.
-  const lastKnownLines = buildLastKnownLines(state, observer, state.turn);
-  if (lastKnownLines.length > 0) {
-    lines.push("Last-known:");
-    for (const line of lastKnownLines) lines.push(line);
-  }
-
-  // 7. Evac — suppressed before reveal.
-  const evacLines = buildEvacLines(state, observer);
-  if (evacLines.length > 0) {
-    lines.push("Evac:");
-    for (const line of evacLines) lines.push(line);
-  }
-
-  // 8. Affordances — always emitted (movement + actions lines).
-  lines.push("Affordances:");
-  for (const line of buildAffordanceLines(state, characterId)) {
-    lines.push(line);
-  }
 
   return lines.join("\n");
 }
@@ -369,22 +717,28 @@ export function buildVisibleStateDigest(
  *
  * The `personaPromptText` parameter is unused in the current return shape
  * (the wrapper accepts persona separately) but is kept on the signature
- * because WP10's call site already has it in scope and a future revision
- * may inline persona-specific framing.
+ * because the call site already has it in scope.
  */
 export function buildAgentInput(
   state: MatchState,
   characterId: string,
   _personaPromptText: string,
-  heardLastTurn: HeardSpeech[],
+  prev: PrevTurnRow | null,
 ): { systemPrompt: string; visibleStateDigest: string } {
-  const visibleStateDigest = buildVisibleStateDigest(
-    state,
-    characterId,
-    heardLastTurn,
-  );
+  const visibleStateDigest = buildVisibleStateDigest(state, characterId, prev);
   return {
     systemPrompt: SYSTEM_PROMPT,
     visibleStateDigest,
   };
 }
+
+// ─── Helper exports for downstream consumers (tests + report writer) ───────
+
+/** Re-exported for downstream tests/utilities; identifies a corpse with no
+ *  remaining loot. */
+export function isCorpseDrained(contents: CorpseState["contents"]): boolean {
+  return corpseDrained(contents);
+}
+
+/** Re-exported equipped-slot type for downstream typed callers. */
+export type { EquippedSlots, ItemRef };

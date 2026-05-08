@@ -49,7 +49,15 @@ for (const t of turns) {
       if (a.result === "hit" || a.result === "killed") attacksLanded += 1;
       else if (a.result === "missed") attacksMissed += 1;
       else if (a.result === "out_of_range") attacksOutOfRange += 1;
-    } else if (a.kind === "interact") {
+    } else if (
+      // Phase-3 PM lock D7: chest opens emit `kind="loot"` (the resolved-
+      // engine-path, unified under loot per ADR §1). Disambiguate from
+      // corpse loots by the `chest_*` target prefix. Closes Round-2
+      // punch-list item 11 (harness consumer filter rewrite).
+      a.kind === "loot" &&
+      typeof a.target === "string" &&
+      a.target.startsWith("chest_")
+    ) {
       chestInteracts += 1;
       if (a.result === "opened" || a.result === "equipped") chestEquips += 1;
     } else if (a.kind === "extract") {

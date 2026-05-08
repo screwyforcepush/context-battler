@@ -431,7 +431,10 @@ describe("reconstruct — §1.2 death timing (post-movement, pre-visibilityUpdat
 // ───────────────────────────────────────────────────────────────────────────
 
 describe("reconstruct — §1.3 chest open persistence", () => {
-  it("interact result=opened on turn 3 → chest opened on turn 5", () => {
+  it("loot kind + opened result on turn 3 → chest opened on turn 5", () => {
+    // Phase-3 ADR §1 / PM lock D7 — chest opens emit
+    // `kind: "loot"`, `target: "chest_NNN"`, `result: "opened"`. The walk
+    // dispatches the chest-flip on this exact tuple.
     const A = makeCharacter("a", 0);
     const bundle: ReplayBundle = {
       match: makeMatch({ turn: 5 }),
@@ -443,7 +446,7 @@ describe("reconstruct — §1.3 chest open persistence", () => {
           actions: [
             {
               characterId: A._id,
-              kind: "interact",
+              kind: "loot",
               target: "chest_001",
               result: "opened",
             },
@@ -472,7 +475,7 @@ describe("reconstruct — §1.3 chest open persistence", () => {
     expect(reconstruct(bundle, 5).chests[0]!.opened).toBe(true);
   });
 
-  it("interact with non-opened result (already_opened/no_chest/out_of_range) does NOT toggle", () => {
+  it("loot/chest_* with non-opened result (already_opened/no_chest/out_of_range) does NOT toggle", () => {
     const A = makeCharacter("a", 0);
     const bundle: ReplayBundle = {
       match: makeMatch({ turn: 1 }),
@@ -482,19 +485,19 @@ describe("reconstruct — §1.3 chest open persistence", () => {
           actions: [
             {
               characterId: A._id,
-              kind: "interact",
+              kind: "loot",
               target: "chest_001",
               result: "already_opened",
             },
             {
               characterId: A._id,
-              kind: "interact",
+              kind: "loot",
               target: "chest_002",
               result: "no_chest",
             },
             {
               characterId: A._id,
-              kind: "interact",
+              kind: "loot",
               target: "chest_003",
               result: "out_of_range",
             },
@@ -516,6 +519,41 @@ describe("reconstruct — §1.3 chest open persistence", () => {
     };
     const snap = reconstruct(bundle, 1);
     // Walk-forced: turn-0 closes chests; non-"opened" results do NOT flip.
+    expect(snap.chests.every((c) => !c.opened)).toBe(true);
+  });
+
+  it("corpse loot (kind=loot + target Player_*) does NOT trigger chest-flip", () => {
+    // Phase-3 ADR §1 — chests + corpses both flow through the unified loot
+    // arm; the walk's chest-flip MUST gate on `target.startsWith("chest_")`
+    // so a successful corpse loot can't flip a same-id chest by accident.
+    const A = makeCharacter("a", 0);
+    const dead = makeCharacter("b", 1, { displayName: "Player_5" });
+    const bundle: ReplayBundle = {
+      match: makeMatch({ turn: 1 }),
+      turns: [
+        makeTurn(1, {
+          ...emptyResolution(),
+          actions: [
+            {
+              characterId: A._id,
+              kind: "loot",
+              // Corpse target — id namespace is the character's id, not chest_*.
+              target: dead._id,
+              result: "opened",
+            },
+          ],
+        }),
+      ],
+      characters: [A, dead],
+      worldState: makeWorld({
+        chests: [
+          { id: "chest_001", pos: { x: 1, y: 1 }, contents: null, opened: true },
+        ],
+      }),
+    };
+    const snap = reconstruct(bundle, 1);
+    // The chest must remain CLOSED — the corpse-loot result must not be
+    // treated as a chest flip.
     expect(snap.chests.every((c) => !c.opened)).toBe(true);
   });
 
@@ -648,7 +686,7 @@ describe("reconstruct — §1.6 idempotency", () => {
           actions: [
             {
               characterId: A._id,
-              kind: "interact",
+              kind: "loot",
               target: "chest_001",
               result: "opened",
             },

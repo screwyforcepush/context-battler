@@ -222,6 +222,19 @@ export type MoveTraceEntry = {
   characterId: string;
   from: Tile;
   to: Tile;
+  /**
+   * Phase-3 ADR §9 — wall-blocked move marker. Present iff the entry has
+   * `from === to` AND the agent attempted a move whose next-step tile
+   * was blocked by a wall. WP-B.7 relaxes the push-gate in
+   * `simulateMovement` to emit such entries; the report writer in
+   * `convex/reports/phase3.ts` reads `moves[].blockedBy === "wall"`
+   * directly for the wall-blocked-move-rate metric (single source of
+   * truth — no aggregator-side derivation).
+   *
+   * No-move decisions and character-blocks emit nothing (existing
+   * absence is correct).
+   */
+  blockedBy?: "wall";
 };
 
 export type SimulateOptions = {
@@ -358,6 +371,17 @@ export function simulateMovement(
   }
 
   // Build the new state and the moves trace.
+  //
+  // Phase-3 ADR §9 — wall-blocked move emit. When `start === end`
+  // (mover did not move) AND the agent's INTENDED next-step direction
+  // was a wall tile, push `{characterId, from===to, blockedBy: "wall"}`.
+  // Other start===end causes (no-move decision, character-blocked,
+  // off-grid) emit nothing — existing absence is correct (per ADR §9).
+  //
+  // The "intended next-step direction" is computed via `desiredNextTile`
+  // against the start-of-turn snapshot. We only emit `blockedBy: "wall"`
+  // when the desired tile is INSIDE a wall rectangle; if the desired
+  // tile is null, off-grid, or blocked by a character, emit nothing.
   const moves: MoveTraceEntry[] = [];
   const nextCharacters = state.characters.map((ch) => {
     const finalPos = currentPos.get(ch.characterId);
@@ -365,13 +389,68 @@ export function simulateMovement(
     if (finalPos.x === ch.pos.x && finalPos.y === ch.pos.y) return ch;
     return { ...ch, pos: finalPos };
   });
+  // Build a fresh start-of-turn snapshot to recompute the would-be
+  // desired tile for stuck movers (independent of the substep loop).
+  const startSnapshot: MatchState = {
+    ...state,
+    characters: state.characters.map((c) => {
+      const p = startPos.get(c.characterId);
+      return p ? { ...c, pos: p } : c;
+    }),
+  };
   for (const id of moverIds) {
     const start = startPos.get(id);
     const end = currentPos.get(id);
     if (!start || !end) continue;
     if (start.x !== end.x || start.y !== end.y) {
       moves.push({ characterId: id, from: start, to: end });
+      continue;
     }
+    // start === end. Determine if a wall blocked the intended step.
+    const mover = movers.find((m) => m.characterId === id);
+    if (!mover) continue;
+    if (mover.budget <= 0) continue; // primary !== "move" / move.kind === "none"
+    // Reset budget on the snapshot mover so desiredNextTile yields the
+    // start-of-turn step intent (the substep loop has decremented the
+    // real mover's budget; we want the original intent).
+    const snapshotMover: Mover = {
+      ...mover,
+      budget: mover.decision.primary === "move" ? DEFAULT_BUDGET : 0,
+      // For relative moves, restore start-of-turn deltas (clamped).
+      dxRemaining:
+        mover.decision.move.kind === "relative"
+          ? Math.max(
+              -DEFAULT_BUDGET,
+              Math.min(DEFAULT_BUDGET, mover.decision.move.dx),
+            )
+          : 0,
+      dyRemaining:
+        mover.decision.move.kind === "relative"
+          ? Math.max(
+              -DEFAULT_BUDGET,
+              Math.min(DEFAULT_BUDGET, mover.decision.move.dy),
+            )
+          : 0,
+    };
+    const desired = desiredNextTile(startSnapshot, snapshotMover);
+    if (!desired) continue; // no-move intent → emit nothing
+    if (
+      desired.x < 0 ||
+      desired.y < 0 ||
+      desired.x >= state.world.size.w ||
+      desired.y >= state.world.size.h
+    ) {
+      continue; // off-grid → emit nothing per ADR §9
+    }
+    if (tileBlockedByWall(desired, state.world.walls)) {
+      moves.push({
+        characterId: id,
+        from: start,
+        to: end,
+        blockedBy: "wall",
+      });
+    }
+    // else: blocked by character or conflict — emit nothing per ADR §9.
   }
 
   return {

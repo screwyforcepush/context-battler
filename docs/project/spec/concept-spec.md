@@ -1,4 +1,12 @@
-# Prompt-Controlled Extraction Arena — Concept Spec v0.1
+# Prompt-Controlled Extraction Arena — Concept Spec v0.2
+
+> **v0.2 (2026-05-08):** Phase-3 substrate refinement edits per
+> `docs/project/phases/03-substrate-refinement/architecture-decisions.md`
+> §8. Touched §§ 7, 8, 11, 13, 21, 22, 23 to keep the spec consistent
+> with the schema break (decision-tool 3-arm action, structured
+> overwatch stance, defensive counter-fire, unified loot vocabulary,
+> per-turn input shape rebuild). Implementation rationale lives in the
+> phase-3 ADRs; this spec stays implementation-free.
 
 ## 1. Core concept
 
@@ -343,23 +351,32 @@ Use line-of-sight blockers.
 
 The player UI can show the full visible grid. The LLM should receive a tactical summary, not a giant ASCII tile dump unless deliberately testing that format.
 
-Example agent-facing summary:
+Example agent-facing summary (phase-3 v0.2 shape — see §22 for the
+why-layer; phase-3 ADR §6 has the implementation contract):
 
 ```text
-Turn: 34/50
-You are at 72 HP.
+You: at (15,15), HP/maxHP, weapon=axe, armour=leather, in evac zone
+Last turn (you): moved 3 SW, attacked Player_3 (dmg 7), said "Truce?"
 Visible:
-- Player_3, distance 12 northeast, wounded, holding axe
-- Chest, distance 6 west
-- Corpse, distance 9 south
-- Cover cluster, distance 4 northwest
-- Wall blocks line of sight east
-Heard:
-- Player_5 said: "Truce at evac?"
-Evac:
-- Revealed, distance 43 northwest
-- Turns to evac by direct movement: 6
+- Player_4, dist 7 S [HP~high, holding axe, attacked Player_2]
+- Chest_005, dist 6 SE [opened]
+- Corpse_Player_5, dist 9 S [drained]
+- Cover_32_32, dist 4 SE
+- Wall_40_34, dist 1 S
+- Evac, dist 12 SE
 ```
+
+Notes on the shape:
+- Per-turn observations live in per-Visible-character brackets (HP
+  bucket, holding-weapon, attacked-X, said-"...", `[opened]`,
+  `[drained]`).  No `Heard:` or `Last-known:` block — last-turn speech
+  folds into the observation brackets; last-known map memory is the
+  agent's job via the scratchpad.
+- `Evac` is a singleton Visible bullet (not a separate `Evac:` block)
+  once revealed at turn 30; absent before reveal.
+- `Last turn (you):` is populated from the previous turn's resolution
+  (move outcome, action outcome, damage taken from whom, said-text).
+  On turn 1 the line is omitted.
 
 ## Hiding
 
@@ -406,21 +423,30 @@ Each agent receives a limited view of the world.
 
 ## Agent receives
 
+Phase-3 v0.2 shape (per phase-3 ADR §6):
+
 ```text
-Player prompt
+System prompt (schema-teacher; the action-grammar block lives here)
+Persona prompt (≤ 80 tokens, locked)
 Current scratchpad
 Turn number and turns remaining
 HP/status
 Equipped weapon
 Equipped armour
 Equipped consumable
-Visible players/objects/terrain summaries
-Recent heard speech/messages
-Known evac info, if revealed
-Turns-to-evac estimate, if revealed
-Relevant last-known positions
-Valid local affordances
+Visible players/objects/terrain summaries (with per-Visible
+  observation brackets — HP bucket, holding-weapon, last-turn
+  observed-action like attacked-X / said-"..." / [opened] / [drained])
+Last turn (you): outcome line — move + action + damage-taken-from
+  + said
+Evac singleton in the Visible list, once revealed
 ```
+
+The `Recent heard`, `Relevant last-known positions`, and `Valid local
+affordances` blocks from v0.1 are **deleted**. Last-turn speech folds
+into the per-Visible observation brackets; last-known map memory is the
+agent's job via the scratchpad; the system prompt teaches the action
+grammar, so per-turn affordance lists are redundant.
 
 ## Agent does not receive
 
@@ -565,30 +591,33 @@ It is not a reaction system during movement. It is resolved during the normal ac
 ```text
 Overwatch:
 The agent does not move and does not take a normal action this turn.
-During the action phase, if one or more visible enemies are within weapon range, the agent automatically attacks one valid target.
-If no valid target exists, overwatch does nothing.
+The agent commits to a stance (offensive | defensive — see below).
+During the action phase the engine resolves the stance against the
+post-move world state.
 ```
 
-## Target priority
+## Stance (phase-3 v0.2)
 
-The agent may specify an overwatch priority.
-
-Examples:
+The agent commits to a structured stance when overwatching:
 
 ```text
-nearest enemy
-weakest enemy
-most dangerous enemy
-Player_4 if visible
-enemy entering evac
-enemy with ranged weapon
+overwatch_stance: "offensive" | "defensive"
 ```
 
-If the priority is invalid or absent:
+- **`offensive`** — fire on the FIRST VALID IN-RANGE VISIBLE ENEMY
+  after move resolution. The "first in range" tie-break is
+  nearest-then-id (deterministic). Replaces the v0.1 free-form
+  `overwatch_priority` string; the engine now reads the stance and acts
+  on it directly.
+- **`defensive`** — counter-fire ONCE PER ATTACKER who hits the
+  overwatcher this turn, bounded by the overwatcher's weapon range.
+  Counter-fires batch into the same simultaneous-attacks pass as the
+  original attacks (no separate volley). Out-of-range attackers do not
+  draw counter-fire — the trace records the attempt with `result:
+  "out_of_range"` so the diagnostic loop sees the gap.
 
-```text
-Attack nearest visible enemy in range.
-```
+`overwatch_stance` is required when `primary === "overwatch"` and must
+be `null` otherwise. The schema rejects mismatches.
 
 ## Overwatch and hiding
 
@@ -705,6 +734,15 @@ Agents can equip from:
 Chest
 Corpse
 ```
+
+The conceptual distinction in prose remains accurate (chests hold
+randomly-rolled loot; corpses hold the dead agent's equipped slots),
+but **phase-3 v0.2 unifies the engine action vocabulary**: both chest
+opens and corpse loots flow through a single `loot` action with
+`targetId` (formerly two separate actions, `interact` for chests and
+`loot` for corpses). The engine dispatches by id namespace
+(`chest_NNN` → chest path; `Player_N` → corpse path). Trace `kind` for
+chest opens is `"loot"` with `result: "opened"`. See phase-3 ADR §1.
 
 Equipping replaces the current item in that slot.
 
@@ -1133,14 +1171,14 @@ The model should not choose from a huge tool list.
 
 It should produce a compact turn decision.
 
-Conceptually:
+Conceptually (phase-3 v0.2 shape — see ADR §1 for the locked schema):
 
 ```text
 Consume: none / heal / speed
 
 Primary commitment:
 - move
-- no movement + action
+- stationary_action
 - overwatch
 
 Move target:
@@ -1149,18 +1187,21 @@ Move target:
 - away from visible entity
 - toward object
 - toward evac
+- none
 
-Action:
-- attack target
-- interact target
-- loot/equip target
+Action (3-arm — interact and loot are unified):
+- attack: { targetCharacterId }
+- loot:   { targetId }   // chests AND corpses both flow through here;
+                          // engine dispatches by id namespace
+                          // (chest_* → chest path; Player_* → corpse)
 - none
 
 Say:
 - optional message
 
-Overwatch priority:
-- optional priority
+Overwatch stance:
+- "offensive" | "defensive" | null
+- required when primary === "overwatch"; null otherwise
 
 Scratchpad update:
 - updated tactical memory
@@ -1168,33 +1209,44 @@ Scratchpad update:
 
 This is not a giant action menu. It is a compact contract.
 
-The world exposes local affordances; the agent chooses among relevant possibilities.
+The system prompt teaches the action grammar (phase-3 ADR §7); the
+agent picks a concrete target id from the visible-state digest.
 
 ---
 
-# 22. Local affordances
+# 22. Action grammar (phase-3 v0.2 — replaces "local affordances")
 
-Instead of giving the agent every possible global action, give it current affordances.
+Phase-3 substrate refinement removes the per-turn `Affordances:`
+block. The v0.1 design (system prompt teaches the contract; per-turn
+digest enumerates the locally-available action arms) treated the prompt
+slots as independent and produced a teaching gap that the affordance
+list patched.
 
-Example:
+Phase-3 inverts the contract: the system prompt is the schema teacher
+(see phase-3 ADR §7) and the digest carries no `Affordances:` block.
+The agent learns the grammar once from the system prompt and picks a
+concrete target id from the visible-state digest each turn:
 
 ```text
-Available movement:
-- toward Player_3
-- away from Player_3
-- toward chest
-- toward cover northwest
-- toward evac
-- to relative tile
+Move:    relative dx,dy
+         | toward_entity Player_N
+         | away_from_entity Player_N
+         | toward_object <id>
+         | toward_evac
+         | none
 
-Available actions:
-- attack Player_3, in range
-- loot corpse, in range
-- open chest, in range
-- overwatch
+Action:  loot <Visible.id>     // chests AND corpses
+         | attack Player_N
+         | none
+
+Overwatch: primary="overwatch", overwatch_stance ∈
+             {"offensive", "defensive"}, action="none".
 ```
 
-This reduces model burden while preserving agency.
+The digest carries the typed ids the agent copies verbatim into a
+target field (e.g. `chest_005` from the bullet `Chest_005, dist 6 SE`
+becomes `loot.targetId: "chest_005"`). Per-turn affordance lists are
+redundant once the grammar is taught and the ids are visible.
 
 ---
 
@@ -1226,11 +1278,22 @@ Agents do not make new decisions during movement.
 
 ## 5. Action phase
 
-Normal attacks/interactions resolve.
+Normal attacks and loot actions resolve (chests + corpses both flow
+through the unified loot action — see §13 / phase-3 ADR §1).
 
-Overwatch attacks resolve according to priority.
+Overwatch attacks resolve according to the agent's stance:
 
-All attacks are simultaneous.
+- **Offensive overwatch** — fires on the first valid in-range visible
+  enemy after move resolution (nearest-then-id tie-break).
+- **Defensive overwatch** — counter-fires once per attacker who hits
+  the overwatcher this turn, bounded by the overwatcher's weapon
+  range. Counter-fires are batched into the same simultaneous-attacks
+  pass as the original attacks (no separate volley). Out-of-range
+  attackers do not draw counter-fire — the trace records the attempt
+  with `result: "out_of_range"`.
+
+All attacks (originating + counter-fire) are simultaneous within the
+phase-5 batch.
 
 ## 6. Death and loot phase
 
