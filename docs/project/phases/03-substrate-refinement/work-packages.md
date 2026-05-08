@@ -95,7 +95,9 @@ reviewers run before WP-E, not after.
   `convex run` mutations) and document the wipe command in this WP's
   acceptance.
 - **Concept-spec edits (WP-A.4).** Diff-targeted edits to
-  `docs/project/spec/concept-spec.md` §11, §13, §21 per ADR §8.
+  `docs/project/spec/concept-spec.md` §7, §8, §11, §13, §21, §22, §23
+  per ADR §8 (surface expanded by PM lock D12 after review round 2 to
+  keep the spec internally consistent with the new contract).
 - **Tests (WP-A.5).** Update:
   - `tests/llm/decisionTool.test.ts` — every literal in the new schema;
     structural-equivalence asserts continue to hold; Zod refinement
@@ -126,8 +128,8 @@ reviewers run before WP-E, not after.
   `convex` schema validation does not flag any historical rows.
 - One smoke `convex run` mutation creates a `matches` row with the new
   shape and reads it back successfully.
-- `concept-spec.md` v0.2 shipped, with §11/§13/§21 edits matching the
-  ADR §8 diff.
+- `concept-spec.md` v0.2 shipped, with §7/§8/§11/§13/§21/§22/§23 edits
+  matching the ADR §8 diff (surface expanded per PM lock D12).
 - A reviewer agent (independent of the implementer) has eyeballed the
   schema diff and confirmed: (a) the loot dispatch covers chest +
   corpse id namespaces explicitly; (b) overwatch_stance is required
@@ -306,7 +308,8 @@ reviewers run before WP-E, not after.
   `loot/opened/chest_*`).
 - `harness/analyze-match.ts:52` filter updated; smoke run
   (`npx tsx harness/analyze-match.ts <matchId>`) prints non-zero
-  chest-interact counts (sanity check that the rename landed).
+  chest-open counts (sanity check that the rename to
+  `loot/opened/chest_*` landed).
 - Reviewer (independent agent) confirms: counter-fire bounded by range
   is correctly tested; loot dispatch covers all 3 id paths; trace's
   `result: "empty"` is emitted exactly once per drained-corpse

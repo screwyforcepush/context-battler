@@ -694,7 +694,10 @@ and are not touched in this phase.
 
 **Consequences.**
 
-- `concept-spec.md` ships a v0.2 with the §11/§13/§21 edits.
+- `concept-spec.md` ships a v0.2 with the
+  §7/§8/§11/§13/§21/§22/§23 edits (surface expanded per PM lock
+  D12 to match the Decision block above; keeps the spec internally
+  consistent after the schema break and digest rebuild).
 - A note at the top of the file points to phase-3's
   `architecture-decisions.md` for the schema rationale; the spec
   itself stays implementation-free.
