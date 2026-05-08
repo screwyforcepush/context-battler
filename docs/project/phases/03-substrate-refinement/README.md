@@ -87,7 +87,16 @@ Feature: Substrate refinement — outcome attribution + clean schema + raw repla
     Then the defensive overwatcher counter-fires once per attacker
          (bounded by weapon range)
     And resolution.actions[] shows mutual-damage entries
+         with `fromOverwatch=true` and `stance="defensive"`
     And `overwatch_priority` no longer exists in the schema
+
+  Scenario: Offensive overwatch picks deterministically
+    Given an agent commits primary="overwatch", overwatch_stance="offensive"
+    And multiple visible enemies are within weapon range after move resolution
+    When the engine resolves the turn
+    Then the agent fires on the first valid in-range enemy
+         (current nearest-then-id ordering is acceptable; deterministic)
+    And the trace entry carries `stance="offensive"`
 
   Scenario: Loot/interact unified into a single action
     Given an agent's decision contains action.kind="loot",
@@ -137,9 +146,19 @@ Feature: Substrate refinement — outcome attribution + clean schema + raw repla
 - **Engine fixes** (all in `convex/engine/`):
   - `vision.ts` — emit walls within vision range.
   - `resolution.ts` — drained-corpse trace entry; defensive overwatch
-    counter-fire pass; offensive overwatch first-in-range; loot
-    dispatch by id namespace.
-  - `affordances.ts` — DELETE entire module after digest rebuild.
+    counter-fire pass (engine emits `fromOverwatch=true` + `stance` on
+    the trace entry per ADR §3); offensive overwatch first-in-range
+    (engine emits `stance="offensive"`); loot dispatch by id namespace.
+  - `movement.ts` — emit a `from === to` trace entry tagged
+    `blockedBy: "wall"` when an intended move is blocked by an adjacent
+    wall (current `start !== end` push-gate at lines 368–375 must be
+    relaxed; per ADR §9).
+  - `runStats.ts` — chest-equip filter updated from
+    `kind === "interact" && result === "opened"` to
+    `kind === "loot" && result === "opened" && target.startsWith("chest_")`.
+  - `affordances.ts` — DELETED in **WP-C** (after `inputBuilder.ts`
+    drops its `localAffordances` import). Sequencing this in WP-B would
+    break the typecheck/build at the WP-B gate.
 - **Per-turn input rebuild** (`convex/llm/`):
   - `inputBuilder.ts` — full digest rebuild per North Star §1; new
     `Last turn (you):` line; observation brackets per Visible bullet;
@@ -147,13 +166,20 @@ Feature: Substrate refinement — outcome attribution + clean schema + raw repla
     appears as a singleton in Visible; "in evac zone" flag on the You:
     line once revealed.
   - `systemPrompt.ts` — full rewrite as schema teacher.
-- **Replay UI raw-pane** (`apps/replay/src/components/`):
-  - `ExpandModal.tsx` — collapse 5 tabs to a single raw-dump pane with
-    three sections (full LLM input, reasoning text, tool call JSON).
-  - `decisionEnglish.ts` — adapt to unified loot vocabulary,
+- **Replay UI raw-pane** (`apps/replay/src/`):
+  - `components/ExpandModal.tsx` — collapse 5 tabs to a single raw-dump
+    pane with three sections (full LLM input, reasoning text, tool call
+    JSON).
+  - `lib/decisionEnglish.ts` — adapt to unified loot vocabulary,
     drained-corpse outcome, overwatch stance display.
-  - `TurnFeed.tsx` — minor: stance display in inline expansion;
-    reasoning indicator (icon/length) if present.
+  - `components/TurnFeed.tsx` — minor: stance display in inline
+    expansion; reasoning indicator (icon/length) if present.
+  - `lib/reconstruct.ts:215–232` — chest-flip filter updated from
+    `kind === "interact" && result === "opened"` to
+    `kind === "loot" && result === "opened" && target.startsWith("chest_")`.
+    Without this fix, replay grid renders all chests permanently closed
+    after the schema unify.
+  - `components/HoverCard.tsx:318` — same chest-open filter shape.
 - **Persona retune** (`personas/*.md`) — minor edits if the new prompt
   shape changes how personas are framed (likely small; current personas
   don't reference internal vocab like `interact`/`Affordances`).
@@ -197,13 +223,13 @@ Feature: Substrate refinement — outcome attribution + clean schema + raw repla
 | Metric | Threshold | Source |
 |---|---|---|
 | Fellback-to-safe-default rate | ≤ 10% across all per-turn calls | `agentRecord.llm.fellBackToSafeDefault` count |
-| Wall-blocked move rate (no-op-due-to-wall) | ≤ 2% of move attempts | derived: `resolution.moves[]` where `from === to` AND adjacent wall in intended direction |
-| Drained-corpse repeat rate (same agent, consecutive turns) | ≤ 1% of loot attempts | `resolution.actions[]` with kind="loot" + result="empty" |
-| Runs containing ≥1 successful corpse-loot event | ≥ 50% | `resolution.actions[]` with kind="loot" + result="looted" |
-| Defensive overwatch counter-fire — at least one trace entry across the 10 runs | > 0 | `resolution.actions[]` with `kind="overwatch"` and `fromOverwatch=true` AND defensive stance attribution |
-| Offensive overwatch fire — at least one trace entry across the 10 runs | > 0 | same with offensive stance |
+| Wall-blocked move rate (no-op-due-to-wall) | ≤ 2% of move attempts | engine-emit: `resolution.moves[]` entry with `from === to` AND `blockedBy: "wall"` (per ADR §9). Single source; no aggregator-side derivation. |
+| Drained-corpse repeat rate (same agent, consecutive turns) | ≤ 1% of loot attempts | `resolution.actions[]` with `kind="loot"` + `result="empty"` |
+| Runs containing ≥1 successful corpse-loot event | ≥ 50% | `resolution.actions[]` with `kind="loot"` + `result="looted"` |
+| Defensive overwatch counter-fire — at least one trace entry across the 10 runs | > 0 | `resolution.actions[]` with `kind="overwatch"`, `fromOverwatch=true`, `stance="defensive"` (engine-emitted per ADR §3) |
+| Offensive overwatch fire — at least one trace entry across the 10 runs | > 0 | `resolution.actions[]` with `kind="overwatch"`, `fromOverwatch=false` (or absent), `stance="offensive"` |
 | Outcome-attribution loop (turn N+1 references damage taken in turn N) | ≥ 50% (best-effort heuristic) | derived: agent took damage in turn N AND turn N+1 decision references attacker (attack_back / away_from_entity / heal / scratchpad note containing attacker id) |
-| Reasoning text persisted on completed (non-fallback) per-turn calls | ≥ 80% **OR** documented why-not | `agentRecord.llm.reasoning !== null` count |
+| Reasoning text persisted on completed (non-fallback) per-turn calls | ≥ 80% **OR** documented why-not | `agentRecord.llm.reasoning !== null` count. Field is `v.union(v.string(), v.null())` per ADR §2 — persisted as `null` on every non-captured path; no `undefined` ambiguity. |
 
 The reasoning-text threshold is **contingent on the Azure response shape**.
 Perplexity research surfaced that Azure Responses API typically does NOT
@@ -246,28 +272,44 @@ agentRecord.decision.rationale` — either source is acceptable.
                   ▼
                 WP-B  Engine fixes (vision walls, resolution unify, drained-corpse)
                   │   - vision.ts wall emit
-                  │   - resolution.ts: drained-corpse trace; defensive counter-fire;
+                  │   - resolution.ts: drained-corpse trace; defensive counter-fire
+                  │     (engine emits fromOverwatch + stance per ADR §3);
                   │     offensive first-in-range; loot dispatch by id namespace
-                  │   - DELETE affordances.ts
+                  │   - movement.ts: emit blockedBy="wall" trace entry per ADR §9
+                  │   - runStats.ts chest-equip filter updated to loot/opened/chest_*
+                  │   - harness/analyze-match.ts interact-filter updated
                   │   - all engine tests green
+                  │   - NOTE: affordances.ts DELETION DEFERRED to WP-C
+                  │     (inputBuilder.ts still imports localAffordances at this gate)
                   ▼ Gate: schema + engine green; one smoke run executes turn-by-turn
               ┌───┴───┐
    Stage 2:   │       │   WP-C, WP-D parallel (disjoint write sets;
               ▼       ▼   inputBuilder/systemPrompt vs replay UI)
           ┌─ WP-C  Digest rebuild + system prompt rewrite ────────┐
           │  - inputBuilder.ts (Last turn line, obs brackets, no  │
-          │    Affordances/Heard/Last-known/Evac sections)        │
-          │  - systemPrompt.ts (full rewrite as schema teacher)   │
+          │    Affordances/Heard/Last-known/Evac sections;        │
+          │    drops localAffordances import)                     │
+          │  - DELETE convex/engine/affordances.ts +              │
+          │    tests/engine/affordances.test.ts (after import     │
+          │    drop above lands; before WP-C gate)                │
+          │  - systemPrompt.ts (full rewrite as schema teacher;   │
+          │    Branch B → conditional Section 5b rationale ask    │
+          │    per ADR §7)                                        │
           │  - Last-turn-observation collection per agent in      │
           │    runMatch.ts                                        │
           │  - persona retune if needed                           │
           │  - tests/llm/inputBuilder.test.ts rewrite             │
+          │  - tests/llm/systemPrompt.test.ts (typed-id glossary, │
+          │    action grammar, stance teaching, Branch B ask)     │
           └───────────────────────────────────────────────────────┘
           ┌─ WP-D  Replay UI raw-pane ───────────────────────────┐
           │  - ExpandModal.tsx collapse                          │
           │  - decisionEnglish.ts loot vocabulary, stance,       │
           │    drained-corpse outcome                            │
-          │  - TurnFeed.tsx stance display                       │
+          │  - TurnFeed.tsx stance display + reasoning indicator │
+          │  - reconstruct.ts chest-flip filter (loot/opened/    │
+          │    chest_*) — required to keep replay grid honest    │
+          │  - HoverCard.tsx chest-open filter (same shape)      │
           │  - tests update                                      │
           └──────────────────────────────────────────────────────┘
                           │
@@ -404,52 +446,78 @@ a soft-deferred sub-task, not a separate WP.
 
 ### 9.8 Concept-spec / phase-1 ADR conflicts — RECORDED
 
-This phase invalidates two phase-1 ADRs:
+This phase invalidates two phase-1 ADRs and adds new contract surfaces:
 
 - **ADR §4** (the locked decision schema): the `interact` action arm is
   removed; `loot.targetCorpseId` becomes `loot.targetId` (string, namespace
   dispatch); `overwatch_priority` field is replaced by
   `overwatch_stance: "offensive" | "defensive"`.
-- **ADR §7** (trace shape): `agentRecord.llm.reasoning: string | null`
-  is added.
+- **ADR §7** (trace shape): `agentRecord.llm.reasoning: v.union(
+  v.string(), v.null())` is added; the persisted action validator gains
+  optional `fromOverwatch?: boolean` and `stance?: "offensive" |
+  "defensive"` fields (per phase-3 ADR §3); `MoveTraceEntry` gains
+  optional `blockedBy?: "wall"` (per phase-3 ADR §9).
 
-Phase 3's `architecture-decisions.md` §1 records the supersession. The
-phase-1 ADRs remain as the historical record of what the schema was
-under phase-1 closure conditions; the phase-3 ADR is the authoritative
+Phase 3's `architecture-decisions.md` §1–§9 record the supersession.
+The phase-1 ADRs remain as the historical record of what the schema was
+under phase-1 closure conditions; the phase-3 ADRs are the authoritative
 shape going forward.
 
-The `concept-spec.md` change surface is small:
-- §11 (overwatch) — the `overwatch_priority` priority example list is
-  no longer literal; the structured `overwatch_stance` replaces it.
-- §13 (loot/equip) — the conceptual distinction between "interact" with
-  chest and "loot" from corpse persists in prose, but the engine action
-  vocabulary unifies under `loot`.
-- §21 (agent output shape) — `overwatch_priority` removed,
-  `overwatch_stance` added.
+The `concept-spec.md` change surface (per phase-3 ADR §8, expanded after
+review round 2):
+- **§7** (visible-state digest example) — old `Heard:` and `Evac:`
+  blocks replaced with the North-Star §1 shape.
+- **§8** (agent input list) — `Recent heard`, `Relevant last-known`,
+  `Valid local affordances` lines removed; new shape mirrors ADR §6.
+- **§11** (overwatch) — `overwatch_priority` prose replaced with
+  structured `overwatch_stance`; defensive counter-fire rule added.
+- **§13** (loot/equip) — engine action vocabulary unifies under `loot`
+  (single `kind`, id-namespace dispatch); conceptual distinction in
+  prose remains accurate.
+- **§21** (agent output shape) — `overwatch_priority` removed,
+  `overwatch_stance` added; `interact` arm removed.
+- **§22** (local affordances section) — entire section replaced/removed
+  in favour of "system prompt teaches the action grammar".
+- **§23** (overwatch resolution prose) — overwatch-priority resolution
+  text replaced with stance-driven resolution + counter-fire rule.
 
-WP-A's deliverables include diff-targeted edits to `concept-spec.md`
-§11/§13/§21 (these are spec source-of-truth and must reflect the new
-contract). Other §s remain accurate.
+WP-A.4 ships diff-targeted edits across §7, §8, §11, §13, §21, §22, §23
+(spec source-of-truth must reflect the new contract). Other §s remain
+accurate.
 
 ## 10. Files in this folder
 
 - `README.md` — this file. Phase goal, scope, gates, dependency map,
   acceptance criteria, token budget cross-check.
-- `architecture-decisions.md` — concrete decisions this phase makes that
-  supersede phase-1 ADRs §4 and §7 (schema break, reasoning capture
-  contract, overwatch stance, loot unify, system-prompt re-author).
+- `architecture-decisions.md` — concrete decisions this phase makes
+  that supersede phase-1 ADRs §4 and §7 (schema break, reasoning
+  capture contract, overwatch stance, loot unify, system-prompt
+  re-author, blocked-move trace).
 - `work-packages.md` — per-WP scope, acceptance, test strategy, risks.
-- `de-risking.md` — load-bearing unknowns (reasoning capture; counter-fire
-  semantics; outcome-attribution heuristic) and the spikes/probes that
-  retire them.
+- `de-risking.md` — load-bearing unknowns (reasoning capture;
+  counter-fire semantics; outcome-attribution heuristic) and the
+  spikes/probes that retire them.
+- `plan-review-round-1.md` — first reviewer's findings (Concern,
+  pre-plan-v2).
+- `plan-review-round-2.md` — second reviewer's findings (Concern,
+  pre-plan-v2; consolidated 18-item punch list).
+- `PLAN-V2-CHANGELOG.md` — what changed in plan-v2, mapped to the
+  punch list and PM decisions D7–D13.
 
 ## 11. Engineering hygiene non-negotiables
 
-- **Tests-first** for the four pure modules under refactor:
+- **Tests-first** for the pure modules under refactor:
   `inputBuilder.ts`, `decisionTool.ts`, `vision.ts` (wall emit slice),
   `resolution.ts` (drained-corpse trace + defensive counter-fire +
-  offensive first-in-range slices), and `decisionEnglish.ts`. Every
-  Cucumber scenario in §3 traces to at least one Vitest case.
+  offensive first-in-range slices), `movement.ts` (blocked-by-wall
+  emit slice), and `decisionEnglish.ts`. Every Cucumber scenario in
+  §3 traces to at least one Vitest case. A `tests/llm/systemPrompt.test
+  .ts` (or equivalent in `inputBuilder.test.ts`) asserts the typed-id
+  glossary, action grammar, overwatch stance teaching, and (on Branch
+  B) the conditional rationale instruction. The inputBuilder tests
+  also include an explicit guard: the rendered digest never contains
+  `Affordances:`, `Heard (last turn):`, `Last-known:`, or `Evac:` as a
+  section header.
 - **POC schema wipe is the migration plan.** After WP-A lands the schema
   diff, run `npx convex run` to wipe the dev DB before the first WP-B
   smoke run. Document the wipe command in WP-A acceptance.
@@ -477,20 +545,32 @@ contract). Other §s remain accurate.
 
 2. **WP-B second, single job.** Engine fixes. Includes a 1-run smoke
    pass with the new schema to confirm the engine compiles and runs
-   without crashes. Gate: `npm test` green for `tests/engine/*`; one
-   match completes turn-by-turn.
+   without crashes. **`affordances.ts` deletion stays in WP-C, not
+   WP-B** — WP-B keeps the (now-unused at runtime) module around so
+   that `inputBuilder.ts`'s import doesn't blow the typecheck/build at
+   the WP-B gate. Gate: `npm test` green for `tests/engine/*`; one
+   match completes turn-by-turn; `harness/analyze-match.ts` and
+   `convex/engine/runStats.ts` chest-equip filters updated to the new
+   `loot/opened/chest_*` shape so CLI diagnostics + chest-equip metric
+   stay honest.
 
 3. **WP-C and WP-D in parallel** (2 engineering jobs). Disjoint write
    sets:
    - WP-C: `convex/llm/inputBuilder.ts`, `convex/llm/systemPrompt.ts`,
      `convex/runMatch.ts` (last-turn-observation collection),
-     `personas/*.md` (if needed), `tests/llm/inputBuilder.test.ts`.
+     `personas/*.md` (if needed), DELETE `convex/engine/affordances.ts`
+     + `tests/engine/affordances.test.ts`,
+     `tests/llm/inputBuilder.test.ts`, `tests/llm/systemPrompt.test.ts`.
    - WP-D: `apps/replay/src/components/ExpandModal.tsx`,
      `apps/replay/src/lib/decisionEnglish.ts`,
-     `apps/replay/src/components/TurnFeed.tsx`, plus tests.
+     `apps/replay/src/components/TurnFeed.tsx`,
+     `apps/replay/src/lib/reconstruct.ts` (chest-flip filter),
+     `apps/replay/src/components/HoverCard.tsx` (chest-open filter),
+     plus tests.
    Gate: `npm run lint && npm run typecheck && npm run build && npm test`
    green at root and `apps/replay/`. One match end-to-end through replay
-   UI shows the new raw-pane.
+   UI shows the new raw-pane and chests render as opened where the
+   trace says so.
 
 4. **Independent code-review pass** at the end of WP-D — reviewer agent
    runs three matches end-to-end and confirms every Cucumber scenario
@@ -501,7 +581,13 @@ contract). Other §s remain accurate.
 
 5. **WP-E closing-10 pass.** 10 runs against dev Convex; aggregate the
    §5 metrics into a persisted report row; write `PHASE-3-CLOSURE.md`;
-   update `mental-model.md` §11.
+   update `mental-model.md` §11. **Reporting data flow:** the phase-3
+   report writer reads `turns` / `worldState` / `characters` directly
+   (no per-run aggregate columns added to `runs`); aggregator location
+   is `convex/reports/phase3.ts` (new file, sibling to the existing
+   `convex/engine/reportStats.ts`). All §5 metrics are computable from
+   trace fields; wall-blocked move rate is sourced from the engine's
+   `MoveTraceEntry.blockedBy` field per ADR §9 (single source).
 
 Reviews go *before* the phase closes, not after — the substrate's whole
 job is producing watchable, attributable behaviour the user can trust.

@@ -50,26 +50,39 @@ counts). No ambiguous middle ground — the response shape is empirical.
 
 **Branch A (reasoning text exposed).**
 
-- WP-A.2 schema additions: `agentRecord.llm.reasoning: v.optional(
-  v.string())` only.
+- WP-A.2 schema additions: `agentRecord.llm.reasoning: v.union(
+  v.string(), v.null())` per ADR §2 / PM lock D13 (required nullable,
+  *not* `v.optional(v.string())` — avoids the `undefined !== null`
+  counting bug).
 - WP-A.2 azure.ts: extract reasoning text from `output[]` reasoning
   items, sanitise via the existing `sanitiseHttpBody` helper (or a
-  reasoning-specific sanitiser), truncate to ≤ 4 KB.
+  reasoning-specific sanitiser), truncate to ≤ 4 KB. Persist `null`
+  on every non-captured path (Branch A failure responses, Branch A
+  responses without reasoning items).
 - `decision.rationale` field is NOT added.
+- ADR §7 system-prompt Section 5b is **omitted** on Branch A (saves
+  tokens; no rationale ask in the rendered prompt).
 - Replay UI's raw-pane reads `agentRecord.llm.reasoning ?? "(no
   reasoning captured)"`.
 
 **Branch B (only token counts).**
 
-- WP-A.2 schema additions: `agentRecord.llm.reasoning` is still added
-  but always `null`. Plus `decision.rationale: string | null` is added
-  to the tool schema (max 280 chars).
+- WP-A.2 schema additions: `agentRecord.llm.reasoning: v.union(
+  v.string(), v.null())` (same shape as Branch A; always `null` on
+  Branch B). Plus `decision.rationale: string | null` is added to the
+  tool schema (max 280 chars).
 - WP-A.2 azure.ts: the wrapper does not attempt extraction; sets
-  `reasoning: undefined` on every result.
-- WP-C system prompt rewrite includes a one-line ask: "Optionally
-  include a one-sentence rationale in `rationale` to explain your
-  choice (≤ 280 chars). The replay UI shows it in the diagnostic
-  pane."
+  `reasoning: null` on every result (not `undefined`).
+- **WP-C.2 system-prompt rewrite includes ADR §7 Section 5b** — the
+  conditional rationale ask: "Optionally include a one-sentence
+  rationale in `rationale` to explain your choice (≤ 280 chars). The
+  replay UI shows it in the diagnostic pane." This is the load-bearing
+  Branch B wiring — without it, the ≥ 80% reasoning-capture metric
+  fails silently because the model is never asked. Cross-references:
+  ADR §7 (Section 5b conditional), WP-C.2 (scope explicitly Branch-B
+  conditional), `tests/llm/systemPrompt.test.ts` (Branch B render
+  asserts the rationale ask is present; Branch A asserts it's
+  absent).
 - Replay UI's raw-pane reads `agentRecord.llm.reasoning ??
   agentRecord.decision.rationale ?? "(no reasoning captured)"`.
 

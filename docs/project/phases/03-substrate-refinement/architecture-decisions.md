@@ -5,15 +5,20 @@
 > ADR-shaped block: decision, rationale, alternatives, consequences.
 > Stable for the duration of the phase.
 
-This phase explicitly invalidates two phase-1 ADRs:
+This phase explicitly invalidates two phase-1 ADRs and adds new
+contract surfaces on top:
 
 - **Phase-1 ADR §4** — the locked decision schema (interact/loot split,
   `overwatch_priority` string field). Phase-3 ADR §1 below replaces it.
-- **Phase-1 ADR §7** — the trace shape (no `reasoning` field on
-  `agentRecord.llm`). Phase-3 ADR §2 below extends it.
+- **Phase-1 ADR §7** — the trace shape. Phase-3 extends it across three
+  ADRs: §2 (adds `agentRecord.llm.reasoning: v.union(v.string(),
+  v.null())`), §3 (adds optional `fromOverwatch` + `stance` fields to
+  `resolution.actions[]`), §9 (adds optional
+  `MoveTraceEntry.blockedBy: "wall"`).
 
-Phase-1 ADRs remain as the historical record of what was true at phase-1
-closure. The phase-3 ADRs are authoritative going forward.
+Phase-1 ADRs remain as the historical record of what was true at
+phase-1 closure. The phase-3 ADRs (§1–§9) are authoritative going
+forward.
 
 ---
 
@@ -21,8 +26,20 @@ closure. The phase-3 ADRs are authoritative going forward.
 
 **Decision.** Replace the phase-1 decision schema with the following
 shape (the diff is described inline; see `convex/llm/decisionTool.ts`,
-`convex/schema.ts`, and `convex/engine/types.ts` for the canonical
-implementations once WP-A lands):
+`convex/schema.ts`, `convex/_internal_runMatch.ts` (mirror), and
+`convex/engine/types.ts` for the canonical implementations once WP-A
+lands).
+
+**Mirror note.** `convex/_internal_runMatch.ts` carries hand-mirrored
+copies of `actionValidator`, `decisionValidator`, and
+`agentLlmValidator` (currently at lines 95–123 and 134–149). These
+mirrors MUST land in lockstep with `convex/schema.ts` in the WP-A.2
+commit; otherwise the `recordTurn` mutation rejects every new-shape
+row. WP-A.2 acceptance includes a structural-equivalence check between
+the schema and its mirror (or, optionally, refactoring to a shared
+validator module — see consequences). Slice boundary remains as
+phase-1 ADR §1: schema validators may live anywhere inside `convex/`,
+they are not engine logic.
 
 ```ts
 type ParsedDecision = {
@@ -106,11 +123,26 @@ inspects the id namespace:
 - `convex/llm/decisionTool.ts` Zod + JSON Schema rewrite. Structural-
   equivalence asserts updated.
 - `convex/schema.ts` `decisionValidator` rewrite; POC schema wipe.
+- `convex/_internal_runMatch.ts` mirror rewrite (hand-copied
+  `actionValidator`/`decisionValidator`/`agentLlmValidator` at
+  lines 95–149) — landed in the **same WP-A.2 commit** as
+  `convex/schema.ts` to keep the mirror in sync. As an optional
+  follow-up, the validators can be hoisted to a shared module
+  (e.g. `convex/lib/validators.ts`) to eliminate the mirror entirely;
+  this is non-blocking for phase 3 and stays inside the State slice.
 - `convex/engine/resolution.ts` action switch updated for the new
   3-arm union; loot dispatch by id namespace; defensive overwatch
   uses `overwatch_stance`.
 - `convex/engine/validation.ts` (semantic validator) updated for the
   new ids and stance.
+- **Trace `kind` for chest opens.** Per PM lock D7: chest opens emit
+  `resolution.actions[].kind = "loot"`, `result = "opened"` (the
+  trace `kind` matches the resolved-engine-path, which is now unified
+  under `loot`). All consumers — `apps/replay/src/lib/reconstruct.ts`,
+  `apps/replay/src/components/HoverCard.tsx`,
+  `convex/engine/runStats.ts` (chest-equip filter),
+  `harness/analyze-match.ts` — switch to
+  `kind === "loot" && result === "opened" && target.startsWith("chest_")`.
 - `personas/*.md` re-read for vocabulary alignment — likely no edits
   needed (personas don't reference `interact`/`overwatch_priority`).
 - All `tests/engine/*` and `tests/llm/*` tests touching the schema get
@@ -174,13 +206,23 @@ request to the dev deployment with `reasoning.effort: "low"` and dumps
 
 **Consequences.**
 
-- `convex/schema.ts` `agentLlmValidator` adds `reasoning: v.optional(
-  v.string())` (or `v.union(v.string(), v.null())`).
+- `convex/schema.ts` `agentLlmValidator` adds
+  `reasoning: v.union(v.string(), v.null())` (required nullable, per
+  PM lock D13 — *not* `v.optional(v.string())`). Required-nullable
+  ensures every persisted row carries the field, with `null` as the
+  unambiguous "not captured" sentinel. `undefined !== null` counting
+  bugs are avoided by construction; the closing-10 metric
+  `reasoning !== null` is well-defined for every row.
+- `convex/_internal_runMatch.ts` mirror adds the same
+  `reasoning: v.union(v.string(), v.null())` field on
+  `agentLlmValidator` (lines 134–149) in the same WP-A.2 commit.
 - `convex/llm/azure.ts` `CallResult.raw` adds a `reasoning` field
-  (string | undefined). The wrapper extracts it on success when
-  Branch A applies; sets it to undefined on every failure path and on
-  Branch B.
+  (`string | null`). The wrapper extracts it on success when Branch A
+  applies; sets it to `null` on every failure path and on Branch B
+  (never `undefined`).
 - `convex/runMatch.ts` persists `reasoning` into the agent record.
+  Persisted as `null` on every non-captured path: fallback rows,
+  Branch B always-null, Branch A no-reasoning-item responses.
 - `apps/replay/src/components/ExpandModal.tsx` raw-pane reads from
   `agentRecord.llm.reasoning ?? agentRecord.decision.rationale ?? null`.
 - `apps/replay/src/components/TurnFeed.tsx` shows a small indicator
@@ -248,17 +290,62 @@ when no attacker triggers the counter-fire.
   separate field.* Rejected — adds a 4th overwatch-shaped arm to the
   union; less clean than a sibling enum.
 
+**Persisted trace shape (engine-emit, not derivation).**
+Per PM lock D8 + machine-introspection memory: the engine emits stance
+attribution directly into `resolution.actions[]`. The persisted action
+validator (in both `convex/schema.ts` and the
+`convex/_internal_runMatch.ts` mirror, currently at line 181 of the
+mirror, defining `{characterId, kind, target, result}`) is **extended
+with two optional fields**:
+
+```ts
+{
+  characterId: v.id("characters"),
+  kind: v.string(),
+  target: v.string(),
+  result: v.string(),
+  fromOverwatch: v.optional(v.boolean()),                     // NEW
+  stance: v.optional(                                          // NEW
+    v.union(v.literal("offensive"), v.literal("defensive"))
+  ),
+}
+```
+
+The fields are set as follows:
+
+- Defensive counter-fire entries: `kind="overwatch"`,
+  `fromOverwatch=true`, `stance="defensive"`.
+- Offensive overwatch fire entries: `kind="overwatch"`,
+  `fromOverwatch` omitted (or `false`), `stance="offensive"`.
+- Non-overwatch attacks: both fields omitted (legacy phase-1 shape).
+
+Engine-emit is preferred over metric-eval-time derivation
+(re-walking `agentRecord.decision.overwatch_stance` per turn) because:
+(a) the trace is the agent-introspection surface — observability
+targets agent ergonomics per the user's `feedback_observability_targets
+_agents` memory; (b) derivation requires a same-turn join between
+`turns.agentRecords[]` and `turns.resolution.actions[]` that doesn't
+exist as a single index; (c) WP-D's `decisionEnglish.ts` consumes the
+flag directly to render "counter-fired Player_X — dmg N".
+
 **Consequences.**
 
 - `convex/engine/resolution.ts` adds a counter-fire pass inside phase 5
   (action). The pass collects attacks AGAINST defensive overwatchers,
   enqueues range-checked counter-fires, and includes them in the same
-  `applyDamage` batch. Test cases enumerate the multi-attacker
-  scenarios.
+  `applyDamage` batch. Counter-fire entries are emitted with
+  `fromOverwatch=true` + `stance="defensive"`; offensive overwatch fire
+  entries are emitted with `stance="offensive"`. Test cases enumerate
+  the multi-attacker scenarios and the trace-field shape.
+- `convex/schema.ts` action-entry validator extended with optional
+  `fromOverwatch?: boolean` + `stance?: "offensive" | "defensive"`
+  fields. Schema mirror in `convex/_internal_runMatch.ts` updated in
+  lockstep.
+- `convex/engine/types.ts` `ActionTraceEntry` TS alias gains the same
+  optional fields.
 - `convex/engine/validation.ts` adds a stance/primary consistency check.
-- `concept-spec.md` §11 is updated to reflect the structured stance and
-  defensive counter-fire rule (the existing prose is loose enough to
-  fit, but the explicit rule needs to land in spec).
+- `concept-spec.md` §11 + §23 are updated to reflect the structured
+  stance and defensive counter-fire rule (per ADR §8).
 
 ---
 
@@ -507,6 +594,17 @@ section ordering:
    evac at turn 50 → incinerated.**
 5. **Output discipline** — concrete targets only (no predicates),
    safe-default replaces invalid choices.
+
+5b. **(Branch B only — conditional on WP-A.1 probe outcome)**
+   **Rationale ask.** The system prompt MUST include a one-sentence
+   ask: "Optionally include a one-sentence rationale in `rationale`
+   to explain your choice (≤ 280 chars). The replay UI shows it in
+   the diagnostic pane." This section is included in the rendered
+   prompt **iff** WP-A.1 lands Branch B (Azure does not expose
+   reasoning text in `output[]`); on Branch A the section is omitted
+   to save tokens. Cross-link: `de-risking.md` D-P3-1 Branch B,
+   `work-packages.md` WP-C.2.
+
 6. **Persona deference** — the persona body that follows is your
    character.
 
@@ -550,10 +648,19 @@ deleting the `Affordances:` digest section.
 
 ## 8. Concept-spec source-of-truth diff
 
-**Decision.** WP-A includes targeted edits to
+**Decision.** WP-A.4 ships targeted edits to
 `docs/project/spec/concept-spec.md` for the §s impacted by the schema
-break:
+break and digest rebuild. Per PM lock D12 (informed by review round 2),
+the edit surface expands beyond the original §11/§13/§21 to keep the
+spec internally consistent with the new contract:
 
+- **§7 (Visible-state digest example)** — replace the example showing
+  the old `Heard:` and `Evac:` blocks with the North-Star §1 shape
+  (You: line, Last turn (you): line, Visible: with observation
+  brackets, Evac as a Visible singleton).
+- **§8 (Agent input list)** — remove the `Recent heard`,
+  `Relevant last-known positions`, and `Valid local affordances` lines;
+  replace with the new shape per ADR §6.
 - **§11 (Overwatch)** — replace the "overwatch priority" prose with
   the structured stance (offensive / defensive). Add the defensive
   counter-fire rule.
@@ -561,10 +668,20 @@ break:
   unifies chest open and corpse loot under a single `loot` action; the
   conceptual distinction in prose remains accurate.
 - **§21 (Agent output shape)** — replace `overwatch_priority` with
-  `overwatch_stance` in the example output shape.
+  `overwatch_stance` in the example output shape; remove the `interact`
+  arm; rename `loot.targetCorpseId` to `loot.targetId`.
+- **§22 (Local affordances section)** — entire section
+  replaced/removed in favour of "the system prompt teaches the action
+  grammar; the digest carries no Affordances block". This is the
+  conceptual home of the deleted `Affordances:` block; leaving it
+  intact would be a direct contradiction with ADR §6.
+- **§23 (Overwatch resolution prose)** — replace the
+  overwatch-priority resolution text with stance-driven resolution;
+  add the defensive counter-fire rule per ADR §3.
 
 The concept-spec is the why-layer for engine semantics; it must reflect
-the new contract. Other §s remain accurate.
+the new contract. Other §s (e.g. §10 movement options) remain accurate
+and are not touched in this phase.
 
 **Rationale.**
 
@@ -584,6 +701,135 @@ the new contract. Other §s remain accurate.
 
 ---
 
+---
+
+## 9. Wall-blocked move emission — `MoveTraceEntry.blockedBy: "wall"`
+
+**Decision.** Extend `MoveTraceEntry` with an optional
+`blockedBy?: "wall"` field, and relax `simulateMovement`'s
+push-gate at `convex/engine/movement.ts:368–375` so that an intended
+move blocked by an adjacent wall emits a `from === to` trace entry
+tagged `blockedBy: "wall"`.
+
+```ts
+type MoveTraceEntry = {
+  characterId: Id<"characters">;
+  from: Tile;
+  to: Tile;
+  blockedBy?: "wall";   // NEW — present iff start === end AND the
+                        //  intended next-step direction was blocked
+                        //  by a wall tile
+};
+```
+
+Current code:
+
+```ts
+// convex/engine/movement.ts:368–375
+for (const id of moverIds) {
+  const start = startPos.get(id);
+  const end = currentPos.get(id);
+  if (!start || !end) continue;
+  if (start.x !== end.x || start.y !== end.y) {
+    moves.push({ characterId: id, from: start, to: end });
+  }
+}
+```
+
+Required change: the `start.x !== end.x || start.y !== end.y` gate is
+relaxed. When `start === end` AND the agent attempted a move whose
+next-step tile is a wall, push `{ characterId, from: start, to: end,
+blockedBy: "wall" }`. When `start === end` for any other reason
+(no-move decision, blocked by a character, off-grid), no entry is
+pushed (the existing absence is correct).
+
+**Rationale.**
+
+- Per PM lock D9 + machine-introspection memory: the closing-10
+  wall-blocked-move-rate metric (≤ 2% of move attempts) needs a
+  single source of truth. Aggregator-side derivation
+  (`decision.move` + next-turn-position + adjacent-wall lookup) is
+  fragile, depends on a successful next-turn read, and re-implements
+  vision/movement logic in the report writer.
+- Engine emit is the single source. The report aggregator counts
+  `moves[].blockedBy === "wall"` directly. WP-D's `decisionEnglish.ts`
+  also gets a clean rendering channel ("moved 3 SW → hit wall") for
+  the replay UI.
+
+**Alternatives considered.**
+
+- *Aggregator-side derivation.* Rejected per above.
+- *Add a sibling `blockedMoves[]` array to `resolution`.* Considered;
+  rejected because the metric question ("what % of move attempts hit
+  a wall") wants `blockedBy` co-located with successful moves so the
+  denominator is one array length.
+- *Track all blocking causes (`blockedBy: "wall" | "character" | "edge"`).*
+  Considered; deferred. The closing-10 metric only asks about walls;
+  expanding the union is a phase-4+ concern.
+
+**Consequences.**
+
+- `convex/engine/movement.ts` push-gate relaxed; the wall-block
+  detection re-uses `tileInWall`/`tileInAnyWall` (already imported).
+- `convex/schema.ts` `moveValidator` adds
+  `blockedBy: v.optional(v.literal("wall"))`; mirror in
+  `convex/_internal_runMatch.ts` updated in lockstep.
+- `convex/engine/types.ts` `MoveTraceEntry` TS alias extended.
+- `tests/engine/movement.test.ts` adds cases: wall-block emits the
+  entry; no-move decision emits nothing; blocked-by-character emits
+  nothing; intended diagonal blocked emits.
+- `apps/replay/src/lib/decisionEnglish.ts` adds "→ hit wall" copy on
+  the move outcome rendering.
+- `convex/llm/inputBuilder.ts` `buildLastTurnLine` consumes
+  `moves[].blockedBy === "wall"` to render the "moved 3 SW → hit wall"
+  fragment of the new `Last turn (you):` line per ADR §6.
+- The phase-3 report writer (per README §12.5 — `convex/reports/
+  phase3.ts`) reads `moves[].blockedBy` directly for the wall-blocked
+  move rate metric.
+
+---
+
 ## Changelog
 
 - **2026-05-08, v1.0** — Initial. Locks ADRs §1–§8.
+- **2026-05-08, v2.0 (plan-v2 refinement)** — Folds the dual-reviewer
+  must-fix bundle (`plan-review-round-1.md` + `plan-review-round-2.md`)
+  and locks PM decisions D7–D13:
+  - **§1** mirror note added: `convex/_internal_runMatch.ts` is a
+    schema mirror; lands in lockstep with `convex/schema.ts` in
+    WP-A.2. Trace `kind` for chest opens locked to `"loot"` /
+    `"opened"` (D7).
+  - **§2** reasoning nullability fixed: `v.union(v.string(),
+    v.null())` (required nullable, persisted as null on every
+    non-captured path). Avoids the `undefined !== null` counting
+    bug (D13).
+  - **§3** persisted overwatch trace shape locked to engine-emit:
+    actions[] validator gains optional `fromOverwatch?: boolean` +
+    `stance?: "offensive" | "defensive"` (D8).
+  - **§7** Branch B Section 5b conditional rationale ask added to
+    the system prompt rewrite — wires `de-risking.md` D-P3-1 Branch
+    B into ADR §7 + WP-C.2 (D11).
+  - **§8** concept-spec edit surface expanded from §11/§13/§21 to
+    §7, §8, §11, §13, §21, §22, §23 (D12).
+  - **§9 (new)** `MoveTraceEntry.blockedBy: "wall"` engine-emit;
+    wall-blocked move rate metric now sourced from a single
+    engine-emitted field, no aggregator-side derivation (D9).
+  - Reporting data flow (D10) recorded in README §12.5: phase-3
+    report writer reads `turns`/`worldState`/`characters` directly
+    via a new `convex/reports/phase3.ts`, no per-run aggregate
+    columns added to `runs`.
+  - Sequencing fix (R1 high): `convex/engine/affordances.ts`
+    deletion moved from WP-B to WP-C (after `inputBuilder.ts`
+    drops the `localAffordances` import), so the WP-B gate
+    typechecks.
+  - Consumer fan-out for the schema break expanded across
+    `apps/replay/src/lib/reconstruct.ts`,
+    `apps/replay/src/components/HoverCard.tsx`,
+    `convex/engine/runStats.ts`, and `harness/analyze-match.ts`
+    (R1+R2 high).
+  - Test coverage gaps closed: 12-wall safety ceiling test (R2-3),
+    `tests/llm/systemPrompt.test.ts` (R1-low), explicit
+    no-deleted-headers assertion in `inputBuilder.test.ts`
+    (R1-low echo).
+  - Offensive overwatch Cucumber scenario added to README §3
+    (R1+R2 low).
