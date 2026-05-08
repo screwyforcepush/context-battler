@@ -383,12 +383,20 @@ describe("summariseDecision — action.kind × result vocabulary (D-P2-14)", () 
   });
 
   // ── loot × result (chest variants — D7 schema unify) ──────────────────
+  //
+  // WP-G.3 UAT-001 round-2 (cosmetic): the chest-open intent verb
+  // ("Opened chest_004") already encodes the engine's "opened" result
+  // state, so suffixing "— opened" produces redundant phrasing
+  // ("Opened chest_004 — opened."). For the `result === "opened"` case
+  // the renderer collapses to just the intent; other result strings
+  // (already_opened / no_chest / out_of_range) still surface the engine
+  // result via the outcome suffix because they encode a *different*
+  // state than the intent verb.
   it.each([
-    ["opened", "opened"],
     ["already_opened", "already opened"],
     ["no_chest", "chest not found"],
     ["out_of_range", "out of range"],
-  ])('chest-open via loot + "%s" → "%s"', (raw, english) => {
+  ])('chest-open via loot + "%s" → outcome suffix "%s"', (raw, english) => {
     // Phase-3 ADR §1 — chests flow through the unified loot arm with a
     // `chest_*`-prefixed targetId. Trace `kind` is "loot" per PM lock D7.
     // The renderer disambiguates by the result string itself (no separate
@@ -411,6 +419,39 @@ describe("summariseDecision — action.kind × result vocabulary (D-P2-14)", () 
     const out = summariseDecision(ar, res, characterMap(me));
     expect(out.oneLine).toContain("Opened chest_004");
     expect(out.oneLine).toContain(english);
+  });
+
+  it('chest-open via loot + "opened" → no redundant outcome suffix', () => {
+    // WP-G.3 UAT-001 round-2 fix: the verb "Opened" already conveys the
+    // "opened" result state. The renderer collapses the redundant
+    // "— opened" outcome fragment in the feed-row oneLine + bullets, so
+    // the user reads "Opened chest_004." rather than
+    // "Opened chest_004 — opened.". The intentVsOutcome explainability
+    // pane keeps the engine result verbatim (covered downstream).
+    const me = makeChar("a", "Player_1");
+    const ar = makeAgentRecord(me._id, {
+      action: { kind: "loot", targetId: "chest_004" },
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      actions: [
+        {
+          characterId: me._id,
+          kind: "loot",
+          target: "chest_004",
+          result: "opened",
+        },
+      ],
+    };
+    const out = summariseDecision(ar, res, characterMap(me));
+    expect(out.oneLine).toContain("Opened chest_004");
+    expect(out.oneLine).not.toContain("— opened");
+    expect(out.oneLine).not.toContain("- opened");
+    // bullets surface should also collapse the redundancy.
+    const actionBullet = out.bullets.find((b) => b.startsWith("Action:"));
+    expect(actionBullet).toBeDefined();
+    expect(actionBullet!).toContain("Opened chest_004");
+    expect(actionBullet!).not.toContain("— opened");
   });
 
   // ── WP-F.3 UAT ISSUE-001 [HIGH] regression — chest-loot rendering ─────
@@ -454,8 +495,12 @@ describe("summariseDecision — action.kind × result vocabulary (D-P2-14)", () 
     // No corpse-of- prefix on the chest path.
     expect(out.oneLine).not.toContain("corpse-of-Chest_008");
     expect(out.oneLine).not.toContain("Looted from corpse-of-Chest");
-    // Outcome `opened` still surfaces under the loot vocabulary.
-    expect(out.oneLine).toContain("opened");
+    // WP-G.3 UAT-001 round-2 (cosmetic): the redundant "— opened"
+    // outcome suffix is collapsed in oneLine because the verb "Opened"
+    // already encodes the result state. The engine result still
+    // surfaces verbatim in intentVsOutcome (asserted in the
+    // intentVsOutcome describe block downstream).
+    expect(out.oneLine).not.toContain("— opened");
   });
 
   // Corpse-loot parity fixture — assert the loot path renders the

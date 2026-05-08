@@ -115,7 +115,7 @@ export function summariseDecision(
   if (overwatchMode) oneLineParts.push("[Overwatch]");
   oneLineParts.push(moveIntent);
   if (actionIntent) {
-    if (actionOutcome) {
+    if (actionOutcome && !isOutcomeRedundantWithIntent(actionIntent, actionOutcome)) {
       oneLineParts.push(`${actionIntent} — ${actionOutcome}`);
     } else {
       oneLineParts.push(actionIntent);
@@ -137,8 +137,13 @@ export function summariseDecision(
   if (overwatchMode) bullets.push("[Overwatch]");
   bullets.push(`Move: ${moveIntent}`);
   if (actionIntent) {
+    const showOutcome =
+      actionOutcome !== null &&
+      !isOutcomeRedundantWithIntent(actionIntent, actionOutcome);
     bullets.push(
-      actionOutcome ? `Action: ${actionIntent} — ${actionOutcome}` : `Action: ${actionIntent}`,
+      showOutcome
+        ? `Action: ${actionIntent} — ${actionOutcome}`
+        : `Action: ${actionIntent}`,
     );
   }
   if (overwatchFireOutcome) {
@@ -265,6 +270,35 @@ function renderMoveOutcome(
 // ─────────────────────────────────────────────────────────────────────────────
 // Internals — action
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Collapse redundant intent-verb / outcome-state pairs in the feed-row
+ * `oneLine` and `bullets` composition.
+ *
+ * Phase-3 WP-G.3 UAT-001 (round-2 cosmetic): the chest-loot intent verb
+ * "Opened" already encodes the engine's `result === "opened"` state, so
+ * naively concatenating intent and outcome produces redundant phrasing
+ * ("Opened Chest_005 — opened."). We strip the outcome suffix when the
+ * intent already conveys it. Other chest results (already_opened,
+ * no_chest, out_of_range) encode a *different* state than the intent
+ * verb and continue to surface via the outcome suffix.
+ *
+ * Scope-limited to the feed-row composition: `intentVsOutcome` (the
+ * explainability modal) keeps both columns intact so the engine result
+ * remains traceable verbatim.
+ *
+ * The corpse-loot path (intent "Looted from corpse-of-…", outcome
+ * "looted") is INTENTIONALLY NOT collapsed here — the WP-F.3 split
+ * between corpse and chest paths exists to keep that prefix legible,
+ * and the corpse outcome verb adds value distinguishing "looted" from
+ * "corpse already drained" / "corpse not found".
+ */
+function isOutcomeRedundantWithIntent(intent: string, outcome: string): boolean {
+  // Chest-open: intent starts with "Opened " (chest namespace) and
+  // outcome is the bare "opened" result token.
+  if (outcome === "opened" && intent.startsWith("Opened ")) return true;
+  return false;
+}
 
 function renderActionIntent(
   decision: ParsedDecision,
