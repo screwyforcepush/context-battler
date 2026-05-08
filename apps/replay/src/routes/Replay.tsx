@@ -209,12 +209,30 @@ export function Replay(props: {
     );
   }
   if (error) {
+    // Closure-readiness round 2 / UAT ISSUE-003: a bogus matchId in the URL
+    // makes Convex's `v.id("matches")` validator reject the
+    // `client.query(api.replay.getReplayBundle, { matchId })` call with an
+    // `ArgumentValidationError`. The promise rejection is captured here
+    // (it doesn't reach the route-level `ReplayErrorBoundary` in main.tsx —
+    // boundaries don't catch async rejections), so we render a friendly
+    // hint inline that mirrors the boundary's copy.
     return (
       <main style={mainStyle}>
         <a href="#/" style={linkStyle}>
           ← back to picker
         </a>
-        <p style={errorStyle}>Failed to load match: {error.message}</p>
+        <div role="alert" style={errorBoxStyle}>
+          <p style={errorTitleStyle}>Couldn’t load that match.</p>
+          <p style={errorBodyStyle}>
+            The match id in the URL doesn’t match a completed match in your
+            Convex deployment. Double-check the URL or pick a row from the
+            list.
+          </p>
+          <p style={errorDetailStyle}>
+            <span style={errorMutedStyle}>error:</span>{" "}
+            <code>{error.message}</code>
+          </p>
+        </div>
       </main>
     );
   }
@@ -391,9 +409,39 @@ const linkStyle: React.CSSProperties = {
   fontSize: "0.875rem",
 };
 
-const errorStyle: React.CSSProperties = {
-  color: "#a40000",
+// Friendly inline error styles — mirror the visual language of
+// PickerErrorBoundary (routes/MatchPicker.tsx:283-307) and ReplayErrorBoundary
+// (main.tsx) so the three failure modes share a frame (UAT ISSUE-003 round 2).
+
+const errorBoxStyle: React.CSSProperties = {
+  padding: "1rem 1.25rem",
+  border: "1px solid #d73a49",
+  borderLeft: "4px solid #d73a49",
+  borderRadius: "4px",
+  background: "#fff5f6",
+  color: "#1a1a1a",
+};
+
+const errorTitleStyle: React.CSSProperties = {
+  margin: "0 0 0.5rem 0",
+  fontWeight: 600,
   fontSize: "0.9375rem",
+};
+
+const errorBodyStyle: React.CSSProperties = {
+  margin: "0 0 0.5rem 0",
+  fontSize: "0.875rem",
+  lineHeight: 1.45,
+};
+
+const errorDetailStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.8125rem",
+};
+
+const errorMutedStyle: React.CSSProperties = {
+  color: "#888",
+  fontSize: "0.8125rem",
 };
 
 const stepperSectionStyle: React.CSSProperties = {

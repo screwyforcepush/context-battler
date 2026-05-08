@@ -210,7 +210,11 @@ function renderMoveIntent(
       if (sx === 0 && sy === 0) return "Stayed put";
       const dir = COMPASS_TABLE[`${sx}_${sy}`] ?? "?";
       const n = Math.max(Math.abs(m.dx), Math.abs(m.dy));
-      return `Moved ${n} tiles ${dir}`;
+      // Pluralization (closure-readiness UAT ISSUE-001 round 2): "Moved 1
+      // tiles" reads as a typo and erodes the explainability vibe; agree
+      // the noun with the chebyshev count.
+      const tileWord = n === 1 ? "tile" : "tiles";
+      return `Moved ${n} ${tileWord} ${dir}`;
     }
     case "toward_entity": {
       const name = resolveCharacterName(

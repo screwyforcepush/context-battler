@@ -1,0 +1,24 @@
+/*
+ * Phase 02 / closure-readiness round 2 — global reset.
+ *
+ * Replaces the user-agent default `body { margin: 8px }`, which produced a
+ * 16px page-level scroll overhang at common viewport sizes (1366×768,
+ * 1280×720) even though the Replay layout itself uses `height: 100vh` and
+ * is correctly viewport-bounded. AC#4 ("Bird's-eye grid: fit-to-viewport
+ * rendering, no zoom, no pan") requires `documentElement.scrollHeight ===
+ * clientHeight` at those viewport sizes.
+ *
+ * `min-height: 100%` (not `height: 100%`) keeps short pages — e.g. the
+ * empty-matches state on MatchPicker — free to grow with their content
+ * while still filling the viewport when needed.
+ *
+ * Imported once from `main.tsx`. No app-wide font/color tokens — Replay
+ * and MatchPicker keep their inline-styled main containers (per ADR §1
+ * "no CSS framework in v0").
+ */
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}

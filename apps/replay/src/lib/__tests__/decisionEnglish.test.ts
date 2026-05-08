@@ -175,6 +175,42 @@ describe("summariseDecision — move.kind vocabulary", () => {
     });
   }
 
+  // Pluralization (closure-readiness UAT ISSUE-001 round 2): the move-summary
+  // template must agree with the chebyshev count. "Moved 1 tiles east" is
+  // ungrammatical and noisy enough to break the explainability vibe. Singular
+  // form must say "tile"; plural (>=2) keeps "tiles".
+  it('"relative" {dx:1,dy:0} → singular "Moved 1 tile east"', () => {
+    const me = makeChar("a", "Player_1");
+    const ar = makeAgentRecord(me._id, {
+      primary: "move",
+      move: { kind: "relative", dx: 1, dy: 0 },
+    });
+    const out = summariseDecision(ar, emptyResolution(), characterMap(me));
+    expect(out.oneLine).toContain("Moved 1 tile east");
+    expect(out.oneLine).not.toContain("Moved 1 tiles");
+  });
+
+  it('"relative" {dx:2,dy:0} → plural "Moved 2 tiles east"', () => {
+    const me = makeChar("a", "Player_1");
+    const ar = makeAgentRecord(me._id, {
+      primary: "move",
+      move: { kind: "relative", dx: 2, dy: 0 },
+    });
+    const out = summariseDecision(ar, emptyResolution(), characterMap(me));
+    expect(out.oneLine).toContain("Moved 2 tiles east");
+  });
+
+  it('"relative" {dx:0,dy:-1} → singular "Moved 1 tile north"', () => {
+    const me = makeChar("a", "Player_1");
+    const ar = makeAgentRecord(me._id, {
+      primary: "move",
+      move: { kind: "relative", dx: 0, dy: -1 },
+    });
+    const out = summariseDecision(ar, emptyResolution(), characterMap(me));
+    expect(out.oneLine).toContain("Moved 1 tile north");
+    expect(out.oneLine).not.toContain("Moved 1 tiles");
+  });
+
   it('"toward_entity" → "Moved toward <displayName>"', () => {
     const me = makeChar("a", "Player_1");
     const target = makeChar("b", "Player_5");
