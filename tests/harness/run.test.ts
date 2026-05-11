@@ -104,6 +104,11 @@ type ReportsCreateCall = {
   reportType: string;
 };
 
+type MatchesStartCall = {
+  rngSeed?: string;
+  reasoningEffort?: string;
+};
+
 function makeFakeClient(args: {
   status?: Record<string, ReadonlyArray<unknown>>;
   runs?: Record<string, ReadonlyArray<unknown>>;
@@ -116,11 +121,14 @@ function makeFakeClient(args: {
   reportsCreate?: (call: ReportsCreateCall) => unknown;
   /** Captured reports:create call list — useful for assertions. */
   reportsCreateCalls?: ReportsCreateCall[];
+  /** Captured matches:start call list — useful for seed plumbing assertions. */
+  matchesStartCalls?: MatchesStartCall[];
 }): HarnessClient {
   const startedMatchIds: string[] = [];
   const statusCursors = new Map<string, number>();
   const runsCursors = new Map<string, number>();
   const reportsCreateCalls = args.reportsCreateCalls ?? [];
+  const matchesStartCalls = args.matchesStartCalls ?? [];
   // Implementation type — looser than the public `HarnessClient` interface
   // so the test fake can dispatch on a single function regardless of which
   // overload the harness body picks at the call site. Cast to
@@ -133,6 +141,7 @@ function makeFakeClient(args: {
     mutation: async (ref, mutationArgs) => {
       const name = refName(ref);
       if (name === "matches:start") {
+        matchesStartCalls.push(mutationArgs as MatchesStartCall);
         const id = `match_${startedMatchIds.length + 1}`;
         startedMatchIds.push(id);
         return id;
@@ -465,6 +474,40 @@ describe("harness Stage-3 wiring — reports.create persistence (D45)", () => {
     );
 
     expect(reportsCreateCalls[0]?.reportType).toBe("closing-2");
+  });
+
+  it("seed-prefix: forwards deterministic per-run rngSeed values to matches:start", async () => {
+    const matchesStartCalls: MatchesStartCall[] = [];
+    const { deps } = makeCapture();
+    const client = makeFakeClient({
+      status: {
+        match_1: [COMPLETED_STATUS()],
+        match_2: [COMPLETED_STATUS()],
+        match_3: [COMPLETED_STATUS()],
+      },
+      runs: {
+        match_1: [RUN_ROW("match_1")],
+        match_2: [RUN_ROW("match_2")],
+        match_3: [RUN_ROW("match_3")],
+      },
+      matchesStartCalls,
+    });
+
+    await runHarness(
+      {
+        runs: 3,
+        concurrency: 2,
+        reasoning: "low",
+        seedPrefix: "phase4-d1",
+      },
+      { ...deps, client } as HarnessDeps,
+    );
+
+    expect(matchesStartCalls).toEqual([
+      { reasoningEffort: "low", rngSeed: "phase4-d1-01" },
+      { reasoningEffort: "low", rngSeed: "phase4-d1-02" },
+      { reasoningEffort: "low", rngSeed: "phase4-d1-03" },
+    ]);
   });
 
   it("missing-runs-row partial: 2 completed-with-row + 1 completed-without-row → reports:create called with 2 matchIds (the present-rows set)", async () => {

@@ -174,6 +174,7 @@ export type CliArgs = {
   runs: number;
   concurrency: number;
   reasoning: ReasoningEffort;
+  seedPrefix?: string;
 };
 
 function parseCliArgs(argv: readonly string[]): CliArgs {
@@ -183,6 +184,7 @@ function parseCliArgs(argv: readonly string[]): CliArgs {
       runs: { type: "string", default: "1" },
       concurrency: { type: "string", default: "1" },
       reasoning: { type: "string", default: "low" },
+      "seed-prefix": { type: "string" },
     },
     strict: true,
     allowPositionals: false,
@@ -207,7 +209,14 @@ function parseCliArgs(argv: readonly string[]): CliArgs {
     process.exit(2);
   }
 
-  return { runs, concurrency, reasoning: reasoningRaw };
+  return {
+    runs,
+    concurrency,
+    reasoning: reasoningRaw,
+    ...(values["seed-prefix"] !== undefined
+      ? { seedPrefix: values["seed-prefix"] }
+      : {}),
+  };
 }
 
 function parsePositiveInt(raw: string | undefined, label: string): number {
@@ -383,6 +392,7 @@ async function runOne(
   runIndex: number,
   totalRuns: number,
   reasoningEffort: ReasoningEffort,
+  seedPrefix: string | undefined,
   emitEvent: (ev: HarnessEvent) => void,
   sleepImpl: (ms: number) => Promise<void>,
 ): Promise<RunOutcome> {
@@ -392,6 +402,9 @@ async function runOne(
   // it into `callDecisionTool`'s request body (`reasoning.effort`).
   const matchId: MatchId = await client.mutation(matchesStart, {
     reasoningEffort,
+    ...(seedPrefix !== undefined
+      ? { rngSeed: `${seedPrefix}-${String(runIndex + 1).padStart(2, "0")}` }
+      : {}),
   });
   emitEvent({
     event: "run_start",
@@ -426,6 +439,7 @@ async function runAll(
   totalRuns: number,
   concurrency: number,
   reasoningEffort: ReasoningEffort,
+  seedPrefix: string | undefined,
   emitEvent: (ev: HarnessEvent) => void,
   sleepImpl: (ms: number) => Promise<void>,
 ): Promise<RunOutcome[]> {
@@ -441,6 +455,7 @@ async function runAll(
         i,
         totalRuns,
         reasoningEffort,
+        seedPrefix,
         emitEvent,
         sleepImpl,
       );
@@ -582,6 +597,7 @@ export async function runHarness(
     args.runs,
     args.concurrency,
     args.reasoning,
+    args.seedPrefix,
     emitEvent,
     sleepImpl,
   );
@@ -790,6 +806,7 @@ async function main(): Promise<void> {
       runs: args.runs,
       concurrency: args.concurrency,
       reasoning: args.reasoning,
+      ...(args.seedPrefix !== undefined ? { seedPrefix: args.seedPrefix } : {}),
     }) + "\n",
   );
 
