@@ -98,13 +98,21 @@ interface ConvexFunction {
 
 // Convex `mutation({ args })` JSON layout:
 //   { type: "object", value: { <argName>: { fieldType: <innerJson>, optional } } }
+interface ConvexFieldJson {
+  fieldType: ValidatorJson;
+  optional: boolean;
+}
 interface ConvexArgsJson {
   type: "object";
-  value: Record<string, { fieldType: ValidatorJson; optional: boolean }>;
+  value: Record<string, ConvexFieldJson>;
 }
 interface ConvexArrayJson {
   type: "array";
   value: ValidatorJson;
+}
+interface ConvexObjectJson {
+  type: "object";
+  value: Record<string, ConvexFieldJson>;
 }
 
 function isArrayJson(j: ValidatorJson): j is ConvexArrayJson {
@@ -113,6 +121,41 @@ function isArrayJson(j: ValidatorJson): j is ConvexArrayJson {
     j !== null &&
     (j as { type?: string }).type === "array"
   );
+}
+
+function isObjectJson(j: ValidatorJson): j is ConvexObjectJson {
+  return (
+    typeof j === "object" &&
+    j !== null &&
+    (j as { type?: string }).type === "object"
+  );
+}
+
+function objectField(
+  j: ValidatorJson,
+  fieldName: string,
+  ownerPath: string,
+): ConvexFieldJson {
+  if (!isObjectJson(j)) {
+    throw new Error(`${ownerPath} is not an object validator`);
+  }
+  const field = j.value[fieldName];
+  if (!field) {
+    throw new Error(`${ownerPath}.${fieldName} field missing`);
+  }
+  return field;
+}
+
+function arrayElement(j: ValidatorJson, ownerPath: string): ValidatorJson {
+  if (!isArrayJson(j)) {
+    throw new Error(`${ownerPath} is not an array validator`);
+  }
+  return j.value;
+}
+
+function expectOptionalStringField(field: ConvexFieldJson): void {
+  expect(field.optional).toBe(true);
+  expect(field.fieldType).toEqual({ type: "string" });
 }
 
 function mirrorValidators(): {
@@ -223,6 +266,45 @@ describe("phase-3 WP-F.6 — schema↔mirror parity (live validator exports)", (
     // Required-nullable: optional MUST be false; type MUST be "union".
     expect(reasoning?.optional).toBe(false);
     expect(reasoning?.fieldType.type).toBe("union");
+  });
+
+  // ─── Phase-4 contract sentinels (regression-only) ──────────────────────
+
+  it("WP-A trace slots are optional strings in both schema and mirror", () => {
+    const sources = [
+      ["convex/schema.ts", schemaValidators()],
+      ["convex/_internal_runMatch.ts", mirrorValidators()],
+    ] as const;
+
+    for (const [sourcePath, validators] of sources) {
+      const inputField = objectField(
+        validators.agentRecord,
+        "input",
+        `${sourcePath}.agentRecord`,
+      );
+      const composedUserMessageField = objectField(
+        inputField.fieldType,
+        "composedUserMessage",
+        `${sourcePath}.agentRecord.input`,
+      );
+      expectOptionalStringField(composedUserMessageField);
+
+      const actionsField = objectField(
+        validators.resolution,
+        "actions",
+        `${sourcePath}.resolution`,
+      );
+      const actionElement = arrayElement(
+        actionsField.fieldType,
+        `${sourcePath}.resolution.actions`,
+      );
+      const weaponField = objectField(
+        actionElement,
+        "weapon",
+        `${sourcePath}.resolution.actions[]`,
+      );
+      expectOptionalStringField(weaponField);
+    }
   });
 });
 

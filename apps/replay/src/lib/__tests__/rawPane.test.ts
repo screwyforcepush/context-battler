@@ -170,6 +170,30 @@ describe("composeFullLlmInput", () => {
     expect(userRole).not.toContain("LEGACY_PERSONA");
   });
 
+  it("renders an empty composedUserMessage as an empty user-role section", () => {
+    const ar = makeAgentRecord({
+      composedUserMessage: "",
+      personaPromptText: "LEGACY_PERSONA",
+      scratchpadBefore: "LEGACY_SCRATCH",
+      visibleStateDigest: "LEGACY_DIGEST",
+    });
+    const out = composeFullLlmInput(ar);
+    const userMarker = "--- user role ---\n";
+    const toolMarker = "\n\n--- tool schema ---";
+    const userRole = out.slice(
+      out.indexOf(userMarker) + userMarker.length,
+      out.indexOf(toolMarker),
+    );
+    expect(userRole).toBe("");
+    expect(out).toContain("--- system role ---\nSYSTEM TEXT\n\n--- user role ---\n\n\n--- tool schema ---");
+    expect(userRole).not.toContain("## Persona");
+    expect(userRole).not.toContain("## Scratchpad");
+    expect(userRole).not.toContain("## Visible state");
+    expect(out).not.toContain("LEGACY_PERSONA");
+    expect(out).not.toContain("LEGACY_SCRATCH");
+    expect(out).not.toContain("LEGACY_DIGEST");
+  });
+
   it("falls back to phase-3 legacy user-role composition when composedUserMessage is absent", () => {
     const ar = makeAgentRecord({
       personaPromptText: "PERSONA_BODY",

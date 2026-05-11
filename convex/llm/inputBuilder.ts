@@ -469,6 +469,7 @@ export function buildKillFeedLines(
     if (!group) continue;
 
     const totalDamage = group.entries.reduce((sum, e) => sum + e.damage, 0);
+    // Invariant: only damage routed through trace.actions[] damage entries contributes to this HP delta; future damage/heal sources must be represented there or kill attribution drifts.
     const hpAtDamageStart = group.victim.hp + totalDamage;
     let cumulative = 0;
     let crossing: DamageTraceEntry | null = null;

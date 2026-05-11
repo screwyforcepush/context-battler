@@ -63,7 +63,9 @@ export function composeFullLlmInput(agentRecord: AgentRecord): string {
 
 function composeUserRole(agentRecord: AgentRecord): string {
   const input = agentRecord.input as AgentInputWithComposed;
-  if (input.composedUserMessage) return input.composedUserMessage;
+  if (typeof input.composedUserMessage === "string") {
+    return input.composedUserMessage;
+  }
 
   return [
     "## Persona",
