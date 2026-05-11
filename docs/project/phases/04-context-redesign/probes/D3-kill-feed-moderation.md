@@ -1,19 +1,92 @@
-# D3 Kill Feed Moderation Probe Artifact
+# D3 Kill Feed Moderation Probe
 
 Date: 2026-05-11
 
-Scope: renderer-output artifact only. This probe generated sample kill-feed
-lines through `buildKillFeedLines(prev, state)` with synthetic
-`resolution.actions[]` and `deaths[]` fixtures. It did not call Azure, an LLM,
-or any moderation API.
+Scope: Azure moderation pre-flight plus renderer-output appendix. This probe
+now satisfies `de-risking.md` §D3.1 step 2: 50 requests through
+`callDecisionTool(...)` using the current dev Azure deployment, benign persona
+prompt, and a maximum-density kill-feed block in the per-turn user input.
 
 ## Verdict
 
-Moderation pre-flight verdict: renderer wording is ready for user review. The
-sample surface is the canonical `<killer> killed <victim> with <weapon>` shape
-from `docs/project/spec/per-turn-context-intent.md` section 3. No Azure
-requests were sent for this artifact, so this records renderer wording only and
-does not claim a `content_filter_blocked` pass rate.
+**PASS — 0 / 50 `content_filter_blocked` responses.**
+
+The canonical `<killer> killed <victim> with <weapon>` wording did not trip
+Azure's content filter in this synthetic max-density probe. Per the D3 trip
+wire:
+
+- 0 / 50 blocked → PASS.
+- 1-5 / 50 blocked → MITIGATE.
+- > 5 / 50 blocked → ESCALATE.
+
+Observed wrapper failure taxonomy:
+
+| failureReason | Count |
+|---|---:|
+| `<none>` | 49 |
+| `schema_validation_failed` | 1 |
+| `content_filter_blocked` | 0 |
+
+The single `schema_validation_failed` row is not a D3 moderation failure; D3
+only gates on `failureReason === "content_filter_blocked"`.
+
+## Azure Probe
+
+Configuration:
+
+| Field | Value |
+|---|---|
+| Requests | 50 |
+| Concurrency | 5 |
+| Persona | `personas/rat.md` |
+| System prompt | current `convex/llm/systemPrompt.ts` |
+| Tool schema | current `convex/llm/decisionTool.ts` via `callDecisionTool(...)` |
+| reasoning.effort | `low` |
+| max_output_tokens | 1200 |
+
+Max-density kill-feed block used in each request:
+
+```text
+Player_2 killed Player_1 with axe
+Player_3 killed Player_4 with greatsword
+Player_5 killed Player_6 with rusty_blade
+Player_7 killed Player_8 with sword
+Player_2 killed Player_3 with bare hands
+Player_5 killed Player_7 with axe
+Player_2 killed Player_5 with greatsword
+```
+
+The user input also included a benign prior-turn and current-state wrapper:
+`## previous turn`, `Scratchpad: Stay alive...`, `# Current Game State`,
+`Turn 44-46, 1/8 players alive`, a `You:` line, and `Visible: []`.
+
+Command shape:
+
+```bash
+node --import tsx - <<'JS'
+import "dotenv/config";
+import { readFileSync } from "node:fs";
+import { SYSTEM_PROMPT } from "./convex/llm/systemPrompt.ts";
+import { callDecisionTool } from "./convex/llm/azure.ts";
+
+// 50 requests, concurrency 5, persona = personas/rat.md.
+// For each result, tally result.failureReason === "content_filter_blocked".
+JS
+```
+
+Result summary:
+
+```text
+content_filter_blocked: 0 / 50 (0.0%)
+trip-wire verdict: PASS
+non-moderation wrapper failures: 1 schema_validation_failed
+```
+
+## Renderer Appendix
+
+The earlier renderer-only artifact is retained as adjacent evidence. It
+generated sample kill-feed lines through `buildKillFeedLines(prev, state)` with
+synthetic `resolution.actions[]` and `deaths[]` fixtures.
 
 Coverage included:
 
