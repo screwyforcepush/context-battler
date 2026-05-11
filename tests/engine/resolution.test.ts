@@ -1107,6 +1107,43 @@ describe("WP7 resolution — concept-spec §12 simultaneous combat", () => {
     // 100 - 17 - 12 - 7 = 64
     expect(findChar(next, "T").hp).toBe(64);
   });
+
+  it("WP-A — lethal attack trace records killer weapon, not the victim corpse contents", () => {
+    const killer = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "sword" },
+    });
+    const victim = makeCharacter({
+      id: "B",
+      pos: { x: 1, y: 0 },
+      hp: 10,
+      weapon: { category: "weapon", name: "axe" },
+    });
+    const state = makeState({ characters: [killer, victim], turn: 12 });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({ action: { kind: "attack", targetCharacterId: "B" } }),
+      ],
+      ["B", nullDecision()],
+    ]);
+
+    const { state: next, trace } = resolveTurn(state, decisions);
+    const action = trace.actions.find(
+      (a) => a.characterId === "A" && a.kind === "attack",
+    );
+    const corpse = next.world.corpses.find((c) => c.characterId === "B");
+
+    expect(trace.deaths).toContain("B");
+    expect(action).toBeDefined();
+    expect(action!.result).toBe("dmg 15");
+    expect(action!.weapon).toBe("sword");
+    expect(corpse?.contents.weapon).toEqual({
+      category: "weapon",
+      name: "axe",
+    });
+  });
 });
 
 // ─── §10 no mid-movement retargeting ─────────────────────────────────────
@@ -1851,6 +1888,39 @@ describe("WP-B.5 offensive overwatch — stance trace tagging — ADR §3", () =
     expect(fire?.stance).toBe("offensive");
     // fromOverwatch may be omitted or explicitly false (NOT true).
     expect(fire?.fromOverwatch ?? false).toBe(false);
+  });
+
+  it("WP-A — offensive overwatch damage trace carries the overwatcher's weapon", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "axe" },
+    });
+    const b = makeCharacter({
+      id: "B",
+      pos: { x: 1, y: 0 },
+      hp: 100,
+    });
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          primary: "overwatch",
+          overwatch_stance: "offensive",
+        }),
+      ],
+      ["B", nullDecision()],
+    ]);
+
+    const { trace } = resolveTurn(state, decisions);
+    const fire = trace.actions.find(
+      (act) => act.characterId === "A" && act.kind === "overwatch",
+    );
+
+    expect(fire).toBeDefined();
+    expect(fire!.result).toBe("dmg 20");
+    expect(fire!.weapon).toBe("axe");
   });
 });
 

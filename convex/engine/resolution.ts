@@ -45,7 +45,12 @@
 //   7. Visibility update — proximity reveal in cover; lastKnown update.
 //   8. Next turn — increment turn; turn-30 evac reveal; turn-50 extraction.
 
-import { weaponRange, damageFor, applyDamage } from "./combat.js";
+import {
+  weaponRange,
+  damageFor,
+  applyDamage,
+  weaponNameForTrace,
+} from "./combat.js";
 import { chebyshev } from "./distance.js";
 import { isInCover } from "./hiding.js";
 import { updateLastKnown } from "./lastKnown.js";
@@ -56,6 +61,7 @@ import {
 } from "../llm/idNormalisation.js";
 import type {
   ActionDecision,
+  ActionTraceEntry,
   CharacterState,
   ConsumableName,
   CorpseState,
@@ -108,14 +114,7 @@ export type ResolutionTrace = {
   //   - Non-overwatch attacks: both fields omitted (legacy phase-1 shape).
   // The flags travel through the persisted action-entry validator in
   // schema.ts (and the mirror) to the replay UI's decisionEnglish renderer.
-  actions: Array<{
-    characterId: string;
-    kind: string;
-    target: string;
-    result: string;
-    fromOverwatch?: boolean;
-    stance?: "offensive" | "defensive";
-  }>;
+  actions: ActionTraceEntry[];
   deaths: string[];
   visibilityUpdates: Array<{
     characterId: string;
@@ -418,6 +417,7 @@ export function resolveTurn(
           (c) => c.characterId === targetId,
         )!;
         const dmg = damageFor(actor.equipped.weapon, target.equipped.armour);
+        const weapon = weaponNameForTrace(actor.equipped.weapon);
         attacks.push({
           attackerId: id,
           defenderId: targetId,
@@ -433,6 +433,7 @@ export function resolveTurn(
           target: targetId,
           result: `dmg ${dmg}`,
           stance: "offensive",
+          ...(weapon !== undefined ? { weapon } : {}),
         });
       }
       // Defensive: no fire here; counter-fire pass below collects per-
@@ -481,6 +482,7 @@ export function resolveTurn(
           break;
         }
         const dmg = damageFor(actor.equipped.weapon, target.equipped.armour);
+        const weapon = weaponNameForTrace(actor.equipped.weapon);
         attacks.push({
           attackerId: id,
           defenderId: target.characterId,
@@ -492,6 +494,7 @@ export function resolveTurn(
           kind: "attack",
           target: traceTarget,
           result: `dmg ${dmg}`,
+          ...(weapon !== undefined ? { weapon } : {}),
         });
         break;
       }
@@ -712,6 +715,7 @@ export function resolveTurn(
     attackerId: string;
     inRange: boolean;
     dmg: number;
+    weapon?: string;
   };
   const counterFireTraces: CounterFireTrace[] = [];
   // Identify defensive overwatchers — they declared
@@ -775,6 +779,7 @@ export function resolveTurn(
         overwatcher.equipped.weapon,
         attackerCh.equipped.armour,
       );
+      const weapon = weaponNameForTrace(overwatcher.equipped.weapon);
       attacks.push({
         attackerId: p.overwatcherId,
         defenderId: p.attackerId,
@@ -786,6 +791,7 @@ export function resolveTurn(
         attackerId: p.attackerId,
         inRange: true,
         dmg,
+        ...(weapon !== undefined ? { weapon } : {}),
       });
     }
   }
@@ -809,6 +815,7 @@ export function resolveTurn(
       result: cf.inRange ? `dmg ${cf.dmg}` : "out_of_range",
       fromOverwatch: true,
       stance: "defensive",
+      ...(cf.inRange && cf.weapon !== undefined ? { weapon: cf.weapon } : {}),
     });
   }
 

@@ -8,6 +8,7 @@
 // All tests reference the spec section in their name.
 
 import { describe, expect, it } from "vitest";
+import { resolveTurn } from "../../convex/engine/resolution.js";
 import {
   applyDamage,
   damageFor,
@@ -17,6 +18,7 @@ import type {
   CharacterState,
   ItemRef,
   MatchState,
+  ParsedDecision,
   PersonaId,
   Tile,
   WorldState,
@@ -74,6 +76,19 @@ function makeState(characters: CharacterState[]): MatchState {
     world: makeWorld(),
     characters,
     rngSeed: "seed",
+  };
+}
+
+function nullDecision(overrides: Partial<ParsedDecision> = {}): ParsedDecision {
+  return {
+    consume: "none",
+    primary: "stationary_action",
+    move: { kind: "none" },
+    action: { kind: "none" },
+    say: null,
+    overwatch_stance: null,
+    scratchpad_update: null,
+    ...overrides,
   };
 }
 
@@ -269,5 +284,97 @@ describe("WP7 combat — applyDamage purity + correctness", () => {
     expect(r1.characters.find((c) => c.characterId === "B")!.hp).toBe(
       r2.characters.find((c) => c.characterId === "B")!.hp,
     );
+  });
+});
+
+// ─── WP-A strike-time weapon trace contract ─────────────────────────────────
+
+describe("WP-A combat trace weapon emission", () => {
+  it("normal damage trace carries the attacker's strike-time weapon name", () => {
+    const attacker = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "sword" },
+    });
+    const defender = makeCharacter({ id: "B", pos: { x: 1, y: 0 }, hp: 50 });
+    const state = makeState([attacker, defender]);
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({ action: { kind: "attack", targetCharacterId: "B" } }),
+      ],
+      ["B", nullDecision()],
+    ]);
+
+    const { trace } = resolveTurn(state, decisions);
+    const attack = trace.actions.find(
+      (a) => a.characterId === "A" && a.kind === "attack",
+    );
+
+    expect(attack).toBeDefined();
+    expect(attack!.result).toBe("dmg 15");
+    expect(attack!.weapon).toBe("sword");
+  });
+
+  it("unarmed damage trace omits weapon instead of persisting undefined", () => {
+    const attacker = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const defender = makeCharacter({ id: "B", pos: { x: 1, y: 0 }, hp: 50 });
+    const state = makeState([attacker, defender]);
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({ action: { kind: "attack", targetCharacterId: "B" } }),
+      ],
+      ["B", nullDecision()],
+    ]);
+
+    const { trace } = resolveTurn(state, decisions);
+    const attack = trace.actions.find(
+      (a) => a.characterId === "A" && a.kind === "attack",
+    );
+
+    expect(attack).toBeDefined();
+    expect(attack!.result).toBe("dmg 5");
+    expect("weapon" in attack!).toBe(false);
+  });
+
+  it("defensive overwatch counter-fire carries the overwatcher's strike-time weapon", () => {
+    const attacker = makeCharacter({
+      id: "A",
+      pos: { x: 6, y: 5 },
+      weapon: { category: "weapon", name: "sword" },
+    });
+    const defender = makeCharacter({
+      id: "D",
+      pos: { x: 5, y: 5 },
+      weapon: { category: "weapon", name: "axe" },
+    });
+    const state = makeState([attacker, defender]);
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({ action: { kind: "attack", targetCharacterId: "D" } }),
+      ],
+      [
+        "D",
+        nullDecision({
+          primary: "overwatch",
+          overwatch_stance: "defensive",
+        }),
+      ],
+    ]);
+
+    const { trace } = resolveTurn(state, decisions);
+    const counterFire = trace.actions.find(
+      (a) =>
+        a.characterId === "D" &&
+        a.kind === "overwatch" &&
+        a.fromOverwatch === true &&
+        a.stance === "defensive",
+    );
+
+    expect(counterFire).toBeDefined();
+    expect(counterFire!.result).toBe("dmg 20");
+    expect(counterFire!.weapon).toBe("axe");
   });
 });

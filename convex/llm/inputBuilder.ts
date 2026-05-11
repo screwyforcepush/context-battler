@@ -144,6 +144,7 @@ export type PrevTurnRow = {
       result: string;
       fromOverwatch?: boolean;
       stance?: "offensive" | "defensive";
+      weapon?: string;
     }>;
     deaths: ReadonlyArray<string>;
     visibilityUpdates: ReadonlyArray<{
@@ -395,6 +396,102 @@ export function buildLastTurnLine(
     return "Last turn (you): no-op";
   }
   return `Last turn (you): ${fragments.join(", ")}`;
+}
+
+// ─── Global kill feed lines ─────────────────────────────────────────────────
+
+type DamageTraceEntry = {
+  action: PrevTurnRow["resolution"]["actions"][number];
+  damage: number;
+};
+
+function parseDamageResult(result: string): number | null {
+  const match = /^dmg (\d+)$/.exec(result);
+  if (!match) return null;
+  return Number(match[1]);
+}
+
+function resolveVictimFromTraceTarget(
+  state: MatchState,
+  target: string,
+): CharacterState | null {
+  return (
+    state.characters.find((c) => c.displayName === target) ??
+    state.characters.find((c) => c.characterId === target) ??
+    null
+  );
+}
+
+/**
+ * Build global prior-turn kill-feed lines:
+ * `<killer> killed <victim> with <weapon>`.
+ *
+ * Attribution is by deterministic damage-entry order. For each victim in
+ * `deaths[]`, the killer is the first attack/overwatch damage entry whose
+ * cumulative damage crosses that victim's HP at the start of the damage batch.
+ */
+export function buildKillFeedLines(
+  prev: PrevTurnRow | null,
+  state: MatchState,
+): string[] {
+  if (!prev || prev.resolution.deaths.length === 0) return [];
+
+  const deathIds = new Set(prev.resolution.deaths);
+  const victimOrder: string[] = [];
+  const damageByVictim = new Map<
+    string,
+    { victim: CharacterState; entries: DamageTraceEntry[] }
+  >();
+
+  for (const action of prev.resolution.actions) {
+    if (action.kind !== "attack" && action.kind !== "overwatch") continue;
+    const damage = parseDamageResult(action.result);
+    if (damage === null) continue;
+
+    const victim = resolveVictimFromTraceTarget(state, action.target);
+    if (!victim || !deathIds.has(victim.characterId)) continue;
+
+    const existing = damageByVictim.get(victim.characterId);
+    if (existing) {
+      existing.entries.push({ action, damage });
+    } else {
+      victimOrder.push(victim.characterId);
+      damageByVictim.set(victim.characterId, {
+        victim,
+        entries: [{ action, damage }],
+      });
+    }
+  }
+
+  const lines: string[] = [];
+  for (const victimId of victimOrder) {
+    const group = damageByVictim.get(victimId);
+    if (!group) continue;
+
+    const totalDamage = group.entries.reduce((sum, e) => sum + e.damage, 0);
+    const hpAtDamageStart = group.victim.hp + totalDamage;
+    let cumulative = 0;
+    let crossing: DamageTraceEntry | null = null;
+
+    for (const entry of group.entries) {
+      cumulative += entry.damage;
+      if (cumulative >= hpAtDamageStart) {
+        crossing = entry;
+        break;
+      }
+    }
+
+    if (!crossing) continue;
+
+    const killer = renderCharacterTypedId(state, crossing.action.characterId);
+    const weapon =
+      crossing.action.weapon && crossing.action.weapon.trim() !== ""
+        ? crossing.action.weapon
+        : "bare hands";
+    lines.push(`${killer} killed ${group.victim.displayName} with ${weapon}`);
+  }
+
+  return lines;
 }
 
 // ─── Per-Visible observation brackets ──────────────────────────────────────
@@ -765,6 +862,7 @@ export function buildAgentInput(
   characterId: string,
   _personaPromptText: string,
   prev: PrevTurnRow | null,
+  _aliveCount: number,
 ): { systemPrompt: string; visibleStateDigest: string } {
   const visibleStateDigest = buildVisibleStateDigest(state, characterId, prev);
   return {

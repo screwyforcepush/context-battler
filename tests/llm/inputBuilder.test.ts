@@ -33,6 +33,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAgentInput,
+  buildKillFeedLines,
   buildVisibleStateDigest,
   type PrevTurnRow,
 } from "../../convex/llm/inputBuilder.js";
@@ -602,6 +603,199 @@ describe("WP-C.1 — Last turn (you) line", () => {
     expect(attackIdx).toBeGreaterThan(moveIdx);
     expect(dmgIdx).toBeGreaterThan(attackIdx);
     expect(saidIdx).toBeGreaterThan(dmgIdx);
+  });
+});
+
+// ─── WP-A — Global kill feed helper ─────────────────────────────────────────
+
+describe("WP-A — buildKillFeedLines", () => {
+  it("renders a single kill with the crossing strike's weapon", () => {
+    const victim = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+      hp: 0,
+      alive: false,
+    });
+    const killer = makeCharacter({
+      id: "P2",
+      displayName: "Player_2",
+      pos: { x: 11, y: 10 },
+    });
+    const state = makeState({ characters: [victim, killer], turn: 12 });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "P2",
+          kind: "attack",
+          target: "Player_1",
+          result: "dmg 50",
+          weapon: "axe",
+        },
+      ],
+      deaths: ["P1"],
+    });
+
+    expect(buildKillFeedLines(prev, state)).toEqual([
+      "Player_2 killed Player_1 with axe",
+    ]);
+  });
+
+  it("attributes a P2+P3 multi-attacker kill to the first strike crossing HP", () => {
+    const victim = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+      hp: 0,
+      alive: false,
+    });
+    const p2 = makeCharacter({
+      id: "P2",
+      displayName: "Player_2",
+      pos: { x: 11, y: 10 },
+    });
+    const p3 = makeCharacter({
+      id: "P3",
+      displayName: "Player_3",
+      pos: { x: 9, y: 10 },
+    });
+    const state = makeState({ characters: [victim, p2, p3], turn: 12 });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "P2",
+          kind: "attack",
+          target: "Player_1",
+          result: "dmg 20",
+          weapon: "sword",
+        },
+        {
+          characterId: "P3",
+          kind: "attack",
+          target: "Player_1",
+          result: "dmg 30",
+          weapon: "axe",
+        },
+      ],
+      deaths: ["P1"],
+    });
+
+    expect(buildKillFeedLines(prev, state)).toEqual([
+      "Player_3 killed Player_1 with axe",
+    ]);
+  });
+
+  it("falls back to bare hands when the crossing strike has no weapon", () => {
+    const victim = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+      hp: 0,
+      alive: false,
+    });
+    const killer = makeCharacter({
+      id: "P2",
+      displayName: "Player_2",
+      pos: { x: 11, y: 10 },
+    });
+    const state = makeState({ characters: [victim, killer], turn: 12 });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "P2",
+          kind: "attack",
+          target: "Player_1",
+          result: "dmg 50",
+        },
+      ],
+      deaths: ["P1"],
+    });
+
+    expect(buildKillFeedLines(prev, state)).toEqual([
+      "Player_2 killed Player_1 with bare hands",
+    ]);
+  });
+
+  it("renders multiple distinct kills in damage-entry order", () => {
+    const p1 = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+      hp: 0,
+      alive: false,
+    });
+    const p4 = makeCharacter({
+      id: "P4",
+      displayName: "Player_4",
+      pos: { x: 12, y: 10 },
+      hp: 0,
+      alive: false,
+    });
+    const p2 = makeCharacter({
+      id: "P2",
+      displayName: "Player_2",
+      pos: { x: 11, y: 10 },
+    });
+    const p3 = makeCharacter({
+      id: "P3",
+      displayName: "Player_3",
+      pos: { x: 13, y: 10 },
+    });
+    const state = makeState({ characters: [p1, p2, p3, p4], turn: 12 });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "P2",
+          kind: "attack",
+          target: "Player_1",
+          result: "dmg 50",
+          weapon: "axe",
+        },
+        {
+          characterId: "P3",
+          kind: "overwatch",
+          target: "Player_4",
+          result: "dmg 50",
+          weapon: "sword",
+          stance: "offensive",
+        },
+      ],
+      deaths: ["P1", "P4"],
+    });
+
+    expect(buildKillFeedLines(prev, state)).toEqual([
+      "Player_2 killed Player_1 with axe",
+      "Player_3 killed Player_4 with sword",
+    ]);
+  });
+
+  it("returns zero lines when there are no deaths", () => {
+    const p1 = makeCharacter({
+      id: "P1",
+      displayName: "Player_1",
+      pos: { x: 10, y: 10 },
+      hp: 30,
+    });
+    const p2 = makeCharacter({
+      id: "P2",
+      displayName: "Player_2",
+      pos: { x: 11, y: 10 },
+    });
+    const state = makeState({ characters: [p1, p2], turn: 12 });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "P2",
+          kind: "attack",
+          target: "Player_1",
+          result: "dmg 20",
+          weapon: "axe",
+        },
+      ],
+      deaths: [],
+    });
+
+    expect(buildKillFeedLines(prev, state)).toEqual([]);
   });
 });
 
@@ -1310,7 +1504,7 @@ describe("WP-C.1 — token budget (≤ 1200 input tokens via chars/4 proxy)", ()
       });
       const personaText = personas[id];
       const scratchpad500 = "x".repeat(500);
-      const built = buildAgentInput(state, "P1", personaText, prev);
+      const built = buildAgentInput(state, "P1", personaText, prev, 8);
       const total =
         built.systemPrompt.length +
         personaText.length +
@@ -1335,7 +1529,7 @@ describe("WP-C.1 — buildAgentInput composition", () => {
       pos: { x: 50, y: 50 },
     });
     const state = makeState({ characters: [me] });
-    const built = buildAgentInput(state, "P1", "persona text", null);
+    const built = buildAgentInput(state, "P1", "persona text", null, 1);
     expect(built.systemPrompt).toBe(SYSTEM_PROMPT);
     expect(built.visibleStateDigest).toMatch(/^You: at \(50,50\)/m);
   });

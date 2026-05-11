@@ -383,7 +383,9 @@ export function buildAgentLlmRecord(r: {
  *         "offensive"|"defensive"` — overwatch-stance attribution for
  *         offensive overwatch fires (resolution.ts:402-408) and
  *         defensive counter-fire entries (resolution.ts:712-721).
- *     All three are optional in BOTH the engine emit type and the
+ *       - `actions[].weapon: string` — phase-4 strike-time weapon name
+ *         for attack/overwatch damage entries.
+ *     These are optional in BOTH the engine emit type and the
  *     schema validators (`v.optional(...)`); we use the conditional-
  *     spread pattern so absent values stay absent (Convex `v.optional`
  *     accepts absent OR present, but never `undefined` as a value).
@@ -420,6 +422,7 @@ export function adaptResolutionForSchema(
     result: string;
     fromOverwatch?: boolean;
     stance?: "offensive" | "defensive";
+    weapon?: string;
   }>;
   deaths: Id<"characters">[];
   visibilityUpdates: Array<{
@@ -467,6 +470,7 @@ export function adaptResolutionForSchema(
         ? { fromOverwatch: a.fromOverwatch }
         : {}),
       ...(a.stance !== undefined ? { stance: a.stance } : {}),
+      ...(a.weapon !== undefined ? { weapon: a.weapon } : {}),
     })),
     deaths: trace.deaths.map((d) => d as Id<"characters">),
     visibilityUpdates: trace.visibilityUpdates.map((u) => ({
@@ -573,6 +577,7 @@ export const advanceTurn = action({
                   ? { fromOverwatch: a.fromOverwatch }
                   : {}),
                 ...(a.stance !== undefined ? { stance: a.stance } : {}),
+                ...(a.weapon !== undefined ? { weapon: a.weapon } : {}),
               })),
               deaths: priorTurnRow.resolution.deaths.map((d) => d as string),
               visibilityUpdates: priorTurnRow.resolution.visibilityUpdates.map(
@@ -620,6 +625,7 @@ export const advanceTurn = action({
       //      `turns` has agent records for every agent that was alive at
       //      the start of that turn"). ────────────────────────────────────
       const livingActors = state.characters.filter((c) => c.alive);
+      const aliveCount = characters.filter((c) => c.alive).length;
 
       type PerAgent = {
         actor: CharacterState;
@@ -638,6 +644,7 @@ export const advanceTurn = action({
           actor.characterId,
           personaText,
           prevTurnRowForBuilder,
+          aliveCount,
         );
         return {
           actor,
@@ -808,12 +815,12 @@ export const advanceTurn = action({
       // `nextState.turn` is already incremented past `currentTurn` by the
       // resolver. We use `currentTurn` as the "we just resolved" marker.
       const aliveAfter = nextState.characters.filter((c) => c.alive);
-      const aliveCount = aliveAfter.length;
+      const aliveAfterCount = aliveAfter.length;
       const extractedSet = nextState.characters
         .filter((c) => c.extractedAtTurn === currentTurn)
         .map((c) => c.characterId as Id<"characters">);
       const isTerminal =
-        currentTurn >= FINAL_TURN || aliveCount <= 1;
+        currentTurn >= FINAL_TURN || aliveAfterCount <= 1;
 
       // Build outcome on terminal.
       let outcome:
@@ -831,7 +838,7 @@ export const advanceTurn = action({
           id: Id<"characters">;
           points: number;
         }> = [];
-        if (aliveCount === 1 && extractedSet.length === 0) {
+        if (aliveAfterCount === 1 && extractedSet.length === 0) {
           // Sole survivor (last-agent-standing branch): solo wins prize pool.
           const sole = aliveAfter[0]!;
           pointsByCharacter.push({
@@ -847,7 +854,7 @@ export const advanceTurn = action({
         }
         outcome = {
           extracted: extractedSet,
-          ...(aliveCount === 1
+          ...(aliveAfterCount === 1
             ? {
                 lastSurvivor: aliveAfter[0]!
                   .characterId as Id<"characters">,

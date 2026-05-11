@@ -35,8 +35,8 @@ import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import type { ReplayBundle } from "../lib/reconstruct";
 import { truncateMid } from "../lib/formatters";
 import {
-  composeDecisionJson,
   composeFullLlmInput,
+  composeRawArgumentsVsDecision,
   composeReasoningText,
 } from "../lib/rawPane";
 
@@ -146,8 +146,8 @@ export function ExpandModal(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RawPane — three vertical read-only <pre> sections (LLM input / reasoning /
-// tool call JSON), each with its own copy-to-clipboard button.
+// RawPane — vertical read-only diagnostic panes (LLM input / reasoning /
+// tool call / validator reason), each with its own copy-to-clipboard button.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AgentRecord = Doc<"turns">["agentRecords"][number];
@@ -165,21 +165,29 @@ function RawPane(props: { agentRecord: AgentRecord }): React.ReactElement {
     () => composeReasoningText(props.agentRecord),
     [props.agentRecord],
   );
-  const decisionJson = useMemo(
-    () => composeDecisionJson(props.agentRecord),
+  const toolCall = useMemo(
+    () => composeRawArgumentsVsDecision(props.agentRecord),
     [props.agentRecord],
   );
+  const validatorReason = props.agentRecord.llm.validatorReason ?? null;
 
   return (
     <div>
-      <h3 style={subTitleStyle}>Full LLM input</h3>
+      <h3 style={subTitleStyle}>Full LLM Input</h3>
       <CopyablePre text={llmInput} />
 
       <h3 style={subTitleStyle}>Reasoning text</h3>
       <CopyablePre text={reasoning} />
 
-      <h3 style={subTitleStyle}>Tool call JSON</h3>
-      <CopyablePre text={decisionJson} />
+      <h3 style={subTitleStyle}>Tool call</h3>
+      <CopyablePre text={toolCall.rendered} />
+
+      {validatorReason ? (
+        <>
+          <h3 style={subTitleStyle}>validatorReason</h3>
+          <CopyablePre text={validatorReason} />
+        </>
+      ) : null}
     </div>
   );
 }

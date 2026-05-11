@@ -234,6 +234,8 @@ const agentInputValidator = v.object({
   personaPromptText: v.string(),
   visibleStateDigest: v.string(),
   scratchpadBefore: v.string(),
+  // Phase-4 WP-A / ADR §1b — optional slot only. WP-D owns population.
+  composedUserMessage: v.optional(v.string()),
 });
 
 const agentLlmValidator = v.object({
@@ -335,6 +337,10 @@ const resolutionValidator = v.object({
       stance: v.optional(
         v.union(v.literal("offensive"), v.literal("defensive")),
       ),
+      // Phase-4 WP-A / ADR §1a — strike-time equipped weapon name for
+      // attack/overwatch damage entries. Optional for historical rows and
+      // unarmed strikes.
+      weapon: v.optional(v.string()),
     }),
   ),
   deaths: v.array(v.id("characters")),

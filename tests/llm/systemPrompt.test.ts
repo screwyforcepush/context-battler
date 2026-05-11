@@ -1,257 +1,112 @@
-// WP-C.6 — TDD tests for the rewritten system prompt (phase-3 ADR §7).
-//
-// Phase-3 substrate refinement promotes `systemPrompt.ts` from a static
-// laws-of-the-game blurb to a SCHEMA TEACHER. The prompt explains:
-//   - the typed-id glossary the digest uses (`Player_N`, `Chest_NNN`,
-//     `Corpse_Player_N`, `Cover_X_Y`, `Wall_X_Y`, `Evac`);
-//   - per-Visible observation brackets and what they mean;
-//   - the action grammar (move arms, action arms, overwatch with
-//     `overwatch_stance`);
-//   - the match-shape urgency framing ("outside evac at turn 50, you're
-//     incinerated");
-//   - safe-default replaces invalid choices.
-//
-// Branch A (WP-A.1 probe outcome — RESOLVED): Azure DOES expose reasoning
-// items in `output[]`. The system prompt does NOT carry the Section 5b
-// rationale ask. This test file pins that — adding the rationale ask back
-// would silently bloat tokens.
-//
-// Cross-references:
-//   - architecture-decisions.md §7 — system-prompt rewrite contract.
-//   - work-packages.md WP-C.6 — test cases enumerated.
-//   - de-risking.md D-P3-1 — Branch A confirmed.
-
 import { describe, expect, it } from "vitest";
+import { decisionTool } from "../../convex/llm/decisionTool.js";
 import { SYSTEM_PROMPT } from "../../convex/llm/systemPrompt.js";
 
-// ─── Token-budget proxy (chars/4) ───────────────────────────────────────────
-
-/** Same chars/4 proxy used elsewhere (personas.test.ts, inputBuilder.test.ts).
- *  Phase-3 ADR §7 targets ≤ 500 tokens (1.25× phase-1's ≤ 400). */
 function approxTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-const TOKEN_BUDGET = 500;
+const CANONICAL_SYSTEM_PROMPT = `You are an extraction-arena agent. Each turn, emit ONE tool call to \`decide_turn\`.
 
-describe("WP-C.2 — SYSTEM_PROMPT structural smoke", () => {
-  it("is a non-empty string", () => {
-    expect(typeof SYSTEM_PROMPT).toBe("string");
-    expect(SYSTEM_PROMPT.length).toBeGreaterThan(0);
+Match shape:
+- 7 other agents competing for the prize pool.
+- 50 turns. Turn 30 reveals evac zone. Turn 50 extracts living agents inside the 3×3 zone and splits the prize. Outside evac at turn 50 you are incinerated.
+- Walls block LOS and movement; cover hides you from other agents' vision (revealed by enemy within 2, attacking, speaking, looting, consumable, or leaving cover).`;
+
+const HYGIENE_FORBIDDEN_PHRASES = [
+  "safe default",
+  "replaced with",
+  "invalid choices",
+  "fallback",
+  "do nothing",
+];
+
+function collectDescriptions(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectDescriptions(item));
+  }
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  const record = value as Record<string, unknown>;
+  const ownDescription =
+    typeof record.description === "string" ? [record.description] : [];
+  const nestedDescriptions = Object.values(record).flatMap((item) =>
+    collectDescriptions(item),
+  );
+  return [...ownDescription, ...nestedDescriptions];
+}
+
+describe("WP-C — SYSTEM_PROMPT slim contract", () => {
+  it("matches the canonical intent §1 prompt exactly", () => {
+    expect(SYSTEM_PROMPT).toBe(CANONICAL_SYSTEM_PROMPT);
   });
 
-  it("≤ 500 tokens via chars/4 proxy (phase-3 ADR §7 budget)", () => {
+  it("stays within the ≤200-token chars/4 budget", () => {
     const tokens = approxTokens(SYSTEM_PROMPT);
     expect(
       tokens,
-      `SYSTEM_PROMPT exceeds ${TOKEN_BUDGET}-token budget: chars=${SYSTEM_PROMPT.length}, approxTokens=${tokens}`,
-    ).toBeLessThanOrEqual(TOKEN_BUDGET);
+      `SYSTEM_PROMPT exceeds 200-token budget: chars=${SYSTEM_PROMPT.length}, approxTokens=${tokens}`,
+    ).toBeLessThanOrEqual(200);
+    expect(SYSTEM_PROMPT.length).toBeLessThanOrEqual(800);
   });
 
-  it("contains the `decide_turn` tool-name reminder", () => {
-    expect(SYSTEM_PROMPT).toContain("decide_turn");
-  });
-});
-
-// ─── Section 1: typed-id glossary ───────────────────────────────────────────
-
-describe("WP-C.2 — typed-id glossary (How to read Visible)", () => {
-  it("teaches Player_N", () => {
-    expect(SYSTEM_PROMPT).toContain("Player_N");
-  });
-
-  it("teaches Chest_NNN", () => {
-    expect(SYSTEM_PROMPT).toContain("Chest_NNN");
-  });
-
-  it("teaches Corpse_Player_N", () => {
-    // WP-I.4 (Reviewer A LOW): align prompt-teaching shape with the
-    // digest's verbatim form. inputBuilder.ts:516 renders
-    // `Corpse_${displayName}` where displayName is the typed-id
-    // `Player_N` form, so the digest emits `Corpse_Player_N`. The
-    // prompt must teach that shape verbatim — the underscore-less
-    // `Corpse_PlayerN` was a doc-only inconsistency (zero production
-    // impact: trace audit shows 0 rejections of either shape, since
-    // the "copy id verbatim" instruction makes the digest authoritative).
-    expect(SYSTEM_PROMPT).toContain("Corpse_Player_N");
-    expect(SYSTEM_PROMPT).not.toMatch(/Corpse_PlayerN\b/);
-  });
-
-  it("teaches Cover_X_Y", () => {
-    expect(SYSTEM_PROMPT).toContain("Cover_X_Y");
-  });
-
-  it("teaches Wall_X_Y", () => {
-    expect(SYSTEM_PROMPT).toContain("Wall_X_Y");
-  });
-
-  it("teaches Evac", () => {
-    // Word-boundary anywhere — Evac is referenced in glossary AND match-shape.
-    expect(SYSTEM_PROMPT).toMatch(/\bEvac\b/);
-  });
-
-  it("teaches dist + 8-octant bearing language", () => {
-    expect(SYSTEM_PROMPT).toContain("dist");
-    // 8-octant scheme — at least the cardinal/diagonal names are mentioned.
-    // Asserting the literal "8-octant" phrasing keeps the prompt's teaching
-    // intent stable across edits.
-    expect(SYSTEM_PROMPT).toMatch(/8[- ]octant/);
-  });
-});
-
-// ─── Section 2: action grammar (move arms) ──────────────────────────────────
-
-describe("WP-C.2 — action-grammar block — move arms", () => {
-  it("teaches relative dx,dy", () => {
-    expect(SYSTEM_PROMPT).toContain("relative");
-  });
-
-  it("teaches toward_entity", () => {
-    expect(SYSTEM_PROMPT).toContain("toward_entity");
-  });
-
-  it("teaches away_from_entity", () => {
-    expect(SYSTEM_PROMPT).toContain("away_from_entity");
-  });
-
-  it("teaches toward_object", () => {
-    expect(SYSTEM_PROMPT).toContain("toward_object");
-  });
-
-  it("teaches toward_evac", () => {
-    expect(SYSTEM_PROMPT).toContain("toward_evac");
-  });
-
-  it("teaches none (move arm)", () => {
-    // `none` appears in many places — anchor on the move grammar phrasing.
-    // Both the move arm and the action arm teach a `none` literal.
-    expect(SYSTEM_PROMPT).toMatch(/\bnone\b/);
-  });
-
-  it("WP-G.1 D38 — toward_object grammar listing excludes Cover_X_Y", () => {
-    // Cover is a tile flag in `WorldState.coverTiles: Tile[]`, NOT an entity.
-    // The engine's `toward_object` resolver only knows chest + corpse
-    // semantics (stop at Chebyshev range 2 of the entity tile). Telling
-    // agents they can `toward_object Cover_X_Y` would silently route
-    // through the chest+corpse lookup which always misses, driving safe-
-    // default fallback. The grammar listing must NOT advertise Cover_X_Y
-    // on the toward_object arm — agents move TO cover via `relative dx,dy`.
-    // Cover_X_Y still appears in the typed-id glossary (line 65) so agents
-    // can identify cover bullets in Visible; it just isn't a valid
-    // toward_object target. This test pins that.
-    const towardObjectLine = SYSTEM_PROMPT.split("\n").find((l) =>
-      l.includes("toward_object"),
+  it("keeps the stakes, match shape, wall, and cover rules", () => {
+    expect(SYSTEM_PROMPT).toContain("extraction-arena agent");
+    expect(SYSTEM_PROMPT).toContain("ONE tool call to `decide_turn`");
+    expect(SYSTEM_PROMPT).toContain(
+      "7 other agents competing for the prize pool",
     );
-    expect(towardObjectLine).toBeDefined();
-    expect(towardObjectLine!).not.toContain("Cover_X_Y");
+    expect(SYSTEM_PROMPT).toContain("50 turns");
+    expect(SYSTEM_PROMPT).toContain("Turn 30 reveals evac zone");
+    expect(SYSTEM_PROMPT).toContain(
+      "Turn 50 extracts living agents inside the 3×3 zone",
+    );
+    expect(SYSTEM_PROMPT).toContain("Outside evac at turn 50");
+    expect(SYSTEM_PROMPT).toContain("Walls block LOS and movement");
+    expect(SYSTEM_PROMPT).toContain(
+      "cover hides you from other agents' vision",
+    );
+    expect(SYSTEM_PROMPT).toContain("enemy within 2");
+    expect(SYSTEM_PROMPT).toContain("leaving cover");
+  });
+
+  it("does not carry deleted phase-3 sections or persona-deference line", () => {
+    expect(SYSTEM_PROMPT).not.toContain("How to read Visible");
+    expect(SYSTEM_PROMPT).not.toContain("How to act on Visible");
+    expect(SYSTEM_PROMPT).not.toContain("Output discipline");
+    expect(SYSTEM_PROMPT).not.toContain(
+      "The persona body that follows is your character",
+    );
+    expect(SYSTEM_PROMPT).not.toContain("Visible state is authoritative");
+  });
+
+  it("omits vision range and action grammar now owned by tool descriptions", () => {
+    expect(SYSTEM_PROMPT).not.toMatch(/\bvision\s+range\b/i);
+    expect(SYSTEM_PROMPT).not.toMatch(/\bVision\s+20\b/);
+    expect(SYSTEM_PROMPT).not.toContain("Chebyshev");
+    expect(SYSTEM_PROMPT).not.toContain("relative dx,dy");
+    expect(SYSTEM_PROMPT).not.toContain("toward_entity");
+    expect(SYSTEM_PROMPT).not.toContain("away_from_entity");
+    expect(SYSTEM_PROMPT).not.toContain("toward_object");
+    expect(SYSTEM_PROMPT).not.toContain("toward_evac");
+    expect(SYSTEM_PROMPT).not.toContain("Attack/loot range");
   });
 });
 
-// ─── Section 2: action grammar (action arms) ────────────────────────────────
+describe("WP-C — prompt hygiene guard", () => {
+  it("forbids fallback-leak phrases in SYSTEM_PROMPT and decisionTool descriptions", () => {
+    const checkedText = [
+      SYSTEM_PROMPT,
+      ...collectDescriptions(decisionTool),
+    ].join("\n");
+    const lower = checkedText.toLowerCase();
 
-describe("WP-C.2 — action-grammar block — action arms", () => {
-  it("teaches loot for chests OR corpses (unified vocab)", () => {
-    expect(SYSTEM_PROMPT).toContain("loot");
-    // Per ADR §1 + §7: `loot <Visible.id>` works for both chests and corpses.
-    // The teaching block must surface that the same kind handles both.
-    // Test the dual-target framing without overconstraining the wording:
-    // both `Chest` and `Corpse` (or the `chest_`/`Player_` id namespaces)
-    // appear in the loot teaching context.
-  });
-
-  it("teaches attack Player_N", () => {
-    expect(SYSTEM_PROMPT).toContain("attack");
-    expect(SYSTEM_PROMPT).toContain("Player_N");
-  });
-
-  it("teaches none (action arm)", () => {
-    // Already asserted via the move-arm test; `none` is shared.
-    expect(SYSTEM_PROMPT).toMatch(/\bnone\b/);
-  });
-
-  it("does NOT teach interact (legacy phase-1 vocab — DELETED in phase-3)", () => {
-    // ADR §1 unifies chest opens under `loot`. The phase-1 `interact` arm
-    // is gone; the prompt must not still teach it.
-    expect(SYSTEM_PROMPT).not.toContain("interact");
-  });
-});
-
-// ─── Section 2: action grammar (overwatch with stance) ──────────────────────
-
-describe("WP-C.2 — action-grammar block — overwatch + stance", () => {
-  it("teaches overwatch as a primary value", () => {
-    expect(SYSTEM_PROMPT).toContain("overwatch");
-  });
-
-  it("teaches overwatch_stance with 'offensive'", () => {
-    expect(SYSTEM_PROMPT).toContain("overwatch_stance");
-    expect(SYSTEM_PROMPT).toContain("offensive");
-  });
-
-  it("teaches overwatch_stance with 'defensive'", () => {
-    expect(SYSTEM_PROMPT).toContain("defensive");
-  });
-
-  it("does NOT teach overwatch_priority (legacy phase-1 vocab — DELETED in phase-3)", () => {
-    expect(SYSTEM_PROMPT).not.toContain("overwatch_priority");
-  });
-});
-
-// ─── Section 3: match shape + urgency framing ───────────────────────────────
-
-describe("WP-C.2 — match shape + urgency framing", () => {
-  it("teaches 50-turn match length", () => {
-    expect(SYSTEM_PROMPT).toContain("50");
-  });
-
-  it("teaches turn 30 reveals evac", () => {
-    expect(SYSTEM_PROMPT).toContain("30");
-  });
-
-  it("teaches the 'outside evac at turn 50, you're incinerated' framing", () => {
-    // Phase-3 ADR §7 locks the urgency framing language. The exact word
-    // "incinerated" makes the consequence concrete; the prompt must
-    // surface it (the alternative — "extracted" — is the success state).
-    expect(SYSTEM_PROMPT.toLowerCase()).toContain("incinerated");
-  });
-});
-
-// ─── Section 4: output discipline ───────────────────────────────────────────
-
-describe("WP-C.2 — output discipline", () => {
-  it("teaches concrete-targets-only / no predicates", () => {
-    // Phase-3 ADR §7 locks "concrete targets only — no predicates".
-    expect(SYSTEM_PROMPT.toLowerCase()).toContain("concrete");
-  });
-
-  it("teaches safe-default substitution on invalid choices", () => {
-    expect(SYSTEM_PROMPT.toLowerCase()).toContain("safe default");
-  });
-});
-
-// ─── Section 5b — Branch A: rationale ask MUST be ABSENT ────────────────────
-
-describe("WP-C.2 — Branch A: rationale ask is omitted", () => {
-  it("does NOT contain a 'rationale' field ask", () => {
-    // Branch A confirmed (de-risking.md D-P3-1): Azure exposes reasoning
-    // items in `output[].type === "reasoning"`. The system prompt MUST
-    // NOT carry the Section 5b rationale ask — that's Branch B only,
-    // and Branch B was rejected by the probe.
-    expect(SYSTEM_PROMPT.toLowerCase()).not.toContain("rationale");
-  });
-
-  it("does NOT include a '≤ 280 chars' length cap (Branch B specific)", () => {
-    // The Branch-B rationale ask carries a "≤ 280 chars" cap. The cap
-    // string should not appear anywhere in the rendered prompt.
-    expect(SYSTEM_PROMPT).not.toMatch(/≤\s*280/);
-    expect(SYSTEM_PROMPT).not.toMatch(/<=\s*280/);
-  });
-});
-
-// ─── Section 6: persona deference ───────────────────────────────────────────
-
-describe("WP-C.2 — persona deference", () => {
-  it("tells the model the persona body is its character", () => {
-    expect(SYSTEM_PROMPT.toLowerCase()).toContain("persona");
+    for (const phrase of HYGIENE_FORBIDDEN_PHRASES) {
+      expect(lower, `forbidden prompt-hygiene phrase: ${phrase}`).not.toContain(
+        phrase,
+      );
+    }
   });
 });

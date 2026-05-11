@@ -74,6 +74,17 @@ export function weaponRange(weapon: ItemRef | undefined): number {
 }
 
 /**
+ * Trace-safe weapon name captured at strike time. Returns undefined for
+ * unarmed/corrupt slots so optional persistence fields stay absent.
+ */
+export function weaponNameForTrace(
+  weapon: ItemRef | undefined,
+): string | undefined {
+  if (!weapon || weapon.category !== "weapon") return undefined;
+  return weapon.name;
+}
+
+/**
  * Pure HP-reduction. Returns a NEW `MatchState` with the named defender's
  * HP reduced by `dmg`. The defender's `alive` flag is NOT flipped here —
  * death detection is the resolver's phase-6 responsibility (HP ≤ 0 at

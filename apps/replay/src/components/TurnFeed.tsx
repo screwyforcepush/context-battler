@@ -19,7 +19,11 @@ import React, { useMemo, useState } from "react";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import type { ReplayBundle } from "../lib/reconstruct";
 import { summariseDecision } from "../lib/decisionEnglish";
-import { hasReasoningIndicator } from "../lib/rawPane";
+import {
+  composeRawArgumentsVsDecision,
+  composeUsageBar,
+  hasReasoningIndicator,
+} from "../lib/rawPane";
 
 export type TurnFeedProps = {
   bundle: ReplayBundle;
@@ -49,6 +53,7 @@ const FALLBACK_COLOUR = "#444";
 
 const SCRATCHPAD_AFTER_BUDGET = 500;
 const SCRATCHPAD_PREVIEW_BUDGET = 100;
+const DEFAULT_MAX_OUTPUT_TOKENS = 1200;
 
 export function TurnFeed(props: TurnFeedProps): React.ReactElement {
   const { bundle, currentTurn, onOpenModal } = props;
@@ -73,6 +78,11 @@ export function TurnFeed(props: TurnFeedProps): React.ReactElement {
       a.displayName.localeCompare(b.displayName),
     );
   }, [bundle.characters]);
+
+  const maxOutputTokens = useMemo(
+    () => resolveMaxOutputTokens(bundle.match),
+    [bundle.match],
+  );
 
   // Track which agent rows are expanded inline. Keyed by characterId so
   // the expansion persists across turn changes (the user scrubs through
@@ -133,6 +143,7 @@ export function TurnFeed(props: TurnFeedProps): React.ReactElement {
                 row={row}
                 characterById={characterById}
                 currentTurn={currentTurn}
+                maxOutputTokens={maxOutputTokens}
                 expanded={isExpanded}
                 onToggle={onToggle}
                 onExpandClick={onExpandClick}
@@ -155,6 +166,7 @@ function FeedRow(props: {
   row: Doc<"turns">;
   characterById: Map<Id<"characters">, Doc<"characters">>;
   currentTurn: number;
+  maxOutputTokens: number;
   expanded: boolean;
   onToggle: () => void;
   onExpandClick: (e: React.MouseEvent) => void;
@@ -165,6 +177,7 @@ function FeedRow(props: {
     row,
     characterById,
     currentTurn,
+    maxOutputTokens,
     expanded,
     onToggle,
     onExpandClick,
@@ -201,7 +214,18 @@ function FeedRow(props: {
   }
 
   const summary = summariseDecision(agentRecord, row.resolution, characterById);
+  const rawDiagnostic = composeRawArgumentsVsDecision(agentRecord);
+  const usageBar = composeUsageBar(agentRecord, maxOutputTokens);
   const sayText = agentRecord.decision.say;
+  const validatorReason = agentRecord.llm.validatorReason ?? null;
+  const failureReason = agentRecord.llm.failureReason ?? null;
+  const diagnosticWarning =
+    !rawDiagnostic.matched || validatorReason !== null || failureReason !== null;
+  const diagnosticTitle = composeDiagnosticTitle({
+    rawDiverged: !rawDiagnostic.matched,
+    validatorReason,
+    failureReason,
+  });
   const scratchpadChanged =
     agentRecord.decision.scratchpad_update !== null &&
     agentRecord.decision.scratchpad_update !== agentRecord.input.scratchpadBefore;
@@ -248,6 +272,30 @@ function FeedRow(props: {
               🧠
             </span>
           ) : null}
+          {diagnosticWarning ? (
+            <span
+              style={warningBadgeStyle}
+              title={diagnosticTitle}
+              aria-label="Diagnostic warning"
+            >
+              ⚠
+            </span>
+          ) : null}
+          <span
+            style={usageBarStyle}
+            title="LLM output tokens / max output tokens"
+          >
+            {usageBar.rendered}
+          </span>
+          {usageBar.truncated ? (
+            <span
+              style={truncatedIndicatorStyle}
+              title="Output tokens reached at least 95% of max_output_tokens"
+              aria-label="Likely truncated output"
+            >
+              🔴 truncated
+            </span>
+          ) : null}
           <button
             type="button"
             onClick={onExpandClick}
@@ -259,6 +307,13 @@ function FeedRow(props: {
           </button>
         </div>
         <div style={oneLineStyle}>{summary.oneLine}</div>
+        {validatorReason || failureReason ? (
+          <div style={diagnosticReasonStyle}>
+            {validatorReason ? `validatorReason: ${validatorReason}` : null}
+            {validatorReason && failureReason ? " · " : null}
+            {failureReason ? `failureReason: ${failureReason}` : null}
+          </div>
+        ) : null}
         {sayText ? <div style={sayStyle}>“{sayText}”</div> : null}
         {agentRecord.scratchpadAfter.length > 0 ? (
           <div style={scratchpadPreviewStyle} title="scratchpadAfter (preview)">
@@ -341,6 +396,30 @@ function truncateToBudget(s: string, budget: number): string {
 export function truncateOneLine(s: string, budget: number): string {
   const oneLine = s.replace(/\s+/g, " ");
   return truncateToBudget(oneLine, budget);
+}
+
+function resolveMaxOutputTokens(match: Doc<"matches">): number {
+  const candidate = (match as Doc<"matches"> & { maxOutputTokens?: unknown })
+    .maxOutputTokens;
+  return typeof candidate === "number" &&
+    Number.isFinite(candidate) &&
+    candidate > 0
+    ? candidate
+    : DEFAULT_MAX_OUTPUT_TOKENS;
+}
+
+function composeDiagnosticTitle(args: {
+  rawDiverged: boolean;
+  validatorReason: string | null;
+  failureReason: string | null;
+}): string {
+  const parts: string[] = [];
+  if (args.rawDiverged) parts.push("rawArguments diverged from decision");
+  if (args.validatorReason) {
+    parts.push(`validatorReason: ${args.validatorReason}`);
+  }
+  if (args.failureReason) parts.push(`failureReason: ${args.failureReason}`);
+  return parts.join(" | ");
 }
 
 function Swatch(props: { colour: string; dimmed?: boolean }): React.ReactElement {
@@ -479,6 +558,28 @@ const reasoningIndicatorStyle: React.CSSProperties = {
   // with the scratchpad-delta affordance.
 };
 
+const warningBadgeStyle: React.CSSProperties = {
+  fontSize: "0.8125rem",
+  color: "#8a4b00",
+  marginLeft: "0.125rem",
+};
+
+const usageBarStyle: React.CSSProperties = {
+  fontSize: "0.6875rem",
+  color: "#555",
+  fontFamily:
+    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace',
+  marginLeft: "auto",
+  whiteSpace: "nowrap",
+};
+
+const truncatedIndicatorStyle: React.CSSProperties = {
+  fontSize: "0.6875rem",
+  color: "#9b111e",
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+};
+
 const stanceLineStyle: React.CSSProperties = {
   fontSize: "0.8125rem",
   color: "#1a1a1a",
@@ -487,7 +588,6 @@ const stanceLineStyle: React.CSSProperties = {
 };
 
 const dotsBtnStyle: React.CSSProperties = {
-  marginLeft: "auto",
   padding: "0.125rem 0.5rem",
   fontSize: "0.875rem",
   cursor: "pointer",
@@ -501,6 +601,16 @@ const oneLineStyle: React.CSSProperties = {
   fontSize: "0.8125rem",
   color: "#1a1a1a",
   lineHeight: 1.4,
+};
+
+const diagnosticReasonStyle: React.CSSProperties = {
+  fontSize: "0.75rem",
+  color: "#8a4b00",
+  fontFamily:
+    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace',
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 
 const sayStyle: React.CSSProperties = {

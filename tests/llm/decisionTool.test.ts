@@ -57,6 +57,13 @@ const SAMPLE_VALID_DECISION: ParsedDecision = {
   scratchpad_update: "Heal then close on Player_3.",
 };
 
+function descriptionOf(value: unknown): string {
+  const description = (value as { description?: unknown }).description;
+  expect(typeof description).toBe("string");
+  expect(description).not.toBe("");
+  return description as string;
+}
+
 describe("phase-3 decisionTool — JSON Schema shape", () => {
   it("declares type=function and name=decide_turn", () => {
     expect(decisionTool.type).toBe("function");
@@ -195,6 +202,92 @@ describe("phase-3 decisionTool — JSON Schema shape", () => {
     )).toEqual(["defensive", "offensive", null].sort((a, b) =>
       String(a).localeCompare(String(b)),
     ));
+  });
+});
+
+describe("WP-C decisionTool — description fields carry action grammar", () => {
+  it("decide_turn description carries the overwatch dual contract", () => {
+    const description = decisionTool.description;
+    expect(description).toContain("primary");
+    expect(description).toContain("overwatch");
+    expect(description).toContain("overwatch_stance");
+    expect(description).toContain("required when primary='overwatch'");
+    expect(description).toContain("null otherwise");
+  });
+
+  it("move description lists all six arms and movement range", () => {
+    const description = descriptionOf(
+      decisionTool.parameters.properties.move,
+    );
+    expect(description).toContain("relative dx,dy");
+    expect(description).toContain("integers in [-12,12]");
+    expect(description).toContain("toward_entity Player_N");
+    expect(description).toContain("away_from_entity Player_N");
+    expect(description).toContain(
+      "toward_object <Chest_NNN|Corpse_Player_N>",
+    );
+    expect(description).toContain("toward_evac");
+    expect(description).toContain("none");
+    expect(description).toContain("Movement range max 8 (12 w/ speed)");
+  });
+
+  it("action description lists attack, loot, none, verbatim ids, and range", () => {
+    const description = descriptionOf(
+      decisionTool.parameters.properties.action,
+    );
+    expect(description).toContain("attack Player_N");
+    expect(description).toContain("loot <Chest_NNN|Corpse_Player_N>");
+    expect(description).toContain("copy id verbatim");
+    expect(description).toContain("none");
+    expect(description).toContain("Attack/loot range 2 (Chebyshev)");
+  });
+
+  it("primary description defines the three values and overwatch pairing", () => {
+    const description = descriptionOf(
+      decisionTool.parameters.properties.primary,
+    );
+    expect(description).toContain("move");
+    expect(description).toContain("stationary_action");
+    expect(description).toContain("overwatch");
+    expect(description).toContain("overwatch_stance");
+    expect(description).toContain("offensive");
+    expect(description).toContain("defensive");
+    expect(description).toContain("action");
+    expect(description).toContain("none");
+  });
+
+  it("overwatch_stance description defines stance semantics and null iff not overwatch", () => {
+    const description = descriptionOf(
+      decisionTool.parameters.properties.overwatch_stance,
+    );
+    expect(description).toContain("offensive");
+    expect(description).toContain("first valid in-range enemy");
+    expect(description).toContain("defensive");
+    expect(description).toContain("counter-fire each attacker");
+    expect(description).toContain("null iff primary is not overwatch");
+  });
+
+  it("scratchpad_update description carries usage, cap, and previous-turn carry-forward", () => {
+    const description = descriptionOf(
+      decisionTool.parameters.properties.scratchpad_update,
+    );
+    expect(description).toContain("core memories");
+    expect(description).toContain("multi-turn objectives");
+    expect(description).toContain("≤ 500 chars");
+    expect(description).toContain("Scratchpad:");
+    expect(description).toContain("## previous turn");
+  });
+
+  it("omits vision range from tool-schema descriptions", () => {
+    const descriptions = [
+      decisionTool.description,
+      ...Object.values(decisionTool.parameters.properties).map((property) =>
+        (property as { description?: string }).description ?? "",
+      ),
+    ].join("\n");
+
+    expect(descriptions).not.toMatch(/\bvision\b/i);
+    expect(descriptions).not.toContain("Vision 20");
   });
 });
 

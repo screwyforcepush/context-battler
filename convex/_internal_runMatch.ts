@@ -136,6 +136,8 @@ const agentInputValidator = v.object({
   personaPromptText: v.string(),
   visibleStateDigest: v.string(),
   scratchpadBefore: v.string(),
+  // Phase-4 WP-A mirror — optional slot only; WP-D owns population.
+  composedUserMessage: v.optional(v.string()),
 });
 
 const agentLlmValidator = v.object({
@@ -206,6 +208,8 @@ const resolutionValidator = v.object({
       stance: v.optional(
         v.union(v.literal("offensive"), v.literal("defensive")),
       ),
+      // Phase-4 WP-A mirror — strike-time weapon name on damage trace entries.
+      weapon: v.optional(v.string()),
     }),
   ),
   deaths: v.array(v.id("characters")),

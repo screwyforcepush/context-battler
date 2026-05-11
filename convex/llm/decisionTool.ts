@@ -71,6 +71,7 @@ type NullableStringWithMax = {
   readonly type: readonly ["string", "null"];
   readonly maxLength: number;
 };
+type Described<T> = T & { readonly description: string };
 // Phase-3: tri-state nullable enum for overwatch_stance.
 // JSON Schema idiom: `{ enum: ["offensive", "defensive", null] }`.
 type StanceProp = {
@@ -174,12 +175,14 @@ export type DecisionToolDefinition = {
     ];
     readonly properties: {
       readonly consume: EnumProp<"none" | "heal" | "speed">;
-      readonly primary: EnumProp<"move" | "stationary_action" | "overwatch">;
-      readonly move: { readonly oneOf: readonly MoveArm[] };
-      readonly action: { readonly oneOf: readonly ActionArm[] };
+      readonly primary: Described<
+        EnumProp<"move" | "stationary_action" | "overwatch">
+      >;
+      readonly move: Described<{ readonly oneOf: readonly MoveArm[] }>;
+      readonly action: Described<{ readonly oneOf: readonly ActionArm[] }>;
       readonly say: NullableStringWithMax;
-      readonly overwatch_stance: StanceProp;
-      readonly scratchpad_update: NullableStringWithMax;
+      readonly overwatch_stance: Described<StanceProp>;
+      readonly scratchpad_update: Described<NullableStringWithMax>;
     };
   };
 };
@@ -196,7 +199,7 @@ export const decisionTool: DecisionToolDefinition = {
   type: "function",
   name: "decide_turn",
   description:
-    "Emit the agent's full per-turn decision: optional consumable, primary commitment (move/stationary_action/overwatch), a move sub-decision, an action sub-decision (attack/loot/none — chests AND corpses go through loot.targetId), optional say, overwatch_stance ('offensive' | 'defensive' | null — required when primary='overwatch', null otherwise), optional scratchpad update.",
+    "Emit the agent's full per-turn decision: consume, primary commitment, move, action, say, overwatch_stance, and scratchpad_update. Overwatch dual contract: overwatch_stance is required when primary='overwatch' and null otherwise; action is none while overwatching.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -219,8 +222,14 @@ export const decisionTool: DecisionToolDefinition = {
     ],
     properties: {
       consume: { enum: ["none", "heal", "speed"] },
-      primary: { enum: ["move", "stationary_action", "overwatch"] },
+      primary: {
+        enum: ["move", "stationary_action", "overwatch"],
+        description:
+          "Primary values: move resolves the move then the action from the new position; stationary_action resolves the action in place; overwatch commits to a reactive stance, sets overwatch_stance to offensive or defensive, and uses action none.",
+      },
       move: {
+        description:
+          "Move arms: relative dx,dy (integers in [-12,12]); toward_entity Player_N; away_from_entity Player_N; toward_object <Chest_NNN|Corpse_Player_N>; toward_evac; none. Movement range max 8 (12 w/ speed).",
         oneOf: [
           {
             type: "object",
@@ -274,6 +283,8 @@ export const decisionTool: DecisionToolDefinition = {
         ],
       },
       action: {
+        description:
+          "Action arms: attack Player_N; loot <Chest_NNN|Corpse_Player_N> (copy id verbatim); none. Attack/loot range 2 (Chebyshev).",
         oneOf: [
           {
             type: "object",
@@ -302,8 +313,17 @@ export const decisionTool: DecisionToolDefinition = {
         ],
       },
       say: { type: ["string", "null"], maxLength: 280 },
-      overwatch_stance: { enum: ["offensive", "defensive", null] },
-      scratchpad_update: { type: ["string", "null"], maxLength: 500 },
+      overwatch_stance: {
+        enum: ["offensive", "defensive", null],
+        description:
+          "Overwatch stance: offensive fires on the first valid in-range enemy after movement; defensive counter-fire each attacker, weapon-range bounded. Use null iff primary is not overwatch.",
+      },
+      scratchpad_update: {
+        type: ["string", "null"],
+        maxLength: 500,
+        description:
+          "Use scratchpad for core memories and multi-turn objectives. ≤ 500 chars. Carries forward to next turn as `Scratchpad:` under `## previous turn`.",
+      },
     },
   },
 };

@@ -29,6 +29,7 @@
 //   and re-running the suite.
 
 import { describe, expect, it } from "vitest";
+import { convexToJson, jsonToConvex, type Value } from "convex/values";
 
 import { adaptResolutionForSchema } from "../../convex/runMatch.js";
 import type { ResolutionTrace } from "../../convex/engine/resolution.js";
@@ -165,6 +166,43 @@ describe("WP-F.1 — adaptResolutionForSchema preserves optional trace fields", 
     expect("fromOverwatch" in entry).toBe(false);
   });
 
+  it("WP-A — propagates actions[].weapon when present", () => {
+    const trace = makeTrace({
+      actions: [
+        {
+          characterId: "char_attacker",
+          kind: "attack",
+          target: "char_defender",
+          result: "dmg 20",
+          weapon: "axe",
+        },
+      ],
+    });
+
+    const adapted = adaptResolutionForSchema(trace);
+
+    expect(adapted.actions).toHaveLength(1);
+    expect(adapted.actions[0]!.weapon).toBe("axe");
+  });
+
+  it("WP-A — keeps actions[].weapon absent when the engine omitted it", () => {
+    const trace = makeTrace({
+      actions: [
+        {
+          characterId: "char_attacker",
+          kind: "attack",
+          target: "char_defender",
+          result: "dmg 5",
+        },
+      ],
+    });
+
+    const adapted = adaptResolutionForSchema(trace);
+
+    expect(adapted.actions).toHaveLength(1);
+    expect("weapon" in adapted.actions[0]!).toBe(false);
+  });
+
   it("preserves blockedBy + fromOverwatch + stance together in a mixed trace (closing-10 metric coverage)", () => {
     // The combined invariant guards the closing-10 metrics
     //   - persistedBlockedMoves    (reads moves[].blockedBy === "wall")
@@ -215,5 +253,49 @@ describe("WP-F.1 — adaptResolutionForSchema preserves optional trace fields", 
     // Offensive does NOT carry fromOverwatch (engine emit-shape) — the
     // adapter MUST NOT introduce it.
     expect("fromOverwatch" in offensive!).toBe(false);
+  });
+});
+
+// ─── agentRecord.input optional field parity ───────────────────────────────
+
+describe("WP-A — agentRecord.input composedUserMessage optional serialization", () => {
+  function baseAgentInput() {
+    return {
+      systemPromptHash: "sys-hash",
+      systemPromptText: "system",
+      personaPromptHash: "persona-hash",
+      personaPromptText: "persona",
+      visibleStateDigest: "You: at (1,1)",
+      scratchpadBefore: "remember this",
+    };
+  }
+
+  function roundTrip(value: Record<string, Value>): Record<string, Value> {
+    const roundTripped = jsonToConvex(convexToJson(value));
+    if (
+      typeof roundTripped !== "object" ||
+      roundTripped === null ||
+      Array.isArray(roundTripped)
+    ) {
+      throw new Error("expected object round-trip");
+    }
+    return roundTripped as Record<string, Value>;
+  }
+
+  it("round-trips agent input with composedUserMessage present", () => {
+    const input = {
+      ...baseAgentInput(),
+      composedUserMessage: "persona\n\n## previous turn\nYou: no-op",
+    };
+
+    expect(roundTrip(input)).toEqual(input);
+  });
+
+  it("round-trips agent input with composedUserMessage absent", () => {
+    const input = baseAgentInput();
+    const roundTripped = roundTrip(input);
+
+    expect(roundTripped).toEqual(input);
+    expect("composedUserMessage" in roundTripped).toBe(false);
   });
 });

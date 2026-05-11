@@ -349,6 +349,20 @@ export type MatchState = {
   rngSeed: string;
 };
 
+/**
+ * Per-action trace entry emitted by resolution. `weapon` is the phase-4
+ * strike-time equipped weapon name for attack/overwatch damage entries.
+ */
+export type ActionTraceEntry = {
+  characterId: string;
+  kind: string;
+  target: string;
+  result: string;
+  fromOverwatch?: boolean;
+  stance?: Exclude<OverwatchStance, null>;
+  weapon?: string;
+};
+
 // ─── Visible entities + heard speech (ADR §6 / concept-spec §7,§16) ──────────
 
 /**
