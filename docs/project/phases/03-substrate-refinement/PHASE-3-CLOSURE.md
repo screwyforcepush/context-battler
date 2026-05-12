@@ -363,12 +363,24 @@ ledger across both halves (WP-F + WP-G). The trio of measurements
 tightly, which suggests the substrate-correctness fixes don't perturb
 this metric — it's a genuine Azure-side floor.
 
-**Phase-4 carry-forward.** Capture the full reasoning content
-(`output[].type === "reasoning"` item content array, not just the
-summary) so the diagnostic surface no longer depends on Azure choosing
-to emit a summary. This is the natural next step — the field shape is
-already nullable string, so the wrapper change is local to
-`convex/llm/azure.ts` reasoning-extraction logic.
+**Phase-4 carry-forward.** The only viable lever is a
+`reasoning.effort` upgrade probe (`low` → `medium`); higher tiers
+emit the `summary[]` array more reliably. Bumping effort costs
+latency + reasoning_tokens (already persisted verbatim via
+`agentRecord.llm.usage`, see §4 wrapper note), so the probe is a
+capture-rate-vs-cost bench, not a free win.
+
+~~Alternate path: capture the raw reasoning content array~~ — **not
+viable.** Azure (and OpenAI-direct) deliberately do not expose raw
+reasoning tokens; the reasoning item carries only `summary[]`, with
+no `content[]` array. Microsoft's reasoning-models guide states
+attempting to extract raw reasoning "may violate the Acceptable Use
+Policy, and may result in throttling or suspension." Accepted
+`reasoning.summary` values are `"auto" | "concise" | "detailed"`
+only; the wrapper already sends `"auto"` (which Azure resolves to
+`"detailed"`, confirmed by the WP-A.1 probe response echo at
+`harness/probe-reasoning-output.json:117`). There is no
+wrapper-local change that lifts capture above the Azure floor.
 
 ---
 
@@ -526,13 +538,18 @@ as in-scope, deferred, or accepted as-is.
   responses even when reasoning tokens were generated. Probe
   `medium`-effort token budget vs. capture-rate trade-off — the
   natural lever for lifting reasoning capture above the Azure-side
-  floor.
-- **Full reasoning content capture (alternate path to the same goal).**
-  Capture the full reasoning content (`output[].type === "reasoning"`
-  content array, not just the summary) so the diagnostic surface no
-  longer depends on Azure choosing to emit a summary. Wrapper-local
-  change in `convex/llm/azure.ts`; the field shape is already
-  nullable string.
+  floor. This is the ONLY viable lever — see strikethrough below.
+- ~~**Full reasoning content capture.**~~ **Not viable.** Investigated
+  2026-05-12: Azure and OpenAI-direct both deliberately suppress raw
+  reasoning tokens. The reasoning item carries only `summary[]`; there
+  is no `content[]` array, no `include: ["reasoning.encrypted_content"]`
+  parameter, and no `summary: "raw"` value. Microsoft's reasoning-models
+  guide explicitly warns that extraction attempts "may violate the
+  Acceptable Use Policy, and may result in throttling or suspension."
+  The wrapper already requests `summary: "auto"` (Azure resolves this
+  to `"detailed"` — confirmed by the WP-A.1 probe echo at
+  `harness/probe-reasoning-output.json:117`), so we are already at the
+  ceiling. Removed from the follow-up list.
 - **Counter-fire-damage `Last turn (you):` line** per UAT-003. The
   one-way attribution gap for defensive-overwatch attackers (the
   attacker's `Last turn (you):` line does not reflect the
