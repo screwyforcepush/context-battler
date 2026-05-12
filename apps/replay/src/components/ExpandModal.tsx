@@ -38,6 +38,7 @@ import {
   composeFullLlmInput,
   composeRawArgumentsVsDecision,
   composeReasoningText,
+  composeUsage,
 } from "../lib/rawPane";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,6 +170,10 @@ function RawPane(props: { agentRecord: AgentRecord }): React.ReactElement {
     () => composeRawArgumentsVsDecision(props.agentRecord),
     [props.agentRecord],
   );
+  const usage = useMemo(
+    () => composeUsage(props.agentRecord),
+    [props.agentRecord],
+  );
   const validatorReason = props.agentRecord.llm.validatorReason ?? null;
 
   return (
@@ -178,6 +183,9 @@ function RawPane(props: { agentRecord: AgentRecord }): React.ReactElement {
 
       <h3 style={subTitleStyle}>Reasoning text</h3>
       <CopyablePre text={reasoning} />
+
+      <h3 style={subTitleStyle}>Usage</h3>
+      <CopyablePre text={usage} />
 
       <h3 style={subTitleStyle}>Tool call</h3>
       <CopyablePre text={toolCall.rendered} />

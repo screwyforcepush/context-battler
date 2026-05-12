@@ -235,6 +235,24 @@ function readOutputTokens(usage: AgentRecord["llm"]["usage"]): number | null {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// composeUsage — pretty-printed `agentRecord.llm.usage` JSON dump.
+//
+// The wrapper persists Azure's `body.usage` object verbatim (schema:
+// `usageValidator = v.any() | null`). Surfacing it as a raw pane lets the
+// user eyeball reasoning_tokens, cached_tokens, and truncation against
+// max_output_tokens on a per-turn basis without leaving the modal.
+// Fallback string mirrors composeReasoningText's "(no … captured)" shape.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const NO_USAGE_FALLBACK = "(no usage captured)";
+
+export function composeUsage(agentRecord: AgentRecord): string {
+  const usage = agentRecord.llm.usage;
+  if (usage === null || usage === undefined) return NO_USAGE_FALLBACK;
+  return JSON.stringify(usage, null, 2);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // hasReasoningIndicator — feed-row indicator predicate.
 //
 // TurnFeed lights up a small "🧠" indicator when reasoning content exists.

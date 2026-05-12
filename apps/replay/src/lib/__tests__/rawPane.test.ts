@@ -12,6 +12,7 @@ import {
   composeReasoningText,
   composeDecisionJson,
   composeRawArgumentsVsDecision,
+  composeUsage,
   composeUsageBar,
 } from "../rawPane";
 import type { AgentRecord } from "../decisionEnglish";
@@ -346,6 +347,45 @@ describe("composeUsageBar", () => {
     const out = composeUsageBar(makeAgentRecord({ usage: null }), 1200);
     expect(out.rendered).toBe("[— / 1200] tokens");
     expect(out.truncated).toBe(false);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// composeUsage — pretty-printed usage JSON dump with fallback
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("composeUsage", () => {
+  it("renders the usage object as 2-space indented JSON when present", () => {
+    const ar = makeAgentRecord({
+      usage: {
+        input_tokens: 496,
+        input_tokens_details: { cached_tokens: 0 },
+        output_tokens: 256,
+        output_tokens_details: { reasoning_tokens: 197 },
+        total_tokens: 752,
+      },
+    });
+    const out = composeUsage(ar);
+    expect(out.startsWith("{\n  ")).toBe(true);
+    const parsed = JSON.parse(out) as Record<string, unknown>;
+    expect(parsed["input_tokens"]).toBe(496);
+    expect(parsed["output_tokens"]).toBe(256);
+    expect(parsed["total_tokens"]).toBe(752);
+    expect(
+      (parsed["output_tokens_details"] as Record<string, unknown>)[
+        "reasoning_tokens"
+      ],
+    ).toBe(197);
+    expect(
+      (parsed["input_tokens_details"] as Record<string, unknown>)[
+        "cached_tokens"
+      ],
+    ).toBe(0);
+  });
+
+  it('returns "(no usage captured)" fallback when usage is null', () => {
+    const ar = makeAgentRecord({ usage: null });
+    expect(composeUsage(ar)).toBe("(no usage captured)");
   });
 });
 
