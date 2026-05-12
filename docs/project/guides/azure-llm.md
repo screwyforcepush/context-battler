@@ -171,6 +171,7 @@ return resp.output[<message>].content[0].text
 - **`tool_choice: "required"`** forces the model to call *some* tool. Useful for the per-turn agent decision where free-form text would be a bug.
 - **Parallel tool calls must be off.** Set `parallel_tool_calls: false`. The decision contract is *one tool call per turn*, all action fields bundled (see `architecture.md` §3 and mental model §9). The schema disallows even expressing parallel turns.
 - **Tool `output` is a string.** Stringify your JSON before sending.
+- **Strict mode is implicit on Responses.** The Azure Responses API silently normalises tool schemas to strict mode — `required[]` is decorative and every property is treated as required regardless. The model emits dense sentinel values for "optional" fields. Design structurally (per-turn schema variants, discriminated unions) rather than relying on optional fields. Empirical evidence: `harness/probe-schema-emission.ts` + `harness/probe-schema-emission-output.json`.
 
 ### Scope of `previous_response_id`
 

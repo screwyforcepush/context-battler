@@ -24,6 +24,10 @@ import { convexClient } from "./lib/convexClient";
 import { useHashRoute } from "./lib/useHashRoute";
 import { MatchPicker } from "./routes/MatchPicker";
 import { Replay } from "./routes/Replay";
+import {
+  SYNC_RENDER_ERROR_BODY,
+  SYNC_RENDER_ERROR_DETAILS_DEFAULT_OPEN,
+} from "./lib/replayErrorCopy";
 import "./index.css";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,13 +72,12 @@ class ReplayErrorBoundary extends React.Component<
             ← back to picker
           </a>
           <div role="alert" style={errorBoxStyle}>
-            <p style={errorTitleStyle}>Couldn’t load that match.</p>
-            <p style={errorBodyStyle}>
-              The match id in the URL doesn’t match a completed match in your
-              Convex deployment. Double-check the URL or pick a row from the
-              list.
-            </p>
-            <details style={errorDetailStyle}>
+            <p style={errorTitleStyle}>Replay render failed.</p>
+            <p style={errorBodyStyle}>{SYNC_RENDER_ERROR_BODY}</p>
+            <details
+              style={errorDetailStyle}
+              open={SYNC_RENDER_ERROR_DETAILS_DEFAULT_OPEN}
+            >
               <summary style={errorSummaryStyle}>raw error</summary>
               <code style={errorCodeStyle}>{this.state.error.message}</code>
             </details>

@@ -1,0 +1,1272 @@
+{
+  "probedAt": "2026-05-12T09:21:37.546Z",
+  "azureModel": "gpt-5.4-mini",
+  "toolShipped": {
+    "type": "function",
+    "name": "submit_dinner_order",
+    "description": "Submit a dinner order. Only `entree` is required. Omit other fields if the customer didn't specify them — do NOT invent values.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entree"
+      ],
+      "properties": {
+        "entree": {
+          "enum": [
+            "pizza",
+            "pasta",
+            "salad"
+          ],
+          "description": "The main course. Required."
+        },
+        "appetizer": {
+          "enum": [
+            "bread",
+            "soup",
+            "none"
+          ],
+          "description": "Optional starter. Omit if customer didn't mention one."
+        },
+        "dessert": {
+          "enum": [
+            "cake",
+            "ice_cream",
+            "none"
+          ],
+          "description": "Optional dessert. Omit if customer didn't mention one."
+        },
+        "drink": {
+          "enum": [
+            "water",
+            "soda",
+            "none"
+          ],
+          "description": "Optional drink. Omit if customer didn't mention one."
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 200,
+          "description": "Optional free-form note from the customer. Omit if no note."
+        }
+      }
+    }
+  },
+  "probeA_schemaEcho": {
+    "httpStatus": 200,
+    "bodyJson": {
+      "id": "resp_077224dab95df507016a02f1229998819793285a1dff2d59f0",
+      "object": "response",
+      "created_at": 1778577698,
+      "status": "completed",
+      "background": false,
+      "completed_at": 1778577702,
+      "content_filters": [
+        {
+          "blocked": false,
+          "source_type": "prompt",
+          "content_filter_raw": [],
+          "content_filter_results": {
+            "hate": {
+              "filtered": false,
+              "severity": "safe"
+            },
+            "sexual": {
+              "filtered": false,
+              "severity": "safe"
+            },
+            "violence": {
+              "filtered": false,
+              "severity": "safe"
+            },
+            "self_harm": {
+              "filtered": false,
+              "severity": "safe"
+            }
+          },
+          "content_filter_offsets": {
+            "start_offset": 0,
+            "end_offset": 60,
+            "check_offset": 0
+          }
+        },
+        {
+          "blocked": false,
+          "source_type": "completion",
+          "content_filter_raw": [],
+          "content_filter_results": {
+            "hate": {
+              "filtered": false,
+              "severity": "safe"
+            },
+            "sexual": {
+              "filtered": false,
+              "severity": "safe"
+            },
+            "violence": {
+              "filtered": false,
+              "severity": "safe"
+            },
+            "self_harm": {
+              "filtered": false,
+              "severity": "safe"
+            }
+          },
+          "content_filter_offsets": {
+            "start_offset": 0,
+            "end_offset": 2085,
+            "check_offset": 0
+          }
+        }
+      ],
+      "error": null,
+      "frequency_penalty": 0,
+      "incomplete_details": null,
+      "instructions": null,
+      "max_output_tokens": 2000,
+      "max_tool_calls": null,
+      "model": "gpt-5.4-mini",
+      "output": [
+        {
+          "id": "rs_077224dab95df507016a02f12371ac8197857d0fe27f668c18",
+          "type": "reasoning",
+          "summary": [
+            {
+              "type": "summary_text",
+              "text": "**Describing JSON schema**\n\nI need to focus on how to describe the JSON schema accurately, making sure to include the tool name and a top-level description. However, there’s no explicit description to pull from, so I might have to state that there’s none. It’s crucial to be exhaustive and verbatim here. I’ll need to carefully outline the properties and specify which are required versus optional. This clarity will help in understanding how to utilize the tool effectively!"
+            }
+          ]
+        },
+        {
+          "id": "msg_077224dab95df507016a02f12532988197ae4b8e0fc6191d28",
+          "type": "message",
+          "status": "completed",
+          "content": [
+            {
+              "type": "output_text",
+              "annotations": [],
+              "logprobs": [],
+              "text": "Tool name: `submit_dinner_order`\n\nTop-level description: none provided\n\nSchema properties:\n\n1. `entree`\n   - Type: string\n   - Enum: `\"pizza\"`, `\"pasta\"`, `\"salad\"`\n   - Description: “The main course. Required.”\n   - Required: yes\n\n2. `appetizer`\n   - Type: string\n   - Enum: `\"bread\"`, `\"soup\"`, `\"none\"`\n   - Description: “Optional starter. Omit if customer didn't mention one.”\n   - Required: no\n\n3. `dessert`\n   - Type: string\n   - Enum: `\"cake\"`, `\"ice_cream\"`, `\"none\"`\n   - Description: “Optional dessert. Omit if customer didn't mention one.”\n   - Required: no\n\n4. `drink`\n   - Type: string\n   - Enum: `\"water\"`, `\"soda\"`, `\"none\"`\n   - Description: “Optional drink. Omit if customer didn't mention one.”\n   - Required: no\n\n5. `notes`\n   - Type: string or null\n   - Max length: 200\n   - Description: “Optional free-form note from the customer. Omit if no note.”\n   - Required: no\n\nRequired properties:\n- `entree`\n\nOptional properties:\n- `appetizer`\n- `dessert`\n- `drink`\n- `notes`"
+            }
+          ],
+          "phase": "final_answer",
+          "role": "assistant"
+        }
+      ],
+      "parallel_tool_calls": false,
+      "presence_penalty": 0,
+      "previous_response_id": null,
+      "prompt_cache_key": null,
+      "prompt_cache_retention": "in_memory",
+      "reasoning": {
+        "effort": "low",
+        "summary": "detailed"
+      },
+      "safety_identifier": null,
+      "service_tier": "default",
+      "store": false,
+      "temperature": 1,
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "tool_choice": "auto",
+      "tools": [
+        {
+          "type": "function",
+          "description": "Submit a dinner order. Only `entree` is required. Omit other fields if the customer didn't specify them — do NOT invent values.",
+          "name": "submit_dinner_order",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "entree",
+              "appetizer",
+              "dessert",
+              "drink",
+              "notes"
+            ],
+            "properties": {
+              "entree": {
+                "enum": [
+                  "pizza",
+                  "pasta",
+                  "salad"
+                ],
+                "description": "The main course. Required."
+              },
+              "appetizer": {
+                "enum": [
+                  "bread",
+                  "soup",
+                  "none"
+                ],
+                "description": "Optional starter. Omit if customer didn't mention one."
+              },
+              "dessert": {
+                "enum": [
+                  "cake",
+                  "ice_cream",
+                  "none"
+                ],
+                "description": "Optional dessert. Omit if customer didn't mention one."
+              },
+              "drink": {
+                "enum": [
+                  "water",
+                  "soda",
+                  "none"
+                ],
+                "description": "Optional drink. Omit if customer didn't mention one."
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Optional free-form note from the customer. Omit if no note."
+              }
+            }
+          },
+          "strict": true
+        }
+      ],
+      "top_logprobs": 0,
+      "top_p": 0.98,
+      "truncation": "disabled",
+      "usage": {
+        "input_tokens": 391,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens": 351,
+        "output_tokens_details": {
+          "reasoning_tokens": 53
+        },
+        "total_tokens": 742
+      },
+      "user": null,
+      "metadata": {}
+    },
+    "messageText": "Tool name: `submit_dinner_order`\n\nTop-level description: none provided\n\nSchema properties:\n\n1. `entree`\n   - Type: string\n   - Enum: `\"pizza\"`, `\"pasta\"`, `\"salad\"`\n   - Description: “The main course. Required.”\n   - Required: yes\n\n2. `appetizer`\n   - Type: string\n   - Enum: `\"bread\"`, `\"soup\"`, `\"none\"`\n   - Description: “Optional starter. Omit if customer didn't mention one.”\n   - Required: no\n\n3. `dessert`\n   - Type: string\n   - Enum: `\"cake\"`, `\"ice_cream\"`, `\"none\"`\n   - Description: “Optional dessert. Omit if customer didn't mention one.”\n   - Required: no\n\n4. `drink`\n   - Type: string\n   - Enum: `\"water\"`, `\"soda\"`, `\"none\"`\n   - Description: “Optional drink. Omit if customer didn't mention one.”\n   - Required: no\n\n5. `notes`\n   - Type: string or null\n   - Max length: 200\n   - Description: “Optional free-form note from the customer. Omit if no note.”\n   - Required: no\n\nRequired properties:\n- `entree`\n\nOptional properties:\n- `appetizer`\n- `dessert`\n- `drink`\n- `notes`",
+    "toolCallEmitted": null
+  },
+  "probeB_emissionRuns": [
+    {
+      "label": "minimal",
+      "userPrompt": "Order a pizza.",
+      "httpStatus": 200,
+      "toolCall": {
+        "arguments": "{\"entree\":\"pizza\",\"appetizer\":\"none\",\"dessert\":\"none\",\"drink\":\"none\",\"notes\":null}",
+        "parsed": {
+          "entree": "pizza",
+          "appetizer": "none",
+          "dessert": "none",
+          "drink": "none",
+          "notes": null
+        },
+        "presentKeys": [
+          "entree",
+          "appetizer",
+          "dessert",
+          "drink",
+          "notes"
+        ]
+      },
+      "bodyJson": {
+        "id": "resp_08bc1a76d2e23686016a02f1276ebc8190a096ac5a7033a0e2",
+        "object": "response",
+        "created_at": 1778577703,
+        "status": "completed",
+        "background": false,
+        "completed_at": 1778577704,
+        "content_filters": [
+          {
+            "blocked": false,
+            "source_type": "prompt",
+            "content_filter_raw": [],
+            "content_filter_results": {
+              "hate": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "sexual": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "violence": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "self_harm": {
+                "filtered": false,
+                "severity": "safe"
+              }
+            },
+            "content_filter_offsets": {
+              "start_offset": 0,
+              "end_offset": 47,
+              "check_offset": 0
+            }
+          },
+          {
+            "blocked": false,
+            "source_type": "completion",
+            "content_filter_raw": [],
+            "content_filter_results": {
+              "hate": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "sexual": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "violence": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "self_harm": {
+                "filtered": false,
+                "severity": "safe"
+              }
+            },
+            "content_filter_offsets": {
+              "start_offset": 0,
+              "end_offset": 931,
+              "check_offset": 0
+            }
+          }
+        ],
+        "error": null,
+        "frequency_penalty": 0,
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 800,
+        "max_tool_calls": null,
+        "model": "gpt-5.4-mini",
+        "output": [
+          {
+            "id": "fc_08bc1a76d2e23686016a02f1283dcc8190a673ee744b31f199",
+            "type": "function_call",
+            "status": "completed",
+            "arguments": "{\"entree\":\"pizza\",\"appetizer\":\"none\",\"dessert\":\"none\",\"drink\":\"none\",\"notes\":null}",
+            "call_id": "call_jQ6vmacQK5VowXla4FkCxnc8",
+            "name": "submit_dinner_order"
+          }
+        ],
+        "parallel_tool_calls": false,
+        "presence_penalty": 0,
+        "previous_response_id": null,
+        "prompt_cache_key": null,
+        "prompt_cache_retention": "in_memory",
+        "reasoning": {
+          "effort": "low",
+          "summary": "detailed"
+        },
+        "safety_identifier": null,
+        "service_tier": "default",
+        "store": false,
+        "temperature": 1,
+        "text": {
+          "format": {
+            "type": "text"
+          },
+          "verbosity": "medium"
+        },
+        "tool_choice": "required",
+        "tools": [
+          {
+            "type": "function",
+            "description": "Submit a dinner order. Only `entree` is required. Omit other fields if the customer didn't specify them — do NOT invent values.",
+            "name": "submit_dinner_order",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "entree",
+                "appetizer",
+                "dessert",
+                "drink",
+                "notes"
+              ],
+              "properties": {
+                "entree": {
+                  "enum": [
+                    "pizza",
+                    "pasta",
+                    "salad"
+                  ],
+                  "description": "The main course. Required."
+                },
+                "appetizer": {
+                  "enum": [
+                    "bread",
+                    "soup",
+                    "none"
+                  ],
+                  "description": "Optional starter. Omit if customer didn't mention one."
+                },
+                "dessert": {
+                  "enum": [
+                    "cake",
+                    "ice_cream",
+                    "none"
+                  ],
+                  "description": "Optional dessert. Omit if customer didn't mention one."
+                },
+                "drink": {
+                  "enum": [
+                    "water",
+                    "soda",
+                    "none"
+                  ],
+                  "description": "Optional drink. Omit if customer didn't mention one."
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 200,
+                  "description": "Optional free-form note from the customer. Omit if no note."
+                }
+              }
+            },
+            "strict": true
+          }
+        ],
+        "top_logprobs": 0,
+        "top_p": 0.98,
+        "truncation": "disabled",
+        "usage": {
+          "input_tokens": 353,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 40,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 393
+        },
+        "user": null,
+        "metadata": {}
+      }
+    },
+    {
+      "label": "minimal_repeat_1",
+      "userPrompt": "Order a pizza.",
+      "httpStatus": 200,
+      "toolCall": {
+        "arguments": "{\"entree\":\"pizza\",\"appetizer\":\"none\",\"dessert\":\"none\",\"drink\":\"none\",\"notes\":null}",
+        "parsed": {
+          "entree": "pizza",
+          "appetizer": "none",
+          "dessert": "none",
+          "drink": "none",
+          "notes": null
+        },
+        "presentKeys": [
+          "entree",
+          "appetizer",
+          "dessert",
+          "drink",
+          "notes"
+        ]
+      },
+      "bodyJson": {
+        "id": "resp_038931c6e1c82bf9016a02f1293c04819695490170545cb034",
+        "object": "response",
+        "created_at": 1778577705,
+        "status": "completed",
+        "background": false,
+        "completed_at": 1778577706,
+        "content_filters": [
+          {
+            "blocked": false,
+            "source_type": "prompt",
+            "content_filter_raw": [],
+            "content_filter_results": {
+              "hate": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "sexual": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "violence": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "self_harm": {
+                "filtered": false,
+                "severity": "safe"
+              }
+            },
+            "content_filter_offsets": {
+              "start_offset": 0,
+              "end_offset": 47,
+              "check_offset": 0
+            }
+          },
+          {
+            "blocked": false,
+            "source_type": "completion",
+            "content_filter_raw": [],
+            "content_filter_results": {
+              "hate": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "sexual": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "violence": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "self_harm": {
+                "filtered": false,
+                "severity": "safe"
+              }
+            },
+            "content_filter_offsets": {
+              "start_offset": 0,
+              "end_offset": 931,
+              "check_offset": 0
+            }
+          }
+        ],
+        "error": null,
+        "frequency_penalty": 0,
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 800,
+        "max_tool_calls": null,
+        "model": "gpt-5.4-mini",
+        "output": [
+          {
+            "id": "fc_038931c6e1c82bf9016a02f12a156881969d217f6c2c10bfa6",
+            "type": "function_call",
+            "status": "completed",
+            "arguments": "{\"entree\":\"pizza\",\"appetizer\":\"none\",\"dessert\":\"none\",\"drink\":\"none\",\"notes\":null}",
+            "call_id": "call_2evqMk89MwL23CjfjptVZfo9",
+            "name": "submit_dinner_order"
+          }
+        ],
+        "parallel_tool_calls": false,
+        "presence_penalty": 0,
+        "previous_response_id": null,
+        "prompt_cache_key": null,
+        "prompt_cache_retention": "in_memory",
+        "reasoning": {
+          "effort": "low",
+          "summary": "detailed"
+        },
+        "safety_identifier": null,
+        "service_tier": "default",
+        "store": false,
+        "temperature": 1,
+        "text": {
+          "format": {
+            "type": "text"
+          },
+          "verbosity": "medium"
+        },
+        "tool_choice": "required",
+        "tools": [
+          {
+            "type": "function",
+            "description": "Submit a dinner order. Only `entree` is required. Omit other fields if the customer didn't specify them — do NOT invent values.",
+            "name": "submit_dinner_order",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "entree",
+                "appetizer",
+                "dessert",
+                "drink",
+                "notes"
+              ],
+              "properties": {
+                "entree": {
+                  "enum": [
+                    "pizza",
+                    "pasta",
+                    "salad"
+                  ],
+                  "description": "The main course. Required."
+                },
+                "appetizer": {
+                  "enum": [
+                    "bread",
+                    "soup",
+                    "none"
+                  ],
+                  "description": "Optional starter. Omit if customer didn't mention one."
+                },
+                "dessert": {
+                  "enum": [
+                    "cake",
+                    "ice_cream",
+                    "none"
+                  ],
+                  "description": "Optional dessert. Omit if customer didn't mention one."
+                },
+                "drink": {
+                  "enum": [
+                    "water",
+                    "soda",
+                    "none"
+                  ],
+                  "description": "Optional drink. Omit if customer didn't mention one."
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 200,
+                  "description": "Optional free-form note from the customer. Omit if no note."
+                }
+              }
+            },
+            "strict": true
+          }
+        ],
+        "top_logprobs": 0,
+        "top_p": 0.98,
+        "truncation": "disabled",
+        "usage": {
+          "input_tokens": 353,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 40,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 393
+        },
+        "user": null,
+        "metadata": {}
+      }
+    },
+    {
+      "label": "minimal_repeat_2",
+      "userPrompt": "Order a pizza.",
+      "httpStatus": 200,
+      "toolCall": {
+        "arguments": "{\"entree\":\"pizza\",\"appetizer\":\"none\",\"dessert\":\"none\",\"drink\":\"none\",\"notes\":null}",
+        "parsed": {
+          "entree": "pizza",
+          "appetizer": "none",
+          "dessert": "none",
+          "drink": "none",
+          "notes": null
+        },
+        "presentKeys": [
+          "entree",
+          "appetizer",
+          "dessert",
+          "drink",
+          "notes"
+        ]
+      },
+      "bodyJson": {
+        "id": "resp_021c634f1fcee424016a02f12aec8c819483e2ef7613c03708",
+        "object": "response",
+        "created_at": 1778577706,
+        "status": "completed",
+        "background": false,
+        "completed_at": 1778577708,
+        "content_filters": [
+          {
+            "blocked": false,
+            "source_type": "prompt",
+            "content_filter_raw": [],
+            "content_filter_results": {
+              "hate": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "sexual": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "violence": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "self_harm": {
+                "filtered": false,
+                "severity": "safe"
+              }
+            },
+            "content_filter_offsets": {
+              "start_offset": 0,
+              "end_offset": 47,
+              "check_offset": 0
+            }
+          },
+          {
+            "blocked": false,
+            "source_type": "completion",
+            "content_filter_raw": [],
+            "content_filter_results": {
+              "hate": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "sexual": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "violence": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "self_harm": {
+                "filtered": false,
+                "severity": "safe"
+              }
+            },
+            "content_filter_offsets": {
+              "start_offset": 0,
+              "end_offset": 931,
+              "check_offset": 0
+            }
+          }
+        ],
+        "error": null,
+        "frequency_penalty": 0,
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 800,
+        "max_tool_calls": null,
+        "model": "gpt-5.4-mini",
+        "output": [
+          {
+            "id": "fc_021c634f1fcee424016a02f12be7a08194942c4456b5c98667",
+            "type": "function_call",
+            "status": "completed",
+            "arguments": "{\"entree\":\"pizza\",\"appetizer\":\"none\",\"dessert\":\"none\",\"drink\":\"none\",\"notes\":null}",
+            "call_id": "call_34qFid9P7kbyGa9hoMc1S6FR",
+            "name": "submit_dinner_order"
+          }
+        ],
+        "parallel_tool_calls": false,
+        "presence_penalty": 0,
+        "previous_response_id": null,
+        "prompt_cache_key": null,
+        "prompt_cache_retention": "in_memory",
+        "reasoning": {
+          "effort": "low",
+          "summary": "detailed"
+        },
+        "safety_identifier": null,
+        "service_tier": "default",
+        "store": false,
+        "temperature": 1,
+        "text": {
+          "format": {
+            "type": "text"
+          },
+          "verbosity": "medium"
+        },
+        "tool_choice": "required",
+        "tools": [
+          {
+            "type": "function",
+            "description": "Submit a dinner order. Only `entree` is required. Omit other fields if the customer didn't specify them — do NOT invent values.",
+            "name": "submit_dinner_order",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "entree",
+                "appetizer",
+                "dessert",
+                "drink",
+                "notes"
+              ],
+              "properties": {
+                "entree": {
+                  "enum": [
+                    "pizza",
+                    "pasta",
+                    "salad"
+                  ],
+                  "description": "The main course. Required."
+                },
+                "appetizer": {
+                  "enum": [
+                    "bread",
+                    "soup",
+                    "none"
+                  ],
+                  "description": "Optional starter. Omit if customer didn't mention one."
+                },
+                "dessert": {
+                  "enum": [
+                    "cake",
+                    "ice_cream",
+                    "none"
+                  ],
+                  "description": "Optional dessert. Omit if customer didn't mention one."
+                },
+                "drink": {
+                  "enum": [
+                    "water",
+                    "soda",
+                    "none"
+                  ],
+                  "description": "Optional drink. Omit if customer didn't mention one."
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 200,
+                  "description": "Optional free-form note from the customer. Omit if no note."
+                }
+              }
+            },
+            "strict": true
+          }
+        ],
+        "top_logprobs": 0,
+        "top_p": 0.98,
+        "truncation": "disabled",
+        "usage": {
+          "input_tokens": 353,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 40,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 393
+        },
+        "user": null,
+        "metadata": {}
+      }
+    },
+    {
+      "label": "pizza_with_one_extra",
+      "userPrompt": "Order a pizza. Add a soda.",
+      "httpStatus": 200,
+      "toolCall": {
+        "arguments": "{\"entree\":\"pizza\",\"appetizer\":\"none\",\"dessert\":\"none\",\"drink\":\"soda\",\"notes\":null}",
+        "parsed": {
+          "entree": "pizza",
+          "appetizer": "none",
+          "dessert": "none",
+          "drink": "soda",
+          "notes": null
+        },
+        "presentKeys": [
+          "entree",
+          "appetizer",
+          "dessert",
+          "drink",
+          "notes"
+        ]
+      },
+      "bodyJson": {
+        "id": "resp_00ce1b1358c31224016a02f12d18ec8193a63170bdc2fe7523",
+        "object": "response",
+        "created_at": 1778577709,
+        "status": "completed",
+        "background": false,
+        "completed_at": 1778577710,
+        "content_filters": [
+          {
+            "blocked": false,
+            "source_type": "prompt",
+            "content_filter_raw": [],
+            "content_filter_results": {
+              "hate": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "sexual": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "violence": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "self_harm": {
+                "filtered": false,
+                "severity": "safe"
+              }
+            },
+            "content_filter_offsets": {
+              "start_offset": 0,
+              "end_offset": 59,
+              "check_offset": 0
+            }
+          },
+          {
+            "blocked": false,
+            "source_type": "completion",
+            "content_filter_raw": [],
+            "content_filter_results": {
+              "hate": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "sexual": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "violence": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "self_harm": {
+                "filtered": false,
+                "severity": "safe"
+              }
+            },
+            "content_filter_offsets": {
+              "start_offset": 0,
+              "end_offset": 931,
+              "check_offset": 0
+            }
+          }
+        ],
+        "error": null,
+        "frequency_penalty": 0,
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 800,
+        "max_tool_calls": null,
+        "model": "gpt-5.4-mini",
+        "output": [
+          {
+            "id": "fc_00ce1b1358c31224016a02f12e771c8193bed21ec1268e5cfb",
+            "type": "function_call",
+            "status": "completed",
+            "arguments": "{\"entree\":\"pizza\",\"appetizer\":\"none\",\"dessert\":\"none\",\"drink\":\"soda\",\"notes\":null}",
+            "call_id": "call_fSaDoMLDOEwT9z9YLUbWXSyl",
+            "name": "submit_dinner_order"
+          }
+        ],
+        "parallel_tool_calls": false,
+        "presence_penalty": 0,
+        "previous_response_id": null,
+        "prompt_cache_key": null,
+        "prompt_cache_retention": "in_memory",
+        "reasoning": {
+          "effort": "low",
+          "summary": "detailed"
+        },
+        "safety_identifier": null,
+        "service_tier": "default",
+        "store": false,
+        "temperature": 1,
+        "text": {
+          "format": {
+            "type": "text"
+          },
+          "verbosity": "medium"
+        },
+        "tool_choice": "required",
+        "tools": [
+          {
+            "type": "function",
+            "description": "Submit a dinner order. Only `entree` is required. Omit other fields if the customer didn't specify them — do NOT invent values.",
+            "name": "submit_dinner_order",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "entree",
+                "appetizer",
+                "dessert",
+                "drink",
+                "notes"
+              ],
+              "properties": {
+                "entree": {
+                  "enum": [
+                    "pizza",
+                    "pasta",
+                    "salad"
+                  ],
+                  "description": "The main course. Required."
+                },
+                "appetizer": {
+                  "enum": [
+                    "bread",
+                    "soup",
+                    "none"
+                  ],
+                  "description": "Optional starter. Omit if customer didn't mention one."
+                },
+                "dessert": {
+                  "enum": [
+                    "cake",
+                    "ice_cream",
+                    "none"
+                  ],
+                  "description": "Optional dessert. Omit if customer didn't mention one."
+                },
+                "drink": {
+                  "enum": [
+                    "water",
+                    "soda",
+                    "none"
+                  ],
+                  "description": "Optional drink. Omit if customer didn't mention one."
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 200,
+                  "description": "Optional free-form note from the customer. Omit if no note."
+                }
+              }
+            },
+            "strict": true
+          }
+        ],
+        "top_logprobs": 0,
+        "top_p": 0.98,
+        "truncation": "disabled",
+        "usage": {
+          "input_tokens": 357,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 41,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 398
+        },
+        "user": null,
+        "metadata": {}
+      }
+    },
+    {
+      "label": "pasta_no_extras",
+      "userPrompt": "Order pasta. Nothing else.",
+      "httpStatus": 200,
+      "toolCall": {
+        "arguments": "{\"entree\":\"pasta\",\"appetizer\":\"none\",\"dessert\":\"none\",\"drink\":\"none\",\"notes\":\"Nothing else.\"}",
+        "parsed": {
+          "entree": "pasta",
+          "appetizer": "none",
+          "dessert": "none",
+          "drink": "none",
+          "notes": "Nothing else."
+        },
+        "presentKeys": [
+          "entree",
+          "appetizer",
+          "dessert",
+          "drink",
+          "notes"
+        ]
+      },
+      "bodyJson": {
+        "id": "resp_0019490bcde178a4016a02f12f1674819592e2b4fe8e0f8d49",
+        "object": "response",
+        "created_at": 1778577711,
+        "status": "completed",
+        "background": false,
+        "completed_at": 1778577711,
+        "content_filters": [
+          {
+            "blocked": false,
+            "source_type": "prompt",
+            "content_filter_raw": [],
+            "content_filter_results": {
+              "hate": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "sexual": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "violence": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "self_harm": {
+                "filtered": false,
+                "severity": "safe"
+              }
+            },
+            "content_filter_offsets": {
+              "start_offset": 0,
+              "end_offset": 59,
+              "check_offset": 0
+            }
+          },
+          {
+            "blocked": false,
+            "source_type": "completion",
+            "content_filter_raw": [],
+            "content_filter_results": {
+              "hate": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "sexual": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "violence": {
+                "filtered": false,
+                "severity": "safe"
+              },
+              "self_harm": {
+                "filtered": false,
+                "severity": "safe"
+              }
+            },
+            "content_filter_offsets": {
+              "start_offset": 0,
+              "end_offset": 942,
+              "check_offset": 0
+            }
+          }
+        ],
+        "error": null,
+        "frequency_penalty": 0,
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 800,
+        "max_tool_calls": null,
+        "model": "gpt-5.4-mini",
+        "output": [
+          {
+            "id": "fc_0019490bcde178a4016a02f12f9b508195b279805a3f5006ca",
+            "type": "function_call",
+            "status": "completed",
+            "arguments": "{\"entree\":\"pasta\",\"appetizer\":\"none\",\"dessert\":\"none\",\"drink\":\"none\",\"notes\":\"Nothing else.\"}",
+            "call_id": "call_mkxTgaqXSIjsIQbmjKWd8g0O",
+            "name": "submit_dinner_order"
+          }
+        ],
+        "parallel_tool_calls": false,
+        "presence_penalty": 0,
+        "previous_response_id": null,
+        "prompt_cache_key": null,
+        "prompt_cache_retention": "in_memory",
+        "reasoning": {
+          "effort": "low",
+          "summary": "detailed"
+        },
+        "safety_identifier": null,
+        "service_tier": "default",
+        "store": false,
+        "temperature": 1,
+        "text": {
+          "format": {
+            "type": "text"
+          },
+          "verbosity": "medium"
+        },
+        "tool_choice": "required",
+        "tools": [
+          {
+            "type": "function",
+            "description": "Submit a dinner order. Only `entree` is required. Omit other fields if the customer didn't specify them — do NOT invent values.",
+            "name": "submit_dinner_order",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "entree",
+                "appetizer",
+                "dessert",
+                "drink",
+                "notes"
+              ],
+              "properties": {
+                "entree": {
+                  "enum": [
+                    "pizza",
+                    "pasta",
+                    "salad"
+                  ],
+                  "description": "The main course. Required."
+                },
+                "appetizer": {
+                  "enum": [
+                    "bread",
+                    "soup",
+                    "none"
+                  ],
+                  "description": "Optional starter. Omit if customer didn't mention one."
+                },
+                "dessert": {
+                  "enum": [
+                    "cake",
+                    "ice_cream",
+                    "none"
+                  ],
+                  "description": "Optional dessert. Omit if customer didn't mention one."
+                },
+                "drink": {
+                  "enum": [
+                    "water",
+                    "soda",
+                    "none"
+                  ],
+                  "description": "Optional drink. Omit if customer didn't mention one."
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 200,
+                  "description": "Optional free-form note from the customer. Omit if no note."
+                }
+              }
+            },
+            "strict": true
+          }
+        ],
+        "top_logprobs": 0,
+        "top_p": 0.98,
+        "truncation": "disabled",
+        "usage": {
+          "input_tokens": 355,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 43,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 398
+        },
+        "user": null,
+        "metadata": {}
+      }
+    }
+  ]
+}

@@ -20,9 +20,10 @@
 //     Promise.all; per-agent fallbacks are visible via `failureReason`.
 
 import {
-  decisionTool,
+  buildDecisionTool,
   parseDecision,
   SAFE_DEFAULT_DECISION,
+  type UseVariant,
 } from "./decisionTool.js";
 import type {
   FailureReason,
@@ -115,6 +116,9 @@ export type CallDecisionToolInput = {
   personaPrompt: string;
   scratchpad: string;
   visibleStateDigest: string;
+  composedUserMessage: string;
+  playerName?: string;
+  useVariant?: UseVariant;
   reasoningEffort: "low" | "medium" | "high";
   maxOutputTokens: number;
   abortTimeoutMs?: number;
@@ -135,30 +139,11 @@ export type CallDecisionToolInput = {
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
-/**
- * Compose the user message body. The system prompt is sent verbatim as
- * the system role; persona + scratchpad + visible state digest are joined
- * with section labels into the user role. We use clear, terse labels so
- * the model can parse the structure even at `reasoning.effort: "low"`.
- *
- * Section labels are stable — WP8 builds the digest body separately and
- * we DO NOT reformat it here (the digest is plain text per ADR §7).
- */
-function buildUserMessage(
-  personaPrompt: string,
-  scratchpad: string,
-  visibleStateDigest: string,
+export function buildPlayerSystemMessage(
+  systemPrompt: string,
+  playerName: string,
 ): string {
-  return [
-    "## Persona",
-    personaPrompt,
-    "",
-    "## Scratchpad",
-    scratchpad,
-    "",
-    "## Visible state",
-    visibleStateDigest,
-  ].join("\n");
+  return systemPrompt.replace("<Player Name>", playerName);
 }
 
 /** Find every function_call item in a response output array. */
@@ -387,7 +372,7 @@ function buildHttpBodyExcerpt(
 // Multiple reasoning items concatenate with a double newline. The
 // joined text is sanitised through the same `sanitiseHttpBody` helper
 // (api-keys / bearer tokens / PII redacted) — Gate-2.5 hardening
-// generalises here, and legitimate reasoning prose ("Player_5",
+// generalises here, and legitimate reasoning prose ("Vulture",
 // timestamps, etc.) is preserved by the conservative regex set per
 // ADR §2 risk mitigation. Output is truncated to ≤ 4 KB.
 
@@ -511,6 +496,13 @@ export async function callDecisionTool(
   const azureModel = input.azureModel ?? process.env.AZURE_MODEL;
   const abortTimeoutMs = input.abortTimeoutMs ?? 60_000;
   const retryDelayMs = input.retryDelayMs ?? 1_000;
+  const playerSystemPrompt = buildPlayerSystemMessage(
+    input.systemPrompt,
+    input.playerName ?? "Agent",
+  );
+  const userMessage = input.composedUserMessage;
+  const useVariant = input.useVariant ?? "consumable_or_null";
+  const decisionTool = buildDecisionTool({ useVariant });
 
   // Defensive: missing env or fetch implementation is surfaced as
   // http_non_200 (no HTTP call happened, but the caller's "request did not
@@ -539,14 +531,10 @@ export async function callDecisionTool(
   const requestBody = {
     model: azureModel,
     input: [
-      { role: "system", content: input.systemPrompt },
+      { role: "system", content: playerSystemPrompt },
       {
         role: "user",
-        content: buildUserMessage(
-          input.personaPrompt,
-          input.scratchpad,
-          input.visibleStateDigest,
-        ),
+        content: userMessage,
       },
     ],
     tools: [decisionTool],
@@ -778,7 +766,9 @@ export async function callDecisionTool(
       });
     }
 
-    const parsed = parseDecision(rawArguments);
+    const parsed = parseDecision(rawArguments, {
+      useVariant,
+    });
     if (!parsed.ok) {
       const failureReason: FailureReason =
         parsed.error === "json_parse"

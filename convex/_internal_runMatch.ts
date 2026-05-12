@@ -70,58 +70,61 @@ const equippedValidator = v.object({
   consumable: v.optional(consumableRefValidator),
 });
 
-const moveValidator = v.union(
+const directionValidator = v.union(
   v.object({
-    kind: v.literal("relative"),
-    dx: v.number(),
-    dy: v.number(),
-  }),
-  v.object({
-    kind: v.literal("toward"),
+    kind: v.union(v.literal("toward"), v.literal("away")),
     targetId: v.string(),
   }),
   v.object({
-    kind: v.literal("away"),
-    targetId: v.string(),
+    kind: v.union(
+      v.literal("N"),
+      v.literal("NE"),
+      v.literal("E"),
+      v.literal("SE"),
+      v.literal("S"),
+      v.literal("SW"),
+      v.literal("W"),
+      v.literal("NW"),
+    ),
   }),
-  v.object({ kind: v.literal("none") }),
 );
 
-// Phase-3 ADR §1 mirror — kept in lockstep with `convex/schema.ts`.
-// Drift would reject every new-shape `recordTurn` mutation row at runtime.
-// 3-arm action union; interact REMOVED; loot.targetCorpseId →
-// loot.targetId; chests + corpses both flow through loot, dispatched
-// by id namespace in the engine.
+const positionValidator = v.union(
+  v.object({ kind: v.union(v.literal("overwatch"), v.literal("counter")) }),
+  v.object({
+    kind: v.literal("move"),
+    direction: directionValidator,
+    dist: v.number(),
+  }),
+);
+
 const actionValidator = v.union(
   v.object({
-    kind: v.literal("attack"),
-    targetCharacterId: v.string(),
-  }),
-  v.object({
-    kind: v.literal("loot"),
+    kind: v.union(v.literal("attack"), v.literal("loot")),
     targetId: v.string(),
   }),
   v.object({ kind: v.literal("none") }),
 );
 
-// Phase-3 ADR §1 mirror — `overwatch_priority` REMOVED; replaced by
-// structured `overwatch_stance` (`"offensive" | "defensive" | null`).
 const decisionValidator = v.object({
-  consume: v.union(v.literal("none"), v.literal("heal"), v.literal("speed")),
-  primary: v.union(
-    v.literal("move"),
-    v.literal("stationary_action"),
-    v.literal("overwatch"),
-  ),
-  move: moveValidator,
+  use: v.union(v.literal("consumable"), v.null()),
+  position: positionValidator,
   action: actionValidator,
   say: v.union(v.string(), v.null()),
-  overwatch_stance: v.union(
-    v.literal("offensive"),
-    v.literal("defensive"),
-    v.null(),
-  ),
-  scratchpad_update: v.union(v.string(), v.null()),
+  scratchpad: v.union(v.string(), v.null()),
+});
+
+const useVariantValidator = v.union(
+  v.literal("consumable_or_null"),
+  v.literal("null_only"),
+);
+
+const validatorFieldErrorsValidator = v.object({
+  use: v.optional(v.string()),
+  position: v.optional(v.string()),
+  action: v.optional(v.string()),
+  say: v.optional(v.string()),
+  scratchpad: v.optional(v.string()),
 });
 
 const agentInputValidator = v.object({
@@ -133,6 +136,7 @@ const agentInputValidator = v.object({
   scratchpadBefore: v.string(),
   // Phase-4 WP-A mirror — optional slot only; WP-D owns population.
   composedUserMessage: v.optional(v.string()),
+  useVariant: v.optional(useVariantValidator),
 });
 
 const agentLlmValidator = v.object({
@@ -144,9 +148,7 @@ const agentLlmValidator = v.object({
   httpStatus: v.union(v.number(), v.null()),
   fellBackToSafeDefault: v.boolean(),
   failureReason: v.optional(failureReasonValidator),
-  // WP10.5 Pass B.3 — mirrors `convex/schema.ts` agentLlmValidator. Engine
-  // validator rejection reason; optional so legacy rows validate cleanly.
-  validatorReason: v.optional(v.string()),
+  validatorFieldErrors: v.optional(validatorFieldErrorsValidator),
   // WP10.5 Pass F — mirrors `convex/schema.ts` agentLlmValidator. Captured
   // non-OK HTTP body (sanitised+truncated). Optional+additive.
   httpBodyExcerpt: v.optional(v.string()),
@@ -192,17 +194,15 @@ const resolutionValidator = v.object({
   actions: v.array(
     v.object({
       characterId: v.id("characters"),
-      kind: v.string(),
+      kind: v.union(
+        v.literal("attack"),
+        v.literal("loot"),
+        v.literal("overwatch"),
+        v.literal("counter"),
+      ),
       target: v.string(),
       result: v.string(),
-      // Phase-3 ADR §3 mirror — overwatch-stance attribution
-      // (optional). `fromOverwatch=true` + `stance="defensive"` for
-      // counter-fire entries; `stance="offensive"` for offensive
-      // overwatch fire entries; both omitted for non-overwatch attacks.
-      fromOverwatch: v.optional(v.boolean()),
-      stance: v.optional(
-        v.union(v.literal("offensive"), v.literal("defensive")),
-      ),
+      triggeredByMovement: v.optional(v.boolean()),
       // Phase-4 WP-A mirror — strike-time weapon name on damage trace entries.
       weapon: v.optional(v.string()),
     }),

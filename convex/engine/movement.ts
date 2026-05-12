@@ -47,6 +47,17 @@ const DEFAULT_BUDGET = 8;
 const SPEED_BUDGET = 12;
 const MAX_BUDGET = SPEED_BUDGET; // hard cap on substep count
 
+export const COMPASS_TO_DELTA = {
+  N: { dx: 0, dy: -1 },
+  NE: { dx: 1, dy: -1 },
+  E: { dx: 1, dy: 0 },
+  SE: { dx: 1, dy: 1 },
+  S: { dx: 0, dy: 1 },
+  SW: { dx: -1, dy: 1 },
+  W: { dx: -1, dy: 0 },
+  NW: { dx: -1, dy: -1 },
+} as const;
+
 // ─── Wall helpers ────────────────────────────────────────────────────────
 
 function tileInWall(t: Tile, wall: Wall): boolean {
@@ -69,18 +80,14 @@ function tileBlockedByWall(t: Tile, walls: readonly Wall[]): boolean {
 
 /**
  * Per-character bookkeeping the substep loop carries:
- *  - `budget` — tiles remaining (initial = 8 or 12; decremented per commit).
- *  - `relativeRemaining` — for `kind: 'relative'`, dx/dy left to consume
- *    after clamping to budget. Recomputed at start, decremented on commit.
+ *  - `budget` — tiles remaining (clamped to decision.position.dist and
+ *    8/12 movement budget; decremented per commit).
  */
 type Mover = {
   characterId: string;
   budget: number;
   decision: ParsedDecision;
   resolvedTarget: ResolvedEntity | null;
-  // Remaining delta for `relative` movement.
-  dxRemaining: number;
-  dyRemaining: number;
 };
 
 function targetTileForMover(state: MatchState, mover: Mover): Tile | null {
@@ -118,20 +125,11 @@ export function desiredNextTile(
   const me = state.characters.find((c) => c.characterId === mover.characterId);
   if (!me || !me.alive) return null;
 
-  const move = mover.decision.move;
+  const position = mover.decision.position;
+  if (position.kind !== "move") return null;
+  const direction = position.direction;
 
-  switch (move.kind) {
-    case "none":
-      return null;
-
-    case "relative": {
-      // Remaining-delta drives the desire each substep.
-      if (mover.dxRemaining === 0 && mover.dyRemaining === 0) return null;
-      const dx = Math.sign(mover.dxRemaining);
-      const dy = Math.sign(mover.dyRemaining);
-      return { x: me.pos.x + dx, y: me.pos.y + dy };
-    }
-
+  switch (direction.kind) {
     case "toward": {
       const targetTile = targetTileForMover(state, mover);
       if (!targetTile || !mover.resolvedTarget) return null;
@@ -154,9 +152,20 @@ export function desiredNextTile(
       const sy = dy === 0 ? 0 : Math.sign(dy);
       return { x: me.pos.x + sx, y: me.pos.y + sy };
     }
+    case "N":
+    case "NE":
+    case "E":
+    case "SE":
+    case "S":
+    case "SW":
+    case "W":
+    case "NW": {
+      const delta = COMPASS_TO_DELTA[direction.kind];
+      return { x: me.pos.x + delta.dx, y: me.pos.y + delta.dy };
+    }
   }
 
-  const _exhaustive: never = move;
+  const _exhaustive: never = direction;
   void _exhaustive;
   return null;
 }
@@ -236,23 +245,20 @@ export function simulateMovement(
     if (!ch || !ch.alive) continue;
     startPos.set(id, { x: ch.pos.x, y: ch.pos.y });
 
-    // Movement budget rules (concept-spec §9 + §10):
-    //  - Only `primary === "move"` consumes the budget.
-    //  - speed-active → 12; default → 8.
-    //  - non-move primary → 0 (the move sub-decision is ignored).
+    // Movement budget rules:
+    //  - Only `position.kind === "move"` consumes the budget.
+    //  - `dist` is clamped to 8 base movement.
+    //  - Speed raises both the max distance and any requested base max-dist
+    //    move to 12 for the current turn.
+    //  - `dist:0` is stationary and emits no movement trace.
     let budget = 0;
-    if (decision.primary === "move" && decision.move.kind !== "none") {
-      budget = speedSet.has(id) ? SPEED_BUDGET : DEFAULT_BUDGET;
-    }
-
-    let dxRemaining = 0;
-    let dyRemaining = 0;
-    if (decision.move.kind === "relative") {
-      // Clamp to budget (max abs each axis ≤ budget).
-      const cx = Math.max(-budget, Math.min(budget, decision.move.dx));
-      const cy = Math.max(-budget, Math.min(budget, decision.move.dy));
-      dxRemaining = cx;
-      dyRemaining = cy;
+    if (decision.position.kind === "move") {
+      const maxBudget = speedSet.has(id) ? SPEED_BUDGET : DEFAULT_BUDGET;
+      const requested =
+        speedSet.has(id) && decision.position.dist >= DEFAULT_BUDGET
+          ? SPEED_BUDGET
+          : decision.position.dist;
+      budget = Math.max(0, Math.min(maxBudget, requested));
     }
 
     movers.push({
@@ -260,11 +266,11 @@ export function simulateMovement(
       budget,
       decision,
       resolvedTarget:
-        decision.move.kind === "toward" || decision.move.kind === "away"
-          ? resolveTypedEntity(state, id, decision.move.targetId)
+        decision.position.kind === "move" &&
+        (decision.position.direction.kind === "toward" ||
+          decision.position.direction.kind === "away")
+          ? resolveTypedEntity(state, id, decision.position.direction.targetId)
           : null,
-      dxRemaining,
-      dyRemaining,
     });
   }
 
@@ -322,19 +328,6 @@ export function simulateMovement(
       newPositions.set(d.mover.characterId, d.tile);
       d.mover.budget -= 1;
 
-      // For relative moves, decrement remaining delta along the axis we
-      // actually stepped (compare new vs old).
-      if (d.mover.decision.move.kind === "relative") {
-        const prev = currentPos.get(d.mover.characterId)!;
-        const stepX = d.tile.x - prev.x;
-        const stepY = d.tile.y - prev.y;
-        if (stepX !== 0) {
-          d.mover.dxRemaining -= stepX;
-        }
-        if (stepY !== 0) {
-          d.mover.dyRemaining -= stepY;
-        }
-      }
       anyCommitted = true;
     }
 
@@ -384,27 +377,15 @@ export function simulateMovement(
     // start === end. Determine if a wall blocked the intended step.
     const mover = movers.find((m) => m.characterId === id);
     if (!mover) continue;
-    if (mover.budget <= 0) continue; // primary !== "move" / move.kind === "none"
+    if (mover.budget <= 0) continue; // non-move or dist:0
     // Reset budget on the snapshot mover so desiredNextTile yields the
     // start-of-turn step intent (the substep loop has decremented the
     // real mover's budget; we want the original intent).
     const snapshotMover: Mover = {
       ...mover,
-      budget: mover.decision.primary === "move" ? DEFAULT_BUDGET : 0,
-      // For relative moves, restore start-of-turn deltas (clamped).
-      dxRemaining:
-        mover.decision.move.kind === "relative"
-          ? Math.max(
-              -DEFAULT_BUDGET,
-              Math.min(DEFAULT_BUDGET, mover.decision.move.dx),
-            )
-          : 0,
-      dyRemaining:
-        mover.decision.move.kind === "relative"
-          ? Math.max(
-              -DEFAULT_BUDGET,
-              Math.min(DEFAULT_BUDGET, mover.decision.move.dy),
-            )
+      budget:
+        mover.decision.position.kind === "move"
+          ? Math.max(0, Math.min(DEFAULT_BUDGET, mover.decision.position.dist))
           : 0,
     };
     const desired = desiredNextTile(startSnapshot, snapshotMover);

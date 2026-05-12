@@ -1,37 +1,3 @@
-// WP5 — decision validation.
-//
-// Pure-function module per ADR §1; no Convex imports. Concept-spec §2A.3
-// locks the engine-as-referee invariant: "the engine never trusts the LLM
-// to abide by movement range, attack range, vision, simultaneity, or any
-// other rule." This module is the engine's last gate before the resolver
-// (WP7) consumes a decision: invalid decisions are replaced with the
-// safe default.
-//
-// Note: decisions are *shape-validated* upstream by Zod (WP6). This
-// module assumes the discriminator + required-field machinery is sound,
-// and validates the *semantic* claims:
-//   - Move targets are visible typed entity ids.
-//   - Action targets resolve to valid living / lootable entities.
-//   - The actor has the consumable they want to consume.
-//   - Numeric bounds (e.g. relative dx/dy ∈ [-12, 12]).
-//
-// Action-target *range* checks (attack / interact / loot) are skipped
-// when the actor is moving (`decision.move.kind !== "none"`). Per
-// concept-spec.md §9 line 447 ("Move up to 8, then optionally take one
-// normal action if valid") the action range is evaluated against the
-// POST-move position. The resolver is the final gate
-// (resolution.ts:386–495 records `result:"out_of_range"` and no-ops
-// cleanly when the post-move position is still out of range), so
-// gating against the pre-move position here would reject the canonical
-// move-into-range-then-act pattern. Engine-as-referee invariant
-// (concept-spec §2A.3): the resolver is authoritative on positional
-// outcomes; validation guards only what is known *before* the
-// resolver runs.
-//
-// Each validation failure returns a short, human-readable `reason` plus
-// SAFE_DEFAULT_DECISION. The reason feeds into the trace so reviewing
-// agents can see why a decision was rejected.
-
 import { chebyshev } from "./distance.js";
 import { computeVisibleEntities } from "./vision.js";
 import {
@@ -48,31 +14,18 @@ import {
   type WeaponName,
 } from "./types.js";
 
-/** Default attack range when the actor has no weapon equipped. v0 is
- *  range 2 across all weapons (concept-spec §14), so "no weapon" still
- *  uses range 2 for fist/improvised attacks. WP7 may revisit. */
 const DEFAULT_ATTACK_RANGE = 2;
+const INTERACT_RANGE = 2;
 
-/**
- * Normalise a chest typed-id back to its internal id form.
- *
- * The digest renders chests as `Chest_005` (typed-id convention per ADR §6
- * + concept-spec §22) but the stored chest id is `chest_005` (lowercase
- * per ADR §1 namespace dispatch). The model is instructed to "copy id
- * verbatim" and concept-spec §22 demonstrates the lowercase target form,
- * but in practice the model often copies the rendered `Chest_NNN` shape.
- *
- * This helper makes the namespace dispatch case-insensitive on the
- * `chest_` prefix (and only that prefix — `Player_` corpse ids stay
- * case-sensitive because they round-trip through `displayName` which is
- * always `Player_N` with a capital P). Lowercasing the prefix before
- * lookup means both `Chest_005` and `chest_005` resolve to the same
- * stored chest without scattering case-insensitive checks across the
- * codebase.
- *
- * Returns the input unchanged when the prefix doesn't match either case
- * (the caller's existing namespace branches handle the rejection path).
- */
+export type ValidatorFieldErrors = Partial<
+  Record<"use" | "position" | "action" | "say" | "scratchpad", string>
+>;
+
+export type ValidationResult = {
+  decision: ParsedDecision;
+  fieldErrors: ValidatorFieldErrors;
+};
+
 function normaliseChestTargetId(targetId: string): string {
   if (targetId.startsWith("Chest_")) {
     return "chest_" + targetId.slice("Chest_".length);
@@ -80,273 +33,180 @@ function normaliseChestTargetId(targetId: string): string {
   return targetId;
 }
 
-/** Interact + loot range — concept-spec §13 + §6 ("Interaction range: 2 tiles"). */
-const INTERACT_RANGE = 2;
+function canMovementChangeActionRange(position: ParsedDecision["position"]): boolean {
+  return position.kind === "move" && position.dist > 0;
+}
 
-/** Relative-move bound — locked by ADR §4 / concept-spec §10. The schema
- *  enforces ±12 (movement 8 default + speed-consumable cap of 12). */
-const MAX_RELATIVE_DELTA = 12;
+function findCorpseByTargetId(
+  targetId: string,
+  state: MatchState,
+): { characterId: string; pos: { x: number; y: number } } | undefined {
+  if (targetId.startsWith("Corpse_")) {
+    const corpseCharId = normaliseCorpseTargetId(targetId, state.characters);
+    return (
+      (corpseCharId
+        ? state.world.corpses.find((c) => c.characterId === corpseCharId)
+        : undefined) ??
+      state.world.corpses.find((c) => targetId === `Corpse_${c.characterId}`)
+    );
+  }
 
-export type ValidationResult =
-  | { ok: true; decision: ParsedDecision }
-  | { ok: false; reason: string; safeDefault: ParsedDecision };
+  const characterId = normaliseCharacterTargetId(targetId, state.characters);
+  return (
+    (characterId
+      ? state.world.corpses.find((c) => c.characterId === characterId)
+      : undefined) ?? state.world.corpses.find((c) => c.characterId === targetId)
+  );
+}
 
-/**
- * Validate `decision` against `state` for the named actor. Returns either
- * `{ ok: true }` (caller forwards the decision unchanged) or
- * `{ ok: false, reason, safeDefault }` (caller substitutes the safe
- * default and persists the reason in the trace).
- *
- * The function is pure: same input → same output, no side effects.
- */
 export function validateDecision(
   state: MatchState,
   characterId: string,
   decision: ParsedDecision,
 ): ValidationResult {
   const actor = state.characters.find((c) => c.characterId === characterId);
+  const next: ParsedDecision = {
+    use: decision.use,
+    position: decision.position,
+    action: decision.action,
+    say: decision.say,
+    scratchpad: decision.scratchpad,
+  };
+  const fieldErrors: ValidatorFieldErrors = {};
+
   if (!actor) {
-    return invalid(`actor '${characterId}' not found in state.characters`);
+    return {
+      decision: SAFE_DEFAULT_DECISION,
+      fieldErrors: {
+        use: `actor '${characterId}' not found in state.characters`,
+        position: `actor '${characterId}' not found in state.characters`,
+        action: `actor '${characterId}' not found in state.characters`,
+        say: `actor '${characterId}' not found in state.characters`,
+        scratchpad: `actor '${characterId}' not found in state.characters`,
+      },
+    };
   }
   if (!actor.alive) {
-    return invalid(`actor '${characterId}' is not alive`);
+    return {
+      decision: SAFE_DEFAULT_DECISION,
+      fieldErrors: {
+        use: `actor '${characterId}' is not alive`,
+        position: `actor '${characterId}' is not alive`,
+        action: `actor '${characterId}' is not alive`,
+        say: `actor '${characterId}' is not alive`,
+        scratchpad: `actor '${characterId}' is not alive`,
+      },
+    };
   }
 
-  // Phase-3 ADR §3 — stance/primary consistency check.
-  // overwatch_stance must be non-null iff primary === "overwatch", and
-  // the schema's Zod refinement already enforces this upstream. The
-  // engine validator is defence-in-depth (concept-spec §2A.3 — engine
-  // never trusts the wrapper on a structural claim).
-  if (decision.primary === "overwatch") {
-    if (
-      decision.overwatch_stance !== "offensive" &&
-      decision.overwatch_stance !== "defensive"
-    ) {
-      return invalid(
-        `primary='overwatch' requires overwatch_stance ∈ {"offensive","defensive"}; got ${JSON.stringify(decision.overwatch_stance)}`,
-      );
-    }
-  } else {
-    if (decision.overwatch_stance !== null) {
-      return invalid(
-        `primary='${decision.primary}' requires overwatch_stance=null; got ${JSON.stringify(decision.overwatch_stance)}`,
-      );
-    }
-  }
-
-  // Compute visible entities once — used by both move-target and action
-  // validation. (Pure: same observer state → same visible list.)
   const { visible } = computeVisibleEntities(state, characterId);
   const visibleCharacterIds = new Set<string>();
   for (const v of visible) {
     if (v.kind === "character") visibleCharacterIds.add(v.characterId);
   }
 
-  // ── consume ──────────────────────────────────────────────────────────
-  if (decision.consume === "heal" || decision.consume === "speed") {
+  if (decision.use === "consumable") {
     const consumable = actor.equipped.consumable;
     if (!consumable || consumable.category !== "consumable") {
-      return invalid(
-        `consume='${decision.consume}' but actor has no consumable equipped`,
-      );
-    }
-    if (consumable.name !== decision.consume) {
-      return invalid(
-        `consume='${decision.consume}' but actor has consumable '${consumable.name}' equipped`,
-      );
+      fieldErrors.use = "use='consumable' but actor has no consumable equipped";
+      next.use = null;
     }
   }
 
-  // ── move ─────────────────────────────────────────────────────────────
-  switch (decision.move.kind) {
-    case "toward": {
-      const { targetId } = decision.move;
-      if (resolveTypedEntity(state, characterId, targetId) === null) {
-        return invalid(`move target '${targetId}' is not visible to actor`);
-      }
-      break;
-    }
-    case "away": {
-      const { targetId } = decision.move;
-      if (resolveTypedEntity(state, characterId, targetId) === null) {
-        return invalid(`move target '${targetId}' is not visible to actor`);
-      }
-      break;
-    }
-    case "relative": {
-      const { dx, dy } = decision.move;
+  if (decision.position.kind === "move") {
+    if (!Number.isInteger(decision.position.dist) || decision.position.dist < 0) {
+      fieldErrors.position = `position.dist must be a non-negative integer; got ${JSON.stringify(decision.position.dist)}`;
+      next.position = SAFE_DEFAULT_DECISION.position;
+    } else {
+      const direction = decision.position.direction;
       if (
-        !Number.isInteger(dx) ||
-        !Number.isInteger(dy) ||
-        Math.abs(dx) > MAX_RELATIVE_DELTA ||
-        Math.abs(dy) > MAX_RELATIVE_DELTA
+        (direction.kind === "toward" || direction.kind === "away") &&
+        resolveTypedEntity(state, characterId, direction.targetId) === null
       ) {
-        return invalid(
-          `move.kind='relative' has out-of-range delta (${dx},${dy}); bound is ±${MAX_RELATIVE_DELTA}`,
-        );
+        fieldErrors.position = `position.direction target '${direction.targetId}' is not visible to actor`;
+        next.position = SAFE_DEFAULT_DECISION.position;
       }
-      break;
     }
-    case "none":
-      break;
   }
 
-  // ── action ───────────────────────────────────────────────────────────
   switch (decision.action.kind) {
     case "attack": {
-      const rawTargetId = decision.action.targetCharacterId;
-      if (!rawTargetId) {
-        return invalid(`action.kind='attack' missing targetCharacterId`);
-      }
-      // Phase-3 WP-F.2 — bridge the LLM-contract id space (typed
-      // displayName, e.g. `Player_3`) to the engine `characterId`
-      // space. See `convex/llm/idNormalisation.ts` for the rationale.
-      const targetId = normaliseCharacterTargetId(
-        rawTargetId,
-        state.characters,
-      );
-      if (!targetId) {
-        return invalid(`attack target '${rawTargetId}' is not a living character`);
-      }
-      const target = state.characters.find((c) => c.characterId === targetId);
+      const rawTargetId = decision.action.targetId;
+      const targetId = normaliseCharacterTargetId(rawTargetId, state.characters);
+      const target = targetId
+        ? state.characters.find((c) => c.characterId === targetId)
+        : undefined;
       if (!target || !target.alive) {
-        return invalid(`attack target '${rawTargetId}' is not a living character`);
+        fieldErrors.action = `attack target '${rawTargetId}' is not a living character`;
+        next.action = { kind: "none" };
+        break;
       }
-      if (!visibleCharacterIds.has(targetId)) {
-        return invalid(`attack target '${rawTargetId}' is not visible to actor`);
+      if (!visibleCharacterIds.has(target.characterId)) {
+        fieldErrors.action = `attack target '${rawTargetId}' is not visible to actor`;
+        next.action = { kind: "none" };
+        break;
       }
-      // Range check skipped when actor is moving — resolver gates against
-      // post-move position (concept-spec §9 line 447). See header note.
-      if (decision.move.kind === "none") {
+      if (!canMovementChangeActionRange(next.position)) {
         const range = weaponRange(actor);
         if (chebyshev(actor.pos, target.pos) > range) {
-          return invalid(
-            `attack target '${rawTargetId}' is beyond weapon range ${range}`,
-          );
+          fieldErrors.action = `attack target '${rawTargetId}' is beyond weapon range ${range}`;
+          next.action = { kind: "none" };
         }
       }
       break;
     }
     case "loot": {
-      // Phase-3 ADR §1 — unified loot validator with id-namespace
-      // dispatch. Valid namespaces: `chest_*` (chest path), `Player_*`
-      // (corpse path via displayName lookup). Anything else → reject.
       const rawTargetId = decision.action.targetId;
-      if (!rawTargetId) {
-        return invalid(`action.kind='loot' missing targetId`);
-      }
-      // Phase-3 WP-G.1 — accept the digest's `Corpse_<displayName>` typed-id
-      // form (rendered by `convex/llm/inputBuilder.ts:516`). Resolve to the
-      // engine `characterId` so `state.world.corpses.find(c =>
-      // c.characterId === resolved)` matches in production where
-      // `corpse.characterId` is the Convex `_id`. PM-lock D38: validator-
-      // boundary normalisation only; digest rendering stays as-is, and the
-      // decision.action.targetId is preserved verbatim so the resolver's
-      // trace emits what the agent literally wrote (mirrors WP-F.2's
-      // `traceTarget` convention at resolution.ts:454).
-      if (rawTargetId.startsWith("Corpse_")) {
-        const corpseCharId = normaliseCorpseTargetId(
-          rawTargetId,
-          state.characters,
-        );
-        let corpse = corpseCharId
-          ? state.world.corpses.find((c) => c.characterId === corpseCharId)
-          : undefined;
-        if (!corpse) {
-          // Test-fixture path: `corpse.characterId` is itself the typed
-          // `Player_N` literal — match against `Corpse_<corpse.characterId>`.
-          corpse = state.world.corpses.find(
-            (c) => rawTargetId === `Corpse_${c.characterId}`,
-          );
-        }
-        if (!corpse) {
-          return invalid(
-            `loot target '${rawTargetId}' is not a known corpse`,
-          );
-        }
-        if (decision.move.kind === "none") {
-          if (chebyshev(actor.pos, corpse.pos) > INTERACT_RANGE) {
-            return invalid(
-              `loot target '${rawTargetId}' is beyond loot range ${INTERACT_RANGE}`,
-            );
-          }
-        }
+      const entity = resolveTypedEntity(state, characterId, rawTargetId);
+      if (!entity || (entity.kind !== "chest" && entity.kind !== "corpse")) {
+        fieldErrors.action = `loot target '${rawTargetId}' is not a visible chest or corpse`;
+        next.action = { kind: "none" };
         break;
       }
-      // Phase-3 fix — accept both `Chest_NNN` (rendered typed-id) and
-      // `chest_NNN` (internal id). Player_* corpse ids stay
-      // case-sensitive (they round-trip through displayName which is
-      // always `Player_N` with capital P).
-      const targetId = normaliseChestTargetId(rawTargetId);
-      if (targetId.startsWith("chest_")) {
-        const chest = state.world.chests.find((c) => c.id === targetId);
+
+      if (entity.kind === "chest") {
+        const chestId = normaliseChestTargetId(rawTargetId);
+        const chest = state.world.chests.find((c) => c.id === chestId);
         if (!chest) {
-          return invalid(`loot target '${rawTargetId}' is not a known chest`);
+          fieldErrors.action = `loot target '${rawTargetId}' is not a known chest`;
+          next.action = { kind: "none" };
+          break;
         }
         if (chest.opened) {
-          return invalid(`loot target '${rawTargetId}' is already opened`);
+          fieldErrors.action = `loot target '${rawTargetId}' is already opened`;
+          next.action = { kind: "none" };
+          break;
         }
-        if (decision.move.kind === "none") {
-          if (chebyshev(actor.pos, chest.pos) > INTERACT_RANGE) {
-            return invalid(
-              `loot target '${rawTargetId}' is beyond interact range ${INTERACT_RANGE}`,
-            );
-          }
-        }
-        break;
-      }
-
-      if (targetId.startsWith("Player_")) {
-        // Player_* dispatch: resolve via direct match first (test
-        // fixtures), then via displayName lookup → characterId →
-        // corpse (production: corpse.characterId is a Convex Id).
-        let corpse = state.world.corpses.find(
-          (c) => c.characterId === targetId,
-        );
-        if (!corpse) {
-          const ch = state.characters.find(
-            (c) => c.displayName === targetId,
-          );
-          if (ch) {
-            corpse = state.world.corpses.find(
-              (c) => c.characterId === ch.characterId,
-            );
-          }
-        }
-        if (!corpse) {
-          return invalid(`loot target '${targetId}' is not a known corpse`);
-        }
-        if (decision.move.kind === "none") {
-          if (chebyshev(actor.pos, corpse.pos) > INTERACT_RANGE) {
-            return invalid(
-              `loot target '${targetId}' is beyond loot range ${INTERACT_RANGE}`,
-            );
-          }
+        if (
+          !canMovementChangeActionRange(next.position) &&
+          chebyshev(actor.pos, chest.pos) > INTERACT_RANGE
+        ) {
+          fieldErrors.action = `loot target '${rawTargetId}' is beyond interact range ${INTERACT_RANGE}`;
+          next.action = { kind: "none" };
         }
         break;
       }
 
-      // Bogus namespace — neither chest_ nor Player_ prefix.
-      return invalid(
-        `loot target '${targetId}' has invalid namespace prefix; expected chest_* or Player_*`,
-      );
+      const corpse = findCorpseByTargetId(rawTargetId, state);
+      if (!corpse) {
+        fieldErrors.action = `loot target '${rawTargetId}' is not a known corpse`;
+        next.action = { kind: "none" };
+        break;
+      }
+      if (
+        !canMovementChangeActionRange(next.position) &&
+        chebyshev(actor.pos, corpse.pos) > INTERACT_RANGE
+      ) {
+        fieldErrors.action = `loot target '${rawTargetId}' is beyond loot range ${INTERACT_RANGE}`;
+        next.action = { kind: "none" };
+      }
+      break;
     }
     case "none":
       break;
-    default: {
-      const _exhaustive: never = decision.action;
-      void _exhaustive;
-      return invalid(`action.kind is unrecognised`);
-    }
   }
 
-  return { ok: true, decision };
-}
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
-
-function invalid(reason: string): ValidationResult {
-  return { ok: false, reason, safeDefault: SAFE_DEFAULT_DECISION };
+  return { decision: next, fieldErrors };
 }
 
 function weaponRange(actor: CharacterState): number {

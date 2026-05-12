@@ -26,13 +26,11 @@ import type { ParsedDecision } from "../../convex/engine/types.js";
 // ─── Fixture builders ──────────────────────────────────────────────────────
 
 const VALID_DECISION: ParsedDecision = {
-  consume: "none",
-  primary: "move",
-  move: { kind: "relative", dx: 1, dy: 0 },
+  use: null,
+  position: { kind: "move", direction: { kind: "E" }, dist: 1 },
   action: { kind: "none" },
   say: null,
-  overwatch_stance: null,
-  scratchpad_update: null,
+  scratchpad: null,
 };
 
 /** Default input — every test reuses this and overrides only what matters. */
@@ -41,6 +39,7 @@ const baseInput = {
   personaPrompt: "Persona: rat.",
   scratchpad: "Last turn I hid.",
   visibleStateDigest: "Visible: nothing.",
+  composedUserMessage: "# Rat\n\n## Status\nready\n\n# Current Game State\nVisible: nothing.",
   reasoningEffort: "low" as const,
   maxOutputTokens: 256,
   azureUri: "https://example.test/openai/responses",
@@ -120,7 +119,10 @@ describe("WP6 callDecisionTool — happy path", () => {
     const body = capturedBody! as {
       model: string;
       input: Array<{ role: string; content: string }>;
-      tools: Array<{ name: string }>;
+      tools: Array<{
+        name: string;
+        parameters: { properties: { use: { enum: unknown[] } } };
+      }>;
       tool_choice: string;
       parallel_tool_calls: boolean;
       reasoning: { effort: string; summary?: string };
@@ -140,14 +142,42 @@ describe("WP6 callDecisionTool — happy path", () => {
     expect(body.max_output_tokens).toBe(256);
     expect(body.tools).toHaveLength(1);
     expect(body.tools[0]!.name).toBe("decide_turn");
+    expect(body.tools[0]!.parameters.properties.use.enum).toEqual([
+      "consumable",
+      null,
+    ]);
     expect(body.input).toHaveLength(2);
     expect(body.input[0]!.role).toBe("system");
     expect(body.input[1]!.role).toBe("user");
-    // System prompt verbatim, user message contains persona + scratchpad + digest.
+    // Azure owns system-prompt substitution; inputBuilder owns the entire user role.
     expect(body.input[0]!.content).toBe("You are an agent.");
-    expect(body.input[1]!.content).toContain("Persona: rat.");
-    expect(body.input[1]!.content).toContain("Last turn I hid.");
-    expect(body.input[1]!.content).toContain("Visible: nothing.");
+    expect(body.input[1]!.content).toBe(baseInput.composedUserMessage);
+    expect(body.input[1]!.content).not.toContain("## Persona");
+    expect(body.input[1]!.content).not.toContain("## Scratchpad");
+  });
+
+  it("substitutes <Player Name> only at Azure request composition time", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    const fetchImpl = vi.fn(async (_url: unknown, init: unknown) => {
+      const body = (init as { body: string }).body;
+      capturedBody = JSON.parse(body) as Record<string, unknown>;
+      return jsonResponse(happyResponseBody());
+    });
+
+    await callDecisionTool({
+      ...baseInput,
+      systemPrompt: "You are <Player Name>, extraction-arena agent.",
+      playerName: "Duelist",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const body = capturedBody! as {
+      input: Array<{ role: string; content: string }>;
+    };
+    expect(body.input[0]!.content).toBe(
+      "You are Duelist, extraction-arena agent.",
+    );
+    expect(baseInput.systemPrompt).toBe("You are an agent.");
   });
 
   it("sends the api-key header (Azure-style, NOT Bearer)", async () => {
@@ -166,6 +196,29 @@ describe("WP6 callDecisionTool — happy path", () => {
     expect(capturedHeaders!["Content-Type"]).toBe("application/json");
     // No Bearer auth header.
     expect(capturedHeaders!["Authorization"]).toBeUndefined();
+  });
+
+  it("sends the null-only use schema variant when no consumable is equipped", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    const fetchImpl = vi.fn(async (_url: unknown, init: unknown) => {
+      const body = (init as { body: string }).body;
+      capturedBody = JSON.parse(body) as Record<string, unknown>;
+      return jsonResponse(happyResponseBody());
+    });
+
+    await callDecisionTool({
+      ...baseInput,
+      useVariant: "null_only",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const body = capturedBody! as {
+      tools: Array<{
+        parameters: { properties: { use: { type: unknown[]; enum: unknown[] } } };
+      }>;
+    };
+    expect(body.tools[0]!.parameters.properties.use.type).toEqual(["null"]);
+    expect(body.tools[0]!.parameters.properties.use.enum).toEqual([null]);
   });
 });
 
@@ -264,11 +317,11 @@ describe("WP6 callDecisionTool — FailureReason coverage", () => {
   it("multiple_function_calls: takes FIRST, fellBack=false, telemetry-only", async () => {
     const firstDecision: ParsedDecision = {
       ...VALID_DECISION,
-      scratchpad_update: "first",
+      scratchpad: "first",
     };
     const secondDecision: ParsedDecision = {
       ...VALID_DECISION,
-      scratchpad_update: "second",
+      scratchpad: "second",
     };
     const fetchImpl = vi.fn(async () =>
       jsonResponse({
@@ -328,14 +381,14 @@ describe("WP6 callDecisionTool — FailureReason coverage", () => {
   });
 
   it("schema_validation_failed: arguments is valid JSON but breaks the schema → safe-default + rawArguments preserved", async () => {
-    // Raw unknown on purpose: this is a complete legacy move arm payload,
-    // not a ParsedDecision fixture. The wrapper should reject it at schema
-    // validation after JSON.parse succeeds.
-    const legacyMovePayload: unknown = {
+    // Raw unknown on purpose: this payload has a malformed compass arm, so
+    // the wrapper should reject it at schema validation after JSON.parse
+    // succeeds.
+    const invalidDirectionPayload: unknown = {
       ...VALID_DECISION,
-      move: { kind: "toward_entity", targetCharacterId: "Player_3" },
+      position: { kind: "move", direction: { kind: "north" }, dist: 1 },
     };
-    const bad = JSON.stringify(legacyMovePayload);
+    const bad = JSON.stringify(invalidDirectionPayload);
     const fetchImpl = vi.fn(async () =>
       jsonResponse({
         id: "resp_x",
@@ -1145,9 +1198,9 @@ describe("Gate-2.5 — httpBodyExcerpt sanitisation hardening", () => {
       // Reasoning content should be sanitised via the same sanitiser used
       // for HTTP error bodies — Gate-2.5 hardening generalises here. The
       // legitimate-prose case must NOT be eaten (no false-positive on
-      // numbers like "Player_5" or "(turn 7)").
+      // persona names like "Vulture" or numeric turn references).
       const reasoningText =
-        "Attack Player_5; he's at 12 HP. api-key=AKIASECRETXX12345 leaked here.";
+        "Attack Vulture; he's at 12 HP. api-key=AKIASECRETXX12345 leaked here.";
       const fetchImpl = vi.fn(async () =>
         jsonResponse({
           id: "resp_sanitise",
@@ -1172,7 +1225,7 @@ describe("Gate-2.5 — httpBodyExcerpt sanitisation hardening", () => {
       const result = await callDecisionTool({ ...baseInput, fetchImpl });
       expect(result.raw.reasoning).not.toBeNull();
       // Legitimate prose preserved.
-      expect(result.raw.reasoning!).toContain("Player_5");
+      expect(result.raw.reasoning!).toContain("Vulture");
       // API key scrubbed.
       expect(result.raw.reasoning!).not.toContain("AKIASECRETXX12345");
     });

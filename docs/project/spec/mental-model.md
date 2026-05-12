@@ -261,6 +261,136 @@ Per-type `stopAtRange` becomes data attached to the entity type (the engine look
 
 **POC posture:** schema break acceptable (`project_poc_schema_wipe_acceptable`); Convex wipe is on the table. Phase-4 doesn't unblock or block on this refactor — when WP-D unblocks, it will redesign against the new 4-arm grammar, which makes its job easier (less to teach in either prompt prose or schema descriptions).
 
+## 15. Phase 6 — per-turn context iteration 2 (dispatched 2026-05-12)
+
+> **Status:** dispatched 2026-05-12. Supersedes phase-4's parked WP-D
+> with a substrate-deeper re-cook. The canonical intent anchors are
+> [`docs/project/spec/per-turn-context-intent.md`](./per-turn-context-intent.md)
+> (system prompt + user-role structure) and
+> [`docs/project/spec/decision-tool-schema-draft.md`](./decision-tool-schema-draft.md)
+> (verbatim tool schema). The empirical trigger was the 2026-05-12
+> schema-emission probe (`harness/probe-schema-emission.ts`) which
+> proved the Azure Responses API silently normalises tool schemas to
+> strict mode — making "optional" decorative and the model's dense
+> sentinel emission unavoidable on this endpoint. The fix is
+> structural, not optional-by-required.
+
+The six moves landing in one slice:
+
+1. **Tool shape collapse.** `primary` + `move` + `action` +
+   `overwatch_stance` + `consume` (7 fields, two coordination overlays)
+   → `use` + `position` + `action` + `say` + `scratchpad` (5 fields,
+   no overlays). Position commitment (`{kind:"overwatch"|"counter"}`
+   stationary; `{kind:"move", direction, dist}` mobile) replaces the
+   primary/move pair. Cross-field stance/primary refines disappear —
+   the shape itself makes illegal combinations unrepresentable.
+
+2. **Compass-only direction.** `relative {dx, dy}` removed. `direction`
+   is target-relative (`{kind:"toward"|"away", targetId}`) or compass
+   (`{kind:"N"|"NE"|...|"NW"}`). Mirrors the 8-bearing vocabulary the
+   Visible digest already uses (`dist 7 SE`). Knight's-moves are not
+   expressible; accepted as a scope tradeoff.
+
+3. **`use: "consumable" | null`.** Engine knows what's equipped; the
+   model just signals "use it or don't." Names of consumables
+   (`heal` / `speed`) are no longer in the schema's emission surface.
+
+4. **Per-turn schema variants — first application.** When no
+   consumable is equipped, the `use` field's schema narrows to
+   `{type:["null"], enum:[null]}` — *structurally* preventing
+   `use:"consumable"` emission. Variant scope is intentionally
+   bounded to `use` (Q9 in the schema draft); broader target-id
+   variants would balloon schema size and bust API cache.
+
+5. **Personal damage feed.** A new event channel: when the agent
+   takes damage, the next-turn user message includes
+   `<Attacker> attacked you with <weapon> (dmg N)` under
+   `# Current Game State` — emitted **regardless of LOS**, closing
+   the phase-3 outcome-attribution residue. Sits alongside the
+   global kill feed; same line shape, two scopes.
+
+6. **Persona name = agent id.** The 8 personas (Rat / Duelist /
+   Trader / Opportunist / Paranoid / Camper / Sprinter / Vulture)
+   replace numeric `Player_N` ids in *every* per-turn surface — kill
+   feed, damage feed, Visible, status block, `<Player Name>`
+   placeholder substitution, attack/loot `targetId`, corpse ids
+   (`Corpse_Camper`). One match has one of each persona; names are
+   single-word and id-safe. Pillar-aligned: agents *are* characters
+   with names. Model-attention strategy: the model sees its own
+   identity and other agents' identities by name, not by index.
+
+**Field-scoped validator rejection.** When the variant doesn't catch
+something (e.g., mid-turn state changes), the engine validator zeroes
+the offending field only — `validatorReason` is per-field, the rest
+of the turn resolves. Replaces the old "whole-turn safe-default" pattern.
+
+**Status block + event log structure** (per
+`per-turn-context-intent.md` §2):
+
+- `# <PersonaName>` heading + persona prompt.
+- `## Status` — `📍` position, `❤️` HP, `⚔️` weapon `[stats]`,
+  `🛡️` armour, `🧪` consumable `[effect]`, `🗒️` scratchpad. "Your
+  stuff." Equipment carries stats inline.
+- `# Current Game State` — turn meta, own-outcome event line,
+  personal damage line(s), global kill feed line(s), Visible. "The
+  world."
+
+Ownership split (your stuff / the world), not temporal split (then /
+now). Last-turn outcome lives in Current Game State, not in a
+separate `## previous turn` section.
+
+**Action+overwatch / action+counter are now first-class combos.** A
+turn with `position:{kind:"overwatch"}` AND `action:{kind:"attack"}`
+resolves both: the deliberate attack lands, AND the overwatch
+trigger arms and fires on the next enemy that walks into range.
+Counter is the neutral-ready cousin — only retaliates if attacked,
+does not fire on movement.
+
+**Authority for execution:**
+- Convex dev DB wipe authorised; no backward compatibility, no
+  migration shims. POC posture (`project_poc_schema_wipe_acceptable`).
+- Azure `.env` endpoint free reign for testing and the closing-20
+  run at `low/1200` (phase-3 baseline; no probes this slice).
+- 8 persona prompts get a mechanical scrub for dead field refs —
+  *not* a behaviour-tune pass; that's deferred.
+
+**Done bar:** 20-run Convex closing report (reportType
+`"phase-6-closing-20"`) with phase-3 thresholds preserved
+(extraction ≥ 30%, kill ≥ 80%, equip ≥ 80%, speech ≥ 50%, persona
+spread ≥ 15 pp, zero crashes), iter-2 specific thresholds met (zero
+illegal `use:"consumable"` emissions, ≥10 action+overwatch combo
+traces, ≥5 counter-retaliation traces, ≥5 overwatch trigger-fires,
+all 8 compass bearings exercised, no-op rate < 5%), and the
+diagnostic surfaces (per-turn variant pane, field-scoped
+validatorReason render, decisionEnglish for new arms) live in the
+replay UI.
+
+### Phase-6 Closure Record
+
+Phase 6 closes as substrate-closed, not metric-perfect. The canonical
+persisted report id is `jd78f616beq7dvs84gcs1n2f9586kbqt`; 16/17
+gates pass. The honest miss is no-op rate 43.245% vs <5%. The bar
+is not lowered or redefined;
+the miss is carried forward as a behaviour-policy problem rather than
+a schema, engine, replay, or report-correctness failure.
+
+ADRs 1-10 honoured. The iter-2 contract landed in the intended shape:
+five-field tool calls, named personas as agent ids, Status plus
+Current Game State event log, personal damage feed, global kill feed,
+per-turn `use` narrowing, action+overwatch/action+counter combos, and
+field-scoped validator rejection.
+
+OCC replacement policy: a Convex optimistic-concurrency storage-layer
+transient was excluded from the
+canonical set and replaced 1-for-1 by a concurrency-1 live rerun. That
+transient is not counted as an engine crash or invalid state. The
+canonical report still represents 20 completed matches with zero
+failed matches in the selected set.
+
+Deferred to Phase 7: no-op reduction via persona/policy tuning,
+harness auto-retry for OCC, and paginated server-side aggregation if
+future reports need server recompute.
+
 ## 12. Open questions / live tensions
 
 Tracked here because they shape the why, not the how:

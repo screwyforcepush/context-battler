@@ -1,6 +1,6 @@
 // Phase 02 / WP-C — Hover-target type contract (shared with WP-D's HoverCard).
 //
-// WP-C owns this file. WP-D's `HoverCard` consumes the `HoverTarget` union
+// WP-C owns this file. WP-D's `HoverCard` uses the `HoverTarget` union
 // to route per-token rendering. The set of variants matches what
 // `Grid.tsx` exposes via `data-token-kind` (background / wall / cover /
 // evac / chest / corpse / agent — the renderer-level tokens).

@@ -27,6 +27,10 @@ import { TurnFeed } from "../components/TurnFeed";
 import { HoverCard } from "../components/HoverCard";
 import { ExpandModal } from "../components/ExpandModal";
 import type { HoverTarget } from "../lib/hoverTypes";
+import {
+  hasPreIter2AgentRecords,
+  VintageReplayNotice,
+} from "../lib/vintageReplay";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -91,10 +95,15 @@ export function Replay(props: {
   }, [matchId]);
 
   // ── Snapshot derivation ─────────────────────────────────────────────
+  const hasVintageAgentRecords = useMemo(() => {
+    if (!bundle) return false;
+    return hasPreIter2AgentRecords(bundle);
+  }, [bundle]);
+
   const snapshot = useMemo(() => {
-    if (!bundle) return null;
+    if (!bundle || hasVintageAgentRecords) return null;
     return reconstruct(bundle, currentTurn);
-  }, [bundle, currentTurn]);
+  }, [bundle, currentTurn, hasVintageAgentRecords]);
 
   // ── Hover listener: delegated event handlers on the Grid wrapper. ───
   // Grid.tsx emits `data-token-kind` (background/wall/cover/evac/chest/
@@ -217,7 +226,7 @@ export function Replay(props: {
     // boundaries don't catch async rejections), so we render a friendly
     // hint inline that mirrors the boundary's copy.
     // Closure-readiness round-3: the raw Convex error message is gated
-    // behind a `<details>` toggle so the friendly hint is the primary
+    // behind a `<details>` toggle so the friendly hint is the main
     // copy and the verbose `ArgumentValidationError` dump is opt-in.
     return (
       <main style={mainStyle}>
@@ -246,6 +255,17 @@ export function Replay(props: {
           ← back to picker
         </a>
         <p>Match not found.</p>
+      </main>
+    );
+  }
+
+  if (hasVintageAgentRecords) {
+    return (
+      <main style={mainStyle}>
+        <a href="#/" style={linkStyle}>
+          ← back to picker
+        </a>
+        <VintageReplayNotice />
       </main>
     );
   }

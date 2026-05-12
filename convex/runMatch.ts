@@ -46,7 +46,10 @@ import { action } from "./_generated/server.js";
 import { api } from "./_generated/api.js";
 
 import { resolveTurn, type ResolutionTrace } from "./engine/resolution.js";
-import { validateDecision } from "./engine/validation.js";
+import {
+  validateDecision,
+  type ValidatorFieldErrors,
+} from "./engine/validation.js";
 import {
   CHARACTER_MAX_HP,
   SAFE_DEFAULT_DECISION,
@@ -61,6 +64,7 @@ import {
   type ParsedDecision,
   type PersonaId,
   type Tile,
+  type UseVariant,
   type WeaponName,
   type WorldState,
 } from "./engine/types.js";
@@ -294,7 +298,7 @@ export function buildHeardForObserver(
 /**
  * Build the `llm` block of one `agentRecords[]` row from the per-agent
  * resolved-call result. Pure / no I/O — extracted so the
- * `validatorReason` mapping invariant (WP10.5 Pass B.3) can be unit-tested
+ * `validatorFieldErrors` mapping invariant can be unit-tested
  * without spinning up the Convex action.
  *
  * Mapping rules (locked):
@@ -303,11 +307,10 @@ export function buildHeardForObserver(
  *     spread). Convex's optional validator accepts absent OR present, but
  *     never `undefined` as a value. The conditional spread is the canonical
  *     way to honour that.
- *   - `validatorReason` follows the same conditional-spread pattern. When
- *     the engine validator (`convex/engine/validation.ts`) accepted the
- *     decision, no reason exists; when it rejected, the human-readable
- *     reason string is persisted so analyze-match / cluster-failures can
- *     group by it (per `wp10-5-phase-a-findings.md` §"Bucket 2").
+ *   - `validatorFieldErrors` follows the same conditional-spread pattern. When
+ *     the engine validator (`convex/engine/validation.ts`) accepted every
+ *     field, no error object exists; when it rejected one or more fields,
+ *     per-field reasons are persisted.
  *
  * Both fields are `v.optional(...)` in the schema (`convex/schema.ts`
  * agentLlmValidator + `convex/_internal_runMatch.ts` mirror), so absence
@@ -322,7 +325,7 @@ export function buildAgentLlmRecord(r: {
   httpStatus: number | null;
   wrapperFellBack: boolean;
   failureReason: FailureReason | undefined;
-  validatorReason: string | undefined;
+  validatorFieldErrors: ValidatorFieldErrors | undefined;
   /** WP10.5 Pass F — captured non-OK HTTP body excerpt (already sanitised
    *  + truncated by the wrapper). Set only on `failureReason: "http_non_200"`. */
   httpBodyExcerpt?: string | undefined;
@@ -338,7 +341,7 @@ export function buildAgentLlmRecord(r: {
   httpStatus: number | null;
   fellBackToSafeDefault: boolean;
   failureReason?: FailureReason;
-  validatorReason?: string;
+  validatorFieldErrors?: ValidatorFieldErrors;
   httpBodyExcerpt?: string;
   reasoning: string | null;
 } {
@@ -351,9 +354,12 @@ export function buildAgentLlmRecord(r: {
     httpStatus: r.httpStatus,
     fellBackToSafeDefault: r.wrapperFellBack,
     ...(r.failureReason ? { failureReason: r.failureReason } : {}),
-    ...(r.validatorReason ? { validatorReason: r.validatorReason } : {}),
+    ...(r.validatorFieldErrors &&
+    Object.keys(r.validatorFieldErrors).length > 0
+      ? { validatorFieldErrors: r.validatorFieldErrors }
+      : {}),
     // WP10.5 Pass F — conditional spread (same pattern as failureReason /
-    // validatorReason). The Convex `v.optional(...)` validator accepts
+    // validatorFieldErrors). The Convex `v.optional(...)` validator accepts
     // absent OR present, but never `undefined` as a value.
     ...(r.httpBodyExcerpt !== undefined
       ? { httpBodyExcerpt: r.httpBodyExcerpt }
@@ -366,6 +372,32 @@ export function buildAgentLlmRecord(r: {
   };
 }
 
+export function useVariantForActor(
+  actor: Pick<CharacterState, "equipped">,
+): UseVariant {
+  return actor.equipped.consumable ? "consumable_or_null" : "null_only";
+}
+
+export function buildAgentInputRecord(r: {
+  systemPrompt: string;
+  personaPromptText: string;
+  visibleStateDigest: string;
+  scratchpadBefore: string;
+  composedUserMessage: string;
+  useVariant: UseVariant;
+}) {
+  return {
+    systemPromptHash: hashHex(r.systemPrompt),
+    systemPromptText: r.systemPrompt,
+    personaPromptHash: hashHex(r.personaPromptText),
+    personaPromptText: r.personaPromptText,
+    visibleStateDigest: r.visibleStateDigest,
+    scratchpadBefore: r.scratchpadBefore,
+    composedUserMessage: r.composedUserMessage,
+    useVariant: r.useVariant,
+  };
+}
+
 // ─── Schema-conformant adapters for resolution trace ───────────────────────
 
 /**
@@ -374,15 +406,12 @@ export function buildAgentLlmRecord(r: {
  *   - `consumed[].item: ConsumableName` (engine string) → `{category:"consumable", name:...}` (schema ItemRef).
  *   - `characterId: string` (engine) → `Id<"characters">` (schema). Convex
  *     Id values ARE strings at runtime; we cast at the boundary.
- *   - Phase-3 ADR §3 / §9 — propagate the optional engine-emitted trace
- *     fields verbatim so closing-10 metrics survive the persistence
- *     boundary:
+ *   - Phase-3 ADR §9 / Phase-6 overwatch audit — propagate optional
+ *     engine-emitted trace fields verbatim so metrics survive persistence:
  *       - `moves[].blockedBy: "wall"` — wall-blocked move marker
  *         (movement.ts:449-455).
- *       - `actions[].fromOverwatch: boolean` and `actions[].stance:
- *         "offensive"|"defensive"` — overwatch-stance attribution for
- *         offensive overwatch fires (resolution.ts:402-408) and
- *         defensive counter-fire entries (resolution.ts:712-721).
+ *       - `actions[].triggeredByMovement: boolean` — movement-triggered
+ *         overwatch attribution.
  *       - `actions[].weapon: string` — phase-4 strike-time weapon name
  *         for attack/overwatch damage entries.
  *     These are optional in BOTH the engine emit type and the
@@ -393,9 +422,7 @@ export function buildAgentLlmRecord(r: {
  * Exported (rather than file-local) so the WP-F.1 persist-adapter parity
  * test can drive the mapper directly without spinning up the Convex
  * action runtime — the parity invariant is the load-bearing one for
- * closing-10 metric correctness (defensiveCounterFires,
- * offensiveOverwatchFires, persistedBlockedMoves all read these fields
- * straight off persisted `turns.resolution.*`).
+ * persisted trace metric correctness.
  */
 export function adaptResolutionForSchema(
   trace: ResolutionTrace,
@@ -415,15 +442,14 @@ export function adaptResolutionForSchema(
     to: Tile;
     blockedBy?: "wall";
   }>;
-  actions: Array<{
-    characterId: Id<"characters">;
-    kind: string;
-    target: string;
-    result: string;
-    fromOverwatch?: boolean;
-    stance?: "offensive" | "defensive";
-    weapon?: string;
-  }>;
+	  actions: Array<{
+	    characterId: Id<"characters">;
+	    kind: "attack" | "loot" | "overwatch" | "counter";
+	    target: string;
+	    result: string;
+	    triggeredByMovement?: boolean;
+	    weapon?: string;
+	  }>;
   deaths: Id<"characters">[];
   visibilityUpdates: Array<{
     characterId: Id<"characters">;
@@ -456,20 +482,14 @@ export function adaptResolutionForSchema(
       // schema validator is `v.optional(v.literal("wall"))`.
       ...(m.blockedBy !== undefined ? { blockedBy: m.blockedBy } : {}),
     })),
-    actions: trace.actions.map((a) => ({
-      characterId: a.characterId as Id<"characters">,
-      kind: a.kind,
-      target: a.target,
-      result: a.result,
-      // Phase-3 ADR §3 — overwatch-stance attribution. Conditional spread
-      // for both fields: the engine omits them on non-overwatch attacks
-      // (legacy phase-1 shape) and may also emit `stance` without
-      // `fromOverwatch` (offensive overwatch fire — resolution.ts:402-408
-      // sets stance="offensive" and lets fromOverwatch default to absent).
-      ...(a.fromOverwatch !== undefined
-        ? { fromOverwatch: a.fromOverwatch }
-        : {}),
-      ...(a.stance !== undefined ? { stance: a.stance } : {}),
+	    actions: trace.actions.map((a) => ({
+	      characterId: a.characterId as Id<"characters">,
+	      kind: a.kind,
+	      target: a.target,
+	      result: a.result,
+	      ...(a.triggeredByMovement !== undefined
+	        ? { triggeredByMovement: a.triggeredByMovement }
+	        : {}),
       ...(a.weapon !== undefined ? { weapon: a.weapon } : {}),
     })),
     deaths: trace.deaths.map((d) => d as Id<"characters">),
@@ -568,15 +588,14 @@ export const advanceTurn = action({
                 to: { x: m.to.x, y: m.to.y },
                 ...(m.blockedBy ? { blockedBy: m.blockedBy } : {}),
               })),
-              actions: priorTurnRow.resolution.actions.map((a) => ({
-                characterId: a.characterId as string,
-                kind: a.kind,
-                target: a.target,
-                result: a.result,
-                ...(a.fromOverwatch !== undefined
-                  ? { fromOverwatch: a.fromOverwatch }
-                  : {}),
-                ...(a.stance !== undefined ? { stance: a.stance } : {}),
+	              actions: priorTurnRow.resolution.actions.map((a) => ({
+	                characterId: a.characterId as string,
+	                kind: a.kind,
+	                target: a.target,
+	                result: a.result,
+	                ...(a.triggeredByMovement !== undefined
+	                  ? { triggeredByMovement: a.triggeredByMovement }
+	                  : {}),
                 ...(a.weapon !== undefined ? { weapon: a.weapon } : {}),
               })),
               deaths: priorTurnRow.resolution.deaths.map((d) => d as string),
@@ -590,16 +609,10 @@ export const advanceTurn = action({
                 }),
               ),
             },
-            // Phase-3 WP-F.4 — thread the actor's prior `decision.move` per
-            // characterId so `inputBuilder.renderMoveFragment` can render the
-            // intent direction of a wall-blocked move (North Star §1: "moved
-            // 3 SW → hit wall"). The persisted `decision.move` matches the
-            // engine `MoveDecision` shape directly (schema mirrors
-            // `decisionTool.ts`); no further adaptation needed.
-            priorMoveByActor: Object.fromEntries(
+            priorPositionByActor: Object.fromEntries(
               priorTurnRow.agentRecords.map((r) => [
                 r.characterId as string,
-                r.decision.move,
+                r.decision.position,
               ]),
             ),
           }
@@ -633,7 +646,9 @@ export const advanceTurn = action({
         systemPrompt: string;
         personaPromptText: string;
         visibleStateDigest: string;
+        composedUserMessage: string;
         scratchpadBefore: string;
+        useVariant: UseVariant;
       };
 
       const perAgent: PerAgent[] = livingActors.map((actor) => {
@@ -646,13 +661,16 @@ export const advanceTurn = action({
           prevTurnRowForBuilder,
           aliveCount,
         );
+        const useVariant = useVariantForActor(actor);
         return {
           actor,
           heard,
           systemPrompt: built.systemPrompt,
           personaPromptText: personaText,
           visibleStateDigest: built.visibleStateDigest,
+          composedUserMessage: built.composedUserMessage,
           scratchpadBefore: actor.scratchpad,
+          useVariant,
         };
       });
 
@@ -669,6 +687,9 @@ export const advanceTurn = action({
           personaPrompt: entry.personaPromptText,
           scratchpad: entry.scratchpadBefore,
           visibleStateDigest: entry.visibleStateDigest,
+          composedUserMessage: entry.composedUserMessage,
+          playerName: entry.actor.displayName,
+          useVariant: entry.useVariant,
           reasoningEffort,
           maxOutputTokens: MAX_OUTPUT_TOKENS,
           abortTimeoutMs: CALL_ABORT_TIMEOUT_MS,
@@ -683,12 +704,14 @@ export const advanceTurn = action({
         personaPromptText: string;
         systemPrompt: string;
         visibleStateDigest: string;
+        composedUserMessage: string;
         scratchpadBefore: string;
+        useVariant: UseVariant;
         decision: ParsedDecision;
         wrapperFellBack: boolean;
         // Narrowed to the schema's union; `undefined` when no failure.
         failureReason: FailureReason | undefined;
-        validatorReason: string | undefined;
+        validatorFieldErrors: ValidatorFieldErrors | undefined;
         callId: string | null;
         rawArguments: string | null;
         responseId: string | null;
@@ -713,27 +736,31 @@ export const advanceTurn = action({
           entry.actor.characterId,
           result.decision,
         );
-        const finalDecision: ParsedDecision = validation.ok
-          ? validation.decision
-          : validation.safeDefault;
-        const validatorReason = validation.ok ? undefined : validation.reason;
+        const finalDecision: ParsedDecision = validation.decision;
+        const validatorFieldErrors =
+          Object.keys(validation.fieldErrors).length > 0
+            ? validation.fieldErrors
+            : undefined;
 
         // If the validator rejected (and the wrapper hadn't already fallen
         // back), this counts as the engine's safe-default substitution per
         // ADR §4 / concept-spec §2A.3. We surface `fellBackToSafeDefault`
         // = true in that case so trace consumers see the substitution.
-        const fellBack = result.fellBackToSafeDefault || !validation.ok;
+        const fellBack =
+          result.fellBackToSafeDefault || validatorFieldErrors !== undefined;
 
         return {
           actor: entry.actor,
           personaPromptText: entry.personaPromptText,
           systemPrompt: entry.systemPrompt,
           visibleStateDigest: entry.visibleStateDigest,
+          composedUserMessage: entry.composedUserMessage,
           scratchpadBefore: entry.scratchpadBefore,
+          useVariant: entry.useVariant,
           decision: finalDecision,
           wrapperFellBack: fellBack,
           failureReason: result.failureReason,
-          validatorReason,
+          validatorFieldErrors,
           callId: result.callId,
           rawArguments: result.rawArguments,
           responseId: result.raw.responseId,
@@ -776,21 +803,13 @@ export const advanceTurn = action({
       const agentRecords = resolved.map((r) => ({
         characterId: r.actor.characterId as Id<"characters">,
         personaId: r.actor.personaId,
-        input: {
-          systemPromptHash: hashHex(r.systemPrompt),
-          systemPromptText: r.systemPrompt,
-          personaPromptHash: hashHex(r.personaPromptText),
-          personaPromptText: r.personaPromptText,
-          visibleStateDigest: r.visibleStateDigest,
-          scratchpadBefore: r.scratchpadBefore,
-        },
+        input: buildAgentInputRecord(r),
         decision: r.decision,
         scratchpadAfter: nextState.characters.find(
           (c) => c.characterId === r.actor.characterId,
         )?.scratchpad ?? r.scratchpadBefore,
-        // Pass B.3 — `validatorReason` threaded via the pure helper so the
-        // engine-validator rejection reason (computed at line ~512) is
-        // visible from the persisted trace, not just a local var.
+        // Validator field errors are threaded via the pure helper so
+        // field-scoped rejections are visible from the persisted trace.
         // Pass F — `httpBodyExcerpt` threaded similarly so HTTP-error
         // bodies (Azure 400 moderation, etc.) land in the trace.
         llm: buildAgentLlmRecord({
@@ -802,7 +821,7 @@ export const advanceTurn = action({
           httpStatus: r.httpStatus,
           wrapperFellBack: r.wrapperFellBack,
           failureReason: r.failureReason,
-          validatorReason: r.validatorReason,
+          validatorFieldErrors: r.validatorFieldErrors,
           httpBodyExcerpt: r.httpBodyExcerpt,
           // Phase-3 ADR §2 — required-nullable reasoning text.
           reasoning: r.reasoning,

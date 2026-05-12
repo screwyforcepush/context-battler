@@ -6,12 +6,13 @@ function approxTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-const CANONICAL_SYSTEM_PROMPT = `You are an extraction-arena agent. Each turn, emit ONE tool call to \`decide_turn\`.
-
+const CANONICAL_SYSTEM_PROMPT = `You are <Player Name>, extraction-arena agent. Each turn, emit ONE tool call to \`decide_turn\`.
 Match shape:
 - 7 other agents competing for the prize pool.
 - 50 turns. Turn 30 reveals evac zone. Turn 50 extracts living agents inside the 3×3 zone and splits the prize. Outside evac at turn 50 you are incinerated.
-- Walls block LOS and movement; cover hides you from other agents' vision (revealed by enemy within 2, attacking, speaking, looting, consumable, or leaving cover).`;
+- Walls block LOS and movement.
+- Cover hides you from other agents' vision (revealed by enemy within 2, attacking, speaking, looting, consumable).
+- Move range max 8 dist + Attack/loot range 2 = move attack/loot 10.`;
 
 const HYGIENE_FORBIDDEN_PHRASES = [
   "safe default",
@@ -53,7 +54,9 @@ describe("WP-C — SYSTEM_PROMPT slim contract", () => {
   });
 
   it("keeps the stakes, match shape, wall, and cover rules", () => {
-    expect(SYSTEM_PROMPT).toContain("extraction-arena agent");
+    expect(SYSTEM_PROMPT).toContain(
+      "You are <Player Name>, extraction-arena agent",
+    );
     expect(SYSTEM_PROMPT).toContain("ONE tool call to `decide_turn`");
     expect(SYSTEM_PROMPT).toContain(
       "7 other agents competing for the prize pool",
@@ -66,10 +69,13 @@ describe("WP-C — SYSTEM_PROMPT slim contract", () => {
     expect(SYSTEM_PROMPT).toContain("Outside evac at turn 50");
     expect(SYSTEM_PROMPT).toContain("Walls block LOS and movement");
     expect(SYSTEM_PROMPT).toContain(
-      "cover hides you from other agents' vision",
+      "Cover hides you from other agents' vision",
     );
     expect(SYSTEM_PROMPT).toContain("enemy within 2");
-    expect(SYSTEM_PROMPT).toContain("leaving cover");
+    expect(SYSTEM_PROMPT).not.toContain("leaving cover");
+    expect(SYSTEM_PROMPT).toContain(
+      "Move range max 8 dist + Attack/loot range 2 = move attack/loot 10.",
+    );
   });
 
   it("does not carry deleted phase-3 sections or persona-deference line", () => {
@@ -82,7 +88,7 @@ describe("WP-C — SYSTEM_PROMPT slim contract", () => {
     expect(SYSTEM_PROMPT).not.toContain("Visible state is authoritative");
   });
 
-  it("omits vision range and action grammar now owned by tool descriptions", () => {
+  it("omits vision range and detailed action grammar now owned by tool descriptions", () => {
     expect(SYSTEM_PROMPT).not.toMatch(/\bvision\s+range\b/i);
     expect(SYSTEM_PROMPT).not.toMatch(/\bVision\s+20\b/);
     expect(SYSTEM_PROMPT).not.toContain("Chebyshev");
@@ -91,7 +97,6 @@ describe("WP-C — SYSTEM_PROMPT slim contract", () => {
     expect(SYSTEM_PROMPT).not.toContain("away_from_entity");
     expect(SYSTEM_PROMPT).not.toContain("toward_object");
     expect(SYSTEM_PROMPT).not.toContain("toward_evac");
-    expect(SYSTEM_PROMPT).not.toContain("Attack/loot range");
   });
 });
 

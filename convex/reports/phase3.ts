@@ -40,25 +40,20 @@
 //      total kind="loot" entries (across all 10 runs). Threshold ≤ 1%.
 //
 //   4. **Corpse loot success rate** — % of RUNS where ≥ 1 entry with
-//      kind="loot" + result="looted" + target ∈ {Corpse_Player_*,
-//      Player_*} exists. Threshold ≥ 50%. WP-H.1: filter accepts BOTH
-//      shapes — post-WP-G.1 the engine emits the LLM verbatim
-//      `Corpse_Player_N` typed-id (resolution.ts:567 preserves
-//      `traceTarget = rawTargetId`); bare `Player_*` is back-compat with
-//      historical fixtures and the alternate Player_* direct-dispatch
-//      branch (resolution.ts:617).
+//      kind="loot" + result="looted" + target shaped as a corpse id or a
+//      character display name exists. Threshold ≥ 50%.
 //
-//   5. **Overwatch stance differentiation counts** — across all 10 runs:
-//      defensive counter-fires = count(action.kind="overwatch" +
-//      fromOverwatch=true + stance="defensive"); offensive fires =
-//      count(action.kind="overwatch" + stance="offensive"). Both > 0.
+//   5. **Overwatch differentiation counts** — across all 10 runs:
+//      defensive counter-fires = count(action.kind="counter" with damage);
+//      offensive fires = count(action.kind="overwatch" with a movement trigger
+//      and damage). Both > 0.
 //
 //   6. **Outcome attribution heuristic** — for each (actor, turn N)
 //      where actor took damage (action targeting their displayName with
 //      `result` matching `dmg <N>`), check turn N+1: does the agent's
 //      decision reference the attacker via
-//        (a) action.targetCharacterId matching attacker's displayName, OR
-//        (b) move.targetId matching attacker's displayName, OR
+//        (a) action.targetId matching attacker's displayName, OR
+//        (b) position.move.direction.targetId matching attacker's displayName, OR
 //        (c) scratchpadAfter containing the attacker's displayName.
 //      Count rate over matching N pairs. Threshold ≥ 50%.
 //
@@ -77,8 +72,7 @@
 // Cross-references:
 //   - README.md §5 — the metric thresholds (single source of truth).
 //   - work-packages.md WP-E.3 — formula definitions.
-//   - architecture-decisions.md §1 (loot unify), §3 (fromOverwatch +
-//     stance), §9 (blockedBy="wall").
+//   - architecture-decisions.md §1 (loot unify), §9 (blockedBy="wall").
 //   - convex/schema.ts — turns / worldState / characters validators.
 
 import { v } from "convex/values";
@@ -86,8 +80,9 @@ import { internalAction, mutation } from "../_generated/server.js";
 import { api } from "../_generated/api.js";
 import {
   PERSONA_IDS,
-  type MoveDecision,
+  type ActionDecision,
   type PersonaId,
+  type Position,
 } from "../engine/types.js";
 import { hashMatchIds } from "../reports.js";
 
@@ -130,10 +125,7 @@ export type Phase3ActionTraceEntry = {
   kind: string;
   target: string;
   result: string;
-  /** Phase-3 ADR §3 — engine-emitted overwatch attribution. */
-  fromOverwatch?: boolean;
-  /** Phase-3 ADR §3 — defensive | offensive | undefined for non-overwatch. */
-  stance?: "offensive" | "defensive";
+  triggeredByMovement?: boolean;
 };
 
 /** One persisted move trace entry — narrowed to fields phase-3 reads. */
@@ -149,11 +141,8 @@ export type Phase3AgentRecord = {
   personaId: PersonaId;
   scratchpadAfter: string;
   decision: {
-    move: MoveDecision;
-    action:
-      | { kind: "attack"; targetCharacterId: string }
-      | { kind: "loot"; targetId: string }
-      | { kind: "none" };
+    position: Position;
+    action: ActionDecision;
   };
   llm: {
     fellBackToSafeDefault: boolean;
@@ -234,7 +223,7 @@ export type Phase3MetricsPayload = {
   corpseLootSuccessRate: number;
   meetsCorpseLootThreshold: boolean;
 
-  // ── Overwatch stance differentiation (both > 0) ────────────────────
+  // ── Overwatch differentiation (both > 0) ───────────────────────────
   defensiveCounterFires: number;
   offensiveOverwatchFires: number;
   meetsOverwatchDifferentiationThreshold: boolean;
@@ -293,8 +282,7 @@ function isDamageResult(result: string): boolean {
 /**
  * Build a (characterId → displayName) lookup map for ONE run's characters.
  * The trace's `target` field on attack entries is the DEFENDER'S
- * characterId; the input/digest renders attacks against displayNames
- * (`Player_5`). The outcome-attribution heuristic needs both directions.
+ * displayName. The outcome-attribution heuristic needs both directions.
  */
 function buildIdMaps(
   characters: Phase3CharacterRow[],
@@ -313,29 +301,29 @@ function buildIdMaps(
 
 /**
  * Find the move target id if it points at a visible character display id.
- * Non-character namespaces (chest/corpse/cover/wall/evac), relative moves,
- * and explicit no-op moves do not count for outcome attribution.
+ * Non-character namespaces and non-targeted movement do not count for
+ * outcome attribution.
  */
 function moveTargetEntityId(
-  move: Phase3AgentRecord["decision"]["move"],
+  position: Phase3AgentRecord["decision"]["position"],
   displayToCharId: ReadonlyMap<string, string>,
 ): string | null {
-  if (move.kind !== "toward" && move.kind !== "away") return null;
-  if (move.targetId.startsWith("Player_")) return move.targetId;
-  if (displayToCharId.has(move.targetId)) return move.targetId;
+  if (position.kind !== "move") return null;
+  const direction = position.direction;
+  if (direction.kind !== "toward" && direction.kind !== "away") return null;
+  if (displayToCharId.has(direction.targetId)) return direction.targetId;
   return null;
 }
 
 /**
  * Find the action's "target character id" if any — only the attack arm
- * points at a character. Loot.targetId can be a Player_* corpse but the
- * corpse-loot semantic doesn't count as outcome-attribution (the
- * attacker may already be dead).
+ * points at a character. Loot can target a corpse, but corpse-loot does not
+ * count as outcome attribution because the attacker may already be dead.
  */
 function actionTargetCharacterId(
   action: Phase3AgentRecord["decision"]["action"],
 ): string | null {
-  if (action.kind === "attack") return action.targetCharacterId;
+  if (action.kind === "attack") return action.targetId;
   return null;
 }
 
@@ -375,12 +363,11 @@ export function computePhase3Metrics(
   let totalLootAttempts = 0;
   let drainedRepeats = 0;
 
-  // Corpse-loot success — count of RUNS with ≥ 1 successful corpse-loot
-  // (target shape ∈ {Corpse_Player_*, Player_*}). WP-H.1 widens the filter
-  // to honor the post-WP-G.1 verbatim-emit contract.
+  // Corpse-loot success — count of RUNS with ≥ 1 successful corpse-loot.
   let runsWithCorpseLoot = 0;
 
-  // Overwatch stance differentiation.
+  // Historical overwatch differentiation labels, adapted to Phase 6 trace
+  // fields: counter rows and movement-triggered overwatch rows.
   let defensiveCounterFires = 0;
   let offensiveOverwatchFires = 0;
 
@@ -426,7 +413,7 @@ export function computePhase3Metrics(
       }
     }
 
-    // ── Per-turn primary tallies ──────────────────────────────────────
+    // ── Per-turn tallies ─────────────────────────────────────────────
     for (const t of turns) {
       // Schema validity / reasoning per agentRecord.
       for (const ar of t.agentRecords) {
@@ -450,15 +437,9 @@ export function computePhase3Metrics(
         // Loot: total + corpse-loot success flag for this run.
         if (a.kind === "loot") {
           totalLootAttempts += 1;
-          // WP-H.1 — accept BOTH `Corpse_Player_*` (post-WP-G.1 verbatim
-          // engine emit; resolution.ts:567 preserves the LLM typed-id in
-          // `traceTarget`) AND bare `Player_*` (back-compat with any
-          // historical fixtures and the alternate `Player_*` direct-
-          // dispatch branch at resolution.ts:617). PM-lock D50.
           if (
             a.result === "looted" &&
-            (a.target.startsWith("Corpse_Player_") ||
-              a.target.startsWith("Player_"))
+            (a.target.startsWith("Corpse_") || displayToCharId.has(a.target))
           ) {
             runHasCorpseLoot = true;
           }
@@ -470,19 +451,23 @@ export function computePhase3Metrics(
           }
         }
 
-        // Overwatch stance differentiation.
-        if (a.kind === "overwatch") {
-          if (a.fromOverwatch === true && a.stance === "defensive") {
-            defensiveCounterFires += 1;
-          }
-          if (a.stance === "offensive") {
-            offensiveOverwatchFires += 1;
-          }
+        // Overwatch differentiation.
+        if (a.kind === "counter" && isDamageResult(a.result)) {
+          defensiveCounterFires += 1;
+        }
+        if (
+          a.kind === "overwatch" &&
+          a.triggeredByMovement === true &&
+          isDamageResult(a.result)
+        ) {
+          offensiveOverwatchFires += 1;
         }
 
-        // Run-has-kill heuristic — any dmg-result attack/overwatch entry.
+        // Run-has-kill heuristic — any dmg-result combat entry.
         if (
-          (a.kind === "attack" || a.kind === "overwatch") &&
+          (a.kind === "attack" ||
+            a.kind === "overwatch" ||
+            a.kind === "counter") &&
           isDamageResult(a.result)
         ) {
           runHasKill = true;
@@ -520,16 +505,15 @@ export function computePhase3Metrics(
     // ── Outcome-attribution heuristic ─────────────────────────────────
     //
     // For each (actor, turn N) where actor took damage from an attacker:
-    //   incoming damage entries are `kind ∈ {attack, overwatch}`,
+    //   incoming damage entries are `kind ∈ {attack, overwatch, counter}`,
     //   `target = actor's displayName`, `result = "dmg N"`.
     // Then check turn N+1's actor decision for any reference to the
     // attacker — by characterId on action/move targets, or by displayName
     // substring in scratchpadAfter.
     //
-    // The heuristic accepts the displayName form because the digest
-    // surfaces `Player_X` to the model; the model writes that into its
-    // tool call literals or scratchpad. All three reference channels are
-    // OR-combined per WP-E.3 spec.
+    // The heuristic accepts the displayName form because the digest surfaces
+    // persona names to the model; the model writes that into its tool call
+    // literals or scratchpad. All three reference channels are OR-combined.
     for (let i = 0; i < turns.length - 1; i++) {
       const turnN = turns[i]!;
       const turnNext = turns[i + 1]!;
@@ -537,14 +521,16 @@ export function computePhase3Metrics(
       const incomingAttackers = new Map<string, Set<string>>();
       for (const a of turnN.resolution.actions) {
         if (
-          (a.kind !== "attack" && a.kind !== "overwatch") ||
+          (a.kind !== "attack" &&
+            a.kind !== "overwatch" &&
+            a.kind !== "counter") ||
           !isDamageResult(a.result)
         ) {
           continue;
         }
-        // a.target is the defender's displayName (e.g. Player_3); the
-        // attacker is a.characterId. Resolve attacker's displayName so
-        // the heuristic's scratchpad / tool-call lookups find it.
+        // a.target is the defender's displayName; the attacker is
+        // a.characterId. Resolve attacker's displayName so the heuristic's
+        // scratchpad / tool-call lookups find it.
         const defenderDisplay = a.target;
         const defenderCharId = displayToCharId.get(defenderDisplay);
         if (!defenderCharId) continue;
@@ -563,8 +549,7 @@ export function computePhase3Metrics(
         if (!nextRecord) continue;
         for (const attackerDisplay of attackers) {
           outcomeAttributionPairs += 1;
-          // (a) action.targetCharacterId matches attacker's characterId
-          //     OR displayName.
+          // (a) action.targetId matches attacker's characterId OR displayName.
           const attackerCharId = displayToCharId.get(attackerDisplay);
           const actTarget = actionTargetCharacterId(nextRecord.decision.action);
           let matched = false;
@@ -574,10 +559,10 @@ export function computePhase3Metrics(
           ) {
             matched = true;
           }
-          // (b) move.targetId matches attacker.
+          // (b) position.move.direction.targetId matches attacker.
           if (!matched) {
             const moveTarget = moveTargetEntityId(
-              nextRecord.decision.move,
+              nextRecord.decision.position,
               displayToCharId,
             );
             if (
@@ -816,10 +801,9 @@ export const computePhase3Report = internalAction({
             kind: a.kind,
             target: a.target,
             result: a.result,
-            ...(a.fromOverwatch !== undefined
-              ? { fromOverwatch: a.fromOverwatch }
+            ...(a.triggeredByMovement !== undefined
+              ? { triggeredByMovement: a.triggeredByMovement }
               : {}),
-            ...(a.stance !== undefined ? { stance: a.stance } : {}),
           })),
           speech: t.resolution.speech.map((s) => ({
             characterId: s.characterId as unknown as string,

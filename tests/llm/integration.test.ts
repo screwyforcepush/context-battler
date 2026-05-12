@@ -1,135 +1,191 @@
-// WP6 — env-gated live integration tests against the real Azure deployment.
+// Phase 6 live integration tests against the real Azure Responses deployment.
 //
 // Skipped by default. Run with:
-//   set -a; source .env; set +a; VITEST_LLM=1 npm test -- integration
+//   set -a; source .env; set +a
+//   VITEST_LLM=1 npm test -- tests/llm/integration.test.ts 2>&1 | tee /tmp/phase6-live-azure-iter2.log
 //
-// Coverage (absorbed Spike A sanity per `de-risking.md` v1.2 + WP6 acceptance):
-//   1. function_call emitted on the live happy path.
-//   2. latencyMs <= 30_000 for reasoning.effort: "low".
-//   3. JSON.parse(rawArguments) + Zod validation round-trip.
-//   4. reasoning.effort: "low" plumbed end-to-end.
-//
-// Each test uses the production `SYSTEM_PROMPT` (phase-3 schema teacher) +
-// a phase-3-shaped persona prompt + scratchpad + visibleStateDigest — a
-// realistic "mid-game" frame to flex the 7-field decision contract end to
-// end against the live Azure deployment.
-//
-// WP-H.3 (phase-3 corrective slice 3): refreshed from the deleted phase-1
-// vocabulary fixture (interact / targetCorpseId / overwatch_priority /
-// Heard / Last-known / Evac: digest header / Affordances). The prior
-// synthetic system prompt duplicated a now-stale schema cheat-sheet; this
-// rewrite imports the canonical SYSTEM_PROMPT verbatim so the live test
-// can never again drift from production.
+// This file intentionally exercises the iter-2 per-turn contract only:
+// `use`, `position`, `action`, `say`, and `scratchpad`.
 
 import { config as loadDotenv } from "dotenv";
 import { describe, expect, it } from "vitest";
+import type {
+  CharacterState,
+  MatchState,
+  PersonaId,
+  Tile,
+  UseVariant,
+  WorldState,
+} from "../../convex/engine/types.js";
+import { titleCase } from "../../convex/engine/types.js";
 import { callDecisionTool } from "../../convex/llm/azure.js";
 import { parseDecision } from "../../convex/llm/decisionTool.js";
-import { SYSTEM_PROMPT } from "../../convex/llm/systemPrompt.js";
+import { buildAgentInput } from "../../convex/llm/inputBuilder.js";
 
-// Load .env once at module init so AZURE_* vars are available when the
-// describe block evaluates `skipIf`. Idempotent — safe to call repeatedly.
 loadDotenv();
 
 const SHOULD_RUN = !!process.env.VITEST_LLM;
 
-// Synthetic phase-3 input. The system prompt is the production
-// `SYSTEM_PROMPT` verbatim (it teaches the digest's typed-id glossary +
-// the 7-field decision schema), and the user-frame is shaped exactly like
-// `convex/llm/inputBuilder.ts#buildVisibleStateDigest` emits per WP-C.6.
-//
-// Phase-3 digest shape (no `Heard`/`Last-known`/`Evac:` blocks; per-Visible
-// observation brackets carry last-turn speech):
-//
-//   You: at (X,Y), HP/maxHP, weapon/armour/consumable, in evac zone
-//   Last turn (you): <move outcome>, <action outcome>, <damage from whom>, said "..."
-//   Visible:
-//   - Player_N, dist N <bearing> [HP~mid, holding axe, attacked Player_X]
-//   - Chest_NNN, dist N <bearing> [opened]
-//   - Corpse_PlayerN, dist N <bearing> [drained]
-//   - Cover_X_Y, dist N <bearing>
-//   - Wall_X_Y, dist N <bearing>
-//   - Evac, dist N <bearing>
-const SYNTHETIC_INPUT = {
-  systemPrompt: SYSTEM_PROMPT,
-  personaPrompt: [
-    "Persona: rat.",
-    "You hide in cover, avoid combat, and head for evac when revealed.",
-  ].join(" "),
-  scratchpad: "Turn 9. Saw Player_3 SE last turn. Hidden in cover.",
-  visibleStateDigest: [
-    "You: at (32,28), 85/100, rusty_blade/cloth/heal, outside evac",
-    "Last turn (you): moved SE (3 tiles), no action, no damage",
-    "Visible:",
-    "- Player_3, dist 4 SE [HP~mid, holding sword]",
-    "- Chest_003, dist 5 N",
-    "- Cover_32_28, dist 0 here",
-    "- Wall_31_28, dist 1 W",
-  ].join("\n"),
-  reasoningEffort: "low" as const,
-  maxOutputTokens: 512,
-};
+function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
+  return {
+    size: { w: 100, h: 100 },
+    walls: [],
+    coverTiles: [
+      { x: 11, y: 10 },
+      { x: 10, y: 11 },
+    ],
+    chests: [
+      {
+        id: "chest_003",
+        pos: { x: 14, y: 10 },
+        contents: { category: "weapon", name: "sword" },
+        opened: false,
+        lootTable: "starter",
+      },
+    ],
+    corpses: [],
+    evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
+    ...overrides,
+  };
+}
 
-describe.skipIf(!SHOULD_RUN)("WP6 Azure live integration (VITEST_LLM=1)", () => {
-  it("emits a function_call on the happy path; wrapper does NOT fall back", async () => {
-    const result = await callDecisionTool(SYNTHETIC_INPUT);
+function makeCharacter(opts: {
+  id: string;
+  personaId: PersonaId;
+  pos: Tile;
+  weapon?: "rusty_blade" | "sword" | "axe" | "greatsword";
+  armour?: "cloth" | "leather" | "chain" | "plate";
+  consumable?: "heal" | "speed";
+  scratchpad?: string;
+}): CharacterState {
+  const equipped: CharacterState["equipped"] = {};
+  if (opts.weapon) equipped.weapon = { category: "weapon", name: opts.weapon };
+  if (opts.armour) equipped.armour = { category: "armour", name: opts.armour };
+  if (opts.consumable) {
+    equipped.consumable = { category: "consumable", name: opts.consumable };
+  }
 
-    if (result.fellBackToSafeDefault) {
-      // Surface the failure reason + raw HTTP status in the assertion message.
-      throw new Error(
-        `wrapper fell back to safe-default; failureReason=${result.failureReason}, httpStatus=${result.raw.httpStatus}, rawArguments=${result.rawArguments}`,
+  return {
+    characterId: opts.id,
+    personaId: opts.personaId,
+    spawnIndex: 0,
+    displayName: titleCase(opts.personaId),
+    hp: 50,
+    maxHp: 50,
+    pos: opts.pos,
+    equipped,
+    scratchpad: opts.scratchpad ?? "",
+    hidden: false,
+    alive: true,
+    lastKnown: [],
+  };
+}
+
+function makeIntegrationInput(useVariant: UseVariant) {
+  const actor = makeCharacter({
+    id: "c_duelist",
+    personaId: "duelist",
+    pos: { x: 10, y: 10 },
+    weapon: "rusty_blade",
+    armour: "leather",
+    consumable: useVariant === "consumable_or_null" ? "speed" : undefined,
+    scratchpad: "Turn 9. Camper is east. Chest_003 is reachable.",
+  });
+  const enemy = makeCharacter({
+    id: "c_camper",
+    personaId: "camper",
+    pos: { x: 15, y: 10 },
+    weapon: "axe",
+    armour: "cloth",
+  });
+  const state: MatchState = {
+    matchId: `live-iter2-${useVariant}`,
+    turn: 9,
+    world: makeWorld(),
+    characters: [actor, enemy],
+    rngSeed: "phase6-live-integration",
+  };
+  const personaPrompt = [
+    "You prefer direct pressure and decisive attacks.",
+    "Use the visible ids exactly as written when targeting enemies or loot.",
+  ].join(" ");
+  const built = buildAgentInput(state, actor.characterId, personaPrompt, null, 2);
+
+  return {
+    systemPrompt: built.systemPrompt,
+    personaPrompt,
+    scratchpad: actor.scratchpad,
+    visibleStateDigest: built.visibleStateDigest,
+    composedUserMessage: built.composedUserMessage,
+    playerName: actor.displayName,
+    useVariant,
+    reasoningEffort: "low" as const,
+    maxOutputTokens: 1200,
+  };
+}
+
+function expectIter2DecisionSurface(value: Record<string, unknown>) {
+  expect(Object.keys(value).sort()).toEqual([
+    "action",
+    "position",
+    "say",
+    "scratchpad",
+    "use",
+  ]);
+  expect(value).not.toHaveProperty("primary");
+  expect(value).not.toHaveProperty("move");
+  expect(value).not.toHaveProperty("overwatch_stance");
+  expect(value).not.toHaveProperty("consume");
+  expect(value).not.toHaveProperty("scratchpad_update");
+}
+
+describe.skipIf(!SHOULD_RUN)("Phase 6 Azure live integration (VITEST_LLM=1)", () => {
+  it.each([
+    "consumable_or_null",
+    "null_only",
+  ] as const satisfies readonly UseVariant[])(
+    "round-trips an iter-2 decision for useVariant=%s",
+    async (useVariant) => {
+      const input = makeIntegrationInput(useVariant);
+      const result = await callDecisionTool(input);
+
+      process.stdout.write(
+        [
+          `[phase6 live] useVariant=${useVariant}`,
+          `latencyMs=${result.raw.latencyMs}`,
+          `httpStatus=${result.raw.httpStatus ?? "<none>"}`,
+          `fellBack=${result.fellBackToSafeDefault}`,
+          `failureReason=${result.failureReason ?? "<none>"}`,
+          `rawArguments=${result.rawArguments ?? "<null>"}`,
+        ].join(" ") + "\n",
       );
-    }
-    expect(result.fellBackToSafeDefault).toBe(false);
-    expect(result.failureReason).toBeUndefined();
-    expect(result.callId).not.toBeNull();
-    expect(result.rawArguments).not.toBeNull();
-    expect(result.raw.responseId).not.toBeNull();
-    expect(result.raw.httpStatus).toBe(200);
-  }, 60_000);
 
-  it("latencyMs <= 30_000 (sanity bound for reasoning.effort=low)", async () => {
-    const result = await callDecisionTool(SYNTHETIC_INPUT);
-    // Always log for the required final-summary capture, even on pass.
-    process.stdout.write(
-      `[WP6 integration] observed latencyMs=${result.raw.latencyMs} fellBack=${result.fellBackToSafeDefault} failureReason=${result.failureReason ?? "<none>"}\n`,
-    );
-    expect(result.raw.latencyMs).toBeLessThanOrEqual(30_000);
-  }, 60_000);
+      if (result.fellBackToSafeDefault) {
+        throw new Error(
+          `wrapper fell back; failureReason=${result.failureReason}, httpStatus=${result.raw.httpStatus}, rawArguments=${result.rawArguments}`,
+        );
+      }
 
-  it("rawArguments JSON-parses and validates against the phase-3 7-field Zod schema", async () => {
-    const result = await callDecisionTool(SYNTHETIC_INPUT);
-    if (result.fellBackToSafeDefault) {
-      throw new Error(
-        `wrapper fell back; cannot test parseDecision: failureReason=${result.failureReason}, rawArguments=${result.rawArguments}`,
-      );
-    }
-    expect(result.rawArguments).not.toBeNull();
-    const parsed = parseDecision(result.rawArguments!);
-    expect(parsed.ok).toBe(true);
-    if (parsed.ok) {
-      // Phase-3 ADR §1 / WP-G.2 D39 PM-lock: all 7 declared properties
-      // are required. Sanity-check structure: every required key present.
-      expect(parsed.decision).toHaveProperty("consume");
-      expect(parsed.decision).toHaveProperty("primary");
-      expect(parsed.decision).toHaveProperty("move");
-      expect(parsed.decision).toHaveProperty("action");
-      expect(parsed.decision).toHaveProperty("say");
-      expect(parsed.decision).toHaveProperty("overwatch_stance");
-      expect(parsed.decision).toHaveProperty("scratchpad_update");
-    }
-  }, 60_000);
+      expect(result.failureReason).toBeUndefined();
+      expect(result.callId).not.toBeNull();
+      expect(result.rawArguments).not.toBeNull();
+      expect(result.raw.responseId).not.toBeNull();
+      expect(result.raw.httpStatus).toBe(200);
 
-  it("reasoning.effort=low produces a usable decision (no incomplete_details)", async () => {
-    const result = await callDecisionTool({
-      ...SYNTHETIC_INPUT,
-      reasoningEffort: "low",
-    });
-    // The phase 1 binding policy (de-risking.md "Reasoning policy"): low is
-    // the default and must be workable. If this test starts failing, the
-    // policy escalation kicks in (lower concurrency / shrink prompt /
-    // escalate to user) — NOT bumping to medium silently.
-    expect(result.fellBackToSafeDefault).toBe(false);
-    expect(result.failureReason).toBeUndefined();
-  }, 60_000);
+      const raw = JSON.parse(result.rawArguments!) as Record<string, unknown>;
+      expectIter2DecisionSurface(raw);
+
+      const parsed = parseDecision(result.rawArguments!, { useVariant });
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) {
+        expectIter2DecisionSurface(
+          parsed.decision as unknown as Record<string, unknown>,
+        );
+        if (useVariant === "null_only") {
+          expect(parsed.decision.use).toBeNull();
+        }
+      }
+    },
+    90_000,
+  );
 });

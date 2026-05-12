@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveTypedEntity } from "../../convex/llm/idNormalisation.js";
+import {
+  normaliseCharacterTargetId,
+  normaliseCorpseTargetId,
+  resolveTypedEntity,
+} from "../../convex/llm/idNormalisation.js";
 import type {
   CharacterState,
   ChestState,
@@ -70,26 +74,29 @@ function makeState(opts: {
 function makeVisibleFixture(): MatchState {
   const observer = makeCharacter({
     id: "opaque_observer_id",
-    displayName: "Player_1",
+    displayName: "Rat",
     pos: { x: 50, y: 50 },
+    personaId: "rat",
   });
-  const player4 = makeCharacter({
-    id: "opaque_character_4",
-    displayName: "Player_4",
+  const camper = makeCharacter({
+    id: "opaque_character_camper",
+    displayName: "Camper",
     pos: { x: 54, y: 50 },
+    personaId: "camper",
   });
-  const deadPlayer5 = makeCharacter({
-    id: "opaque_character_5",
-    displayName: "Player_5",
+  const deadVulture = makeCharacter({
+    id: "opaque_character_vulture",
+    displayName: "Vulture",
     pos: { x: 58, y: 51 },
     alive: false,
+    personaId: "vulture",
   });
 
   return makeState({
-    characters: [observer, player4, deadPlayer5],
+    characters: [observer, camper, deadVulture],
     world: {
       chests: [makeChest("chest_006", { x: 56, y: 50 })],
-      corpses: [makeCorpse("opaque_character_5", { x: 58, y: 50 })],
+      corpses: [makeCorpse("opaque_character_vulture", { x: 58, y: 50 })],
       coverTiles: [{ x: 54, y: 42 }],
       walls: [{ x: 64, y: 30, w: 1, h: 1 }],
       evac: { centre: { x: 52, y: 52 }, revealedAtTurn: 30 },
@@ -102,11 +109,11 @@ describe("resolveTypedEntity", () => {
     const state = makeVisibleFixture();
     const observerId = "opaque_observer_id";
 
-    expect(resolveTypedEntity(state, observerId, "Player_4")).toEqual({
+    expect(resolveTypedEntity(state, observerId, "Camper")).toEqual({
       kind: "character",
       tile: { x: 54, y: 50 },
       stopAtRange: 2,
-      engineRef: { characterId: "opaque_character_4" },
+      engineRef: { characterId: "opaque_character_camper" },
     });
     expect(resolveTypedEntity(state, observerId, "Chest_006")).toEqual({
       kind: "chest",
@@ -120,7 +127,7 @@ describe("resolveTypedEntity", () => {
       stopAtRange: 2,
       engineRef: { chestId: "chest_006" },
     });
-    expect(resolveTypedEntity(state, observerId, "Corpse_Player_5")).toEqual({
+    expect(resolveTypedEntity(state, observerId, "Corpse_Vulture")).toEqual({
       kind: "corpse",
       tile: { x: 58, y: 50 },
       stopAtRange: 2,
@@ -142,41 +149,56 @@ describe("resolveTypedEntity", () => {
     });
   });
 
-  it("bridges Player_N display ids to opaque engine character ids", () => {
+  it("bridges persona display ids to opaque engine character ids", () => {
     const state = makeVisibleFixture();
     expect(
-      resolveTypedEntity(state, "opaque_observer_id", "Player_4")?.engineRef,
-    ).toEqual({ characterId: "opaque_character_4" });
+      resolveTypedEntity(state, "opaque_observer_id", "Camper")?.engineRef,
+    ).toEqual({ characterId: "opaque_character_camper" });
+  });
+
+  it("normalises character and corpse persona ids directly", () => {
+    const state = makeVisibleFixture();
+    expect(normaliseCharacterTargetId("Camper", state.characters)).toBe(
+      "opaque_character_camper",
+    );
+    expect(normaliseCorpseTargetId("Corpse_Vulture", state.characters)).toBe(
+      "opaque_character_vulture",
+    );
   });
 
   it("returns null for unknown, malformed, hidden, dead, unrevealed, and out-of-vision targets", () => {
     const observer = makeCharacter({
       id: "opaque_observer_id",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 50, y: 50 },
+      personaId: "rat",
     });
     const hidden = makeCharacter({
-      id: "opaque_character_7",
-      displayName: "Player_7",
+      id: "opaque_character_paranoid",
+      displayName: "Paranoid",
       pos: { x: 55, y: 50 },
       hidden: true,
+      personaId: "paranoid",
     });
     const dead = makeCharacter({
-      id: "opaque_character_3",
-      displayName: "Player_3",
+      id: "opaque_character_trader",
+      displayName: "Trader",
       pos: { x: 56, y: 50 },
       alive: false,
+      personaId: "trader",
     });
     const far = makeCharacter({
-      id: "opaque_character_8",
-      displayName: "Player_8",
+      id: "opaque_character_sprinter",
+      displayName: "Sprinter",
       pos: { x: 80, y: 50 },
+      personaId: "sprinter",
     });
     const deadFar = makeCharacter({
-      id: "opaque_character_9",
-      displayName: "Player_9",
+      id: "opaque_character_opportunist",
+      displayName: "Opportunist",
       pos: { x: 81, y: 50 },
       alive: false,
+      personaId: "opportunist",
     });
     const state = makeState({
       characters: [observer, hidden, dead, far, deadFar],
@@ -192,11 +214,11 @@ describe("resolveTypedEntity", () => {
     for (const targetId of [
       "Random_42",
       "Cover_foo_bar",
-      "Player_7",
-      "Player_3",
-      "Player_8",
+      "Paranoid",
+      "Trader",
+      "Sprinter",
       "Chest_099",
-      "Corpse_Player_9",
+      "Corpse_Opportunist",
       "Cover_80_50",
       "Wall_80_51",
       "Evac",
@@ -208,12 +230,12 @@ describe("resolveTypedEntity", () => {
     }
   });
 
-  it("dispatches Corpse_Player_5 as a corpse id, not a character id", () => {
+  it("dispatches Corpse_Vulture as a corpse id, not a character id", () => {
     const state = makeVisibleFixture();
     const resolved = resolveTypedEntity(
       state,
       "opaque_observer_id",
-      "Corpse_Player_5",
+      "Corpse_Vulture",
     );
 
     expect(resolved).toEqual({

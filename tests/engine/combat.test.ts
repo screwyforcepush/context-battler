@@ -81,13 +81,11 @@ function makeState(characters: CharacterState[]): MatchState {
 
 function nullDecision(overrides: Partial<ParsedDecision> = {}): ParsedDecision {
   return {
-    consume: "none",
-    primary: "stationary_action",
-    move: { kind: "none" },
+    use: null,
+    position: { kind: "move", direction: { kind: "N" }, dist: 0 },
     action: { kind: "none" },
     say: null,
-    overwatch_stance: null,
-    scratchpad_update: null,
+    scratchpad: null,
     ...overrides,
   };
 }
@@ -301,7 +299,7 @@ describe("WP-A combat trace weapon emission", () => {
     const decisions = new Map<string, ParsedDecision>([
       [
         "A",
-        nullDecision({ action: { kind: "attack", targetCharacterId: "B" } }),
+        nullDecision({ action: { kind: "attack", targetId: "B" } }),
       ],
       ["B", nullDecision()],
     ]);
@@ -323,7 +321,7 @@ describe("WP-A combat trace weapon emission", () => {
     const decisions = new Map<string, ParsedDecision>([
       [
         "A",
-        nullDecision({ action: { kind: "attack", targetCharacterId: "B" } }),
+        nullDecision({ action: { kind: "attack", targetId: "B" } }),
       ],
       ["B", nullDecision()],
     ]);
@@ -353,13 +351,12 @@ describe("WP-A combat trace weapon emission", () => {
     const decisions = new Map<string, ParsedDecision>([
       [
         "A",
-        nullDecision({ action: { kind: "attack", targetCharacterId: "D" } }),
+        nullDecision({ action: { kind: "attack", targetId: "D" } }),
       ],
       [
         "D",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "defensive",
+          position: { kind: "counter" },
         }),
       ],
     ]);
@@ -368,9 +365,7 @@ describe("WP-A combat trace weapon emission", () => {
     const counterFire = trace.actions.find(
       (a) =>
         a.characterId === "D" &&
-        a.kind === "overwatch" &&
-        a.fromOverwatch === true &&
-        a.stance === "defensive",
+        a.kind === "counter",
     );
 
     expect(counterFire).toBeDefined();

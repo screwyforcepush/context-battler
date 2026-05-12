@@ -14,4 +14,8 @@ Process docs, conventions, ways of working. Living documents, expected to evolve
 - Product requirements / mechanics → `docs/project/spec/`
 - Phase work packages → `docs/project/phases/<phase-id>/`
 
-(Empty for now. Add guides as conventions emerge.)
+## Index
+
+- [`convex-backend.md`](convex-backend.md) — Convex deployment, auth, smoke tests, useful commands.
+- [`azure-llm.md`](azure-llm.md) — Azure Responses API endpoint, auth, tool use, strict-mode gotchas.
+- [`eval-pipeline.md`](eval-pipeline.md) — End-to-end eval recipe: harness → metrics → replay UI. Current as of phase 6.

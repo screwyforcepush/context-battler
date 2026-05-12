@@ -208,7 +208,7 @@ export function MatchPicker(): React.ReactElement {
 }
 
 // Inline styles — no CSS framework in v0; the diagnostic UI is utilitarian
-// per north-star (consumer-renderer styling concerns are out-of-scope, see
+// per north-star (public-renderer styling concerns are out-of-scope, see
 // README §4).
 
 const mainStyle: React.CSSProperties = {

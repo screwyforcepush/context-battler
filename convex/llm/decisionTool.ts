@@ -1,148 +1,14 @@
-// Phase-5 WP-A — the per-turn decision tool definition + Zod parser.
-//
-// Two artefacts ship from this module and they MUST stay in lockstep:
-//
-//   1. `decisionTool` — a single-tool JSON Schema, sent verbatim in every
-//      request body to Azure. Mirrors phase-5 ADR §1 exactly:
-//        - type: "function", name: "decide_turn"
-//        - parameters: object schema with `additionalProperties: false`
-//        - move: 4-arm `oneOf` discriminated by `kind`
-//        - action: 3-arm `oneOf` discriminated by `kind` (was 4-arm —
-//          `interact` arm is REMOVED; chest opens flow through the
-//          `loot` arm with a `chest_*`-prefixed targetId)
-//        - say / scratchpad_update: nullable strings with maxLength
-//          280 / 500
-//        - overwatch_stance: "offensive" | "defensive" | null
-//          (replaces overwatch_priority; tri-state nullable enum)
-//        - Branch A: NO `rationale` field (per de-risking.md D-P3-1
-//          probe outcome — Azure exposes reasoning text directly)
-//   2. `parseDecision(raw)` — JSON.parse + Zod validation against a
-//      schema whose inferred type is **structurally equivalent** to
-//      `ParsedDecision` from `convex/engine/types.ts`. The compile-time
-//      assertions at the bottom of this file lock the equivalence —
-//      drift becomes a TS error, not a runtime surprise.
-//
-//      Additionally, a Zod `.refine()` enforces the stance/primary
-//      consistency rule (ADR §1):
-//        - primary === "overwatch"  ⇒ overwatch_stance ∈ {"offensive",
-//          "defensive"}
-//        - primary !== "overwatch"  ⇒ overwatch_stance === null
-//
-// Cross-references:
-//   - phase-5 ADR §1 — the move-arm contract. Don't change here without
-//     changing the schema validators in `convex/schema.ts`
-//     (decisionValidator), the mirror in
-//     `convex/_internal_runMatch.ts`, AND the type aliases in
-//     `convex/engine/types.ts`.
-//   - `azure-llm.md` §7 — `arguments` is a JSON-encoded string, so
-//     `parseDecision` runs `JSON.parse` first.
-//   - `convex/engine/validation.ts` — runs AFTER us. We gate shape +
-//     stance/primary; the engine validator gates semantic claims (target
-//     visible, in range, loot.targetId namespace validity).
-//
-// Boundary: this module does NOT call `fetch` or import Convex APIs. It
-// is pure shape + parser logic. `convex/llm/azure.ts` consumes us.
-
 import { z } from "zod";
 import {
   SAFE_DEFAULT_DECISION,
   type ParsedDecision,
+  type UseVariant,
 } from "../engine/types.js";
 
-// Re-export for caller convenience (one place to import the safe
-// default from). Keeps the wrapper module hermetic.
 export { SAFE_DEFAULT_DECISION };
+export type { UseVariant };
 
-// ─── JSON Schema ToolDefinition (phase-5 WP-A) ───────────────────────────────
-
-// Strongly-typed shape of the decision tool. We could relax to a generic
-// `Record<string, unknown>` and the request body would still serialise the
-// same way, but a typed const lets `decisionTool.test.ts` assert structural
-// invariants statically (e.g. `decisionTool.parameters.required`).
-
-type EnumProp<T extends string> = { readonly enum: readonly T[] };
-type IntegerBounded = {
-  readonly type: "integer";
-  readonly minimum: number;
-  readonly maximum: number;
-};
-type StringProp = { readonly type: "string" };
-type NullableStringWithMax = {
-  readonly type: readonly ["string", "null"];
-  readonly maxLength: number;
-};
-type Described<T> = T & { readonly description: string };
-// Phase-3: tri-state nullable enum for overwatch_stance.
-// JSON Schema idiom: `{ enum: ["offensive", "defensive", null] }`.
-type StanceProp = {
-  readonly enum: readonly ["offensive", "defensive", null];
-};
-type ObjectArm<
-  Required extends readonly string[],
-  Properties extends Record<string, unknown>,
-> = {
-  readonly type: "object";
-  readonly additionalProperties: false;
-  readonly required: Required;
-  readonly properties: Properties;
-};
-
-type MoveRelativeArm = ObjectArm<
-  readonly ["kind", "dx", "dy"],
-  {
-    readonly kind: { readonly const: "relative" };
-    readonly dx: IntegerBounded;
-    readonly dy: IntegerBounded;
-  }
->;
-type MoveTowardArm = ObjectArm<
-  readonly ["kind", "targetId"],
-  {
-    readonly kind: { readonly const: "toward" };
-    readonly targetId: StringProp;
-  }
->;
-type MoveAwayArm = ObjectArm<
-  readonly ["kind", "targetId"],
-  {
-    readonly kind: { readonly const: "away" };
-    readonly targetId: StringProp;
-  }
->;
-type MoveNoneArm = ObjectArm<
-  readonly ["kind"],
-  { readonly kind: { readonly const: "none" } }
->;
-
-type MoveArm =
-  | MoveRelativeArm
-  | MoveTowardArm
-  | MoveAwayArm
-  | MoveNoneArm;
-
-type ActionAttackArm = ObjectArm<
-  readonly ["kind", "targetCharacterId"],
-  {
-    readonly kind: { readonly const: "attack" };
-    readonly targetCharacterId: StringProp;
-  }
->;
-// Phase-3 ADR §1 — the unified loot arm. `targetId` accepts both chest
-// ids (`chest_NNN`) and corpse ids (`Player_N`); engine dispatches by
-// id namespace.
-type ActionLootArm = ObjectArm<
-  readonly ["kind", "targetId"],
-  {
-    readonly kind: { readonly const: "loot" };
-    readonly targetId: StringProp;
-  }
->;
-type ActionNoneArm = ObjectArm<
-  readonly ["kind"],
-  { readonly kind: { readonly const: "none" } }
->;
-
-type ActionArm = ActionAttackArm | ActionLootArm | ActionNoneArm;
+type JsonSchema = Record<string, unknown>;
 
 export type DecisionToolDefinition = {
   readonly type: "function";
@@ -152,168 +18,192 @@ export type DecisionToolDefinition = {
     readonly type: "object";
     readonly additionalProperties: false;
     readonly required: readonly [
-      "consume",
-      "primary",
-      "move",
+      "use",
+      "position",
       "action",
       "say",
-      "overwatch_stance",
-      "scratchpad_update",
+      "scratchpad",
     ];
     readonly properties: {
-      readonly consume: EnumProp<"none" | "heal" | "speed">;
-      readonly primary: Described<
-        EnumProp<"move" | "stationary_action" | "overwatch">
-      >;
-      readonly move: Described<{ readonly oneOf: readonly MoveArm[] }>;
-      readonly action: Described<{ readonly oneOf: readonly ActionArm[] }>;
-      readonly say: NullableStringWithMax;
-      readonly overwatch_stance: Described<StanceProp>;
-      readonly scratchpad_update: Described<NullableStringWithMax>;
+      readonly use: JsonSchema;
+      readonly position: JsonSchema;
+      readonly action: JsonSchema;
+      readonly say: JsonSchema;
+      readonly scratchpad: JsonSchema;
     };
   };
 };
 
-/**
- * The single tool definition sent to Azure on every per-turn call.
- *
- * Sent verbatim in `tools[]` of the request body; the model is forced to
- * call it via `tool_choice: "required"` and `parallel_tool_calls: false`
- * (set by `convex/llm/azure.ts`). Free-form refusals are disallowed by
- * the contract.
- */
-export const decisionTool: DecisionToolDefinition = {
-  type: "function",
-  name: "decide_turn",
-  description:
-    "Emit the agent's full per-turn decision: consume, primary commitment, move, action, say, overwatch_stance, and scratchpad_update. Overwatch dual contract: overwatch_stance is required when primary='overwatch' and null otherwise; action is none while overwatching.",
-  parameters: {
-    type: "object",
-    additionalProperties: false,
-    // WP-G.2 / D39 (PM-lock): all 7 declared properties must be required.
-    // Zod parser below is `.strict()` and requires all 7; if the JSON
-    // Schema we send to Azure left `say`, `overwatch_stance`, or
-    // `scratchpad_update` as legally-omittable, Azure could omit them,
-    // Zod would reject, and we'd safe-default. Reviewer-B's audit of
-    // completion-review-2 traces saw 207/234 schema failures missing
-    // `say` for exactly this reason. The schemaMirror parity test
-    // (`tests/llm/schemaMirror.test.ts`) catches future drift.
-    required: [
-      "consume",
-      "primary",
-      "move",
-      "action",
-      "say",
-      "overwatch_stance",
-      "scratchpad_update",
-    ],
-    properties: {
-      consume: { enum: ["none", "heal", "speed"] },
-      primary: {
-        enum: ["move", "stationary_action", "overwatch"],
-        description:
-          "Primary values: move resolves the move then the action from the new position; stationary_action resolves the action in place; overwatch commits to a reactive stance, sets overwatch_stance to offensive or defensive, and uses action none.",
-      },
-      move: {
-        description:
-          "Move arms: toward {targetId} any visible entity id; away {targetId} any visible entity id; relative dx,dy (integers in [-12,12]); none. stopAtRange: Character 2; Chest 2; Corpse 2; Cover 0; Wall 1; Evac 0. Movement range max 8 (12 w/ speed).",
-        oneOf: [
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["kind", "dx", "dy"],
-            properties: {
-              kind: { const: "relative" },
-              dx: { type: "integer", minimum: -12, maximum: 12 },
-              dy: { type: "integer", minimum: -12, maximum: 12 },
-            },
-          },
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["kind", "targetId"],
-            properties: {
-              kind: { const: "toward" },
-              targetId: { type: "string" },
-            },
-          },
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["kind", "targetId"],
-            properties: {
-              kind: { const: "away" },
-              targetId: { type: "string" },
-            },
-          },
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["kind"],
-            properties: { kind: { const: "none" } },
-          },
-        ],
-      },
-      action: {
-        description:
-          "Action arms: attack Player_N; loot <Chest_NNN|Corpse_Player_N> (copy id verbatim); none. Attack/loot range 2 (Chebyshev).",
-        oneOf: [
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["kind", "targetCharacterId"],
-            properties: {
-              kind: { const: "attack" },
-              targetCharacterId: { type: "string" },
-            },
-          },
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["kind", "targetId"],
-            properties: {
-              kind: { const: "loot" },
-              targetId: { type: "string" },
-            },
-          },
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["kind"],
-            properties: { kind: { const: "none" } },
-          },
-        ],
-      },
-      say: { type: ["string", "null"], maxLength: 280 },
-      overwatch_stance: {
-        enum: ["offensive", "defensive", null],
-        description:
-          "Overwatch stance: offensive fires on the first valid in-range enemy after movement; defensive counter-fire each attacker, weapon-range bounded. Use null iff primary is not overwatch.",
-      },
-      scratchpad_update: {
-        type: ["string", "null"],
-        maxLength: 500,
-        description:
-          "Use scratchpad for core memories and multi-turn objectives. ≤ 500 chars. Carries forward to next turn as `Scratchpad:` under `## previous turn`.",
-      },
-    },
-  },
+const TOOL_DESCRIPTION =
+  "Choose position commitment, action, memory update, and whether or not to use your consumable.";
+
+const USE_WITH_CONSUMABLE: JsonSchema = {
+  type: ["string", "null"],
+  enum: ["consumable", null],
+  description: "Use your equipped consumable slot, or null to use nothing.",
 };
 
-// ─── Zod schema (mirror of the JSON Schema above) ────────────────────────────
+const USE_NULL_ONLY: JsonSchema = {
+  type: ["null"],
+  enum: [null],
+  description: "No consumable is currently equipped, so nothing can be used.",
+};
 
-// `.strict()` on every object mirrors `additionalProperties: false`.
-// `discriminatedUnion("kind", [...])` mirrors `oneOf` with a `kind` literal
-// discriminator and gives Zod O(1) arm-selection (not full oneOf walk).
+const POSITION_SCHEMA: JsonSchema = {
+  description:
+    "Choose exactly one position commitment: hold a stance, or move in a target-relative or compass direction by up to dist range.",
+  anyOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind"],
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["overwatch", "counter"],
+          description:
+            "No movement. 'overwatch' attacks anyone that moves into range, and 'counter' is defensive retaliation stance.",
+        },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "direction", "dist"],
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["move"],
+          description: "Move by up to dist tiles in the chosen direction.",
+        },
+        direction: {
+          description:
+            "Direction of movement. Target-relative directions require targetId; compass directions do not.",
+          anyOf: [
+            {
+              type: "object",
+              additionalProperties: false,
+              required: ["kind", "targetId"],
+              properties: {
+                kind: {
+                  type: "string",
+                  enum: ["toward", "away"],
+                  description: "Move toward or away from a visible entity.",
+                },
+                targetId: {
+                  type: "string",
+                  description: "Visible entity id. Copy verbatim from Visible.",
+                },
+              },
+            },
+            {
+              type: "object",
+              additionalProperties: false,
+              required: ["kind"],
+              properties: {
+                kind: {
+                  type: "string",
+                  enum: ["N", "NE", "E", "SE", "S", "SW", "W", "NW"],
+                  description: "Compass bearing to move.",
+                },
+              },
+            },
+          ],
+        },
+        dist: {
+          type: "integer",
+          description: "Maximum attempted movement distance in tiles.",
+        },
+      },
+    },
+  ],
+};
 
-const MoveSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      kind: z.literal("relative"),
-      dx: z.number().int().min(-12).max(12),
-      dy: z.number().int().min(-12).max(12),
-    })
-    .strict(),
+const ACTION_SCHEMA: JsonSchema = {
+  description:
+    "Choose exactly one immediate action. Action is either no-payload or target-based.",
+  anyOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind"],
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["none"],
+          description: "Take no immediate action.",
+        },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "targetId"],
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["attack", "loot"],
+          description:
+            "Attack a visible living character or loot a visible chest/corpse. Pair with a target-relative move toward the same target to close range.",
+        },
+        targetId: {
+          type: "string",
+          description: "Visible target id. Copy verbatim from Visible.",
+        },
+      },
+    },
+  ],
+};
+
+export function buildDecisionTool(args: {
+  useVariant: UseVariant;
+}): DecisionToolDefinition {
+  return {
+    type: "function",
+    name: "decide_turn",
+    description: TOOL_DESCRIPTION,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["use", "position", "action", "say", "scratchpad"],
+      properties: {
+        use:
+          args.useVariant === "null_only"
+            ? USE_NULL_ONLY
+            : USE_WITH_CONSUMABLE,
+        position: POSITION_SCHEMA,
+        action: ACTION_SCHEMA,
+        say: {
+          type: ["string", "null"],
+          description:
+            "Speech broadcast to every agent within hearing range this turn. Reveals you if hidden in cover. Use for lies, threats, truces, baiting. Use null to stay silent.",
+        },
+        scratchpad: {
+          type: ["string", "null"],
+          description:
+            "Private memory carried to future turns. Use for long term planning, trauma, critical observations. Use null to keep prior scratchpad unchanged.",
+        },
+      },
+    },
+  };
+}
+
+export const decisionTool = buildDecisionTool({
+  useVariant: "consumable_or_null",
+});
+
+const CompassDirectionSchema = z.union([
+  z.literal("N"),
+  z.literal("NE"),
+  z.literal("E"),
+  z.literal("SE"),
+  z.literal("S"),
+  z.literal("SW"),
+  z.literal("W"),
+  z.literal("NW"),
+]);
+
+const DirectionSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("toward"),
@@ -326,14 +216,36 @@ const MoveSchema = z.discriminatedUnion("kind", [
       targetId: z.string(),
     })
     .strict(),
-  z.object({ kind: z.literal("none") }).strict(),
+  z.object({ kind: z.literal("N") }).strict(),
+  z.object({ kind: z.literal("NE") }).strict(),
+  z.object({ kind: z.literal("E") }).strict(),
+  z.object({ kind: z.literal("SE") }).strict(),
+  z.object({ kind: z.literal("S") }).strict(),
+  z.object({ kind: z.literal("SW") }).strict(),
+  z.object({ kind: z.literal("W") }).strict(),
+  z.object({ kind: z.literal("NW") }).strict(),
+]);
+
+void CompassDirectionSchema;
+
+const PositionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("overwatch") }).strict(),
+  z.object({ kind: z.literal("counter") }).strict(),
+  z
+    .object({
+      kind: z.literal("move"),
+      direction: DirectionSchema,
+      dist: z.number().int(),
+    })
+    .strict(),
 ]);
 
 const ActionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("none") }).strict(),
   z
     .object({
       kind: z.literal("attack"),
-      targetCharacterId: z.string(),
+      targetId: z.string(),
     })
     .strict(),
   z
@@ -342,64 +254,31 @@ const ActionSchema = z.discriminatedUnion("kind", [
       targetId: z.string(),
     })
     .strict(),
-  z.object({ kind: z.literal("none") }).strict(),
 ]);
 
-const StanceSchema = z.union([
-  z.literal("offensive"),
-  z.literal("defensive"),
-  z.null(),
-]);
+function decisionSchemaFor(useVariant: UseVariant) {
+  const useSchema =
+    useVariant === "null_only"
+      ? z.null()
+      : z.union([z.literal("consumable"), z.null()]);
+  return z
+    .object({
+      use: useSchema,
+      position: PositionSchema,
+      action: ActionSchema,
+      say: z.string().nullable(),
+      scratchpad: z.string().nullable(),
+    })
+    .strict();
+}
 
-// Phase-3 — stance/primary consistency refinement (ADR §1).
-//   - primary === "overwatch"  ⇒ stance ∈ {"offensive", "defensive"}
-//   - primary !== "overwatch"  ⇒ stance === null
-// The refinement runs after structural Zod validation; failures emit a
-// schema_validation error (not a separate code), so the wrapper's
-// `failureReason` mapping stays simple.
-const DecisionSchema = z
-  .object({
-    consume: z.enum(["none", "heal", "speed"]),
-    primary: z.enum(["move", "stationary_action", "overwatch"]),
-    move: MoveSchema,
-    action: ActionSchema,
-    say: z.string().max(280).nullable(),
-    overwatch_stance: StanceSchema,
-    scratchpad_update: z.string().max(500).nullable(),
-  })
-  .strict()
-  .refine(
-    (d) => {
-      if (d.primary === "overwatch") return d.overwatch_stance !== null;
-      return d.overwatch_stance === null;
-    },
-    {
-      message:
-        "overwatch_stance must be set ('offensive' | 'defensive') iff primary === 'overwatch'; null otherwise",
-      path: ["overwatch_stance"],
-    },
-  );
-
-// ─── Compile-time structural-equivalence assertions ──────────────────────────
-//
-// If anyone changes the Zod schema in a way that drifts from
-// `ParsedDecision` in `convex/engine/types.ts`, these assignments stop
-// typechecking. The equivalence runs in BOTH directions so a missing
-// field on either side surfaces as a TS error — not a silent runtime
-// mismatch.
-
-type _ZodInferredDecision = z.infer<typeof DecisionSchema>;
-// `_typeEqAtoB` and `_typeEqBtoA` deliberately exist for their type-side
-// effect only. The leading underscore opts-in to the eslint
-// `varsIgnorePattern: "^_"` rule (eslint.config.mjs).
+type _ZodInferredDecision = z.infer<
+  ReturnType<typeof decisionSchemaFor>
+>;
 const _typeEqAtoB: ParsedDecision = {} as _ZodInferredDecision;
 const _typeEqBtoA: _ZodInferredDecision = {} as ParsedDecision;
-// Keep references in sight so unused-import linting doesn't trip on the
-// `_typeEq*` constants; the assignments above are the actual contract.
 void _typeEqAtoB;
 void _typeEqBtoA;
-
-// ─── parseDecision ──────────────────────────────────────────────────────────
 
 export type ParseDecisionResult =
   | { ok: true; decision: ParsedDecision }
@@ -409,22 +288,10 @@ export type ParseDecisionResult =
       details: string;
     };
 
-/**
- * Parse the raw `arguments` string from a tool call into a
- * `ParsedDecision`.
- *
- * Two-stage gate per phase-3 ADR §1:
- *   1. JSON.parse — `arguments` is a JSON-encoded string per
- *      `azure-llm.md` §7. Failure → `{ ok: false, error: "json_parse" }`.
- *   2. Zod schema validation (incl. stance/primary refinement) —
- *      failure → `{ ok: false, error: "schema_validation" }`.
- *
- * Never throws. The wrapper (`callDecisionTool`) maps the errors to
- * `FailureReason` ("json_parse_failed" / "schema_validation_failed") and
- * preserves `rawArguments` on the trace so reviewers can see what the
- * model tried to emit.
- */
-export function parseDecision(rawArgs: string): ParseDecisionResult {
+export function parseDecision(
+  rawArgs: string,
+  args: { useVariant?: UseVariant } = {},
+): ParseDecisionResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawArgs);
@@ -435,7 +302,9 @@ export function parseDecision(rawArgs: string): ParseDecisionResult {
       details: e instanceof Error ? e.message : String(e),
     };
   }
-  const result = DecisionSchema.safeParse(parsed);
+
+  const schema = decisionSchemaFor(args.useVariant ?? "consumable_or_null");
+  const result = schema.safeParse(parsed);
   if (!result.success) {
     return {
       ok: false,
@@ -443,10 +312,6 @@ export function parseDecision(rawArgs: string): ParseDecisionResult {
       details: result.error.message,
     };
   }
-  // The double assignment proves to the compiler that DecisionSchema's
-  // inferred type is assignable to `ParsedDecision`; in lockstep with
-  // the structural-equivalence asserts above, this is a single source of
-  // truth.
   const decision: ParsedDecision = result.data;
   return { ok: true, decision };
 }

@@ -1,36 +1,22 @@
 import type { MatchState, Tile } from "../engine/types.js";
 import { computeVisibleEntities } from "../engine/vision.js";
 
-// Phase-3 WP-F.2 — character target id normalisation at the validator
-// boundary.
+// Phase-6 — character target id normalisation at the validator boundary.
 //
-// Per North Star §1 (locked design decision #1) and the system prompt
-// (`convex/llm/systemPrompt.ts:64-71`), the agent acts on `Visible.id` —
-// typed display ids of the form `Player_N`. The validator + resolver,
-// however, historically compared a decision target against
+// The agent acts on `Visible.id`, which is now the persona display name
+// (`Camper`, `Duelist`, etc.). The validator + resolver compare against
 // `CharacterState.characterId`, which in production is a Convex opaque
-// `_id` value (`convex/runMatch.ts:200` binds `characterId = c._id`).
-// That mismatch rejected every Player_N attack / move-toward target out
-// of the gate as "not a living character", driving the closing-10
-// `fellBackToSafeDefault` rate well past the ≤10% threshold.
-//
-// This helper bridges the two id spaces at the validator boundary: a
-// single normalisation point, then engine-id flows through. Mirrors the
-// pattern of `normaliseChestTargetId` in `convex/engine/movement.ts` —
-// returns the engine-side identifier (or null when the input does not
-// resolve), so callers replace their direct `c.characterId === targetId`
-// comparisons with "normalise → look up → compare".
+// `_id`. This helper bridges those id spaces at one boundary: callers
+// normalise once, then pass the engine-side identifier through.
 //
 // Strategy:
 //   1. If `targetId` exactly matches a character's engine `characterId`,
 //      return it unchanged (test-fixture path; production agents act on
-//      the displayName so they do not hit this branch).
+//      the persona displayName so they do not hit this branch).
 //   2. Otherwise, if `targetId` matches a character's `displayName`
-//      (e.g. "Player_3"), return that character's engine `characterId`.
+//      (e.g. "Camper"), return that character's engine `characterId`.
 //   3. Otherwise return null. The caller treats null as "target not a
-//      known character" and emits the existing failure / no_target
-//      reason — closing-10 reports key off those reason strings, so
-//      preserving the wording matters.
+//      known character".
 
 /**
  * Normalise a character target id emitted by the LLM into its engine
@@ -40,7 +26,7 @@ import { computeVisibleEntities } from "../engine/vision.js";
  * The check matches `characterId` first to keep test fixtures working
  * (test characters are typically created with `characterId === "A"` etc.
  * rather than a real Convex Id), then falls back to `displayName` so
- * production Player_N literals from the LLM resolve to the engine id.
+ * production persona names from the LLM resolve to the engine id.
  */
 export function normaliseCharacterTargetId(
   targetId: string,
@@ -56,23 +42,13 @@ export function normaliseCharacterTargetId(
 
 // ─── Phase-3 WP-G.1 — Corpse_<displayName> typed-id normalisation ──────────
 //
-// Reviewer-B completion-review-2 HIGH-1: the digest renders corpse bullets
-// as `Corpse_<displayName>` (e.g. `Corpse_Player_5`) per
-// `convex/llm/inputBuilder.ts:516`, and the system prompt instructs
-// "loot <Visible.id> — copy id verbatim". But the validator + engine
-// resolvers historically only accepted `chest_*` and `Player_*` namespaces,
-// rejecting every `Corpse_Player_*` corpse-loot/move-toward as "invalid
-// namespace prefix". 0% corpse-loot in the closing-10 run was rejection-
-// at-validator (substrate-bug), not propensity (combat-tuning).
-//
-// PM-lock D38: fix at the validator/engine boundary by extending
-// normalisation. Do NOT change the digest rendering — North Star §1 cites
-// `Corpse_Player_N` literally, and the system prompt's `loot <Visible.id>`
-// instruction makes the typed-id form the contract the engine must honor.
+// The digest renders corpse bullets as `Corpse_<displayName>`; with the
+// phase-6 persona-id flip that means ids such as `Corpse_Camper`.
+// Normalisation keeps the typed visible id as the model contract while
+// resolving the corpse owner's engine id for movement and loot dispatch.
 //
 // Strategy mirrors `normaliseCharacterTargetId`:
-//   1. Strip the `Corpse_` prefix to get the inner display id (e.g.
-//      `Player_5`).
+//   1. Strip the `Corpse_` prefix to get the inner display id.
 //   2. Resolve the inner id via `normaliseCharacterTargetId` —
 //      direct-`characterId` first (test fixtures whose characterId equals
 //      the displayName), then `displayName` lookup (production: the
@@ -88,8 +64,8 @@ export function normaliseCharacterTargetId(
 // resolve to a known character.
 
 /**
- * Normalise a `Corpse_<displayName>` typed-id (digest rendering, e.g.
- * `Corpse_Player_5`) into the engine `characterId` of the corpse owner.
+ * Normalise a `Corpse_<displayName>` typed-id (e.g. `Corpse_Camper`) into
+ * the engine `characterId` of the corpse owner.
  *
  * Returns the engine `characterId` (which equals `corpse.characterId` for
  * the matching corpse), or `null` when:
@@ -150,6 +126,7 @@ function visibleTargetIds(state: MatchState, observerId: string): Set<string> {
         const character = state.characters.find(
           (c) => c.characterId === entity.characterId,
         );
+        ids.add(entity.characterId);
         if (character) ids.add(character.displayName);
         break;
       }
@@ -157,10 +134,15 @@ function visibleTargetIds(state: MatchState, observerId: string): Set<string> {
         for (const id of chestTargetIds(entity.objectId)) ids.add(id);
         break;
       case "corpse": {
+        ids.add(entity.objectId);
+        ids.add(`Corpse_${entity.objectId}`);
         const character = state.characters.find(
           (c) => c.characterId === entity.objectId,
         );
-        if (character) ids.add(`Corpse_${character.displayName}`);
+        if (character) {
+          ids.add(character.displayName);
+          ids.add(`Corpse_${character.displayName}`);
+        }
         break;
       }
       case "cover":
@@ -174,6 +156,14 @@ function visibleTargetIds(state: MatchState, observerId: string): Set<string> {
 
   if (state.world.evac.revealedAtTurn !== null) ids.add("Evac");
   return ids;
+}
+
+function hasLineOfSightVisibleTarget(
+  state: MatchState,
+  observerId: string,
+  targetId: string,
+): boolean {
+  return visibleTargetIds(state, observerId).has(targetId);
 }
 
 function parsePositionId(
@@ -190,9 +180,8 @@ export function resolveTypedEntity(
   observerId: string,
   targetId: string,
 ): ResolvedEntity | null {
-  if (!visibleTargetIds(state, observerId).has(targetId)) return null;
-
   if (targetId === "Evac") {
+    if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
     return {
       kind: "evac",
       tile: copyTile(state.world.evac.centre),
@@ -201,10 +190,11 @@ export function resolveTypedEntity(
   }
 
   if (targetId.startsWith("Corpse_")) {
+    if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
     const characterId = normaliseCorpseTargetId(targetId, state.characters);
     const corpse = characterId
       ? state.world.corpses.find((c) => c.characterId === characterId)
-      : undefined;
+      : state.world.corpses.find((c) => targetId === `Corpse_${c.characterId}`);
     if (!corpse) return null;
     return {
       kind: "corpse",
@@ -214,6 +204,7 @@ export function resolveTypedEntity(
   }
 
   if (targetId.startsWith("Chest_") || targetId.startsWith("chest_")) {
+    if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
     const chest = findChestByTargetId(state, targetId);
     if (!chest) return null;
     return {
@@ -224,15 +215,25 @@ export function resolveTypedEntity(
     };
   }
 
-  if (targetId.startsWith("Player_")) {
-    const characterId = normaliseCharacterTargetId(
-      targetId,
-      state.characters,
-    );
-    const character = characterId
-      ? state.characters.find((c) => c.characterId === characterId)
-      : undefined;
-    if (!character) return null;
+  if (targetId.startsWith("Cover_")) {
+    if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
+    const tile = parsePositionId(targetId, "Cover");
+    if (!tile) return null;
+    return { kind: "cover", tile, stopAtRange: 0 };
+  }
+
+  if (targetId.startsWith("Wall_")) {
+    if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
+    const tile = parsePositionId(targetId, "Wall");
+    if (!tile) return null;
+    return { kind: "wall", tile, stopAtRange: 1 };
+  }
+
+  const characterId = normaliseCharacterTargetId(targetId, state.characters);
+  const character = characterId
+    ? state.characters.find((c) => c.characterId === characterId)
+    : undefined;
+  if (character?.alive && hasLineOfSightVisibleTarget(state, observerId, targetId)) {
     return {
       kind: "character",
       tile: copyTile(character.pos),
@@ -241,16 +242,19 @@ export function resolveTypedEntity(
     };
   }
 
-  if (targetId.startsWith("Cover_")) {
-    const tile = parsePositionId(targetId, "Cover");
-    if (!tile) return null;
-    return { kind: "cover", tile, stopAtRange: 0 };
-  }
-
-  if (targetId.startsWith("Wall_")) {
-    const tile = parsePositionId(targetId, "Wall");
-    if (!tile) return null;
-    return { kind: "wall", tile, stopAtRange: 1 };
+  if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
+  const corpse =
+    (characterId
+      ? state.world.corpses.find((c) => c.characterId === characterId)
+      : undefined) ??
+    state.world.corpses.find((c) => c.characterId === targetId);
+  if (corpse) {
+    return {
+      kind: "corpse",
+      tile: copyTile(corpse.pos),
+      stopAtRange: 2,
+      engineRef: { characterId: corpse.characterId },
+    };
   }
 
   return null;

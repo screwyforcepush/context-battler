@@ -1,7 +1,7 @@
 // Phase 02 / WP-D — Vitest unit tests for the formatter helpers.
 //
 // TDD red phase: these tests pin the contracts of the small pure formatters
-// consumed by HoverCard + ExpandModal. Each formatter's "happy path",
+// used by HoverCard + ExpandModal. Each formatter's "happy path",
 // null/undefined input, and edge values (zero, very large numbers) are
 // covered per the WP-D scope in `work-packages.md`.
 

@@ -39,6 +39,8 @@ import {
   composeRawArgumentsVsDecision,
   composeReasoningText,
   composeUsage,
+  composeValidatorFieldErrors,
+  hasValidatorFieldErrors,
 } from "../lib/rawPane";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -147,8 +149,8 @@ export function ExpandModal(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RawPane — vertical read-only diagnostic panes (LLM input / reasoning /
-// tool call / validator reason), each with its own copy-to-clipboard button.
+// RawPane — vertical read-only diagnostic panes, each with its own
+// copy-to-clipboard button.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AgentRecord = Doc<"turns">["agentRecords"][number];
@@ -174,7 +176,11 @@ function RawPane(props: { agentRecord: AgentRecord }): React.ReactElement {
     () => composeUsage(props.agentRecord),
     [props.agentRecord],
   );
-  const validatorReason = props.agentRecord.llm.validatorReason ?? null;
+  const fieldErrors = useMemo(
+    () => composeValidatorFieldErrors(props.agentRecord),
+    [props.agentRecord],
+  );
+  const hasFieldErrors = hasValidatorFieldErrors(props.agentRecord);
 
   return (
     <div>
@@ -190,10 +196,10 @@ function RawPane(props: { agentRecord: AgentRecord }): React.ReactElement {
       <h3 style={subTitleStyle}>Tool call</h3>
       <CopyablePre text={toolCall.rendered} />
 
-      {validatorReason ? (
+      {hasFieldErrors ? (
         <>
-          <h3 style={subTitleStyle}>validatorReason</h3>
-          <CopyablePre text={validatorReason} />
+          <h3 style={subTitleStyle}>Validator field errors</h3>
+          <CopyablePre text={fieldErrors} />
         </>
       ) : null}
     </div>

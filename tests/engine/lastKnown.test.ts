@@ -3,7 +3,7 @@
 // Tests are written FIRST per AOP. Spec sections: concept-spec.md §7
 // ("Last-known and heard states") and ADR §6 (cap-3 oldest-first eviction).
 //
-//   "Player_2 was last seen entering cover 2 turns ago."
+//   "Duelist was last seen entering cover 2 turns ago."
 //   "This creates paranoia without giving omniscience."
 //
 // ADR §6 locks the cap: 3 most-recent entries per observer.

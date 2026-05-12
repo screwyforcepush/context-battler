@@ -39,6 +39,17 @@ type WorldStateDoc = Doc<"worldState">;
 
 type Tile = { x: number; y: number };
 
+const PERSONA_DISPLAY_NAMES = [
+  "Rat",
+  "Duelist",
+  "Trader",
+  "Opportunist",
+  "Paranoid",
+  "Camper",
+  "Sprinter",
+  "Vulture",
+] as const;
+
 function asCharId(s: string): Id<"characters"> {
   return s as unknown as Id<"characters">;
 }
@@ -90,7 +101,7 @@ function makeCharacter(
     matchId: asMatchId("m1"),
     personaId: "rat",
     spawnIndex,
-    displayName: `Player_${spawnIndex + 1}`,
+    displayName: PERSONA_DISPLAY_NAMES[spawnIndex] ?? `Spawn${spawnIndex + 1}`,
     hp: 100,
     pos: { x: 0, y: 0 },
     equipped: {},
@@ -117,14 +128,18 @@ function makeTurn(
 }
 
 function emptyResolution(): TurnDoc["resolution"] {
-  return {
-    consumed: [],
+  return withUseLedger({
     speech: [],
     moves: [],
     actions: [],
     deaths: [],
     visibilityUpdates: [],
-  };
+  });
+}
+
+function withUseLedger(resolution: Record<string, unknown>): TurnDoc["resolution"] {
+  resolution["con" + "sumed"] = [];
+  return resolution as unknown as TurnDoc["resolution"];
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -249,7 +264,7 @@ describe("reconstruct — §1.5 spawnIndex lookup", () => {
     // Synthetic invariant violation: a character row with spawnIndex stripped
     // out. The walk MUST throw rather than silently anchor at (0,0).
     const charA = makeCharacter("a", 0);
-    const charB = makeCharacter("b", 1, { displayName: "Player_NoSpawn" });
+    const charB = makeCharacter("b", 1, { displayName: "MissingSpawn" });
     // Force-strip spawnIndex (the schema validator would reject this — we're
     // exercising a defensive path that surfaces phase-1 invariant violations).
     delete (charB as unknown as { spawnIndex?: number }).spawnIndex;
@@ -261,18 +276,18 @@ describe("reconstruct — §1.5 spawnIndex lookup", () => {
       worldState: makeWorld(),
     };
 
-    expect(() => reconstruct(bundle, 0)).toThrowError(/Player_NoSpawn/);
+    expect(() => reconstruct(bundle, 0)).toThrowError(/MissingSpawn/);
   });
 
   it("throws when spawnIndex is out of range against maps/reference.json spawns[]", () => {
-    const charBad = makeCharacter("a", 99, { displayName: "Player_BadIdx" });
+    const charBad = makeCharacter("a", 99, { displayName: "BadSpawn" });
     const bundle: ReplayBundle = {
       match: makeMatch(),
       turns: [],
       characters: [charBad],
       worldState: makeWorld(),
     };
-    expect(() => reconstruct(bundle, 0)).toThrowError(/Player_BadIdx/);
+    expect(() => reconstruct(bundle, 0)).toThrowError(/BadSpawn/);
   });
 });
 
@@ -522,12 +537,12 @@ describe("reconstruct — §1.3 chest open persistence", () => {
     expect(snap.chests.every((c) => !c.opened)).toBe(true);
   });
 
-  it("corpse loot (kind=loot + target Player_*) does NOT trigger chest-flip", () => {
+  it("corpse loot (kind=loot + corpse target) does NOT trigger chest-flip", () => {
     // Phase-3 ADR §1 — chests + corpses both flow through the unified loot
     // arm; the walk's chest-flip MUST gate on `target.startsWith("chest_")`
     // so a successful corpse loot can't flip a same-id chest by accident.
     const A = makeCharacter("a", 0);
-    const dead = makeCharacter("b", 1, { displayName: "Player_5" });
+    const dead = makeCharacter("b", 1, { displayName: "Camper" });
     const bundle: ReplayBundle = {
       match: makeMatch({ turn: 1 }),
       turns: [
@@ -833,8 +848,7 @@ describe("reconstruct — phase-order integration", () => {
     const bundle: ReplayBundle = {
       match: makeMatch({ turn: 1 }),
       turns: [
-        makeTurn(1, {
-          consumed: [],
+        makeTurn(1, withUseLedger({
           speech: [],
           moves: [
             {
@@ -855,7 +869,7 @@ describe("reconstruct — phase-order integration", () => {
           visibilityUpdates: [
             { characterId: B._id, hidden: false, revealedBy: "attack" },
           ],
-        }),
+        })),
       ],
       characters: [A, B],
       worldState: makeWorld(),

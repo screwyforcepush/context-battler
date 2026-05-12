@@ -23,6 +23,8 @@ import {
   composeRawArgumentsVsDecision,
   composeUsageBar,
   hasReasoningIndicator,
+  hasValidatorFieldErrors,
+  summariseValidatorFieldErrors,
 } from "../lib/rawPane";
 
 export type TurnFeedProps = {
@@ -217,28 +219,23 @@ function FeedRow(props: {
   const rawDiagnostic = composeRawArgumentsVsDecision(agentRecord);
   const usageBar = composeUsageBar(agentRecord, maxOutputTokens);
   const sayText = agentRecord.decision.say;
-  const validatorReason = agentRecord.llm.validatorReason ?? null;
+  const fieldErrorsPresent = hasValidatorFieldErrors(agentRecord);
+  const validatorFieldSummary = summariseValidatorFieldErrors(agentRecord);
   const failureReason = agentRecord.llm.failureReason ?? null;
   const diagnosticWarning =
-    !rawDiagnostic.matched || validatorReason !== null || failureReason !== null;
+    !rawDiagnostic.matched || fieldErrorsPresent || failureReason !== null;
   const diagnosticTitle = composeDiagnosticTitle({
     rawDiverged: !rawDiagnostic.matched,
-    validatorReason,
+    validatorFieldSummary,
     failureReason,
   });
   const scratchpadChanged =
-    agentRecord.decision.scratchpad_update !== null &&
-    agentRecord.decision.scratchpad_update !== agentRecord.input.scratchpadBefore;
+    agentRecord.decision.scratchpad !== null &&
+    agentRecord.decision.scratchpad !== agentRecord.input.scratchpadBefore;
   // Phase-3 ADR §2 — reasoning indicator. Lights up when reasoning text
   // is present so the user knows the raw-pane modal has substrate-mind
   // content to surface.
   const reasoningPresent = hasReasoningIndicator(agentRecord);
-  // Phase-3 ADR §3 — stance display when the agent is overwatching.
-  const overwatchStance =
-    agentRecord.decision.primary === "overwatch"
-      ? agentRecord.decision.overwatch_stance
-      : null;
-
   return (
     <div
       style={rowStyle}
@@ -307,10 +304,12 @@ function FeedRow(props: {
           </button>
         </div>
         <div style={oneLineStyle}>{summary.oneLine}</div>
-        {validatorReason || failureReason ? (
+        {validatorFieldSummary || failureReason ? (
           <div style={diagnosticReasonStyle}>
-            {validatorReason ? `validatorReason: ${validatorReason}` : null}
-            {validatorReason && failureReason ? " · " : null}
+            {validatorFieldSummary
+              ? `validatorFieldErrors: ${validatorFieldSummary}`
+              : null}
+            {validatorFieldSummary && failureReason ? " · " : null}
             {failureReason ? `failureReason: ${failureReason}` : null}
           </div>
         ) : null}
@@ -326,12 +325,6 @@ function FeedRow(props: {
 
         {expanded ? (
           <div style={expandedBodyStyle}>
-            {overwatchStance !== null ? (
-              <div style={expandedSectionStyle}>
-                <div style={expandedSectionTitleStyle}>Overwatch stance</div>
-                <div style={stanceLineStyle}>Stance: {overwatchStance}</div>
-              </div>
-            ) : null}
             <div style={expandedSectionStyle}>
               <div style={expandedSectionTitleStyle}>Decision bullets</div>
               <ul style={bulletsListStyle}>
@@ -410,13 +403,13 @@ function resolveMaxOutputTokens(match: Doc<"matches">): number {
 
 function composeDiagnosticTitle(args: {
   rawDiverged: boolean;
-  validatorReason: string | null;
+  validatorFieldSummary: string | null;
   failureReason: string | null;
 }): string {
   const parts: string[] = [];
   if (args.rawDiverged) parts.push("rawArguments diverged from decision");
-  if (args.validatorReason) {
-    parts.push(`validatorReason: ${args.validatorReason}`);
+  if (args.validatorFieldSummary) {
+    parts.push(`validatorFieldErrors: ${args.validatorFieldSummary}`);
   }
   if (args.failureReason) parts.push(`failureReason: ${args.failureReason}`);
   return parts.join(" | ");
@@ -578,13 +571,6 @@ const truncatedIndicatorStyle: React.CSSProperties = {
   color: "#9b111e",
   fontWeight: 600,
   whiteSpace: "nowrap",
-};
-
-const stanceLineStyle: React.CSSProperties = {
-  fontSize: "0.8125rem",
-  color: "#1a1a1a",
-  fontFamily:
-    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace',
 };
 
 const dotsBtnStyle: React.CSSProperties = {

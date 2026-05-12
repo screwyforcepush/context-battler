@@ -1,28 +1,18 @@
-// Phase 04 / WP-B — Raw-pane composition helpers for ExpandModal.
+// Phase 6 — Raw-pane composition helpers for replay diagnostics.
 //
-// Pure-function module. The ExpandModal collapsed from a 5-tab UI to a
-// 3-section vertical raw-dump pane (Phase-3 ADR §1 / WP-D.1):
+// Pure-function module. ExpandModal and TurnFeed use these helpers to render:
 //
-//   1. Full LLM input — system role + user role + live tool schema.
-//   2. Reasoning text — `agentRecord.llm.reasoning ?? "(no reasoning captured)"`.
-//   3. Tool call — rawArguments vs decision matched/diverged diagnostic.
-//
-// The helpers live here (not inline in ExpandModal) so they can be unit
-// tested without bringing React/RTL/jsdom into the vitest environment.
-// The component is then a thin renderer that wires these strings into
-// three `<pre>` blocks + copy buttons.
-//
-// Schema reference: `agentRecord.llm.reasoning: v.union(v.string(), v.null())`
-// per phase-3 ADR §2 (required-nullable). The phase-3 schema does NOT
-// carry a `decision.rationale` field — Branch A was confirmed by the
-// WP-A.1 probe (Azure exposes reasoning text directly), so the fallback
-// chain is just `llm.reasoning ?? "(no reasoning captured)"`. No
-// `decision.rationale` reference appears in this module by design.
+//   1. Full LLM input — system role + user role + per-turn tool schema.
+//   2. Reasoning text — captured reasoning or a clear fallback.
+//   3. Usage — raw usage plus output/max token diagnostics in the feed.
+//   4. Tool call — rawArguments vs parsed decision matched/diverged.
+//   5. Field-scoped validator errors.
 
-import type { AgentRecord } from "./decisionEnglish";
-// WP-B diagnostic contract: Full LLM Input must show the live tool schema.
+import type { UseVariant } from "../../../../convex/llm/decisionTool";
+// Replay must show the schema variant actually shipped for this turn.
 // eslint-disable-next-line no-restricted-imports
-import { decisionTool } from "../../../../convex/llm/decisionTool";
+import { buildDecisionTool } from "../../../../convex/llm/decisionTool";
+import type { AgentRecord } from "./decisionEnglish";
 
 type AgentInputWithComposed = AgentRecord["input"] & {
   composedUserMessage?: string;
@@ -41,18 +31,28 @@ type UsageBar = {
   truncated: boolean;
 };
 
+const VALIDATOR_FIELDS = [
+  "use",
+  "position",
+  "action",
+  "say",
+  "scratchpad",
+] as const;
+
+type ValidatorField = (typeof VALIDATOR_FIELDS)[number];
+type ValidatorFieldErrors = Partial<Record<ValidatorField, string>>;
+
+export const LEGACY_COMPOSED_USER_MESSAGE_UNAVAILABLE =
+  "(legacy phase-3 record — composedUserMessage unavailable)";
+
 // ─────────────────────────────────────────────────────────────────────────────
-// composeFullLlmInput — concatenate request input sections.
-//
-// Phase-4 traces carry `input.composedUserMessage`, the exact user-role text
-// sent to Azure. Phase-3 traces do not, so the replay falls back to the legacy
-// client-side wrapper around persona + scratchpad + visible digest.
+// Full LLM input
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function composeFullLlmInput(agentRecord: AgentRecord): string {
-  const system = agentRecord.input.systemPromptText;
+  const system = composeSystemRole(agentRecord);
   const userRole = composeUserRole(agentRecord);
-  const toolSchema = composeToolSchemaSection();
+  const toolSchema = composeToolSchemaSection(agentRecord);
 
   return [
     `--- system role ---\n${system}`,
@@ -61,35 +61,51 @@ export function composeFullLlmInput(agentRecord: AgentRecord): string {
   ].join("\n\n");
 }
 
+function composeSystemRole(agentRecord: AgentRecord): string {
+  const system = agentRecord.input.systemPromptText;
+  const playerName = readPlayerName(agentRecord);
+  return system.replace("<Player Name>", playerName);
+}
+
+function readPlayerName(agentRecord: AgentRecord): string {
+  const input = agentRecord.input as AgentInputWithComposed;
+  const match = /^#\s+(.+)$/m.exec(input.composedUserMessage ?? "");
+  if (match && match[1]?.trim()) return match[1].trim();
+  return titleCase(agentRecord.personaId);
+}
+
+function titleCase(value: string): string {
+  return value.length === 0
+    ? value
+    : `${value[0]!.toUpperCase()}${value.slice(1)}`;
+}
+
 function composeUserRole(agentRecord: AgentRecord): string {
   const input = agentRecord.input as AgentInputWithComposed;
   if (typeof input.composedUserMessage === "string") {
     return input.composedUserMessage;
   }
 
-  return [
-    "## Persona",
-    agentRecord.input.personaPromptText,
-    "",
-    "## Scratchpad",
-    agentRecord.input.scratchpadBefore,
-    "",
-    "## Visible state",
-    agentRecord.input.visibleStateDigest,
-  ].join("\n");
+  return LEGACY_COMPOSED_USER_MESSAGE_UNAVAILABLE;
 }
 
-export function composeToolSchemaSection(): string {
-  return JSON.stringify(decisionTool, null, 2);
+export const TOOL_SCHEMA_UNAVAILABLE =
+  "(tool schema unavailable: agentRecord.input.useVariant missing)";
+
+export function composeToolSchemaSection(agentRecord: AgentRecord): string {
+  const useVariant = readUseVariant(agentRecord.input);
+  if (useVariant === null) return TOOL_SCHEMA_UNAVAILABLE;
+  return JSON.stringify(buildDecisionTool({ useVariant }), null, 2);
+}
+
+function readUseVariant(input: AgentRecord["input"]): UseVariant | null {
+  const raw = (input as { useVariant?: unknown }).useVariant;
+  if (raw === "consumable_or_null" || raw === "null_only") return raw;
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// composeReasoningText — `agentRecord.llm.reasoning ?? fallback`.
-//
-// Empty string is treated as "not captured" for UI clarity. An empty
-// <pre> block looks like a render bug and erodes the explainability vibe;
-// surfacing the fallback string is honest about Branch A's probabilistic
-// nature (some responses include reasoning items, others don't).
+// Reasoning
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const NO_REASONING_FALLBACK = "(no reasoning captured)";
@@ -100,25 +116,18 @@ export function composeReasoningText(agentRecord: AgentRecord): string {
   return r;
 }
 
+export function hasReasoningIndicator(agentRecord: AgentRecord): boolean {
+  const r = agentRecord.llm.reasoning;
+  return r !== null && r !== "";
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// composeDecisionJson — pretty-printed `agentRecord.decision`.
-//
-// Stable JSON.stringify with 2-space indentation. The decision payload is
-// small (≤ 1 KB) and the modal opens infrequently, so memoisation isn't
-// load-bearing — let the React caller `useMemo` if it cares.
+// Decision JSON / rawArguments diagnostic
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function composeDecisionJson(agentRecord: AgentRecord): string {
   return JSON.stringify(agentRecord.decision, null, 2);
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// composeRawArgumentsVsDecision — canonical rawArguments/decision diagnostic.
-//
-// Equality is JSON.parse(rawArguments) compared with agentRecord.decision after
-// recursively sorting object keys. rawArguments is preserved verbatim in the
-// diverged pane so invalid JSON remains visible to the user.
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function composeRawArgumentsVsDecision(
   agentRecord: AgentRecord,
@@ -130,7 +139,7 @@ export function composeRawArgumentsVsDecision(
     return {
       matched: false,
       rendered: [
-        "⚠ diverged",
+        "rawArguments vs decision: diverged",
         "(no rawArguments - wrapper-level failure)",
         `failureReason: ${agentRecord.llm.failureReason ?? "(not set)"}`,
         "",
@@ -148,14 +157,14 @@ export function composeRawArgumentsVsDecision(
   if (matched) {
     return {
       matched: true,
-      rendered: ["✓ matched", decisionJson].join("\n"),
+      rendered: ["rawArguments vs decision: matched", decisionJson].join("\n"),
     };
   }
 
   return {
     matched: false,
     rendered: [
-      "⚠ diverged",
+      "rawArguments vs decision: diverged",
       ...(parsed.ok ? [] : [`rawArguments parse error: ${parsed.error}`]),
       "",
       "--- rawArguments ---",
@@ -208,7 +217,53 @@ function canonicalise(value: unknown): JsonValue | undefined {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// composeUsageBar — compact output/max display + truncation flag.
+// Field-scoped validator diagnostics
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const NO_VALIDATOR_FIELD_ERRORS =
+  "(no validator field errors)";
+
+export function hasValidatorFieldErrors(agentRecord: AgentRecord): boolean {
+  return validatorFieldErrorLines(agentRecord).length > 0;
+}
+
+export function composeValidatorFieldErrors(agentRecord: AgentRecord): string {
+  const lines = validatorFieldErrorLines(agentRecord);
+  return lines.length > 0 ? lines.join("\n") : NO_VALIDATOR_FIELD_ERRORS;
+}
+
+export function summariseValidatorFieldErrors(
+  agentRecord: AgentRecord,
+): string | null {
+  const lines = validatorFieldErrorLines(agentRecord);
+  return lines.length > 0 ? lines.join(" | ") : null;
+}
+
+function validatorFieldErrorLines(agentRecord: AgentRecord): string[] {
+  const errors = readValidatorFieldErrors(agentRecord.llm.validatorFieldErrors);
+  const lines: string[] = [];
+  for (const field of VALIDATOR_FIELDS) {
+    const reason = errors[field];
+    if (typeof reason === "string" && reason.length > 0) {
+      lines.push(`${field}: ${reason}`);
+    }
+  }
+  return lines;
+}
+
+function readValidatorFieldErrors(raw: unknown): ValidatorFieldErrors {
+  if (raw === null || raw === undefined || typeof raw !== "object") return {};
+  const obj = raw as Record<string, unknown>;
+  const out: ValidatorFieldErrors = {};
+  for (const field of VALIDATOR_FIELDS) {
+    const value = obj[field];
+    if (typeof value === "string") out[field] = value;
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Usage
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function composeUsageBar(
@@ -234,34 +289,10 @@ function readOutputTokens(usage: AgentRecord["llm"]["usage"]): number | null {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// composeUsage — pretty-printed `agentRecord.llm.usage` JSON dump.
-//
-// The wrapper persists Azure's `body.usage` object verbatim (schema:
-// `usageValidator = v.any() | null`). Surfacing it as a raw pane lets the
-// user eyeball reasoning_tokens, cached_tokens, and truncation against
-// max_output_tokens on a per-turn basis without leaving the modal.
-// Fallback string mirrors composeReasoningText's "(no … captured)" shape.
-// ─────────────────────────────────────────────────────────────────────────────
-
 export const NO_USAGE_FALLBACK = "(no usage captured)";
 
 export function composeUsage(agentRecord: AgentRecord): string {
   const usage = agentRecord.llm.usage;
   if (usage === null || usage === undefined) return NO_USAGE_FALLBACK;
   return JSON.stringify(usage, null, 2);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// hasReasoningIndicator — feed-row indicator predicate.
-//
-// TurnFeed lights up a small "🧠" indicator when reasoning content exists.
-// Empty strings count as "no content" — same rationale as
-// composeReasoningText above (avoid an empty bauble-on-the-row that
-// signals nothing).
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function hasReasoningIndicator(agentRecord: AgentRecord): boolean {
-  const r = agentRecord.llm.reasoning;
-  return r !== null && r !== "";
 }

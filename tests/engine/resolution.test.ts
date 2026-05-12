@@ -89,13 +89,11 @@ function makeState(opts: {
 
 function nullDecision(overrides: Partial<ParsedDecision> = {}): ParsedDecision {
   return {
-    consume: "none",
-    primary: "stationary_action",
-    move: { kind: "none" },
+    use: null,
+    position: { kind: "move", direction: { kind: "N" }, dist: 0 },
     action: { kind: "none" },
     say: null,
-    overwatch_stance: null,
-    scratchpad_update: null,
+    scratchpad: null,
     ...overrides,
   };
 }
@@ -109,7 +107,7 @@ function findChar(state: MatchState, id: string): CharacterState {
 // ─── §9 turn economy ─────────────────────────────────────────────────────
 
 describe("WP7 resolution — concept-spec §9 turn economy", () => {
-  it("§9 — consume + move + say + scratchpad-update in one turn resolves cleanly", () => {
+  it("§9 — use + position move + say + scratchpad in one turn resolves cleanly", () => {
     // Speed consumable + move + say + scratchpad — all should fire.
     const a = makeCharacter({
       id: "A",
@@ -117,19 +115,21 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
       consumable: { category: "consumable", name: "speed" },
     });
     const b = makeCharacter({ id: "B", pos: { x: 20, y: 0 } });
-    b.displayName = "Player_2";
+    b.displayName = "Duelist";
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
       [
         "A",
         {
-          consume: "speed",
-          primary: "move",
-          move: { kind: "toward", targetId: "Player_2" },
+          use: "consumable",
+          position: {
+            kind: "move",
+            direction: { kind: "toward", targetId: "Duelist" },
+            dist: 12,
+          },
           action: { kind: "none" },
           say: "incoming",
-          overwatch_stance: null,
-          scratchpad_update: "Plan: rush B",
+          scratchpad: "Plan: rush B",
         },
       ],
       ["B", nullDecision()],
@@ -149,10 +149,10 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
     expect(aAfter.pos.x).toBeGreaterThan(0);
   });
 
-  it("§9 — primary 'move' resolves move first, THEN action (move-then-attack same turn)", () => {
+  it("§9 — position move resolves first, THEN action (move-then-attack same turn)", () => {
     // Per concept-spec §9 line 447: "Move up to 8, then optionally take one
     // normal action if valid". WP10.5 fix: the resolver must NOT short-circuit
-    // the action phase when primary === "move". Both sub-decisions resolve
+    // the action phase when moving. Both sub-decisions resolve
     // (movement phase 4, then action phase 5 against post-move position).
     //
     // Setup: A at (0,0), B at (3,0). A's weapon is sword (range 2), B is at
@@ -169,9 +169,8 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
       [
         "A",
         nullDecision({
-          primary: "move",
-          move: { kind: "relative", dx: 2, dy: 0 },
-          action: { kind: "attack", targetCharacterId: "B" },
+          position: { kind: "move", direction: { kind: "E" }, dist: 2 },
+          action: { kind: "attack", targetId: "B" },
         }),
       ],
       ["B", nullDecision()],
@@ -191,7 +190,7 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
     ).toBeTruthy();
   });
 
-  it("§9 — primary 'move' resolves move first, THEN action (move-then-interact chest)", () => {
+  it("§9 — position move resolves first, THEN action (move-then-loot chest)", () => {
     // Sister scenario for chest interaction — the canonical "move to chest,
     // then open" pattern needed for ≥80% chest-equip done-bar (mental-model
     // §10). A at (0,0), chest at (3,0) holding axe. A moves dx=2 → (2,0); chest
@@ -220,8 +219,11 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
       [
         "A",
         nullDecision({
-          primary: "move",
-          move: { kind: "toward", targetId: "Chest_001" },
+          position: {
+            kind: "move",
+            direction: { kind: "toward", targetId: "Chest_001" },
+            dist: 8,
+          },
           action: { kind: "loot", targetId: "chest_001" },
         }),
       ],
@@ -250,7 +252,7 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
     ).toBeTruthy();
   });
 
-  it("§9 — primary 'move' with action that is invalid post-move (out of range) → action no-ops cleanly, move still applies", () => {
+  it("§9 — position move with action that is invalid post-move (out of range) → action no-ops cleanly, move still applies", () => {
     // Defensive: even with the §9 short-circuit removed, the resolver's
     // in-range check (resolution.ts attack/interact/loot branches) gates
     // the action against POST-MOVE position. If the action target is still
@@ -267,10 +269,9 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
       [
         "A",
         nullDecision({
-          primary: "move",
-          move: { kind: "relative", dx: 2, dy: 0 },
+          position: { kind: "move", direction: { kind: "E" }, dist: 2 },
           // B is still at dist 18 after A moves to (2,0) — way out of range.
-          action: { kind: "attack", targetCharacterId: "B" },
+          action: { kind: "attack", targetId: "B" },
         }),
       ],
       ["B", nullDecision()],
@@ -308,7 +309,7 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
       world: { coverTiles: [{ x: 5, y: 5 }] },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ consume: "heal" })],
+      ["A", nullDecision({ use: "consumable" })],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
     expect(trace.visibilityUpdates.some(
@@ -333,7 +334,7 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
       world: { coverTiles: [{ x: 5, y: 5 }] },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ consume: "speed" })],
+      ["A", nullDecision({ use: "consumable" })],
     ]);
     const { trace } = resolveTurn(state, decisions);
     expect(trace.visibilityUpdates.some(
@@ -352,7 +353,7 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
       world: { coverTiles: [{ x: 5, y: 5 }] },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ say: "hi" })],
+      ["A", nullDecision({ say: "hello" })],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
     expect(trace.visibilityUpdates.some(
@@ -361,8 +362,9 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
     expect(findChar(next, "A").hidden).toBe(false);
   });
 
-  it("§7 — leaving cover reveals", () => {
-    // A starts in cover hidden, moves out of cover this turn → revealed.
+  it("§7 — leaving cover alone does not reveal", () => {
+    // A starts in cover hidden, moves out of cover this turn. Phase 6
+    // retired leaving-cover reveal as an engine-produced cause.
     const a = makeCharacter({
       id: "A",
       pos: { x: 5, y: 5 },
@@ -376,16 +378,15 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
       [
         "A",
         nullDecision({
-          primary: "move",
-          move: { kind: "relative", dx: 3, dy: 0 },
+          position: { kind: "move", direction: { kind: "E" }, dist: 3 },
         }),
       ],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
-    expect(trace.visibilityUpdates.some(
-      (u) => u.characterId === "A" && u.revealedBy === "leaving_cover",
-    )).toBe(true);
-    expect(findChar(next, "A").hidden).toBe(false);
+    expect(trace.visibilityUpdates.some((u) => u.characterId === "A")).toBe(
+      false,
+    );
+    expect(findChar(next, "A").hidden).toBe(true);
   });
 
   it("§7 — enemy within 2 tiles reveals (proximity)", () => {
@@ -405,11 +406,9 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
       [
         "B",
         nullDecision({
-          primary: "move",
+          position: { kind: "move", direction: { kind: "W" }, dist: 4 },
           // Move 5 west so B ends at (5,5)? But A is there. Move to (6,5) — distance 1.
           // We need B visible to A (no walls between) — same row works.
-          // Relative move keeps this focused on proximity reveal.
-          move: { kind: "relative", dx: -4, dy: 0 },
         }),
       ],
     ]);
@@ -433,8 +432,11 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
       [
         "A",
         nullDecision({
-          primary: "move",
-          move: { kind: "toward", targetId: "Cover_3_0" },
+          position: {
+            kind: "move",
+            direction: { kind: "toward", targetId: "Cover_3_0" },
+            dist: 8,
+          },
         }),
       ],
     ]);
@@ -459,8 +461,11 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
       [
         "A",
         nullDecision({
-          primary: "move",
-          move: { kind: "toward", targetId: "Cover_3_0" },
+          position: {
+            kind: "move",
+            direction: { kind: "toward", targetId: "Cover_3_0" },
+            dist: 8,
+          },
         }),
       ],
       ["B", nullDecision()],
@@ -494,9 +499,12 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
       [
         "A",
         nullDecision({
-          primary: "move",
-          move: { kind: "toward", targetId: "Cover_1_0" },
-          action: { kind: "attack", targetCharacterId: "B" },
+          position: {
+            kind: "move",
+            direction: { kind: "toward", targetId: "Cover_1_0" },
+            dist: 8,
+          },
+          action: { kind: "attack", targetId: "B" },
         }),
       ],
       ["B", nullDecision()],
@@ -568,7 +576,7 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
     });
     const state = makeState({ characters: [a] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ consume: "heal" })],
+      ["A", nullDecision({ use: "consumable" })],
     ]);
     const { state: next } = resolveTurn(state, decisions);
     expect(findChar(next, "A").equipped.consumable).toBeUndefined();
@@ -579,7 +587,7 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
 // ─── §11 overwatch ───────────────────────────────────────────────────────
 
 describe("WP7 resolution — concept-spec §11 overwatch", () => {
-  it("§11 — overwatch fires on visible in-range enemy", () => {
+  it("§11 — overwatch fires on visible enemy that moves into range", () => {
     const a = makeCharacter({
       id: "A",
       pos: { x: 0, y: 0 },
@@ -587,7 +595,7 @@ describe("WP7 resolution — concept-spec §11 overwatch", () => {
     });
     const b = makeCharacter({
       id: "B",
-      pos: { x: 1, y: 0 },
+      pos: { x: 4, y: 0 },
       hp: 100,
       armour: { category: "armour", name: "leather" },
     });
@@ -596,18 +604,28 @@ describe("WP7 resolution — concept-spec §11 overwatch", () => {
       [
         "A",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "offensive",
+          position: { kind: "overwatch" },
         }),
       ],
-      ["B", nullDecision()],
+      [
+        "B",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "W" }, dist: 2 },
+        }),
+      ],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
     // axe (20) - leather (3) = 17 damage; B was 100 → 83.
     expect(findChar(next, "B").hp).toBe(83);
-    expect(trace.actions.some(
-      (a) => a.characterId === "A" && a.kind === "overwatch" && a.target === "B",
-    )).toBe(true);
+    expect(
+      trace.actions.some(
+        (a) =>
+          a.characterId === "A" &&
+          a.kind === "overwatch" &&
+          a.target === "B" &&
+          a.triggeredByMovement === true,
+      ),
+    ).toBe(true);
   });
 
   it("§11 — overwatch with no target → no fire; no reveal", () => {
@@ -624,8 +642,7 @@ describe("WP7 resolution — concept-spec §11 overwatch", () => {
       [
         "A",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "offensive",
+          position: { kind: "overwatch" },
         }),
       ],
     ]);
@@ -644,7 +661,7 @@ describe("WP7 resolution — concept-spec §11 overwatch", () => {
       weapon: { category: "weapon", name: "axe" },
       hidden: true,
     });
-    const b = makeCharacter({ id: "B", pos: { x: 6, y: 5 } });
+    const b = makeCharacter({ id: "B", pos: { x: 8, y: 5 } });
     const state = makeState({
       characters: [a, b],
       world: { coverTiles: [{ x: 5, y: 5 }] },
@@ -653,11 +670,15 @@ describe("WP7 resolution — concept-spec §11 overwatch", () => {
       [
         "A",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "offensive",
+          position: { kind: "overwatch" },
         }),
       ],
-      ["B", nullDecision()],
+      [
+        "B",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "W" }, dist: 1 },
+        }),
+      ],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
     expect(trace.visibilityUpdates.some(
@@ -666,9 +687,10 @@ describe("WP7 resolution — concept-spec §11 overwatch", () => {
     expect(findChar(next, "A").hidden).toBe(false);
   });
 
-  it("speech-revealed → overwatch target (phase-3 reveal seen by phase-5 overwatch)", () => {
-    // A in cover with overwatch; B in cover says "hi" → revealed in phase 3,
-    // becomes valid overwatch target for A in phase 5.
+  it("speech-revealed moving target can trigger overwatch", () => {
+    // A in cover with overwatch; B in cover says "hi" and moves into
+    // range. The speech reveal is visible to the movement-triggered
+    // overwatch pass.
     const a = makeCharacter({
       id: "A",
       pos: { x: 5, y: 5 },
@@ -677,7 +699,7 @@ describe("WP7 resolution — concept-spec §11 overwatch", () => {
     });
     const b = makeCharacter({
       id: "B",
-      pos: { x: 6, y: 5 },
+      pos: { x: 8, y: 5 },
       hp: 50,
       hidden: true,
     });
@@ -686,7 +708,7 @@ describe("WP7 resolution — concept-spec §11 overwatch", () => {
       world: {
         coverTiles: [
           { x: 5, y: 5 },
-          { x: 6, y: 5 },
+          { x: 8, y: 5 },
         ],
       },
     });
@@ -694,11 +716,16 @@ describe("WP7 resolution — concept-spec §11 overwatch", () => {
       [
         "A",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "offensive",
+          position: { kind: "overwatch" },
         }),
       ],
-      ["B", nullDecision({ say: "hi" })],
+      [
+        "B",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "W" }, dist: 1 },
+          say: "hi",
+        }),
+      ],
     ]);
     const { state: next } = resolveTurn(state, decisions);
     // sword (15) - 0 = 15 damage. B was 50 → 35.
@@ -811,7 +838,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       world: {
         corpses: [
           {
-            characterId: "Player_9",
+            characterId: "Camper",
             pos: { x: 1, y: 0 },
             contents: {
               weapon: { category: "weapon", name: "greatsword" },
@@ -825,7 +852,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "loot", targetId: "Player_9" },
+          action: { kind: "loot", targetId: "Corpse_Camper" },
         }),
       ],
     ]);
@@ -836,7 +863,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       category: "weapon",
       name: "greatsword",
     });
-    const corpse = next.world.corpses.find((c) => c.characterId === "Player_9")!;
+    const corpse = next.world.corpses.find((c) => c.characterId === "Camper")!;
     // Looted item removed from corpse.
     expect(corpse.contents.weapon).toBeUndefined();
   });
@@ -861,7 +888,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "B" },
+          action: { kind: "attack", targetId: "B" },
         }),
       ],
       ["B", nullDecision()],
@@ -887,7 +914,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       world: {
         corpses: [
           {
-            characterId: "Player_2",
+            characterId: "Camper",
             pos: { x: 2, y: 0 },
             contents: { weapon: { category: "weapon", name: "axe" } },
           },
@@ -898,7 +925,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "loot", targetId: "Player_2" },
+          action: { kind: "loot", targetId: "Corpse_Camper" },
         }),
       ],
     ]);
@@ -921,7 +948,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "B" },
+          action: { kind: "attack", targetId: "B" },
         }),
       ],
       ["B", nullDecision()],
@@ -1060,15 +1087,13 @@ describe("WP7 resolution — concept-spec §24 simultaneous-tile collision + ord
       [
         "A",
         nullDecision({
-          primary: "move",
-          move: { kind: "relative", dx: 1, dy: 0 },
+          position: { kind: "move", direction: { kind: "E" }, dist: 1 },
         }),
       ],
       [
         "B",
         nullDecision({
-          primary: "move",
-          move: { kind: "relative", dx: -1, dy: 0 },
+          position: { kind: "move", direction: { kind: "W" }, dist: 1 },
         }),
       ],
     ]);
@@ -1086,17 +1111,14 @@ describe("WP7 resolution — concept-spec §24 simultaneous-tile collision + ord
       return makeState({ characters: [a, b, c] });
     };
     const dA: ParsedDecision = nullDecision({
-      primary: "move",
-      move: { kind: "relative", dx: 5, dy: 5 },
+      position: { kind: "move", direction: { kind: "SE" }, dist: 5 },
       say: "A says",
     });
     const dB: ParsedDecision = nullDecision({
-      primary: "move",
-      move: { kind: "relative", dx: -3, dy: 0 },
+      position: { kind: "move", direction: { kind: "W" }, dist: 3 },
     });
     const dC: ParsedDecision = nullDecision({
-      primary: "move",
-      move: { kind: "relative", dx: 0, dy: -8 },
+      position: { kind: "move", direction: { kind: "N" }, dist: 8 },
     });
 
     const orderings: Array<Array<["A" | "B" | "C", ParsedDecision]>> = [
@@ -1161,13 +1183,13 @@ describe("WP7 resolution — concept-spec §12 simultaneous combat", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "B" },
+          action: { kind: "attack", targetId: "B" },
         }),
       ],
       [
         "B",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "A" },
+          action: { kind: "attack", targetId: "A" },
         }),
       ],
     ]);
@@ -1205,19 +1227,19 @@ describe("WP7 resolution — concept-spec §12 simultaneous combat", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "T" },
+          action: { kind: "attack", targetId: "T" },
         }),
       ],
       [
         "B",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "T" },
+          action: { kind: "attack", targetId: "T" },
         }),
       ],
       [
         "C",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "T" },
+          action: { kind: "attack", targetId: "T" },
         }),
       ],
     ]);
@@ -1242,7 +1264,7 @@ describe("WP7 resolution — concept-spec §12 simultaneous combat", () => {
     const decisions = new Map<string, ParsedDecision>([
       [
         "A",
-        nullDecision({ action: { kind: "attack", targetCharacterId: "B" } }),
+        nullDecision({ action: { kind: "attack", targetId: "B" } }),
       ],
       ["B", nullDecision()],
     ]);
@@ -1271,15 +1293,18 @@ describe("WP7 resolution — concept-spec §10 no mid-movement retarget", () => 
     // A heads toward B; C enters near A's path. A continues toward B.
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const b = makeCharacter({ id: "B", pos: { x: 20, y: 0 } });
-    b.displayName = "Player_2";
+    b.displayName = "Duelist";
     const c = makeCharacter({ id: "C", pos: { x: 5, y: 5 } });
     const state = makeState({ characters: [a, b, c] });
     const decisions = new Map<string, ParsedDecision>([
       [
         "A",
         nullDecision({
-          primary: "move",
-          move: { kind: "toward", targetId: "Player_2" },
+          position: {
+            kind: "move",
+            direction: { kind: "toward", targetId: "Duelist" },
+            dist: 8,
+          },
         }),
       ],
       ["B", nullDecision()],
@@ -1307,7 +1332,7 @@ describe("WP7 resolution — concept-spec §23 phase ordering", () => {
     });
     const b = makeCharacter({
       id: "B",
-      pos: { x: 6, y: 5 },
+      pos: { x: 8, y: 5 },
       weapon: { category: "weapon", name: "axe" },
       hidden: true,
     });
@@ -1316,7 +1341,7 @@ describe("WP7 resolution — concept-spec §23 phase ordering", () => {
       world: {
         coverTiles: [
           { x: 5, y: 5 },
-          { x: 6, y: 5 },
+          { x: 8, y: 5 },
         ],
       },
     });
@@ -1325,8 +1350,14 @@ describe("WP7 resolution — concept-spec §23 phase ordering", () => {
       [
         "B",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "offensive",
+          position: { kind: "overwatch" },
+        }),
+      ],
+      [
+        "A",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "E" }, dist: 1 },
+          say: "hi",
         }),
       ],
     ]);
@@ -1358,13 +1389,13 @@ describe("WP7 resolution — concept-spec §23 phase ordering", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "B" },
+          action: { kind: "attack", targetId: "B" },
         }),
       ],
       [
         "B",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "A" },
+          action: { kind: "attack", targetId: "A" },
         }),
       ],
     ]);
@@ -1385,7 +1416,7 @@ describe("WP-B.2 drained-corpse trace — ADR §4", () => {
       world: {
         corpses: [
           {
-            characterId: "Player_5",
+            characterId: "Camper",
             pos: { x: 1, y: 0 },
             // No weapon/armour/consumable — already drained.
             contents: {},
@@ -1397,7 +1428,7 @@ describe("WP-B.2 drained-corpse trace — ADR §4", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "loot", targetId: "Player_5" },
+          action: { kind: "loot", targetId: "Corpse_Camper" },
         }),
       ],
     ]);
@@ -1409,7 +1440,7 @@ describe("WP-B.2 drained-corpse trace — ADR §4", () => {
     expect(lootEntries[0]).toMatchObject({
       characterId: "A",
       kind: "loot",
-      target: "Player_5",
+      target: "Corpse_Camper",
       result: "empty",
     });
   });
@@ -1421,7 +1452,7 @@ describe("WP-B.2 drained-corpse trace — ADR §4", () => {
       world: {
         corpses: [
           {
-            characterId: "Player_5",
+            characterId: "Camper",
             pos: { x: 1, y: 0 },
             contents: {},
           },
@@ -1436,7 +1467,7 @@ describe("WP-B.2 drained-corpse trace — ADR §4", () => {
         [
           "A",
           nullDecision({
-            action: { kind: "loot", targetId: "Player_5" },
+            action: { kind: "loot", targetId: "Corpse_Camper" },
           }),
         ],
       ]);
@@ -1446,7 +1477,7 @@ describe("WP-B.2 drained-corpse trace — ADR §4", () => {
     }
     expect(
       trace1.actions.find(
-        (a) => a.characterId === "A" && a.target === "Player_5" && a.result === "empty",
+        (a) => a.characterId === "A" && a.target === "Corpse_Camper" && a.result === "empty",
       ),
     ).toBeDefined();
 
@@ -1456,7 +1487,7 @@ describe("WP-B.2 drained-corpse trace — ADR §4", () => {
         [
           "A",
           nullDecision({
-            action: { kind: "loot", targetId: "Player_5" },
+            action: { kind: "loot", targetId: "Corpse_Camper" },
           }),
         ],
       ]);
@@ -1465,7 +1496,7 @@ describe("WP-B.2 drained-corpse trace — ADR §4", () => {
         (a) =>
           a.characterId === "A" &&
           a.kind === "loot" &&
-          a.target === "Player_5" &&
+          a.target === "Corpse_Camper" &&
           a.result === "empty",
       );
       expect(empties).toHaveLength(1);
@@ -1479,9 +1510,9 @@ describe("WP-B.2 drained-corpse trace — ADR §4", () => {
       [
         "A",
         nullDecision({
-          // Use a "Player_*" prefix so this hits the corpse path (not the
+          // Use the corpse namespace so this hits the corpse path (not the
           // "no_target" bogus-namespace path).
-          action: { kind: "loot", targetId: "Player_999" },
+          action: { kind: "loot", targetId: "Corpse_Camper" },
         }),
       ],
     ]);
@@ -1490,7 +1521,7 @@ describe("WP-B.2 drained-corpse trace — ADR §4", () => {
       (act) =>
         act.characterId === "A" &&
         act.kind === "loot" &&
-        act.target === "Player_999" &&
+        act.target === "Corpse_Camper" &&
         act.result === "no_corpse",
     );
     expect(noCorpse).toHaveLength(1);
@@ -1539,14 +1570,14 @@ describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
     expect(opened).toBeDefined();
   });
 
-  it("Player_* prefix → corpse-loot path (kind='loot', result='looted')", () => {
+  it("Corpse_<PersonaName> prefix → corpse-loot path (kind='loot', result='looted')", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({
       characters: [a],
       world: {
         corpses: [
           {
-            characterId: "Player_5",
+            characterId: "Camper",
             pos: { x: 1, y: 0 },
             contents: { weapon: { category: "weapon", name: "axe" } },
           },
@@ -1557,7 +1588,7 @@ describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "loot", targetId: "Player_5" },
+          action: { kind: "loot", targetId: "Corpse_Camper" },
         }),
       ],
     ]);
@@ -1566,13 +1597,13 @@ describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
       (act) =>
         act.characterId === "A" &&
         act.kind === "loot" &&
-        act.target === "Player_5" &&
+        act.target === "Corpse_Camper" &&
         act.result === "looted",
     );
     expect(looted).toBeDefined();
   });
 
-  it("bogus id (neither chest_ nor Player_ prefix) → trace emits result='no_target'", () => {
+  it("bogus id (neither chest_ nor Corpse_ prefix) → trace emits result='no_target'", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({ characters: [a] });
     const decisions = new Map<string, ParsedDecision>([
@@ -1598,7 +1629,7 @@ describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
 // ─── WP-B.4 Defensive overwatch counter-fire — Phase-3 ADR §3 / D-P3-2 ───
 
 describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
-  it("single attacker hits defensive overwatcher → 1 counter-fire entry with fromOverwatch=true, stance='defensive'", () => {
+  it("single attacker hits counter stance → 1 counter-fire entry", () => {
     // Defender (D) has overwatch defensive; A attacks D from in-range.
     // A must take counter-fire damage in same applyDamage batch.
     const d = makeCharacter({
@@ -1618,14 +1649,13 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "D" },
+          action: { kind: "attack", targetId: "D" },
         }),
       ],
       [
         "D",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "defensive",
+          position: { kind: "counter" },
         }),
       ],
     ]);
@@ -1638,10 +1668,8 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
     const counter = trace.actions.find(
       (act) =>
         act.characterId === "D" &&
-        act.kind === "overwatch" &&
-        act.target === "A" &&
-        act.fromOverwatch === true &&
-        act.stance === "defensive",
+        act.kind === "counter" &&
+        act.target === "A",
     );
     expect(counter).toBeDefined();
     expect(counter?.result).toMatch(/^dmg /);
@@ -1675,30 +1703,27 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
       [
         "D",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "defensive",
+          position: { kind: "counter" },
         }),
       ],
       [
         "A1",
-        nullDecision({ action: { kind: "attack", targetCharacterId: "D" } }),
+        nullDecision({ action: { kind: "attack", targetId: "D" } }),
       ],
       [
         "A2",
-        nullDecision({ action: { kind: "attack", targetCharacterId: "D" } }),
+        nullDecision({ action: { kind: "attack", targetId: "D" } }),
       ],
       [
         "A3",
-        nullDecision({ action: { kind: "attack", targetCharacterId: "D" } }),
+        nullDecision({ action: { kind: "attack", targetId: "D" } }),
       ],
     ]);
     const { trace } = resolveTurn(state, decisions);
     const counters = trace.actions.filter(
       (act) =>
         act.characterId === "D" &&
-        act.kind === "overwatch" &&
-        act.fromOverwatch === true &&
-        act.stance === "defensive",
+        act.kind === "counter",
     );
     expect(counters).toHaveLength(3);
     const targets = counters.map((c) => c.target).sort();
@@ -1772,14 +1797,13 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "D" },
+          action: { kind: "attack", targetId: "D" },
         }),
       ],
       [
         "D",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "defensive",
+          position: { kind: "counter" },
         }),
       ],
     ]);
@@ -1790,8 +1814,7 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
     const counters = trace.actions.filter(
       (act) =>
         act.characterId === "D" &&
-        act.kind === "overwatch" &&
-        act.fromOverwatch === true,
+        act.kind === "counter",
     );
     expect(counters).toHaveLength(0);
   });
@@ -1815,14 +1838,13 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "D" },
+          action: { kind: "attack", targetId: "D" },
         }),
       ],
       [
         "D",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "defensive",
+          position: { kind: "counter" },
         }),
       ],
     ]);
@@ -1835,10 +1857,8 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
     const counter = trace.actions.find(
       (act) =>
         act.characterId === "D" &&
-        act.kind === "overwatch" &&
-        act.target === "A" &&
-        act.fromOverwatch === true &&
-        act.stance === "defensive",
+        act.kind === "counter" &&
+        act.target === "A",
     );
     expect(counter).toBeDefined();
   });
@@ -1865,14 +1885,13 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "D" },
+          action: { kind: "attack", targetId: "D" },
         }),
       ],
       [
         "D",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "defensive",
+          position: { kind: "counter" },
         }),
       ],
     ]);
@@ -1885,25 +1904,11 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
     ).toBe(true);
   });
 
-  it("two defensive overwatchers attacking each other → both counter-fire, trace contains 4 attack entries (2 originating, 2 counter-fire)", () => {
+  it("two counter actors attacked by separate attackers → both counter-fire", () => {
     // D-P3-2 case 5. Edge case: each is also the other's attacker.
-    // Test setup: D1 and D2 both stationary_action attack each other,
-    // both ALSO declare overwatch_stance defensive — but primary can't
-    // be both "stationary_action" AND "overwatch". So the realistic
-    // shape is: one attacks (stationary_action) and one defends
-    // (overwatch). Two-overwatcher mutual case is invalid by schema.
-    //
-    // Reframe: A and B both stationary_action attack each other AND
-    // are both designated "would-counter-fire" if hit — but defensive
-    // counter-fire requires `primary === "overwatch"`. So this case is
-    // STRUCTURALLY: only ONE side can be a defensive overwatcher per
-    // turn (the other is attacking). Single-attacker case already
-    // covers this. Two-defender case skipped per schema.
-    //
-    // What we CAN test: D1 in defensive overwatch is hit by A; D1's
-    // counter-fire damages A; SEPARATELY D2 in defensive overwatch is
-    // hit by B; D2's counter-fire damages B — all in same turn, all
-    // entries present.
+    // What we test: D1 in counter is hit by A; D1's counter-fire damages
+    // A. Separately D2 in counter is hit by B; D2's counter-fire damages
+    // B. All entries are present in one turn.
     const d1 = makeCharacter({
       id: "D1",
       pos: { x: 5, y: 5 },
@@ -1933,40 +1938,38 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "D1" },
+          action: { kind: "attack", targetId: "D1" },
         }),
       ],
       [
         "B",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "D2" },
+          action: { kind: "attack", targetId: "D2" },
         }),
       ],
       [
         "D1",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "defensive",
+          position: { kind: "counter" },
         }),
       ],
       [
         "D2",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "defensive",
+          position: { kind: "counter" },
         }),
       ],
     ]);
     const { trace } = resolveTurn(state, decisions);
     // 2 originating attacks + 2 counter-fires = 4 attack-shaped trace entries.
     const attackOrOverwatch = trace.actions.filter(
-      (a) => a.kind === "attack" || a.kind === "overwatch",
+      (a) => a.kind === "attack" || a.kind === "counter",
     );
     expect(attackOrOverwatch.length).toBeGreaterThanOrEqual(4);
     // Specifically: 2 counter-fire entries (one from each defensive overwatcher).
     const counterFires = trace.actions.filter(
       (a) =>
-        a.kind === "overwatch" && a.fromOverwatch === true && a.stance === "defensive",
+        a.kind === "counter",
     );
     expect(counterFires).toHaveLength(2);
     const counterFireTargets = counterFires.map((c) => c.target).sort();
@@ -1974,10 +1977,10 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
   });
 });
 
-// ─── WP-B.5 Offensive overwatch stance — trace tagging ───────────────────
+// ─── WP-B.5 Movement-triggered overwatch trace tagging ───────────────────
 
-describe("WP-B.5 offensive overwatch — stance trace tagging — ADR §3", () => {
-  it("offensive overwatch fire entries carry stance='offensive', no fromOverwatch (or false)", () => {
+describe("WP-B.5 offensive overwatch — movement-trigger trace tagging", () => {
+  it("overwatch fire entries carry triggeredByMovement=true", () => {
     const a = makeCharacter({
       id: "A",
       pos: { x: 0, y: 0 },
@@ -1985,7 +1988,7 @@ describe("WP-B.5 offensive overwatch — stance trace tagging — ADR §3", () =
     });
     const b = makeCharacter({
       id: "B",
-      pos: { x: 1, y: 0 },
+      pos: { x: 3, y: 0 },
       hp: 100,
     });
     const state = makeState({ characters: [a, b] });
@@ -1993,20 +1996,22 @@ describe("WP-B.5 offensive overwatch — stance trace tagging — ADR §3", () =
       [
         "A",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "offensive",
+          position: { kind: "overwatch" },
         }),
       ],
-      ["B", nullDecision()],
+      [
+        "B",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "W" }, dist: 1 },
+        }),
+      ],
     ]);
     const { trace } = resolveTurn(state, decisions);
     const fire = trace.actions.find(
       (act) => act.characterId === "A" && act.kind === "overwatch",
     );
     expect(fire).toBeDefined();
-    expect(fire?.stance).toBe("offensive");
-    // fromOverwatch may be omitted or explicitly false (NOT true).
-    expect(fire?.fromOverwatch ?? false).toBe(false);
+    expect(fire?.triggeredByMovement).toBe(true);
   });
 
   it("WP-A — offensive overwatch damage trace carries the overwatcher's weapon", () => {
@@ -2017,7 +2022,7 @@ describe("WP-B.5 offensive overwatch — stance trace tagging — ADR §3", () =
     });
     const b = makeCharacter({
       id: "B",
-      pos: { x: 1, y: 0 },
+      pos: { x: 3, y: 0 },
       hp: 100,
     });
     const state = makeState({ characters: [a, b] });
@@ -2025,11 +2030,15 @@ describe("WP-B.5 offensive overwatch — stance trace tagging — ADR §3", () =
       [
         "A",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "offensive",
+          position: { kind: "overwatch" },
         }),
       ],
-      ["B", nullDecision()],
+      [
+        "B",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "W" }, dist: 1 },
+        }),
+      ],
     ]);
 
     const { trace } = resolveTurn(state, decisions);
@@ -2053,14 +2062,14 @@ describe("WP7 resolution — end-to-end short scenario", () => {
       weapon: { category: "weapon", name: "axe" },
       armour: { category: "armour", name: "leather" },
     });
-    a.displayName = "Player_1";
+    a.displayName = "Rat";
     const b = makeCharacter({
       id: "B",
       pos: { x: 5, y: 5 },
       hp: 50,
       weapon: { category: "weapon", name: "sword" },
     });
-    b.displayName = "Player_2";
+    b.displayName = "Duelist";
     const c = makeCharacter({
       id: "C",
       pos: { x: 10, y: 10 },
@@ -2073,12 +2082,11 @@ describe("WP7 resolution — end-to-end short scenario", () => {
       [
         "A",
         nullDecision({
-          primary: "move",
-          move: { kind: "toward", targetId: "Player_2" },
+          position: { kind: "move", direction: { kind: "toward", targetId: "Duelist" }, dist: 8 },
         }),
       ],
       ["B", nullDecision({ say: "hi" })],
-      ["C", nullDecision({ consume: "heal" })],
+      ["C", nullDecision({ use: "consumable" })],
     ]);
     state = resolveTurn(state, decisions).state;
 
@@ -2087,20 +2095,19 @@ describe("WP7 resolution — end-to-end short scenario", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "B" },
+          action: { kind: "attack", targetId: "B" },
         }),
       ],
       [
         "B",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "A" },
+          action: { kind: "attack", targetId: "A" },
         }),
       ],
       [
         "C",
         nullDecision({
-          primary: "move",
-          move: { kind: "toward", targetId: "Player_1" },
+          position: { kind: "move", direction: { kind: "toward", targetId: "Rat" }, dist: 8 },
         }),
       ],
     ]);
@@ -2132,35 +2139,34 @@ describe("WP7 resolution — end-to-end short scenario", () => {
 
 // ─── WP-F.2 display-id normalisation through resolution ──────────────────
 //
-// Per North Star §1 (locked design decision #1) and the system prompt,
-// the LLM emits attack and movement targets as typed
-// display ids (`Player_N`, the `displayName`). In production the engine
-// `characterId` is a Convex opaque `_id`, NOT `Player_N`. The
+// Per Phase 6, the LLM emits attack and movement targets as persona
+// display ids. In production the engine `characterId` is a Convex
+// opaque `_id`, not the persona display name. The
 // normalisation helper at `convex/llm/idNormalisation.ts` bridges attack
 // ids at the action site, while movement consumes the model-visible id
 // directly through `resolveTypedEntity` inside `movement.ts`. These tests
-// confirm Player_N targets resolve end-to-end through the engine when the
+// confirm persona-name targets resolve end-to-end through the engine when the
 // engine `characterId` is opaque.
-describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
-  it("attack with targetCharacterId='Player_3' resolves against opaque engine id and applies damage", () => {
+describe("WP-F.2 persona display-id target resolution — ADR §1", () => {
+  it("attack with targetId='Camper' resolves against opaque engine id and applies damage", () => {
     const a = makeCharacter({
       id: "char_opaque_a",
       pos: { x: 5, y: 5 },
       weapon: { category: "weapon", name: "sword" },
     });
-    a.displayName = "Player_1";
+    a.displayName = "Rat";
     const b = makeCharacter({
       id: "char_opaque_b",
       pos: { x: 6, y: 5 },
       hp: 100,
     });
-    b.displayName = "Player_3";
+    b.displayName = "Camper";
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
       [
         "char_opaque_a",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "Player_3" },
+          action: { kind: "attack", targetId: "Camper" },
         }),
       ],
       ["char_opaque_b", nullDecision()],
@@ -2168,35 +2174,63 @@ describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
     const { state: next, trace } = resolveTurn(state, decisions);
     // sword (15) - 0 = 15 damage; B was 100 → 85.
     expect(findChar(next, "char_opaque_b").hp).toBe(85);
-    // Trace echoes the model's verbatim emit on the target field
-    // (matches the corpse-loot path's traceTarget convention) so replay
-    // tooling sees what the agent actually wrote.
+    // Trace target is canonicalised to the persona displayName.
     const attackEntry = trace.actions.find(
       (act) => act.characterId === "char_opaque_a" && act.kind === "attack",
     );
     expect(attackEntry).toBeDefined();
-    expect(attackEntry!.target).toBe("Player_3");
+    expect(attackEntry!.target).toBe("Camper");
     expect(attackEntry!.result).toBe("dmg 15");
   });
 
-  it("move:toward with targetId='Player_3' steps toward opaque target", () => {
+  it("attack with an internal target id still writes a persona displayName trace target", () => {
     const a = makeCharacter({
       id: "char_opaque_a",
-      pos: { x: 0, y: 0 },
+      pos: { x: 5, y: 5 },
+      weapon: { category: "weapon", name: "sword" },
     });
-    a.displayName = "Player_1";
+    a.displayName = "Rat";
     const b = makeCharacter({
       id: "char_opaque_b",
-      pos: { x: 20, y: 0 },
+      pos: { x: 6, y: 5 },
+      hp: 100,
     });
-    b.displayName = "Player_3";
+    b.displayName = "Camper";
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
       [
         "char_opaque_a",
         nullDecision({
-          primary: "move",
-          move: { kind: "toward", targetId: "Player_3" },
+          action: { kind: "attack", targetId: "char_opaque_b" },
+        }),
+      ],
+      ["char_opaque_b", nullDecision()],
+    ]);
+    const { trace } = resolveTurn(state, decisions);
+    const attackEntry = trace.actions.find(
+      (act) => act.characterId === "char_opaque_a" && act.kind === "attack",
+    );
+    expect(attackEntry).toBeDefined();
+    expect(attackEntry!.target).toBe("Camper");
+  });
+
+  it("position move toward with targetId='Camper' steps toward opaque target", () => {
+    const a = makeCharacter({
+      id: "char_opaque_a",
+      pos: { x: 0, y: 0 },
+    });
+    a.displayName = "Rat";
+    const b = makeCharacter({
+      id: "char_opaque_b",
+      pos: { x: 20, y: 0 },
+    });
+    b.displayName = "Camper";
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "char_opaque_a",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "toward", targetId: "Camper" }, dist: 8 },
         }),
       ],
       ["char_opaque_b", nullDecision()],
@@ -2210,24 +2244,23 @@ describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
     ).toBeTruthy();
   });
 
-  it("move:away with targetId='Player_3' steps away from opaque target", () => {
+  it("position move away with targetId='Camper' steps away from opaque target", () => {
     const a = makeCharacter({
       id: "char_opaque_a",
       pos: { x: 5, y: 0 },
     });
-    a.displayName = "Player_1";
+    a.displayName = "Rat";
     const b = makeCharacter({
       id: "char_opaque_b",
       pos: { x: 0, y: 0 },
     });
-    b.displayName = "Player_3";
+    b.displayName = "Camper";
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
       [
         "char_opaque_a",
         nullDecision({
-          primary: "move",
-          move: { kind: "away", targetId: "Player_3" },
+          position: { kind: "move", direction: { kind: "away", targetId: "Camper" }, dist: 8 },
         }),
       ],
       ["char_opaque_b", nullDecision()],
@@ -2237,25 +2270,25 @@ describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
     expect(findChar(next, "char_opaque_a").pos.x).toBe(13);
   });
 
-  it("attack with targetCharacterId='Player_99' (no such character) → result='no_target', no damage", () => {
+  it("attack with unknown persona targetId → result='no_target', no damage", () => {
     const a = makeCharacter({
       id: "char_opaque_a",
       pos: { x: 5, y: 5 },
       weapon: { category: "weapon", name: "sword" },
     });
-    a.displayName = "Player_1";
+    a.displayName = "Rat";
     const b = makeCharacter({
       id: "char_opaque_b",
       pos: { x: 6, y: 5 },
       hp: 100,
     });
-    b.displayName = "Player_3";
+    b.displayName = "Camper";
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
       [
         "char_opaque_a",
         nullDecision({
-          action: { kind: "attack", targetCharacterId: "Player_99" },
+          action: { kind: "attack", targetId: "MissingPersona" },
         }),
       ],
       ["char_opaque_b", nullDecision()],
@@ -2267,30 +2300,28 @@ describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
       (act) => act.characterId === "char_opaque_a" && act.kind === "attack",
     );
     expect(attackEntry).toBeDefined();
-    expect(attackEntry!.target).toBe("Player_99");
+    expect(attackEntry!.target).toBe("MissingPersona");
     expect(attackEntry!.result).toBe("no_target");
   });
 });
 
-// ─── WP-G.1 Corpse_Player_N corpse-loot dispatch — D38 PM-lock ───────────
+// ─── WP-G.1 Corpse_<PersonaName> corpse-loot dispatch — D38 PM-lock ──────
 //
-// Reviewer-B HIGH-1: digest renders `Corpse_Player_N` typed-id (cf.
-// `convex/llm/inputBuilder.ts:516`), system prompt instructs "loot
-// <Visible.id> — copy id verbatim", but resolution.ts:559 only branched on
-// `Player_*` and emitted `result="no_target"` for `Corpse_Player_*` —
-// 0% corpse-loot was rejection-at-validator/resolver, NOT propensity.
+// Reviewer-B HIGH-1: digest renders `Corpse_<PersonaName>` typed ids,
+// system prompt instructs "loot <Visible.id> — copy id verbatim", and the
+// resolver must dispatch those ids to the corpse-loot path.
 //
 // PM-lock D38: fix at the validator/engine boundary by extending
 // normalisation; do NOT change the digest/prompt rendering.
-describe("WP-G.1 Corpse_Player_N corpse-loot dispatch — D38", () => {
-  it("Corpse_Player_N typed-id (digest form) → corpse-loot path (kind='loot', result='looted')", () => {
+describe("WP-G.1 Corpse_<PersonaName> corpse-loot dispatch — D38", () => {
+  it("Corpse_<PersonaName> typed-id (digest form) → corpse-loot path (kind='loot', result='looted')", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({
       characters: [a],
       world: {
         corpses: [
           {
-            characterId: "Player_5", // test fixture: characterId === displayName
+            characterId: "Camper", // test fixture: characterId === displayName
             pos: { x: 1, y: 0 },
             contents: { weapon: { category: "weapon", name: "axe" } },
           },
@@ -2301,7 +2332,7 @@ describe("WP-G.1 Corpse_Player_N corpse-loot dispatch — D38", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "loot", targetId: "Corpse_Player_5" },
+          action: { kind: "loot", targetId: "Corpse_Camper" },
         }),
       ],
     ]);
@@ -2317,36 +2348,34 @@ describe("WP-G.1 Corpse_Player_N corpse-loot dispatch — D38", () => {
         act.result === "looted",
     );
     expect(looted).toBeDefined();
-    // Trace target preserves the LLM-emitted typed id verbatim so replay
-    // sees what the model actually wrote (mirrors WP-F.2 traceTarget convention).
-    expect(looted!.target).toBe("Corpse_Player_5");
+    expect(looted!.target).toBe("Corpse_Camper");
   });
 
   it("Corpse_<displayName> with opaque engine characterId resolves via displayName lookup → engine id", () => {
     // Production shape: corpse.characterId is a Convex Id (opaque), the
-    // dead character's displayName is `Player_N`. The LLM emits
-    // `Corpse_Player_N` (the rendered typed id from the digest).
+    // dead character's displayName is the persona name. The LLM emits
+    // `Corpse_<PersonaName>` (the rendered typed id from the digest).
     const a = makeCharacter({ id: "char_opaque_a", pos: { x: 0, y: 0 } });
-    a.displayName = "Player_1";
+    a.displayName = "Rat";
     const state = makeState({
       characters: [a],
       world: {
         corpses: [
           {
-            characterId: "char_opaque_e", // engine id, NOT Player_5
+            characterId: "char_opaque_e", // engine id, not displayName
             pos: { x: 1, y: 0 },
             contents: { armour: { category: "armour", name: "plate" } },
           },
         ],
       },
     });
-    // Add a dead character entry whose displayName is Player_5 so the
+    // Add a dead character entry whose displayName is Camper so the
     // displayName→characterId lookup resolves.
     const dead: CharacterState = {
       characterId: "char_opaque_e",
       personaId: "rat",
       spawnIndex: 4,
-      displayName: "Player_5",
+      displayName: "Camper",
       hp: 0,
       maxHp: 100,
       pos: { x: 1, y: 0 },
@@ -2361,7 +2390,7 @@ describe("WP-G.1 Corpse_Player_N corpse-loot dispatch — D38", () => {
       [
         "char_opaque_a",
         nullDecision({
-          action: { kind: "loot", targetId: "Corpse_Player_5" },
+          action: { kind: "loot", targetId: "Corpse_Camper" },
         }),
       ],
     ]);
@@ -2378,17 +2407,17 @@ describe("WP-G.1 Corpse_Player_N corpse-loot dispatch — D38", () => {
         act.result === "looted",
     );
     expect(looted).toBeDefined();
-    expect(looted!.target).toBe("Corpse_Player_5");
+    expect(looted!.target).toBe("Corpse_Camper");
   });
 
-  it("Corpse_Player_99 (unknown) → result='no_corpse' on the corpse-loot branch (NOT no_target)", () => {
+  it("Corpse_Missing (unknown) → result='no_corpse' on the corpse-loot branch (NOT no_target)", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({ characters: [a] });
     const decisions = new Map<string, ParsedDecision>([
       [
         "A",
         nullDecision({
-          action: { kind: "loot", targetId: "Corpse_Player_99" },
+          action: { kind: "loot", targetId: "Corpse_Missing" },
         }),
       ],
     ]);
@@ -2397,7 +2426,7 @@ describe("WP-G.1 Corpse_Player_N corpse-loot dispatch — D38", () => {
       (act) =>
         act.characterId === "A" &&
         act.kind === "loot" &&
-        act.target === "Corpse_Player_99" &&
+        act.target === "Corpse_Missing" &&
         act.result === "no_corpse",
     );
     expect(noCorpse).toBeDefined();

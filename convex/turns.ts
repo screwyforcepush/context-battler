@@ -5,7 +5,7 @@
 //
 //   - `getAgentTurn({ matchId, turn, characterId })` — returns the full
 //     self-contained agent record per ADR §7. Used by reviewing agents to
-//     answer "what did Player_4 see and do on turn 23 of run #1?". Returns
+//     answer "what did Camper see and do on turn 23 of run #1?". Returns
 //     null when either the turn row is missing OR the named characterId is
 //     not present in `agentRecords[]` (e.g. a dead character that was
 //     omitted from later turns per WP10 acceptance).
@@ -18,7 +18,7 @@
 // Cross-references:
 //   - ADR §7 — trace shape; agentRecords[] entry shape this module returns.
 //   - convex/schema.ts — `turns.by_match_turn` index is the lookup key.
-//   - WP10 acceptance — `getAgentTurn(m, 23, "Player_4")` returns the full
+//   - WP10 acceptance — `getAgentTurn(m, 23, "Camper")` returns the full
 //     record; the harness consumes `byMatch` for end-of-run summary.
 
 import { v } from "convex/values";

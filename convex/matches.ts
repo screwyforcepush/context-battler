@@ -27,7 +27,7 @@ import { api } from "./_generated/api.js";
 import { reasoningEffortValidator } from "./schema.js";
 // loot.ts is fs-free; safe to import from default-runtime module.
 import { makeRng, rollLoot } from "./engine/loot.js";
-import { CHARACTER_MAX_HP, PERSONA_IDS } from "./engine/types.js";
+import { CHARACTER_MAX_HP, PERSONA_IDS, titleCase } from "./engine/types.js";
 import type {
   ChestState,
   EvacZone,
@@ -252,7 +252,7 @@ export const start = mutation({
         matchId,
         personaId,
         spawnIndex,
-        displayName: `Player_${spawnIndex + 1}`,
+        displayName: titleCase(personaId),
         // Phase-1 tuning: shared HP constant (NOT a spec invariant).
         // `runMatch.buildMatchState` reads the same `CHARACTER_MAX_HP`
         // when populating in-memory `maxHp`, so new characters satisfy

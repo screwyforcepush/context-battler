@@ -105,15 +105,9 @@ export type ResolutionTrace = {
     to: Tile;
     blockedBy?: "wall";
   }>;
-  // Phase-3 ADR §3 — `fromOverwatch` + `stance` carry overwatch-stance
-  // attribution for engine-emitted entries:
-  //   - Defensive counter-fire: kind="overwatch", fromOverwatch=true,
-  //     stance="defensive".
-  //   - Offensive overwatch fire: kind="overwatch", stance="offensive"
-  //     (fromOverwatch may be absent or false).
-  //   - Non-overwatch attacks: both fields omitted (legacy phase-1 shape).
-  // The flags travel through the persisted action-entry validator in
-  // schema.ts (and the mirror) to the replay UI's decisionEnglish renderer.
+  // Phase 6 traces use explicit action kinds: offensive overwatch writes
+  // kind="overwatch" with triggeredByMovement=true, while counter-fire writes
+  // kind="counter".
   actions: ActionTraceEntry[];
   deaths: string[];
   visibilityUpdates: Array<{
@@ -191,13 +185,11 @@ export function resolveTurn(
   // immutable update.
   let working: MatchState = state;
 
-  // Snapshot start-of-turn positions (for speech hearing range + leaving-
-  // cover detection).
+  // Snapshot start-of-turn positions (for speech hearing range and
+  // movement-triggered overwatch checks).
   const startPos = new Map<string, Tile>();
-  const startInCover = new Map<string, boolean>();
   for (const ch of state.characters) {
     startPos.set(ch.characterId, { x: ch.pos.x, y: ch.pos.y });
-    startInCover.set(ch.characterId, isInCover(state.world, ch.pos));
   }
 
   // Phase 1 — collect decisions (inputs). Filter: only LIVING agents act.
@@ -216,19 +208,15 @@ export function resolveTurn(
 
   for (const id of liveActorIds) {
     const decision = decisions.get(id)!;
-    if (decision.consume === "none") continue;
+    if (decision.use !== "consumable") continue;
     const ch = working.characters.find((c) => c.characterId === id);
     if (!ch) continue;
     const equipped = ch.equipped.consumable;
-    // Defensive: only consume when actor actually has the matching consumable.
-    if (
-      !equipped ||
-      equipped.category !== "consumable" ||
-      equipped.name !== decision.consume
-    ) {
+    // Defensive: only consume when actor actually has a consumable.
+    if (!equipped || equipped.category !== "consumable") {
       continue;
     }
-    const consumable = decision.consume; // "heal" | "speed"
+    const consumable = equipped.name; // "heal" | "speed"
 
     // Apply effect.
     let newHp = ch.hp;
@@ -295,20 +283,10 @@ export function resolveTurn(
   }
 
   // ── Phase 4 — Movement ────────────────────────────────────────────────
-  // Filter to ONLY decisions where primary === "move"; pass speedActiveIds.
-  // Detect "leaving cover" reveal per-mover after the substep loop.
-  //
-  // Phase-5 move-arm consolidation — movement target ids stay in the
-  // model-visible id space (`Player_N`, `Chest_NNN`, `Cover_X_Y`, etc.).
-  // `simulateMovement` consumes `resolveTypedEntity`, which owns the
-  // Player_N → engine-character lookup and per-entity stopAtRange logic.
-  // Attack/loot action ids are still normalised at their action sites below
-  // so traces can echo the model-visible ids while engine lookups use
-  // internal references.
   const moveDecisions = new Map<string, ParsedDecision>();
   for (const id of liveActorIds) {
     const decision = decisions.get(id)!;
-    if (decision.primary !== "move") continue;
+    if (decision.position.kind !== "move") continue;
     moveDecisions.set(id, decision);
   }
   const moveResult = simulateMovement(working, moveDecisions, {
@@ -317,25 +295,6 @@ export function resolveTurn(
   working = moveResult.state;
   for (const m of moveResult.moves) {
     trace.moves.push(m);
-  }
-
-  // Leaving-cover detection: any LIVING character whose start-of-turn pos was
-  // a cover tile and whose end-of-phase-4 pos is NOT a cover tile.
-  for (const id of liveActorIds) {
-    const startedInCover = startInCover.get(id) ?? false;
-    if (!startedInCover) continue;
-    const ch = working.characters.find((c) => c.characterId === id);
-    if (!ch || !ch.alive) continue;
-    if (!isInCover(working.world, ch.pos)) {
-      // Only reveal if currently hidden.
-      recordRevealCause(id, "leaving_cover");
-      if (ch.hidden) {
-        working = patchCharacter(working, id, (c) => ({
-          ...c,
-          hidden: false,
-        }));
-      }
-    }
   }
 
   // ── Phase 5 — Action ──────────────────────────────────────────────────
@@ -348,7 +307,6 @@ export function resolveTurn(
     attackerId: string;
     defenderId: string;
     dmg: number;
-    fromOverwatch: boolean;
   };
   const attacks: AttackEvent[] = [];
   // Collect interact / loot mutations to apply post-attacks (these don't
@@ -357,92 +315,91 @@ export function resolveTurn(
   type InteractEvent = { actorId: string; chestId: string };
   // `corpseId` is the engine-internal corpse characterId (matches
   // `corpse.characterId`); `traceTarget` is the original LLM-facing
-  // targetId literal (e.g. "Player_5") so the persisted trace echoes
+  // corpse id (e.g. "Corpse_Camper") so the persisted trace echoes
   // what the model emitted, not the internal id.
   type LootEvent = { actorId: string; corpseId: string; traceTarget: string };
   const interacts: InteractEvent[] = [];
   const loots: LootEvent[] = [];
+
+  const traceTargetName = (targetId: string): string => {
+    return (
+      working.characters.find((c) => c.characterId === targetId)?.displayName ??
+      targetId
+    );
+  };
+
+  // Overwatch is movement-triggered only: target must have actually moved
+  // from outside weapon range to inside weapon range this turn.
+  const movedIntoRangeIdsByOverwatcher = new Map<string, string>();
+  const movedCharacterIds = new Set(
+    moveResult.moves
+      .filter((m) => m.from.x !== m.to.x || m.from.y !== m.to.y)
+      .map((m) => m.characterId),
+  );
+  for (const id of liveActorIds) {
+    const decision = decisions.get(id)!;
+    if (decision.position.kind !== "overwatch") continue;
+    const actor = working.characters.find((c) => c.characterId === id);
+    if (!actor || !actor.alive) continue;
+    const range = weaponRange(actor.equipped.weapon);
+    const { visible } = computeVisibleEntities(working, id);
+    const visibleMovedCandidates: Array<{ id: string; dist: number }> = [];
+    for (const v of visible) {
+      if (v.kind !== "character") continue;
+      if (v.characterId === id) continue;
+      if (!movedCharacterIds.has(v.characterId)) continue;
+      const target = working.characters.find((c) => c.characterId === v.characterId);
+      const targetStart = startPos.get(v.characterId);
+      if (!target || !target.alive || !targetStart) continue;
+      const preDist = chebyshev(startPos.get(id) ?? actor.pos, targetStart);
+      const postDist = chebyshev(actor.pos, target.pos);
+      if (preDist > range && postDist <= range) {
+        visibleMovedCandidates.push({ id: v.characterId, dist: postDist });
+      }
+    }
+    visibleMovedCandidates.sort(
+      (a, b) => a.dist - b.dist || a.id.localeCompare(b.id),
+    );
+    const first = visibleMovedCandidates[0];
+    if (first) movedIntoRangeIdsByOverwatcher.set(id, first.id);
+  }
 
   for (const id of liveActorIds) {
     const decision = decisions.get(id)!;
     const actor = working.characters.find((c) => c.characterId === id);
     if (!actor || !actor.alive) continue;
 
-    // WP10.5 (concept-spec §9 line 447): primary === "move" still allows ONE
-    // normal action this turn. Fall through to the action switch below; the
-    // in-range / liveness gates evaluate against the POST-move `working`
-    // state. primary === "overwatch" has its own resolution branch.
-
-    if (decision.primary === "overwatch") {
-      // Phase-3 ADR §3 — overwatch behaviour gates on `overwatch_stance`:
-      //   - "offensive" → existing first-in-range fire (this branch).
-      //   - "defensive" → no proactive fire; counter-fire pass below
-      //     handles incoming hits.
-      //   - null → schema-rejected upstream; defensive no-op here.
-      if (decision.overwatch_stance === "offensive") {
-        // Find first valid in-range VISIBLE enemy (priority: nearest).
-        const { visible } = computeVisibleEntities(working, id);
-        const candidates: { id: string; dist: number }[] = [];
-        const range = weaponRange(actor.equipped.weapon);
-        for (const v of visible) {
-          if (v.kind !== "character") continue;
-          const target = working.characters.find(
-            (c) => c.characterId === v.characterId,
-          );
-          if (!target || !target.alive) continue;
-          const d = chebyshev(actor.pos, target.pos);
-          if (d <= range) {
-            candidates.push({ id: v.characterId, dist: d });
-          }
-        }
-        if (candidates.length === 0) continue;
-        // Sort: nearest first, ties broken by characterId for determinism.
-        candidates.sort(
-          (a, b) => a.dist - b.dist || a.id.localeCompare(b.id),
-        );
-        const targetId = candidates[0]!.id;
-        const target = working.characters.find(
-          (c) => c.characterId === targetId,
-        )!;
-        const dmg = damageFor(actor.equipped.weapon, target.equipped.armour);
-        const weapon = weaponNameForTrace(actor.equipped.weapon);
-        attacks.push({
-          attackerId: id,
-          defenderId: targetId,
-          dmg,
-          fromOverwatch: true,
-        });
-        // Phase-3 ADR §3 — engine-emit stance attribution into trace.
-        // Offensive overwatch fire: stance="offensive"; fromOverwatch
-        // omitted (downstream consumers treat absence as false).
-        trace.actions.push({
-          characterId: id,
-          kind: "overwatch",
-          target: targetId,
-          result: `dmg ${dmg}`,
-          stance: "offensive",
-          ...(weapon !== undefined ? { weapon } : {}),
-        });
-      }
-      // Defensive: no fire here; counter-fire pass below collects per-
-      // attacker counter-shots after main attacks are gathered.
-      continue;
+    const overwatchTargetId = movedIntoRangeIdsByOverwatcher.get(id);
+    if (overwatchTargetId) {
+      const target = working.characters.find(
+        (c) => c.characterId === overwatchTargetId,
+      )!;
+      const dmg = damageFor(actor.equipped.weapon, target.equipped.armour);
+      const weapon = weaponNameForTrace(actor.equipped.weapon);
+      attacks.push({
+        attackerId: id,
+        defenderId: overwatchTargetId,
+        dmg,
+      });
+      trace.actions.push({
+        characterId: id,
+        kind: "overwatch",
+        target: target.displayName,
+        result: `dmg ${dmg}`,
+        triggeredByMovement: true,
+        ...(weapon !== undefined ? { weapon } : {}),
+      });
     }
 
-    // primary === "stationary_action" OR primary === "move" (post-move
-    // action — see WP10.5 head-note). Both paths resolve `decision.action`
-    // against the same post-move `working` state.
     const action: ActionDecision = decision.action;
     switch (action.kind) {
       case "none":
         break;
       case "attack": {
-        // Phase-3 WP-F.2 — normalise the LLM-facing typed display id
-        // (`Player_N`) to the engine `characterId` before the lookup.
-        // `traceTarget` preserves the model's verbatim emit so the
-        // persisted trace mirrors what the agent wrote (consistent with
-        // the corpse-loot path's `traceTarget` convention).
-        const rawTargetId = action.targetCharacterId;
+        // Normalise the LLM-facing persona display id to the engine
+        // `characterId` before lookup. Successful traces write the
+        // canonical persona displayName, never the internal id.
+        const rawTargetId = action.targetId;
         const traceTarget = rawTargetId ?? "";
         const targetId = rawTargetId
           ? normaliseCharacterTargetId(rawTargetId, working.characters)
@@ -464,7 +421,7 @@ export function resolveTurn(
           trace.actions.push({
             characterId: id,
             kind: "attack",
-            target: traceTarget,
+            target: target.displayName,
             result: "out_of_range",
           });
           break;
@@ -475,28 +432,22 @@ export function resolveTurn(
           attackerId: id,
           defenderId: target.characterId,
           dmg,
-          fromOverwatch: false,
         });
         trace.actions.push({
           characterId: id,
           kind: "attack",
-          target: traceTarget,
+          target: target.displayName,
           result: `dmg ${dmg}`,
           ...(weapon !== undefined ? { weapon } : {}),
         });
         break;
       }
       case "loot": {
-        // Phase-3 ADR §1 — unified loot dispatch by id namespace.
-        //   chest_*       → chest-open path
-        //   Corpse_*      → corpse-loot path (rendered typed-id from
-        //                   digest, e.g. `Corpse_Player_5`); WP-G.1 D38
-        //                   normalises via inner displayName lookup.
-        //   Player_*      → corpse-loot path (legacy / direct displayName
-        //                   form; resolved via displayName lookup so
-        //                   production Convex Ids round-trip through the
-        //                   LLM-facing literal).
-        //   otherwise     → result="no_target" (rejection)
+        // Unified loot dispatch by id namespace.
+        //   chest_* / Chest_* → chest-open path
+        //   Corpse_*         → corpse-loot path (rendered typed id from
+        //                      digest, e.g. `Corpse_Camper`)
+        //   otherwise        → result="no_target" (rejection)
         // PM lock D7: chest opens emit `kind="loot"` / `result="opened"`.
         const rawTargetId = action.targetId;
         if (typeof rawTargetId !== "string" || rawTargetId === "") {
@@ -513,7 +464,7 @@ export function resolveTurn(
         // lookup matches in production where `corpse.characterId` is a
         // Convex Id. Trace `target` preserves the LLM verbatim emit so
         // replay/diagnostic tooling sees what the agent actually wrote
-        // (mirrors the Player_* branch's `traceTarget` convention).
+        // (mirrors the trace-target convention for diagnostics).
         if (rawTargetId.startsWith("Corpse_")) {
           let corpseCharId = normaliseCorpseTargetId(
             rawTargetId,
@@ -526,7 +477,7 @@ export function resolveTurn(
             : undefined;
           if (!corpse) {
             // Test-fixture path: corpse.characterId is itself the typed
-            // `Player_N` literal — match against `Corpse_<characterId>`.
+            // display id — match against `Corpse_<characterId>`.
             corpse = working.world.corpses.find(
               (c) => rawTargetId === `Corpse_${c.characterId}`,
             );
@@ -605,59 +556,6 @@ export function resolveTurn(
           break;
         }
 
-        if (targetId.startsWith("Player_")) {
-          // Player_* dispatch: resolve via direct match first (test
-          // fixtures + edge case where corpse.characterId is itself a
-          // Player_* literal), then via displayName lookup → characterId
-          // → corpse (production: corpse.characterId is a Convex Id, the
-          // LLM-facing literal is the dead character's displayName).
-          let corpseCharId: string | null = null;
-          let corpse = working.world.corpses.find(
-            (c) => c.characterId === targetId,
-          );
-          if (corpse) {
-            corpseCharId = corpse.characterId;
-          } else {
-            const ch = working.characters.find(
-              (c) => c.displayName === targetId,
-            );
-            if (ch) {
-              corpseCharId = ch.characterId;
-              corpse = working.world.corpses.find(
-                (c) => c.characterId === ch.characterId,
-              );
-            }
-          }
-          if (!corpse) {
-            trace.actions.push({
-              characterId: id,
-              kind: "loot",
-              target: targetId,
-              result: "no_corpse",
-            });
-            break;
-          }
-          if (chebyshev(actor.pos, corpse.pos) > INTERACT_RANGE) {
-            trace.actions.push({
-              characterId: id,
-              kind: "loot",
-              target: targetId,
-              result: "out_of_range",
-            });
-            break;
-          }
-          // Pass the resolved internal corpse characterId into the
-          // post-phase-5 loot loop. The trace target string is the
-          // *original* LLM-facing literal so consumers see what the
-          // model emitted.
-          loots.push({
-            actorId: id,
-            corpseId: corpseCharId ?? corpse.characterId,
-            traceTarget: targetId,
-          });
-          break;
-        }
-
         // Bogus id namespace — emit no_target.
         trace.actions.push({
           characterId: id,
@@ -674,7 +572,7 @@ export function resolveTurn(
     }
   }
 
-  // ── Phase-3 ADR §3 — Defensive overwatch counter-fire pass ───────────
+  // ── Counter-fire pass ────────────────────────────────────────────────
   //
   // For every attack landing on a defensive overwatcher this turn,
   // enqueue a counter-attack from the overwatcher to the attacker. The
@@ -706,19 +604,14 @@ export function resolveTurn(
     weapon?: string;
   };
   const counterFireTraces: CounterFireTrace[] = [];
-  // Identify defensive overwatchers — they declared
-  // primary="overwatch" + overwatch_stance="defensive" this turn.
-  const defensiveOverwatchers = new Set<string>();
+  const counterActors = new Set<string>();
   for (const id of liveActorIds) {
     const decision = decisions.get(id)!;
-    if (
-      decision.primary === "overwatch" &&
-      decision.overwatch_stance === "defensive"
-    ) {
-      defensiveOverwatchers.add(id);
+    if (decision.position.kind === "counter") {
+      counterActors.add(id);
     }
   }
-  if (defensiveOverwatchers.size > 0) {
+  if (counterActors.size > 0) {
     // Snapshot the original attack list — we'll iterate it without
     // disturbing in-flight extensions, then push counter-fires at the
     // end. This avoids "counter-fire's counter-fire" recursion: a
@@ -732,7 +625,7 @@ export function resolveTurn(
     };
     const pending: PendingCounter[] = [];
     for (const atk of originalAttacks) {
-      if (!defensiveOverwatchers.has(atk.defenderId)) continue;
+      if (!counterActors.has(atk.defenderId)) continue;
       pending.push({
         overwatcherId: atk.defenderId,
         attackerId: atk.attackerId,
@@ -772,7 +665,6 @@ export function resolveTurn(
         attackerId: p.overwatcherId,
         defenderId: p.attackerId,
         dmg,
-        fromOverwatch: true,
       });
       counterFireTraces.push({
         overwatcherId: p.overwatcherId,
@@ -798,11 +690,9 @@ export function resolveTurn(
   for (const cf of counterFireTraces) {
     trace.actions.push({
       characterId: cf.overwatcherId,
-      kind: "overwatch",
-      target: cf.attackerId,
+      kind: "counter",
+      target: traceTargetName(cf.attackerId),
       result: cf.inRange ? `dmg ${cf.dmg}` : "out_of_range",
-      fromOverwatch: true,
-      stance: "defensive",
       ...(cf.inRange && cf.weapon !== undefined ? { weapon: cf.weapon } : {}),
     });
   }
@@ -1052,7 +942,7 @@ export function resolveTurn(
   // for determinism.
   for (const id of liveActorIds) {
     const decision = decisions.get(id)!;
-    const update = decision.scratchpad_update;
+    const update = decision.scratchpad;
     if (update === null || update === undefined) continue;
     working = patchCharacter(working, id, (c) => ({ ...c, scratchpad: update }));
   }

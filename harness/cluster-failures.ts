@@ -1,11 +1,5 @@
-// Diagnostic: cluster fallback patterns by failure mode.
-//
-// WP10.5 Pass B.3 — validator-rejection bucket is now sub-clustered by
-// `validatorReason` text (the engine's rejection message), instead of being
-// reported as one opaque "unknown"-bucket count. This is the diagnostic key
-// the gate-1 smoke was missing — see
-// `docs/project/phases/01-engine-and-harness/wp10-5-phase-a-findings.md`
-// §"Bucket 2 — validator-rejection (112, 62.2%)".
+// Diagnostic: cluster fallback patterns by failure mode and field-scoped
+// validator errors.
 import { makeConvexClient } from "./client.js";
 import { api } from "../convex/_generated/api.js";
 
@@ -23,8 +17,8 @@ const turns: any[] = await client.query(api.turns.byMatch, {
 
 type Sample = { turn: number; persona: string; raw: string };
 
-const validatorRejectsByReason: Record<string, Sample[]> = {};
-let validatorRejectsUnknown = 0; // legacy rows w/o validatorReason
+const fieldRejectsByReason: Record<string, Sample[]> = {};
+let fieldRejectsUnknown = 0;
 const schemaFails: Sample[] = [];
 const httpFailsByTurn: number[] = [];
 
@@ -40,20 +34,20 @@ for (const t of turns) {
     } else if (r.llm.failureReason === "http_non_200") {
       httpFailsByTurn.push(t.turn);
     } else if (!r.llm.failureReason) {
-      // Validator-rejection bucket — group by validatorReason value (the
-      // engine's human-readable rejection string). When validatorReason is
-      // absent the row predates Pass B.3 and stays in a legacy "unknown"
-      // bucket so its count is still visible.
-      const reason: string | undefined = r.llm.validatorReason;
-      if (reason) {
-        validatorRejectsByReason[reason] ??= [];
-        validatorRejectsByReason[reason].push({
-          turn: t.turn,
-          persona: r.personaId,
-          raw: r.llm.rawArguments?.slice(0, 280) ?? "",
-        });
+      const fieldErrors = r.llm.validatorFieldErrors ?? {};
+      const entries = Object.entries(fieldErrors);
+      if (entries.length > 0) {
+        for (const [field, message] of entries) {
+          const reason = `${field}: ${String(message)}`;
+          fieldRejectsByReason[reason] ??= [];
+          fieldRejectsByReason[reason].push({
+            turn: t.turn,
+            persona: r.personaId,
+            raw: r.llm.rawArguments?.slice(0, 280) ?? "",
+          });
+        }
       } else {
-        validatorRejectsUnknown += 1;
+        fieldRejectsUnknown += 1;
       }
     }
   }
@@ -69,14 +63,14 @@ for (const s of schemaFails.slice(0, 10)) {
 }
 
 const validatorTotal =
-  Object.values(validatorRejectsByReason).reduce((a, b) => a + b.length, 0) +
-  validatorRejectsUnknown;
+  Object.values(fieldRejectsByReason).reduce((a, b) => a + b.length, 0) +
+  fieldRejectsUnknown;
 console.log(
-  "\n=== validator-rejection (",
+  "\n=== field-rejection (",
   validatorTotal,
   ") grouped by reason ===",
 );
-const sortedReasons = Object.entries(validatorRejectsByReason).sort(
+const sortedReasons = Object.entries(fieldRejectsByReason).sort(
   (a, b) => b[1].length - a[1].length,
 );
 for (const [reason, samples] of sortedReasons) {
@@ -85,9 +79,9 @@ for (const [reason, samples] of sortedReasons) {
     console.log(`    T${s.turn} ${s.persona}:`, s.raw);
   }
 }
-if (validatorRejectsUnknown > 0) {
+if (fieldRejectsUnknown > 0) {
   console.log(
-    `\n  [${validatorRejectsUnknown} cases] (legacy: pre-B.3 row, no validatorReason)`,
+    `\n  [${fieldRejectsUnknown} cases] (no field-error details)`,
   );
 }
 

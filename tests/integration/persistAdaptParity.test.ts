@@ -1,22 +1,19 @@
 // WP-F.1 — persistence-adapter parity test (load-bearing for closing-10).
 //
 // Spec sections:
-//   - architecture-decisions.md §3 (overwatch stance — engine emits
-//     `fromOverwatch` + `stance` on action trace entries)
+//   - Phase 6 trace contract (overwatch movement trigger + counter action)
 //   - architecture-decisions.md §9 (wall-blocked move emission —
 //     engine emits `blockedBy: "wall"` on move trace entries)
 //
 // Why this file exists:
 //   The schema validators in `convex/schema.ts` (and the mirror in
 //   `convex/_internal_runMatch.ts`) accept `moves[].blockedBy`,
-//   `actions[].fromOverwatch`, and `actions[].stance` as optional
-//   fields. The engine `convex/engine/resolution.ts` and
+//   `actions[].triggeredByMovement` as an optional field, and accept
+//   `kind:"counter"` action entries. The engine `convex/engine/resolution.ts` and
 //   `convex/engine/movement.ts` emit them. Before WP-F.1, the
 //   `adaptResolutionForSchema` mapper in `convex/runMatch.ts` silently
-//   stripped all three at the persistence boundary — turning closing-10
-//   metrics `defensiveCounterFires`, `offensiveOverwatchFires`, and
-//   `persistedBlockedMoves` into structural zeros regardless of actual
-//   engine behaviour. This test pins the parity invariant: every
+//   stripped optional trace fields at the persistence boundary. This test pins
+//   the parity invariant: every
 //   engine-emitted optional trace field MUST round-trip through the
 //   adapter unchanged.
 //
@@ -53,7 +50,7 @@ function makeTrace(overrides: Partial<ResolutionTrace> = {}): ResolutionTrace {
 
 // ─── adaptResolutionForSchema parity ───────────────────────────────────
 
-describe("WP-F.1 — adaptResolutionForSchema preserves optional trace fields", () => {
+describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", () => {
   it("propagates moves[].blockedBy='wall' through to the schema-shape output", () => {
     const trace = makeTrace({
       moves: [
@@ -88,19 +85,15 @@ describe("WP-F.1 — adaptResolutionForSchema preserves optional trace fields", 
     expect("blockedBy" in adapted.moves[1]!).toBe(false);
   });
 
-  it("propagates actions[].fromOverwatch=true + stance='defensive' (counter-fire entry)", () => {
-    // Defensive counter-fire: engine emits
-    //   { kind:"overwatch", fromOverwatch:true, stance:"defensive" }
-    // per resolution.ts:712-721.
+  it("propagates actions[].triggeredByMovement=true on movement-triggered overwatch", () => {
     const trace = makeTrace({
       actions: [
         {
           characterId: "char_overwatcher",
           kind: "overwatch",
-          target: "char_attacker",
+          target: "Duelist",
           result: "dmg 12",
-          fromOverwatch: true,
-          stance: "defensive",
+          triggeredByMovement: true,
         },
       ],
     });
@@ -110,25 +103,19 @@ describe("WP-F.1 — adaptResolutionForSchema preserves optional trace fields", 
     expect(adapted.actions).toHaveLength(1);
     const entry = adapted.actions[0]!;
     expect(entry.kind).toBe("overwatch");
-    expect(entry.target).toBe("char_attacker");
+    expect(entry.target).toBe("Duelist");
     expect(entry.result).toBe("dmg 12");
-    expect(entry.fromOverwatch).toBe(true);
-    expect(entry.stance).toBe("defensive");
+    expect(entry.triggeredByMovement).toBe(true);
   });
 
-  it("propagates actions[].stance='offensive' (offensive overwatch fire entry)", () => {
-    // Offensive overwatch fire: engine emits
-    //   { kind:"overwatch", stance:"offensive" }
-    // (fromOverwatch omitted by the engine; downstream consumers treat
-    // absence as false). See resolution.ts:402-408.
+  it("keeps triggeredByMovement absent on non-trigger overwatch rows", () => {
     const trace = makeTrace({
       actions: [
         {
           characterId: "char_overwatcher",
           kind: "overwatch",
-          target: "char_target",
+          target: "Camper",
           result: "dmg 8",
-          stance: "offensive",
         },
       ],
     });
@@ -137,16 +124,35 @@ describe("WP-F.1 — adaptResolutionForSchema preserves optional trace fields", 
 
     expect(adapted.actions).toHaveLength(1);
     const entry = adapted.actions[0]!;
-    expect(entry.stance).toBe("offensive");
-    // The engine doesn't set fromOverwatch on offensive entries — the
-    // adapter MUST keep it absent (conditional spread), not coerce to
-    // undefined.
-    expect("fromOverwatch" in entry).toBe(false);
+    expect(entry.kind).toBe("overwatch");
+    expect("triggeredByMovement" in entry).toBe(false);
   });
 
-  it("leaves non-overwatch action entries unchanged (no stance/fromOverwatch fields)", () => {
+  it("propagates counter action entries unchanged", () => {
+    const trace = makeTrace({
+      actions: [
+        {
+          characterId: "char_counter",
+          kind: "counter",
+          target: "Vulture",
+          result: "dmg 7",
+          weapon: "sword",
+        },
+      ],
+    });
+
+    const adapted = adaptResolutionForSchema(trace);
+
+    expect(adapted.actions).toHaveLength(1);
+    const entry = adapted.actions[0]!;
+    expect(entry.kind).toBe("counter");
+    expect(entry.target).toBe("Vulture");
+    expect(entry.result).toBe("dmg 7");
+    expect(entry.weapon).toBe("sword");
+  });
+
+  it("leaves non-overwatch action entries unchanged (no movement-trigger field)", () => {
     // Stationary attack — phase-1 legacy shape: kind, target, result only.
-    // Both stance and fromOverwatch MUST be absent on the output.
     const trace = makeTrace({
       actions: [
         {
@@ -162,8 +168,7 @@ describe("WP-F.1 — adaptResolutionForSchema preserves optional trace fields", 
 
     expect(adapted.actions).toHaveLength(1);
     const entry = adapted.actions[0]!;
-    expect("stance" in entry).toBe(false);
-    expect("fromOverwatch" in entry).toBe(false);
+    expect("triggeredByMovement" in entry).toBe(false);
   });
 
   it("WP-A — propagates actions[].weapon when present", () => {
@@ -203,12 +208,7 @@ describe("WP-F.1 — adaptResolutionForSchema preserves optional trace fields", 
     expect("weapon" in adapted.actions[0]!).toBe(false);
   });
 
-  it("preserves blockedBy + fromOverwatch + stance together in a mixed trace (closing-10 metric coverage)", () => {
-    // The combined invariant guards the closing-10 metrics
-    //   - persistedBlockedMoves    (reads moves[].blockedBy === "wall")
-    //   - defensiveCounterFires    (reads actions[].fromOverwatch + stance==="defensive")
-    //   - offensiveOverwatchFires  (reads actions[].stance==="offensive")
-    // all live on the SAME persisted turn row.
+  it("preserves blockedBy + triggeredByMovement + counter together in a mixed trace", () => {
     const trace = makeTrace({
       moves: [
         {
@@ -224,15 +224,13 @@ describe("WP-F.1 — adaptResolutionForSchema preserves optional trace fields", 
           kind: "overwatch",
           target: "char_b",
           result: "dmg 5",
-          stance: "offensive",
+          triggeredByMovement: true,
         },
         {
           characterId: "char_c",
-          kind: "overwatch",
+          kind: "counter",
           target: "char_d",
           result: "dmg 7",
-          fromOverwatch: true,
-          stance: "defensive",
         },
       ],
     });
@@ -243,16 +241,15 @@ describe("WP-F.1 — adaptResolutionForSchema preserves optional trace fields", 
     expect(adapted.moves).toHaveLength(1);
     expect(adapted.moves[0]!.blockedBy).toBe("wall");
 
-    // actions: offensive + defensive overwatch entries both intact.
+    // actions: movement-triggered overwatch + counter entries both intact.
     expect(adapted.actions).toHaveLength(2);
-    const offensive = adapted.actions.find((a) => a.stance === "offensive");
-    const defensive = adapted.actions.find((a) => a.stance === "defensive");
-    expect(offensive).toBeDefined();
-    expect(defensive).toBeDefined();
-    expect(defensive!.fromOverwatch).toBe(true);
-    // Offensive does NOT carry fromOverwatch (engine emit-shape) — the
-    // adapter MUST NOT introduce it.
-    expect("fromOverwatch" in offensive!).toBe(false);
+    const overwatch = adapted.actions.find((a) => a.kind === "overwatch");
+    const counter = adapted.actions.find((a) => a.kind === "counter");
+    expect(overwatch).toBeDefined();
+    expect(counter).toBeDefined();
+    expect(overwatch!.triggeredByMovement).toBe(true);
+    expect(counter!.result).toBe("dmg 7");
+    expect("triggeredByMovement" in counter!).toBe(false);
   });
 });
 

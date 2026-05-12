@@ -21,17 +21,18 @@ const turns: any[] = await client.query(api.turns.byMatch, {
 let total = 0;
 let fellBack = 0;
 const failureReasons: Record<string, number> = {};
-// WP10.5 Pass B.3 — validator-rejection sub-bucket. When fallback type is
-// "validator-rejection" (no wrapper failureReason but fellBackToSafeDefault),
-// group by the engine's `validatorReason` text so the diagnostic key is
-// visible per-cluster. Cross-ref `wp10-5-phase-a-findings.md` §Bucket 2.
-const validatorReasons: Record<string, number> = {};
-const moveKinds: Record<string, number> = {};
+const fieldErrorReasons: Record<string, number> = {};
+const fieldErrorsByField: Record<string, number> = {};
+const useKinds: Record<string, number> = {};
+const useVariants: Record<string, number> = {};
+const positionKinds: Record<string, number> = {};
+const moveDirectionKinds: Record<string, number> = {};
 const actionKinds: Record<string, number> = {};
-const primaries: Record<string, number> = {};
 let attacksLanded = 0;
 let attacksMissed = 0;
 let attacksOutOfRange = 0;
+let movementTriggeredOverwatch = 0;
+let countersResolved = 0;
 let chestEquips = 0;
 let chestInteracts = 0;
 let speechEvents = 0;
@@ -46,14 +47,15 @@ for (const t of turns) {
   deaths += t.resolution.deaths.length;
   for (const a of t.resolution.actions) {
     if (a.kind === "attack") {
-      if (a.result === "hit" || a.result === "killed") attacksLanded += 1;
-      else if (a.result === "missed") attacksMissed += 1;
+      if (typeof a.result === "string" && a.result.startsWith("dmg ")) {
+        attacksLanded += 1;
+      } else if (a.result === "missed") attacksMissed += 1;
       else if (a.result === "out_of_range") attacksOutOfRange += 1;
+    } else if (a.kind === "overwatch") {
+      if (a.triggeredByMovement === true) movementTriggeredOverwatch += 1;
+    } else if (a.kind === "counter") {
+      countersResolved += 1;
     } else if (
-      // Phase-3 PM lock D7: chest opens emit `kind="loot"` (the resolved-
-      // engine-path, unified under loot per ADR §1). Disambiguate from
-      // corpse loots by the `chest_*` target prefix. Closes Round-2
-      // punch-list item 11 (harness consumer filter rewrite).
       a.kind === "loot" &&
       typeof a.target === "string" &&
       a.target.startsWith("chest_")
@@ -66,23 +68,31 @@ for (const t of turns) {
   }
   for (const r of t.agentRecords) {
     total += 1;
-    primaries[r.decision.primary] = (primaries[r.decision.primary] ?? 0) + 1;
-    moveKinds[r.decision.move.kind] = (moveKinds[r.decision.move.kind] ?? 0) + 1;
+    const useKey = r.decision.use === null ? "null" : r.decision.use;
+    useKinds[useKey] = (useKinds[useKey] ?? 0) + 1;
+    const variant = r.input?.useVariant ?? "(missing)";
+    useVariants[variant] = (useVariants[variant] ?? 0) + 1;
+    positionKinds[r.decision.position.kind] =
+      (positionKinds[r.decision.position.kind] ?? 0) + 1;
+    if (r.decision.position.kind === "move") {
+      const direction = r.decision.position.direction.kind;
+      moveDirectionKinds[direction] = (moveDirectionKinds[direction] ?? 0) + 1;
+    }
     actionKinds[r.decision.action.kind] =
       (actionKinds[r.decision.action.kind] ?? 0) + 1;
     if (r.llm.fellBackToSafeDefault) {
       fellBack += 1;
-      // Bucket fallback type: wrapper failureReason wins; absent → it's a
-      // validator-rejection (engine validator rejected the wrapper's decision).
+      const fieldErrors = r.llm.validatorFieldErrors ?? {};
+      const hasFieldErrors = Object.keys(fieldErrors).length > 0;
       const reason =
-        r.llm.failureReason ??
-        (r.llm.validatorReason ? "validator-rejection" : "unknown");
+        r.llm.failureReason ?? (hasFieldErrors ? "field-rejection" : "unknown");
       failureReasons[reason] = (failureReasons[reason] ?? 0) + 1;
-      // Sub-bucket validator-rejection by validatorReason text — this is the
-      // diagnostic key (e.g. "interact target 'chest_001' is already opened").
-      if (!r.llm.failureReason && r.llm.validatorReason) {
-        const vReason = r.llm.validatorReason;
-        validatorReasons[vReason] = (validatorReasons[vReason] ?? 0) + 1;
+      if (!r.llm.failureReason && hasFieldErrors) {
+        for (const [field, message] of Object.entries(fieldErrors)) {
+          fieldErrorsByField[field] = (fieldErrorsByField[field] ?? 0) + 1;
+          const key = `${field}: ${String(message)}`;
+          fieldErrorReasons[key] = (fieldErrorReasons[key] ?? 0) + 1;
+        }
       }
       const persona = r.personaId;
       sampleRawByPersona[persona] ??= [];
@@ -109,19 +119,20 @@ console.log(
   `(${(fallbackRate * 100).toFixed(1)}%)`,
 );
 console.log("failureReasons:", failureReasons);
-// WP10.5 Pass B.3 — surface validator-rejection sub-buckets (cluster key =
-// validatorReason text). Sorted desc by count for at-a-glance triage.
-const sortedValidatorReasons = Object.entries(validatorReasons).sort(
+console.log("validator field errors by field:", fieldErrorsByField);
+const sortedFieldErrorReasons = Object.entries(fieldErrorReasons).sort(
   (a, b) => b[1] - a[1],
 );
-if (sortedValidatorReasons.length > 0) {
-  console.log("validator-rejection by reason:");
-  for (const [reason, count] of sortedValidatorReasons) {
+if (sortedFieldErrorReasons.length > 0) {
+  console.log("field-rejection by reason:");
+  for (const [reason, count] of sortedFieldErrorReasons) {
     console.log(`  ${count}× ${reason}`);
   }
 }
-console.log("primaries:", primaries);
-console.log("move.kind:", moveKinds);
+console.log("use:", useKinds);
+console.log("input.useVariant:", useVariants);
+console.log("position.kind:", positionKinds);
+console.log("position.move.direction.kind:", moveDirectionKinds);
 console.log("action.kind:", actionKinds);
 console.log(
   "actions: attacks landed/missed/out-of-range:",
@@ -130,6 +141,12 @@ console.log(
   attacksMissed,
   "/",
   attacksOutOfRange,
+);
+console.log(
+  "reactive actions: movement-triggered overwatch/counters:",
+  movementTriggeredOverwatch,
+  "/",
+  countersResolved,
 );
 console.log(
   "chest interacts:",
@@ -176,7 +193,7 @@ console.log(
   `(landed=${attacksLanded} missed=${attacksMissed})`,
 );
 console.log(
-  "≥3 distinct move.kind literals:",
-  Object.keys(moveKinds).length >= 3 ? "PASS" : "FAIL",
-  `(${Object.keys(moveKinds).length})`,
+  "≥3 distinct position.kind literals:",
+  Object.keys(positionKinds).length >= 3 ? "PASS" : "FAIL",
+  `(${Object.keys(positionKinds).length})`,
 );

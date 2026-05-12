@@ -76,27 +76,28 @@ function makeState(opts: {
   };
 }
 
-function moveDecision(move: ParsedDecision["move"]): ParsedDecision {
+type MovePosition = Extract<ParsedDecision["position"], { kind: "move" }>;
+
+function moveDecision(
+  direction: MovePosition["direction"],
+  dist = 8,
+): ParsedDecision {
   return {
-    consume: "none",
-    primary: "move",
-    move,
+    use: null,
+    position: { kind: "move", direction, dist },
     action: { kind: "none" },
     say: null,
-    overwatch_stance: null,
-    scratchpad_update: null,
+    scratchpad: null,
   };
 }
 
 function noMoveDecision(): ParsedDecision {
   return {
-    consume: "none",
-    primary: "stationary_action",
-    move: { kind: "none" },
+    use: null,
+    position: { kind: "move", direction: { kind: "N" }, dist: 0 },
     action: { kind: "none" },
     say: null,
-    overwatch_stance: null,
-    scratchpad_update: null,
+    scratchpad: null,
   };
 }
 
@@ -122,77 +123,75 @@ function tileIsInWall(tile: Tile, wall: Wall): boolean {
 // ─── §10 target movement tracks current position ─────────────────────────
 
 describe("WP7 movement — concept-spec §10", () => {
-  it("§10 — toward Player_N tracks target's CURRENT position substep-by-substep", () => {
+  it("§10 — toward Duelist tracks target's CURRENT position substep-by-substep", () => {
     // A at (0,0), B at (10,0). Both decide:
-    //   A: toward Player_2
-    //   B: relative (5, 0)  (moves east; A must keep tracking)
+    //   A: toward Duelist
+    //   B: compass east by 5 tiles (A must keep tracking)
     // Expected: A moves 8 east; B moves 5 east. After substep loop, A
     // should be at (8,0), B at (15,0). Chebyshev between A and B is 7.
     const a = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 0, y: 0 },
     });
     const b = makeCharacter({
       id: "opaque_b",
-      displayName: "Player_2",
+      displayName: "Duelist",
       pos: { x: 10, y: 0 },
     });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward", targetId: "Player_2" })],
-      ["opaque_b", moveDecision({ kind: "relative", dx: 5, dy: 0 })],
+      ["A", moveDecision({ kind: "toward", targetId: "Duelist" })],
+      ["opaque_b", moveDecision({ kind: "E" }, 5)],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     expect(findChar(next, "A").pos).toEqual({ x: 8, y: 0 });
     expect(findChar(next, "opaque_b").pos).toEqual({ x: 15, y: 0 });
   });
 
-  it("§10 — cached Player_N target keeps tracking after current LOS would drop", () => {
+  it("§10 — cached persona target keeps tracking after current LOS would drop", () => {
     const a = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 0, y: 0 },
     });
     const b = makeCharacter({
       id: "opaque_b",
-      displayName: "Player_2",
+      displayName: "Duelist",
       pos: { x: 30, y: 0 },
     });
     const state = makeState({ characters: [a, b] });
     const mover: Mover = {
       characterId: "A",
       budget: 8,
-      decision: moveDecision({ kind: "toward", targetId: "Player_2" }),
+      decision: moveDecision({ kind: "toward", targetId: "Duelist" }),
       resolvedTarget: {
         kind: "character",
         tile: { x: 20, y: 0 },
         stopAtRange: 2,
         engineRef: { characterId: "opaque_b" },
       },
-      dxRemaining: 0,
-      dyRemaining: 0,
     };
 
     expect(desiredNextTile(state, mover)).toEqual({ x: 1, y: 0 });
   });
 
-  it("§10 — toward Player_N stops at Chebyshev 2 (interaction range)", () => {
+  it("§10 — toward Opportunist stops at Chebyshev 2 (interaction range)", () => {
     // A at (0,0), B at (5,0), B does not move.
     // A moves toward B; should stop within Chebyshev 2 → at (3,0).
     const a = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 0, y: 0 },
     });
     const b = makeCharacter({
       id: "opaque_b",
-      displayName: "Player_4",
+      displayName: "Opportunist",
       pos: { x: 5, y: 0 },
     });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward", targetId: "Player_4" })],
+      ["A", moveDecision({ kind: "toward", targetId: "Opportunist" })],
       ["opaque_b", noMoveDecision()],
     ]);
     const { state: next } = simulateMovement(state, decisions);
@@ -208,17 +207,17 @@ describe("WP7 movement — concept-spec §10", () => {
     // in phase 2 then passes the set to phase 4.
     const a = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 0, y: 0 },
     });
     const b = makeCharacter({
       id: "opaque_b",
-      displayName: "Player_2",
+      displayName: "Duelist",
       pos: { x: 20, y: 0 },
     });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward", targetId: "Player_2" })],
+      ["A", moveDecision({ kind: "toward", targetId: "Duelist" })],
       ["opaque_b", noMoveDecision()],
     ]);
     const { state: next } = simulateMovement(state, decisions, {
@@ -232,22 +231,22 @@ describe("WP7 movement — concept-spec §10", () => {
     // continue toward B, not retarget to C.
     const a = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 0, y: 0 },
     });
     const b = makeCharacter({
       id: "opaque_b",
-      displayName: "Player_2",
+      displayName: "Duelist",
       pos: { x: 20, y: 0 },
     });
     const c = makeCharacter({
       id: "C",
-      displayName: "Player_3",
+      displayName: "Trader",
       pos: { x: 5, y: 5 },
     });
     const state = makeState({ characters: [a, b, c] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward", targetId: "Player_2" })],
+      ["A", moveDecision({ kind: "toward", targetId: "Duelist" })],
       ["opaque_b", noMoveDecision()],
       ["C", noMoveDecision()],
     ]);
@@ -273,25 +272,25 @@ describe("WP7 movement — concept-spec §10", () => {
     expect(findChar(next, "A").pos).toEqual({ x: 8, y: 8 });
   });
 
-  it("§10 — relative move clamped to budget; budget=8 default", () => {
-    // dx=20, dy=0 — clamped to budget=8. Result: (8,0).
+  it("§10 — compass move clamped to budget; budget=8 default", () => {
+    // Requested east distance 20 is clamped to budget=8. Result: (8,0).
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({ characters: [a] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 20, dy: 0 })],
+      ["A", moveDecision({ kind: "E" }, 20)],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     expect(findChar(next, "A").pos).toEqual({ x: 8, y: 0 });
   });
 
-  it("§10 — relative diagonal move within budget reaches exact target", () => {
+  it("§10 — compass diagonal move within budget reaches exact target", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({ characters: [a] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 3, dy: 5 })],
+      ["A", moveDecision({ kind: "SE" }, 5)],
     ]);
     const { state: next } = simulateMovement(state, decisions);
-    expect(findChar(next, "A").pos).toEqual({ x: 3, y: 5 });
+    expect(findChar(next, "A").pos).toEqual({ x: 5, y: 5 });
   });
 
   it("§10 — toward Chest_NNN uses static chest position and stops at Chebyshev 2", () => {
@@ -318,20 +317,20 @@ describe("WP7 movement — concept-spec §10", () => {
     expect(findChar(next, "A").pos).toEqual({ x: 3, y: 0 });
   });
 
-  it("§10 — away Player_N moves to increase Chebyshev distance", () => {
+  it("§10 — away Duelist moves to increase Chebyshev distance", () => {
     const a = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 5, y: 5 },
     });
     const b = makeCharacter({
       id: "opaque_b",
-      displayName: "Player_2",
+      displayName: "Duelist",
       pos: { x: 5, y: 6 },
     });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "away", targetId: "Player_2" })],
+      ["A", moveDecision({ kind: "away", targetId: "Duelist" })],
       ["opaque_b", noMoveDecision()],
     ]);
     const { state: next } = simulateMovement(state, decisions);
@@ -344,15 +343,15 @@ describe("WP7 movement — concept-spec §10", () => {
 // ─── Phase 05 WP-C — typed target movement stopAtRange ───────────────────
 
 describe("Phase 05 WP-C movement resolver — typed target ids", () => {
-  it("toward Corpse_Player_N halts at corpse loot range 2", () => {
+  it("toward Corpse_Camper halts at corpse loot range 2", () => {
     const actor = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 50, y: 50 },
     });
     const dead = makeCharacter({
       id: "dead_5",
-      displayName: "Player_5",
+      displayName: "Camper",
       pos: { x: 58, y: 51 },
       alive: false,
     });
@@ -370,7 +369,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward", targetId: "Corpse_Player_5" })],
+      ["A", moveDecision({ kind: "toward", targetId: "Corpse_Camper" })],
       ["dead_5", noMoveDecision()],
     ]);
 
@@ -384,7 +383,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
   it("toward Cover_X_Y walks onto the visible cover tile when budget covers the path", () => {
     const actor = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 50, y: 50 },
     });
     const cover = { x: 54, y: 42 };
@@ -405,7 +404,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
   it("toward Wall_X_Y stops on a walkable Chebyshev-1 tile when reachable", () => {
     const actor = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 50, y: 50 },
     });
     const wall: Wall = { x: 54, y: 50, w: 1, h: 1 };
@@ -429,7 +428,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
   it("toward Wall_X_Y at a blocked map edge halts gracefully without entering a wall", () => {
     const actor = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 2, y: 2 },
     });
     const walls: Wall[] = [
@@ -457,7 +456,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
   it("toward Evac walks onto evac.centre when revealed and within budget", () => {
     const actor = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 50, y: 50 },
     });
     const state = makeState({
@@ -473,20 +472,20 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
     expect(findChar(next, "A").pos).toEqual({ x: 54, y: 54 });
   });
 
-  it("away Player_N preserves the deterministic +x tie-break when actor is on the target tile", () => {
+  it("away Opportunist preserves the deterministic +x tie-break when actor is on the target tile", () => {
     const actor = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 50, y: 50 },
     });
     const target = makeCharacter({
       id: "opaque_target",
-      displayName: "Player_4",
+      displayName: "Opportunist",
       pos: { x: 50, y: 50 },
     });
     const state = makeState({ characters: [actor, target] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "away", targetId: "Player_4" })],
+      ["A", moveDecision({ kind: "away", targetId: "Opportunist" })],
       ["opaque_target", noMoveDecision()],
     ]);
 
@@ -498,7 +497,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
   it("away Chest_NNN moves opposite from a chest at loot range 1", () => {
     const actor = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 50, y: 50 },
     });
     const chestTile = { x: 49, y: 50 };
@@ -528,15 +527,15 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
     expect(chebyshevDistance(final, chestTile)).toBeGreaterThan(2);
   });
 
-  it("away Corpse_Player_N moves opposite from a corpse at loot range 1", () => {
+  it("away Corpse_Camper moves opposite from a corpse at loot range 1", () => {
     const actor = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 50, y: 50 },
     });
     const dead = makeCharacter({
       id: "dead_5",
-      displayName: "Player_5",
+      displayName: "Camper",
       pos: { x: 49, y: 50 },
       alive: false,
     });
@@ -554,7 +553,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "away", targetId: "Corpse_Player_5" })],
+      ["A", moveDecision({ kind: "away", targetId: "Corpse_Camper" })],
       ["dead_5", noMoveDecision()],
     ]);
 
@@ -569,7 +568,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
   it("away Cover_X_Y moves opposite from a cover tile", () => {
     const actor = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 50, y: 50 },
     });
     const state = makeState({
@@ -588,7 +587,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
   it("away Wall_X_Y moves opposite from a wall tile", () => {
     const actor = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 50, y: 50 },
     });
     const state = makeState({
@@ -607,7 +606,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
   it("away Evac moves opposite from the revealed evac centre", () => {
     const actor = makeCharacter({
       id: "A",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 50, y: 50 },
     });
     const state = makeState({
@@ -628,8 +627,8 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
 
 describe("WP7 movement — concept-spec §24 collisions", () => {
   it("§24 — two agents into same tile both fail; both stay put for that substep", () => {
-    // A at (0,1), B at (2,1). Both move toward (1,1): A relative (1,0),
-    // B relative (-1,0). They both try to enter (1,1) on substep 1 → both
+    // A at (0,1), B at (2,1). Both move toward (1,1): A east,
+    // B west. They both try to enter (1,1) on substep 1 → both
     // fail that substep. With movement budget remaining, they may move
     // again — but (1,1) is still contested if both retry. So both end up
     // unable to step.
@@ -637,8 +636,8 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
     const b = makeCharacter({ id: "B", pos: { x: 2, y: 1 } });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 1, dy: 0 })],
-      ["B", moveDecision({ kind: "relative", dx: -1, dy: 0 })],
+      ["A", moveDecision({ kind: "E" }, 1)],
+      ["B", moveDecision({ kind: "W" }, 1)],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     expect(findChar(next, "A").pos).toEqual({ x: 0, y: 1 });
@@ -653,9 +652,9 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
       const c = makeCharacter({ id: "C", pos: { x: 5, y: 10 } });
       return makeState({ characters: [a, b, c] });
     };
-    const dA = moveDecision({ kind: "relative", dx: 5, dy: 5 });
-    const dB = moveDecision({ kind: "relative", dx: -3, dy: 0 });
-    const dC = moveDecision({ kind: "relative", dx: 0, dy: -8 });
+    const dA = moveDecision({ kind: "SE" }, 5);
+    const dB = moveDecision({ kind: "W" }, 3);
+    const dC = moveDecision({ kind: "N" }, 8);
 
     const order1 = new Map<string, ParsedDecision>([
       ["A", dA],
@@ -705,7 +704,7 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
     const wall: Wall = { x: 3, y: 0, w: 1, h: 1 };
     const state = makeState({ characters: [a], world: { walls: [wall] } });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 5, dy: 0 })],
+      ["A", moveDecision({ kind: "E" }, 5)],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     expect(findChar(next, "A").pos).toEqual({ x: 2, y: 0 });
@@ -717,7 +716,7 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
     const state = makeState({ characters: [a, b] });
     // A wants to move 5 east; B sits at (3,0) blocking. A stops at (2,0).
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 5, dy: 0 })],
+      ["A", moveDecision({ kind: "E" }, 5)],
       ["B", noMoveDecision()],
     ]);
     const { state: next } = simulateMovement(state, decisions);
@@ -725,7 +724,7 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
     expect(findChar(next, "B").pos).toEqual({ x: 3, y: 0 });
   });
 
-  it("§24 — path-blocked relative move stops when the next step is blocked", () => {
+  it("§24 — path-blocked compass move stops when the next step is blocked", () => {
     // A at (0,0), wants to move east, wall at (4,0,1,1).
     // A should advance to (3,0) and stop (cannot go around in straight-line v0).
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
@@ -737,7 +736,7 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 8, dy: 0 })],
+      ["A", moveDecision({ kind: "E" }, 8)],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     const aFinal = findChar(next, "A");
@@ -752,42 +751,36 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
       world: { coverTiles: [{ x: 1, y: 0 }, { x: 2, y: 0 }] },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 2, dy: 0 })],
+      ["A", moveDecision({ kind: "E" }, 2)],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     expect(findChar(next, "A").pos).toEqual({ x: 2, y: 0 });
   });
 
-  it("§24 — primary !== 'move' yields zero movement budget", () => {
-    // Even if move.kind != 'none', when primary === 'stationary_action'
-    // the resolver passes a zero-budget movement.
+  it("§24 — counter position yields zero movement budget", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({ characters: [a] });
     const stationary: ParsedDecision = {
-      consume: "none",
-      primary: "stationary_action",
-      move: { kind: "relative", dx: 5, dy: 0 },
+      use: null,
+      position: { kind: "counter" },
       action: { kind: "none" },
       say: null,
-      overwatch_stance: null,
-      scratchpad_update: null,
+      scratchpad: null,
     };
     const decisions = new Map<string, ParsedDecision>([["A", stationary]]);
     const { state: next } = simulateMovement(state, decisions);
     expect(findChar(next, "A").pos).toEqual({ x: 0, y: 0 });
   });
 
-  it("§24 — overwatch primary yields zero movement budget", () => {
+  it("§24 — overwatch position yields zero movement budget", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({ characters: [a] });
     const ow: ParsedDecision = {
-      consume: "none",
-      primary: "overwatch",
-      move: { kind: "relative", dx: 5, dy: 0 },
+      use: null,
+      position: { kind: "overwatch" },
       action: { kind: "none" },
       say: null,
-      overwatch_stance: null,
-      scratchpad_update: null,
+      scratchpad: null,
     };
     const decisions = new Map<string, ParsedDecision>([["A", ow]]);
     const { state: next } = simulateMovement(state, decisions);
@@ -798,7 +791,7 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 }, alive: false });
     const state = makeState({ characters: [a] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 5, dy: 0 })],
+      ["A", moveDecision({ kind: "E" }, 5)],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     expect(findChar(next, "A").pos).toEqual({ x: 0, y: 0 });
@@ -809,7 +802,7 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
     const b = makeCharacter({ id: "B", pos: { x: 5, y: 5 } });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 3, dy: 0 })],
+      ["A", moveDecision({ kind: "E" }, 3)],
       ["B", noMoveDecision()],
     ]);
     const { moves } = simulateMovement(state, decisions);
@@ -831,13 +824,13 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
 // emit nothing — existing absence is the correct behaviour.
 
 describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
-  it("wall directly east blocks A's relative-east move → emits {from===to, blockedBy:'wall'}", () => {
+  it("wall directly east blocks A's eastward compass move → emits {from===to, blockedBy:'wall'}", () => {
     const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     // Wall immediately east at (6,5).
     const wall: Wall = { x: 6, y: 5, w: 1, h: 1 };
     const state = makeState({ characters: [a], world: { walls: [wall] } });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 1, dy: 0 })],
+      ["A", moveDecision({ kind: "E" }, 1)],
     ]);
     const { moves } = simulateMovement(state, decisions);
     expect(moves).toHaveLength(1);
@@ -856,7 +849,7 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
       const wall: Wall = { x: 5, y: 4, w: 1, h: 1 };
       const state = makeState({ characters: [a], world: { walls: [wall] } });
       const decisions = new Map<string, ParsedDecision>([
-        ["A", moveDecision({ kind: "relative", dx: 0, dy: -1 })],
+        ["A", moveDecision({ kind: "N" }, 1)],
       ]);
       const { moves } = simulateMovement(state, decisions);
       expect(moves).toHaveLength(1);
@@ -868,7 +861,7 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
       const wall: Wall = { x: 5, y: 6, w: 1, h: 1 };
       const state = makeState({ characters: [a], world: { walls: [wall] } });
       const decisions = new Map<string, ParsedDecision>([
-        ["A", moveDecision({ kind: "relative", dx: 0, dy: 1 })],
+        ["A", moveDecision({ kind: "S" }, 1)],
       ]);
       const { moves } = simulateMovement(state, decisions);
       expect(moves).toHaveLength(1);
@@ -880,7 +873,7 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
       const wall: Wall = { x: 4, y: 5, w: 1, h: 1 };
       const state = makeState({ characters: [a], world: { walls: [wall] } });
       const decisions = new Map<string, ParsedDecision>([
-        ["A", moveDecision({ kind: "relative", dx: -1, dy: 0 })],
+        ["A", moveDecision({ kind: "W" }, 1)],
       ]);
       const { moves } = simulateMovement(state, decisions);
       expect(moves).toHaveLength(1);
@@ -895,14 +888,14 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
     const wall: Wall = { x: 6, y: 4, w: 1, h: 1 };
     const state = makeState({ characters: [a], world: { walls: [wall] } });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 1, dy: -1 })],
+      ["A", moveDecision({ kind: "NE" }, 1)],
     ]);
     const { moves } = simulateMovement(state, decisions);
     expect(moves).toHaveLength(1);
     expect(moves[0]?.blockedBy).toBe("wall");
   });
 
-  it("no-move decision (move.kind='none') emits NOTHING (no blockedBy entry)", () => {
+  it("stationary decision emits NOTHING (no blockedBy entry)", () => {
     const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     const state = makeState({ characters: [a] });
     const decisions = new Map<string, ParsedDecision>([
@@ -917,7 +910,7 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
     const b = makeCharacter({ id: "B", pos: { x: 6, y: 5 } });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 1, dy: 0 })],
+      ["A", moveDecision({ kind: "E" }, 1)],
       ["B", noMoveDecision()],
     ]);
     const { moves } = simulateMovement(state, decisions);
@@ -931,7 +924,7 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
     const state = makeState({ characters: [a] });
     const decisions = new Map<string, ParsedDecision>([
       // dx=-1 → would step to (-1, 0), off-grid.
-      ["A", moveDecision({ kind: "relative", dx: -1, dy: 0 })],
+      ["A", moveDecision({ kind: "W" }, 1)],
     ]);
     const { moves } = simulateMovement(state, decisions);
     expect(moves.find((m) => m.characterId === "A")).toBeUndefined();
@@ -947,7 +940,7 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
     const wall: Wall = { x: 8, y: 5, w: 1, h: 1 };
     const state = makeState({ characters: [a], world: { walls: [wall] } });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "relative", dx: 5, dy: 0 })],
+      ["A", moveDecision({ kind: "E" }, 5)],
     ]);
     const { moves } = simulateMovement(state, decisions);
     const move = moves.find((m) => m.characterId === "A");
@@ -958,19 +951,19 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
   });
 });
 
-// ─── WP-G.1 Corpse_Player_N typed-id routing — D38 PM-lock ───────────────
+// ─── WP-G.1 Corpse_<PersonaName> typed-id routing — D38 PM-lock ──────────
 //
-// Reviewer-B HIGH-1: digest renders `Corpse_Player_N` typed-id. The movement
+// Reviewer-B HIGH-1: digest renders `Corpse_<PersonaName>` typed-id. The movement
 // resolver must route that id to the corpse tile through the shared typed-id
 // helper, not through category-specific move arms.
 // PM-lock D38: fix at engine boundary; do NOT change digest rendering.
 
-describe("WP-G.1 Corpse_Player_N typed-id movement routing — D38", () => {
-  it("toward 'Corpse_Player_N' routes toward corpse tile (test-fixture: characterId === Player_N)", () => {
+describe("WP-G.1 Corpse_<PersonaName> typed-id movement routing — D38", () => {
+  it("toward 'Corpse_Camper' routes toward corpse tile (test-fixture: characterId === displayName)", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const dead = makeCharacter({
-      id: "Player_5",
-      displayName: "Player_5",
+      id: "Camper",
+      displayName: "Camper",
       pos: { x: 5, y: 0 },
       alive: false,
     });
@@ -979,7 +972,7 @@ describe("WP-G.1 Corpse_Player_N typed-id movement routing — D38", () => {
       world: {
         corpses: [
           {
-            characterId: "Player_5",
+            characterId: "Camper",
             pos: { x: 5, y: 0 },
             contents: { weapon: { category: "weapon", name: "axe" } },
           },
@@ -991,23 +984,23 @@ describe("WP-G.1 Corpse_Player_N typed-id movement routing — D38", () => {
         "A",
         moveDecision({
           kind: "toward",
-          targetId: "Corpse_Player_5",
+          targetId: "Corpse_Camper",
         }),
       ],
-      ["Player_5", noMoveDecision()],
+      ["Camper", noMoveDecision()],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     // Corpse stopAtRange is 2: A ends at (3,0).
     expect(findChar(next, "A").pos).toEqual({ x: 3, y: 0 });
   });
 
-  it("toward 'Corpse_Player_N' resolves via displayName lookup when corpse.characterId is opaque (production shape)", () => {
+  it("toward 'Corpse_Camper' resolves via displayName lookup when corpse.characterId is opaque (production shape)", () => {
     const a = makeCharacter({
       id: "char_opaque_a",
-      displayName: "Player_1",
+      displayName: "Rat",
       pos: { x: 0, y: 0 },
     });
-    // Production shape: corpse.characterId is the engine `_id`, not Player_N.
+    // Production shape: corpse.characterId is the engine `_id`, not displayName.
     const state = makeState({
       characters: [a],
       world: {
@@ -1025,7 +1018,7 @@ describe("WP-G.1 Corpse_Player_N typed-id movement routing — D38", () => {
       characterId: "char_opaque_e",
       personaId: "rat",
       spawnIndex: 4,
-      displayName: "Player_5",
+      displayName: "Camper",
       hp: 0,
       maxHp: 100,
       pos: { x: 5, y: 0 },
@@ -1041,7 +1034,7 @@ describe("WP-G.1 Corpse_Player_N typed-id movement routing — D38", () => {
         "char_opaque_a",
         moveDecision({
           kind: "toward",
-          targetId: "Corpse_Player_5",
+          targetId: "Corpse_Camper",
         }),
       ],
       ["char_opaque_e", noMoveDecision()],

@@ -6,7 +6,8 @@
 //
 // The validator's job: take a parsed decision (already shape-validated by
 // Zod in WP6) and assert it makes sense against the current MatchState.
-// On any failure, return `{ ok: false, reason, safeDefault: SAFE_DEFAULT_DECISION }`.
+// On any failure, zero only the invalid field and return its message in
+// `fieldErrors`.
 
 import { describe, expect, it } from "vitest";
 import { validateDecision } from "../../convex/engine/validation.js";
@@ -90,35 +91,33 @@ function makeState(opts: {
 
 function defaultDecision(): ParsedDecision {
   return {
-    consume: "none",
-    primary: "stationary_action",
-    move: { kind: "none" },
+    use: null,
+    position: { kind: "move", direction: { kind: "N" }, dist: 0 },
     action: { kind: "none" },
     say: null,
-    overwatch_stance: null,
-    scratchpad_update: null,
+    scratchpad: null,
   };
 }
 
 function moveTargetNotVisibleReason(targetId: string): string {
-  return `move target '${targetId}' is not visible to actor`;
+  return `position.direction target '${targetId}' is not visible to actor`;
 }
 
 function makeVisibleMoveTargetState(): MatchState {
-  const actor = makeCharacter({ id: "Player_1", pos: { x: 50, y: 50 } });
-  const player4 = makeCharacter({ id: "Player_4", pos: { x: 54, y: 50 } });
-  const deadPlayer5 = makeCharacter({
-    id: "Player_5",
+  const actor = makeCharacter({ id: "Rat", pos: { x: 50, y: 50 } });
+  const duelist = makeCharacter({ id: "Duelist", pos: { x: 54, y: 50 } });
+  const deadCamper = makeCharacter({
+    id: "Camper",
     pos: { x: 58, y: 51 },
     hp: 0,
     alive: false,
   });
 
   return makeState({
-    characters: [actor, player4, deadPlayer5],
+    characters: [actor, duelist, deadCamper],
     world: {
       chests: [makeChest("chest_006", { x: 56, y: 50 })],
-      corpses: [makeCorpse("Player_5", { x: 58, y: 50 })],
+      corpses: [makeCorpse("Camper", { x: 58, y: 50 })],
       coverTiles: [{ x: 54, y: 42 }],
       walls: [{ x: 64, y: 30, w: 1, h: 1 }],
       evac: { centre: { x: 52, y: 52 }, revealedAtTurn: 30 },
@@ -128,29 +127,29 @@ function makeVisibleMoveTargetState(): MatchState {
 }
 
 function makeMoveRejectionState(): MatchState {
-  const actor = makeCharacter({ id: "Player_1", pos: { x: 50, y: 50 } });
-  const outOfVisionPlayer = makeCharacter({
-    id: "Player_4",
+  const actor = makeCharacter({ id: "Rat", pos: { x: 50, y: 50 } });
+  const outOfVisionDuelist = makeCharacter({
+    id: "Duelist",
     pos: { x: 80, y: 50 },
   });
-  const deadPlayer3 = makeCharacter({
-    id: "Player_3",
+  const deadTrader = makeCharacter({
+    id: "Trader",
     pos: { x: 54, y: 50 },
     hp: 0,
     alive: false,
   });
   const corpseOwner = makeCharacter({
-    id: "Player_5",
+    id: "Camper",
     pos: { x: 80, y: 51 },
     hp: 0,
     alive: false,
   });
 
   return makeState({
-    characters: [actor, outOfVisionPlayer, deadPlayer3, corpseOwner],
+    characters: [actor, outOfVisionDuelist, deadTrader, corpseOwner],
     world: {
       chests: [makeChest("chest_006", { x: 80, y: 50 })],
-      corpses: [makeCorpse("Player_5", { x: 80, y: 50 })],
+      corpses: [makeCorpse("Camper", { x: 80, y: 50 })],
       coverTiles: [{ x: 80, y: 50 }],
       walls: [{ x: 80, y: 51, w: 1, h: 1 }],
       evac: { centre: { x: 52, y: 52 }, revealedAtTurn: null },
@@ -161,22 +160,20 @@ function makeMoveRejectionState(): MatchState {
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 describe("WP5 — validateDecision (ADR §4)", () => {
-  it("ADR §4 — out-of-range relative move (dx=13) → safe-default with reason", () => {
+  it("ADR §4 — negative position distance → field default with reason", () => {
     const me = makeCharacter({ id: "A", pos: { x: 50, y: 50 } });
     const state = makeState({ characters: [me] });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      move: { kind: "relative", dx: 13, dy: 0 },
+      position: { kind: "move", direction: { kind: "E" }, dist: -1 },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toMatch(/relative/i);
-      expect(result.safeDefault).toEqual(SAFE_DEFAULT_DECISION);
-    }
+    expect(result.fieldErrors.position).toMatch(/non-negative integer/i);
+    expect(result.decision.position).toEqual(SAFE_DEFAULT_DECISION.position);
+    expect(result.decision.action).toEqual(decision.action);
   });
 
-  it("§12 — attack on dead target → safe-default", () => {
+  it("§12 — attack on dead target → action field default", () => {
     const me = makeCharacter({
       id: "A",
       pos: { x: 5, y: 5 },
@@ -190,17 +187,15 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     const state = makeState({ characters: [me, dead] });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      action: { kind: "attack", targetCharacterId: "B" },
+      action: { kind: "attack", targetId: "B" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toMatch(/dead|alive|living|not visible/i);
-      expect(result.safeDefault).toEqual(SAFE_DEFAULT_DECISION);
-    }
+    expect(result.fieldErrors.action).toMatch(/living|visible/i);
+    expect(result.decision.action).toEqual({ kind: "none" });
+    expect(result.decision.position).toEqual(decision.position);
   });
 
-  it("§13 — interact (open chest) out of range 2 → safe-default", () => {
+  it("§13 — loot chest out of range 2 → action field default", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     const chest = makeChest("chest_001", { x: 50, y: 50 });
     const state = makeState({
@@ -212,18 +207,15 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       action: { kind: "loot", targetId: "chest_001" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toMatch(/range|chest/i);
-      expect(result.safeDefault).toEqual(SAFE_DEFAULT_DECISION);
-    }
+    expect(result.fieldErrors.action).toMatch(/range|chest/i);
+    expect(result.decision.action).toEqual({ kind: "none" });
   });
 
   describe("Phase 05 WP-B — move target visibility gate", () => {
     it.each([
-      "Player_4",
+      "Duelist",
       "Chest_006",
-      "Corpse_Player_5",
+      "Corpse_Camper",
       "Cover_54_42",
       "Wall_64_30",
       "Evac",
@@ -231,19 +223,19 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       const state = makeVisibleMoveTargetState();
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        primary: "move",
-        move: { kind: "toward", targetId },
+        position: { kind: "move", direction: { kind: "toward", targetId }, dist: 8 },
       };
 
-      const result = validateDecision(state, "Player_1", decision);
+      const result = validateDecision(state, "Rat", decision);
 
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
 
     it.each([
-      "Player_4",
+      "Duelist",
       "Chest_006",
-      "Corpse_Player_5",
+      "Corpse_Camper",
       "Cover_54_42",
       "Wall_64_30",
       "Evac",
@@ -251,24 +243,24 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       const state = makeVisibleMoveTargetState();
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        primary: "move",
-        move: { kind: "away", targetId },
+        position: { kind: "move", direction: { kind: "away", targetId }, dist: 8 },
       };
 
-      const result = validateDecision(state, "Player_1", decision);
+      const result = validateDecision(state, "Rat", decision);
 
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
 
     it.each([
-      ["Player_4", "out-of-vision player"],
+      ["Duelist", "out-of-vision player"],
       ["Chest_006", "out-of-vision chest"],
-      ["Corpse_Player_5", "out-of-vision corpse"],
+      ["Corpse_Camper", "out-of-vision corpse"],
       ["Cover_80_50", "out-of-vision cover"],
       ["Wall_80_51", "out-of-vision wall"],
-      ["Player_3", "dead player"],
+      ["Trader", "dead player"],
       ["Evac", "unrevealed evac"],
-      ["Player_99", "unknown player"],
+      ["UnknownPersona", "unknown player"],
       ["Random_42", "unknown namespace"],
       ["Cover_foo_bar", "malformed cover id"],
     ])(
@@ -277,64 +269,59 @@ describe("WP5 — validateDecision (ADR §4)", () => {
         const state = makeMoveRejectionState();
         const decision: ParsedDecision = {
           ...defaultDecision(),
-          primary: "move",
-          move: { kind: "toward", targetId },
+          position: { kind: "move", direction: { kind: "toward", targetId }, dist: 8 },
         };
 
-        const result = validateDecision(state, "Player_1", decision);
+        const result = validateDecision(state, "Rat", decision);
 
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-          expect(result.reason).toBe(moveTargetNotVisibleReason(targetId));
-          expect(result.safeDefault).toEqual(SAFE_DEFAULT_DECISION);
-        }
+        expect(result.fieldErrors.position).toBe(
+          moveTargetNotVisibleReason(targetId),
+        );
+        expect(result.decision.position).toEqual(SAFE_DEFAULT_DECISION.position);
       },
     );
 
     it.each([
-      "Player_4",
+      "Duelist",
       "Chest_006",
-      "Corpse_Player_5",
+      "Corpse_Camper",
       "Cover_80_50",
       "Wall_80_51",
-      "Player_3",
+      "Trader",
       "Evac",
-      "Player_99",
+      "UnknownPersona",
       "Random_42",
       "Cover_foo_bar",
     ])("move.away targetId='%s' → canonical visibility reason", (targetId) => {
       const state = makeMoveRejectionState();
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        primary: "move",
-        move: { kind: "away", targetId },
+        position: { kind: "move", direction: { kind: "away", targetId }, dist: 8 },
       };
 
-      const result = validateDecision(state, "Player_1", decision);
+      const result = validateDecision(state, "Rat", decision);
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.reason).toBe(moveTargetNotVisibleReason(targetId));
-        expect(result.safeDefault).toEqual(SAFE_DEFAULT_DECISION);
-      }
+      expect(result.fieldErrors.position).toBe(
+        moveTargetNotVisibleReason(targetId),
+      );
+      expect(result.decision.position).toEqual(SAFE_DEFAULT_DECISION.position);
     });
   });
 
-  it("ADR §6 — consume = 'heal' without heal in equipped → safe-default", () => {
+  it("ADR §6 — use='consumable' without equipped consumable → use field default", () => {
     // Actor has no consumable.
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     const state = makeState({ characters: [me] });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      consume: "heal",
+      use: "consumable",
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toMatch(/heal|consumable/i);
-    }
+    expect(result.fieldErrors.use).toMatch(/consumable/i);
+    expect(result.decision.use).toBeNull();
+    expect(result.decision.position).toEqual(decision.position);
 
-    // Actor has speed but tries to consume heal.
+    // Actor has speed; the model only names the equipped slot.
     const meSpeed = makeCharacter({
       id: "A",
       pos: { x: 5, y: 5 },
@@ -342,7 +329,8 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     });
     const stateSpeed = makeState({ characters: [meSpeed] });
     const result2 = validateDecision(stateSpeed, "A", decision);
-    expect(result2.ok).toBe(false);
+    expect(result2.fieldErrors).toEqual({});
+    expect(result2.decision).toEqual(decision);
   });
 
   it("ADR §4 — valid decision passes through unchanged", () => {
@@ -350,13 +338,11 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     const state = makeState({ characters: [me] });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      move: { kind: "relative", dx: 3, dy: -2 },
+      position: { kind: "move", direction: { kind: "NW" }, dist: 3 },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.decision).toEqual(decision);
-    }
+    expect(result.fieldErrors).toEqual({});
+    expect(result.decision).toEqual(decision);
   });
 
   it("§12 — attack on visible-in-range alive target → valid", () => {
@@ -369,10 +355,11 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     const state = makeState({ characters: [me, target] });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      action: { kind: "attack", targetCharacterId: "B" },
+      action: { kind: "attack", targetId: "B" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(true);
+    expect(result.fieldErrors).toEqual({});
+    expect(result.decision).toEqual(decision);
   });
 
   it("§13 — interact on chest in range → valid", () => {
@@ -387,37 +374,40 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       action: { kind: "loot", targetId: "chest_001" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(true);
+    expect(result.fieldErrors).toEqual({});
+    expect(result.decision).toEqual(decision);
   });
 
   it("§13 — loot corpse out of range → safe-default", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-    const corpse = makeCorpse("Player_5", { x: 50, y: 50 });
+    const corpse = makeCorpse("Camper", { x: 50, y: 50 });
     const state = makeState({
       characters: [me],
       world: { corpses: [corpse] },
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      action: { kind: "loot", targetId: "Player_5" },
+      action: { kind: "loot", targetId: "Corpse_Camper" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(false);
+    expect(result.fieldErrors.action).toBeDefined();
+    expect(result.decision.action).toEqual({ kind: "none" });
   });
 
   it("§13 — loot corpse in range → valid", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-    const corpse = makeCorpse("Player_5", { x: 6, y: 6 });
+    const corpse = makeCorpse("Camper", { x: 6, y: 6 });
     const state = makeState({
       characters: [me],
       world: { corpses: [corpse] },
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      action: { kind: "loot", targetId: "Player_5" },
+      action: { kind: "loot", targetId: "Corpse_Camper" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(true);
+    expect(result.fieldErrors).toEqual({});
+    expect(result.decision).toEqual(decision);
   });
 
   it("§7 — attack on hidden target (not visible) → safe-default", () => {
@@ -434,13 +424,14 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     const state = makeState({ characters: [me, hidden] });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      action: { kind: "attack", targetCharacterId: "B" },
+      action: { kind: "attack", targetId: "B" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(false);
+    expect(result.fieldErrors.action).toBeDefined();
+    expect(result.decision.action).toEqual({ kind: "none" });
   });
 
-  it("ADR §6 — consume = 'heal' WITH heal in equipped → valid", () => {
+  it("ADR §6 — use='consumable' with equipped consumable → valid", () => {
     const me = makeCharacter({
       id: "A",
       pos: { x: 5, y: 5 },
@@ -449,10 +440,11 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     const state = makeState({ characters: [me] });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      consume: "heal",
+      use: "consumable",
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(true);
+    expect(result.fieldErrors).toEqual({});
+    expect(result.decision).toEqual(decision);
   });
 
   // ─── WP10.5 Phase A3 follow-up: post-move action gating ────────────────
@@ -463,7 +455,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
   // result:"out_of_range" when needed). The validator must NOT pre-reject
   // a move+action pair on pre-move position alone.
 
-  it("§9 line 447 — move:toward + action:interact same chest at distance 8 → valid (resolver gates post-move)", () => {
+  it("§9 line 447 — position move toward + action loot same chest at distance 8 → valid (resolver gates post-move)", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     // Chest at (13, 5) — Chebyshev 8 from actor (out of INTERACT_RANGE=2,
     // but reachable in one move turn at speed 8).
@@ -474,15 +466,19 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      primary: "move",
-      move: { kind: "toward", targetId: "chest_001" },
+      position: {
+        kind: "move",
+        direction: { kind: "toward", targetId: "chest_001" },
+        dist: 8,
+      },
       action: { kind: "loot", targetId: "chest_001" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(true);
+    expect(result.fieldErrors).toEqual({});
+    expect(result.decision).toEqual(decision);
   });
 
-  it("§9 line 447 — move:toward + action:attack same target at distance 6 with sword (range 2) → valid", () => {
+  it("§9 line 447 — position move toward + action attack same target at distance 6 with sword (range 2) → valid", () => {
     const me = makeCharacter({
       id: "A",
       pos: { x: 5, y: 5 },
@@ -490,19 +486,23 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     });
     // Target at (11, 5) — Chebyshev 6 from actor (out of weapon range 2,
     // but reachable in one move at speed 8).
-    const target = makeCharacter({ id: "Player_3", pos: { x: 11, y: 5 } });
+    const target = makeCharacter({ id: "Duelist", pos: { x: 11, y: 5 } });
     const state = makeState({ characters: [me, target] });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      primary: "move",
-      move: { kind: "toward", targetId: "Player_3" },
-      action: { kind: "attack", targetCharacterId: "Player_3" },
+      position: {
+        kind: "move",
+        direction: { kind: "toward", targetId: "Duelist" },
+        dist: 8,
+      },
+      action: { kind: "attack", targetId: "Duelist" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(true);
+    expect(result.fieldErrors).toEqual({});
+    expect(result.decision).toEqual(decision);
   });
 
-  it("regression — move:none + action:attack at distance 5 with sword (range 2) → STILL safe-default", () => {
+  it("regression — stationary position + action attack at distance 5 with sword (range 2) → action field default", () => {
     const me = makeCharacter({
       id: "A",
       pos: { x: 5, y: 5 },
@@ -512,17 +512,14 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     const state = makeState({ characters: [me, target] });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      // move.kind === "none" — pre-move range gating MUST still apply.
-      action: { kind: "attack", targetCharacterId: "B" },
+      action: { kind: "attack", targetId: "B" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toMatch(/range/i);
-    }
+    expect(result.fieldErrors.action).toMatch(/range/i);
+    expect(result.decision.action).toEqual({ kind: "none" });
   });
 
-  it("regression — move:none + action:interact chest at distance 5 → STILL safe-default", () => {
+  it("regression — stationary position + loot chest at distance 5 → action field default", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     const chest = makeChest("chest_001", { x: 10, y: 5 });
     const state = makeState({
@@ -531,96 +528,50 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      // move.kind === "none" — pre-move range gating MUST still apply.
       action: { kind: "loot", targetId: "chest_001" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toMatch(/range/i);
-    }
+    expect(result.fieldErrors.action).toMatch(/range/i);
+    expect(result.decision.action).toEqual({ kind: "none" });
   });
 
-  // ─── WP-B.8 stance/primary consistency + loot.targetId namespace ──────
-  describe("WP-B.8 stance/primary consistency — ADR §3", () => {
-    it("primary='overwatch' with overwatch_stance=null → safe-default", () => {
+  // ─── WP-B.8 position commitments + loot.targetId namespace ─────────────
+  describe("WP-B.8 position commitments — ADR §3", () => {
+    it("position overwatch → valid", () => {
       const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
       const state = makeState({ characters: [me] });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        primary: "overwatch",
-        overwatch_stance: null,
+        position: { kind: "overwatch" },
       };
       const result = validateDecision(state, "A", decision);
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.reason).toMatch(/stance|overwatch/i);
-        expect(result.safeDefault).toEqual(SAFE_DEFAULT_DECISION);
-      }
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
 
-    it("primary='stationary_action' with overwatch_stance='offensive' → safe-default", () => {
+    it("position counter → valid", () => {
       const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
       const state = makeState({ characters: [me] });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        primary: "stationary_action",
-        overwatch_stance: "offensive",
+        position: { kind: "counter" },
       };
       const result = validateDecision(state, "A", decision);
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.reason).toMatch(/stance|overwatch/i);
-      }
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
 
-    it("primary='move' with overwatch_stance='defensive' → safe-default", () => {
-      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-      const state = makeState({ characters: [me] });
-      const decision: ParsedDecision = {
-        ...defaultDecision(),
-        primary: "move",
-        move: { kind: "relative", dx: 1, dy: 0 },
-        overwatch_stance: "defensive",
-      };
-      const result = validateDecision(state, "A", decision);
-      expect(result.ok).toBe(false);
-    });
-
-    it("primary='overwatch' + stance='offensive' → valid", () => {
-      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-      const state = makeState({ characters: [me] });
-      const decision: ParsedDecision = {
-        ...defaultDecision(),
-        primary: "overwatch",
-        overwatch_stance: "offensive",
-      };
-      const result = validateDecision(state, "A", decision);
-      expect(result.ok).toBe(true);
-    });
-
-    it("primary='overwatch' + stance='defensive' → valid", () => {
-      const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-      const state = makeState({ characters: [me] });
-      const decision: ParsedDecision = {
-        ...defaultDecision(),
-        primary: "overwatch",
-        overwatch_stance: "defensive",
-      };
-      const result = validateDecision(state, "A", decision);
-      expect(result.ok).toBe(true);
-    });
-
-    it("primary='stationary_action' with stance=null → valid (round-trip with safe-default)", () => {
+    it("safe default position is valid", () => {
       const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
       const state = makeState({ characters: [me] });
       const result = validateDecision(state, "A", SAFE_DEFAULT_DECISION);
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(SAFE_DEFAULT_DECISION);
     });
   });
 
   describe("WP-B.8 loot.targetId namespace validity — ADR §1", () => {
-    it("loot.targetId with bogus prefix (neither chest_ nor Player_) → safe-default", () => {
+    it("loot.targetId with bogus prefix (neither chest_ nor persona name) → safe-default", () => {
       const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
       const state = makeState({ characters: [me] });
       const decision: ParsedDecision = {
@@ -628,10 +579,8 @@ describe("WP5 — validateDecision (ADR §4)", () => {
         action: { kind: "loot", targetId: "garbage_id_xyz" },
       };
       const result = validateDecision(state, "A", decision);
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.reason).toMatch(/loot|target|namespace|prefix/i);
-      }
+      expect(result.fieldErrors.action).toMatch(/loot|target/i);
+      expect(result.decision.action).toEqual({ kind: "none" });
     });
 
     it("loot.targetId chest_001 (in range, exists, not opened) → valid", () => {
@@ -646,22 +595,24 @@ describe("WP5 — validateDecision (ADR §4)", () => {
         action: { kind: "loot", targetId: "chest_001" },
       };
       const result = validateDecision(state, "A", decision);
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
 
-    it("loot.targetId Player_5 (corpse exists in range) → valid", () => {
+    it("loot.targetId Corpse_Camper (corpse exists in range) → valid", () => {
       const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-      const corpse = makeCorpse("Player_5", { x: 6, y: 5 });
+      const corpse = makeCorpse("Camper", { x: 6, y: 5 });
       const state = makeState({
         characters: [me],
         world: { corpses: [corpse] },
       });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        action: { kind: "loot", targetId: "Player_5" },
+        action: { kind: "loot", targetId: "Corpse_Camper" },
       };
       const result = validateDecision(state, "A", decision);
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
 
     // Phase-3 fix — case-insensitive chest namespace dispatch. The digest
@@ -682,7 +633,8 @@ describe("WP5 — validateDecision (ADR §4)", () => {
         action: { kind: "loot", targetId: "Chest_001" },
       };
       const result = validateDecision(state, "A", decision);
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
 
     it("move.toward Chest_001 (capital prefix from digest) → valid (case-insensitive chest namespace)", () => {
@@ -694,28 +646,32 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        primary: "move",
-        move: { kind: "toward", targetId: "Chest_001" },
+        position: {
+          kind: "move",
+          direction: { kind: "toward", targetId: "Chest_001" },
+          dist: 8,
+        },
       };
       const result = validateDecision(state, "A", decision);
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
   });
 
   // ─── WP-F.2 display-id normalisation at the validator boundary ────────
   //
   // Per North Star §1 (locked design decision #1) and the system prompt,
-  // the LLM emits attack targets as typed display ids (`Player_N`, the
-  // `displayName`). Attack validation must bridge that to the engine
+  // the LLM emits attack targets as persona display names. Attack validation
+  // must bridge that to the engine
   // `characterId`; move target validation now delegates the typed-id bridge
   // and visibility projection to resolveTypedEntity.
-  describe("WP-F.2 display-id (Player_N) target normalisation — ADR §1", () => {
-    it("attack target=displayName 'Player_3' (engine id is opaque) → valid", () => {
+  describe("WP-F.2 persona display-id target normalisation — ADR §1", () => {
+    it("attack target=displayName 'Duelist' (engine id is opaque) → valid", () => {
       const me: CharacterState = {
         characterId: "char_opaque_a",
         personaId: "rat",
         spawnIndex: 0,
-        displayName: "Player_1",
+        displayName: "Rat",
         hp: 100,
         maxHp: 100,
         pos: { x: 5, y: 5 },
@@ -727,9 +683,9 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       };
       const target: CharacterState = {
         characterId: "char_opaque_b",
-        personaId: "rat",
+        personaId: "duelist",
         spawnIndex: 2,
-        displayName: "Player_3",
+        displayName: "Duelist",
         hp: 100,
         maxHp: 100,
         pos: { x: 6, y: 6 },
@@ -742,18 +698,19 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       const state = makeState({ characters: [me, target] });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        action: { kind: "attack", targetCharacterId: "Player_3" },
+        action: { kind: "attack", targetId: "Duelist" },
       };
       const result = validateDecision(state, "char_opaque_a", decision);
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
 
-    it("attack target=Player_99 (no such character) → safe-default with 'not a living character' reason", () => {
+    it("attack target=UnknownPersona (no such character) → action field default with 'not a living character' reason", () => {
       const me: CharacterState = {
         characterId: "char_opaque_a",
         personaId: "rat",
         spawnIndex: 0,
-        displayName: "Player_1",
+        displayName: "Rat",
         hp: 100,
         maxHp: 100,
         pos: { x: 5, y: 5 },
@@ -766,24 +723,20 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       const state = makeState({ characters: [me] });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        action: { kind: "attack", targetCharacterId: "Player_99" },
+        action: { kind: "attack", targetId: "UnknownPersona" },
       };
       const result = validateDecision(state, "char_opaque_a", decision);
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        // Closing-10 reports key off the "not a living character" wording.
-        expect(result.reason).toMatch(/not a living character/);
-        expect(result.reason).toContain("Player_99");
-        expect(result.safeDefault).toEqual(SAFE_DEFAULT_DECISION);
-      }
+      expect(result.fieldErrors.action).toMatch(/not a living character/);
+      expect(result.fieldErrors.action).toContain("UnknownPersona");
+      expect(result.decision.action).toEqual({ kind: "none" });
     });
 
-    it("move:toward targetId='Player_3' → valid (engine id is opaque)", () => {
+    it("position move toward targetId='Duelist' → valid (engine id is opaque)", () => {
       const me: CharacterState = {
         characterId: "char_opaque_a",
         personaId: "rat",
         spawnIndex: 0,
-        displayName: "Player_1",
+        displayName: "Rat",
         hp: 100,
         maxHp: 100,
         pos: { x: 5, y: 5 },
@@ -795,9 +748,9 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       };
       const target: CharacterState = {
         characterId: "char_opaque_b",
-        personaId: "rat",
+        personaId: "duelist",
         spawnIndex: 2,
-        displayName: "Player_3",
+        displayName: "Duelist",
         hp: 100,
         maxHp: 100,
         pos: { x: 8, y: 5 },
@@ -810,19 +763,23 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       const state = makeState({ characters: [me, target] });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        primary: "move",
-        move: { kind: "toward", targetId: "Player_3" },
+        position: {
+          kind: "move",
+          direction: { kind: "toward", targetId: "Duelist" },
+          dist: 8,
+        },
       };
       const result = validateDecision(state, "char_opaque_a", decision);
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
 
-    it("move:toward targetId='Player_99' (unknown) → canonical visibility reason", () => {
+    it("position move toward targetId='UnknownPersona' (unknown) → canonical visibility reason", () => {
       const me: CharacterState = {
         characterId: "char_opaque_a",
         personaId: "rat",
         spawnIndex: 0,
-        displayName: "Player_1",
+        displayName: "Rat",
         hp: 100,
         maxHp: 100,
         pos: { x: 5, y: 5 },
@@ -835,22 +792,25 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       const state = makeState({ characters: [me] });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        primary: "move",
-        move: { kind: "toward", targetId: "Player_99" },
+        position: {
+          kind: "move",
+          direction: { kind: "toward", targetId: "UnknownPersona" },
+          dist: 8,
+        },
       };
       const result = validateDecision(state, "char_opaque_a", decision);
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.reason).toBe(moveTargetNotVisibleReason("Player_99"));
-      }
+      expect(result.fieldErrors.position).toBe(
+        moveTargetNotVisibleReason("UnknownPersona"),
+      );
+      expect(result.decision.position).toEqual(SAFE_DEFAULT_DECISION.position);
     });
 
-    it("move:away targetId='Player_3' → valid (engine id is opaque)", () => {
+    it("position move away targetId='Duelist' → valid (engine id is opaque)", () => {
       const me: CharacterState = {
         characterId: "char_opaque_a",
         personaId: "rat",
         spawnIndex: 0,
-        displayName: "Player_1",
+        displayName: "Rat",
         hp: 100,
         maxHp: 100,
         pos: { x: 5, y: 5 },
@@ -862,9 +822,9 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       };
       const target: CharacterState = {
         characterId: "char_opaque_b",
-        personaId: "rat",
+        personaId: "duelist",
         spawnIndex: 2,
-        displayName: "Player_3",
+        displayName: "Duelist",
         hp: 100,
         maxHp: 100,
         pos: { x: 8, y: 5 },
@@ -877,20 +837,22 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       const state = makeState({ characters: [me, target] });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        primary: "move",
-        move: { kind: "away", targetId: "Player_3" },
+        position: {
+          kind: "move",
+          direction: { kind: "away", targetId: "Duelist" },
+          dist: 8,
+        },
       };
       const result = validateDecision(state, "char_opaque_a", decision);
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
   });
 
-  it("§9 line 447 — move:toward chestA + action:interact chestB-far-away → valid (resolver no-ops post-move)", () => {
-    // Validator must not reject this; the resolver's post-move chebyshev
-    // check at resolution.ts:446 will record result:"out_of_range" cleanly.
-    // Validation's job is to ensure the action *target* is well-formed
-    // (exists, not opened, visible if applicable) — NOT to second-guess
-    // the actor's tactical choice when they're moving.
+  it("§9 line 447 — position move toward chestA + loot out-of-vision chestB → action field default", () => {
+    // Validation may defer post-move range checks to the resolver, but the
+    // action target still has to be visible because the model is instructed
+    // to copy targetId values from Visible.
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     const chestA = makeChest("chest_a", { x: 13, y: 5 });
     const chestB = makeChest("chest_b", { x: 90, y: 90 });
@@ -900,34 +862,41 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      primary: "move",
-      move: { kind: "toward", targetId: "chest_a" },
+      position: {
+        kind: "move",
+        direction: { kind: "toward", targetId: "chest_a" },
+        dist: 8,
+      },
       action: { kind: "loot", targetId: "chest_b" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.ok).toBe(true);
+    expect(result.fieldErrors.action).toBe(
+      "loot target 'chest_b' is not a visible chest or corpse",
+    );
+    expect(result.decision.action).toEqual({ kind: "none" });
+    expect(result.decision.position).toEqual(decision.position);
   });
 
-  // ─── WP-G.1 Corpse_Player_N typed-id normalisation at validator boundary ─
+  // ─── WP-G.1 Corpse_<Persona> typed-id normalisation at validator boundary ─
   //
   // Per North Star §1 + the system prompt's "loot <Visible.id> — copy id
   // verbatim" instruction, the agent emits corpse loot/toward targets
-  // as the digest's typed id `Corpse_Player_N` (rendered by
+  // as the digest's typed id `Corpse_Camper` (rendered by
   // `convex/llm/inputBuilder.ts:516`). The validator/engine historically
-  // only accepted `chest_*`/`Player_*` namespaces, rejecting all
-  // `Corpse_Player_*` loot attempts as "invalid namespace prefix"
+  // only accepted `chest_*`/persona namespaces, rejecting all
+  // `Corpse_<Persona>` loot attempts as "invalid namespace prefix"
   // (reviewer-B completion-review-2 HIGH-1).
   //
   // PM-lock D38: fix at the validator/engine boundary by extending
   // normalisation; do NOT change the digest rendering. Mirrors WP-F.2's
-  // approach for `Player_N` and the WP-B.10 fix for `Chest_NNN`.
-  describe("WP-G.1 Corpse_Player_N corpse-target normalisation — D38", () => {
-    it("loot.targetId 'Corpse_Player_5' (typed-id from digest) → valid (resolves to corpse via displayName lookup)", () => {
+  // approach for persona names and the WP-B.10 fix for `Chest_NNN`.
+  describe("WP-G.1 Corpse_<Persona> corpse-target normalisation — D38", () => {
+    it("loot.targetId 'Corpse_Camper' (typed-id from digest) → valid (resolves to corpse via displayName lookup)", () => {
       const me: CharacterState = {
         characterId: "char_opaque_a",
         personaId: "rat",
         spawnIndex: 0,
-        displayName: "Player_1",
+        displayName: "Rat",
         hp: 100,
         maxHp: 100,
         pos: { x: 5, y: 5 },
@@ -937,12 +906,12 @@ describe("WP5 — validateDecision (ADR §4)", () => {
         alive: true,
         lastKnown: [],
       };
-      // Dead character whose engine characterId is opaque, displayName Player_5.
+      // Dead character whose engine characterId is opaque, displayName Camper.
       const dead: CharacterState = {
         characterId: "char_opaque_e",
-        personaId: "rat",
+        personaId: "camper",
         spawnIndex: 4,
-        displayName: "Player_5",
+        displayName: "Camper",
         hp: 0,
         maxHp: 100,
         pos: { x: 6, y: 5 },
@@ -963,18 +932,19 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        action: { kind: "loot", targetId: "Corpse_Player_5" },
+        action: { kind: "loot", targetId: "Corpse_Camper" },
       };
       const result = validateDecision(state, "char_opaque_a", decision);
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
 
-    it("loot.targetId 'Corpse_Player_99' (no such character) → safe-default with corpse reason", () => {
+    it("loot.targetId 'Corpse_UnknownPersona' (no such character) → action field default with corpse reason", () => {
       const me: CharacterState = {
         characterId: "char_opaque_a",
         personaId: "rat",
         spawnIndex: 0,
-        displayName: "Player_1",
+        displayName: "Rat",
         hp: 100,
         maxHp: 100,
         pos: { x: 5, y: 5 },
@@ -987,17 +957,14 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       const state = makeState({ characters: [me] });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        action: { kind: "loot", targetId: "Corpse_Player_99" },
+        action: { kind: "loot", targetId: "Corpse_UnknownPersona" },
       };
       const result = validateDecision(state, "char_opaque_a", decision);
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.reason).toMatch(/corpse|Corpse_Player_99/i);
-        expect(result.safeDefault).toEqual(SAFE_DEFAULT_DECISION);
-      }
+      expect(result.fieldErrors.action).toMatch(/corpse|Corpse_UnknownPersona/i);
+      expect(result.decision.action).toEqual({ kind: "none" });
     });
 
-    it("loot.targetId 'Corpse_Player_5' validator preserves verbatim targetId (resolver normalises + emits verbatim trace, mirrors WP-F.2 pattern)", () => {
+    it("loot.targetId 'Corpse_Camper' validator preserves verbatim targetId (resolver normalises + emits verbatim trace, mirrors WP-F.2 pattern)", () => {
       // PM-lock D38 + WP-F.2 pattern (resolution.ts:454): validator does
       // normalisation for ACCEPTANCE, but does NOT rewrite the decision.
       // The resolver re-normalises and preserves the verbatim emit on
@@ -1009,7 +976,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
         characterId: "char_opaque_a",
         personaId: "rat",
         spawnIndex: 0,
-        displayName: "Player_1",
+        displayName: "Rat",
         hp: 100,
         maxHp: 100,
         pos: { x: 5, y: 5 },
@@ -1021,9 +988,9 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       };
       const dead: CharacterState = {
         characterId: "char_opaque_e",
-        personaId: "rat",
+        personaId: "camper",
         spawnIndex: 4,
-        displayName: "Player_5",
+        displayName: "Camper",
         hp: 0,
         maxHp: 100,
         pos: { x: 6, y: 5 },
@@ -1044,21 +1011,21 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        action: { kind: "loot", targetId: "Corpse_Player_5" },
+        action: { kind: "loot", targetId: "Corpse_Camper" },
       };
       const result = validateDecision(state, "char_opaque_a", decision);
-      expect(result.ok).toBe(true);
-      if (result.ok && result.decision.action.kind === "loot") {
-        expect(result.decision.action.targetId).toBe("Corpse_Player_5");
+      expect(result.fieldErrors).toEqual({});
+      if (result.decision.action.kind === "loot") {
+        expect(result.decision.action.targetId).toBe("Corpse_Camper");
       }
     });
 
-    it("move:toward 'Corpse_Player_5' (typed-id from digest) → valid (resolves to corpse tile)", () => {
+    it("position move toward 'Corpse_Camper' (typed-id from digest) → valid (resolves to corpse tile)", () => {
       const me: CharacterState = {
         characterId: "char_opaque_a",
         personaId: "rat",
         spawnIndex: 0,
-        displayName: "Player_1",
+        displayName: "Rat",
         hp: 100,
         maxHp: 100,
         pos: { x: 5, y: 5 },
@@ -1070,9 +1037,9 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       };
       const dead: CharacterState = {
         characterId: "char_opaque_e",
-        personaId: "rat",
+        personaId: "camper",
         spawnIndex: 4,
-        displayName: "Player_5",
+        displayName: "Camper",
         hp: 0,
         maxHp: 100,
         pos: { x: 13, y: 5 },
@@ -1093,38 +1060,43 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        primary: "move",
-        move: { kind: "toward", targetId: "Corpse_Player_5" },
+        position: {
+          kind: "move",
+          direction: { kind: "toward", targetId: "Corpse_Camper" },
+          dist: 8,
+        },
       };
       const result = validateDecision(state, "char_opaque_a", decision);
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
 
-    it("move:toward 'Corpse_Player_99' (unknown) → canonical visibility reason", () => {
+    it("position move toward 'Corpse_UnknownPersona' (unknown) → canonical visibility reason", () => {
       const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
       const state = makeState({ characters: [me] });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        primary: "move",
-        move: { kind: "toward", targetId: "Corpse_Player_99" },
+        position: {
+          kind: "move",
+          direction: { kind: "toward", targetId: "Corpse_UnknownPersona" },
+          dist: 8,
+        },
       };
       const result = validateDecision(state, "A", decision);
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.reason).toBe(
-          moveTargetNotVisibleReason("Corpse_Player_99"),
-        );
-      }
+      expect(result.fieldErrors.position).toBe(
+        moveTargetNotVisibleReason("Corpse_UnknownPersona"),
+      );
+      expect(result.decision.position).toEqual(SAFE_DEFAULT_DECISION.position);
     });
 
     it("test-fixture path: Corpse_<displayName> when displayName === characterId resolves directly", () => {
       // In test fixtures, characterId often equals displayName (e.g. "B").
       // The Corpse_<id> form must still resolve when there is no separate
       // displayName mapping (handles tests + edge cases where a corpse has
-      // a Player_N literal as characterId).
+      // a persona name as characterId).
       const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
       const corpse: CorpseState = {
-        characterId: "Player_5",
+        characterId: "Camper",
         pos: { x: 6, y: 5 },
         contents: { weapon: { category: "weapon", name: "axe" } },
       };
@@ -1134,10 +1106,11 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        action: { kind: "loot", targetId: "Corpse_Player_5" },
+        action: { kind: "loot", targetId: "Corpse_Camper" },
       };
       const result = validateDecision(state, "A", decision);
-      expect(result.ok).toBe(true);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
     });
   });
 });

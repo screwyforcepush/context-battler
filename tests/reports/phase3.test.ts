@@ -46,7 +46,7 @@ function makeAgentRecord(
     personaId: overrides.personaId ?? "rat",
     scratchpadAfter: overrides.scratchpadAfter ?? "",
     decision: overrides.decision ?? {
-      move: { kind: "none" },
+      position: { kind: "move", direction: { kind: "N" }, dist: 0 },
       action: { kind: "none" },
     },
     llm: overrides.llm ?? {
@@ -123,7 +123,7 @@ describe("computePhase3Metrics — schema validity (fellBackToSafeDefault)", () 
       {
         matchId: "M1",
         turns: [turn0],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out.totalAgentRecords).toBe(10);
@@ -145,7 +145,7 @@ describe("computePhase3Metrics — schema validity (fellBackToSafeDefault)", () 
       {
         matchId: "M1",
         turns: [turn0b],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out2.fallbackRate).toBeCloseTo(0.2);
@@ -170,7 +170,7 @@ describe("computePhase3Metrics — wall-blocked move rate", () => {
       {
         matchId: "M1",
         turns: [turn],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out.totalMoveAttempts).toBe(50);
@@ -190,7 +190,7 @@ describe("computePhase3Metrics — wall-blocked move rate", () => {
       {
         matchId: "M1",
         turns: [turnB],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out2.wallBlockedMoves).toBe(2);
@@ -200,19 +200,18 @@ describe("computePhase3Metrics — wall-blocked move rate", () => {
 
 describe("computePhase3Metrics — drained-corpse repeat rate", () => {
   it("counts (actor, corpse) repeats across consecutive turn pairs", () => {
-    // Actor c0 emits empty-loot for Corpse_Player_5 at turns 0, 1, 2 →
+    // Actor c0 emits empty-loot for Corpse_Camper at turns 0, 1, 2 →
     // 2 repeats (0→1, 1→2). Total loot attempts = 3 (the three empty
     // entries). Rate = 2/3 ≈ 67% → FAIL (threshold ≤ 1%).
     //
-    // WP-H.2 fixture refresh: post-WP-G.1, the engine preserves the LLM
-    // verbatim `Corpse_Player_N` typed-id in the trace `target` field
-    // (resolution.ts:567 — `traceTarget: rawTargetId`). The repeat-rate
+    // Phase 6 fixture refresh: trace targets use persona names as ids,
+    // including corpse ids shaped `Corpse_<PersonaName>`. The repeat-rate
     // filter is shape-agnostic (same-engine-emit equality) so this just
     // tracks substrate-correct shape.
     const emptyLootEntry: Phase3ActionTraceEntry = {
       characterId: "c0",
       kind: "loot",
-      target: "Corpse_Player_5",
+      target: "Corpse_Camper",
       result: "empty",
     };
     const t0 = makeTurn({
@@ -237,7 +236,7 @@ describe("computePhase3Metrics — drained-corpse repeat rate", () => {
       {
         matchId: "M1",
         turns: [t0, t1, t2],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out.totalLootAttempts).toBe(3);
@@ -250,7 +249,7 @@ describe("computePhase3Metrics — drained-corpse repeat rate", () => {
       {
         matchId: "M1",
         turns: [t0],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out0.drainedRepeats).toBe(0);
@@ -259,20 +258,15 @@ describe("computePhase3Metrics — drained-corpse repeat rate", () => {
 });
 
 describe("computePhase3Metrics — corpse-loot success rate", () => {
-  it("counts runs with ≥ 1 looted+Corpse_Player_* entry; ≥ 50% of runs is PASS", () => {
+  it("counts runs with ≥ 1 looted+Corpse_<Persona> entry; ≥ 50% of runs is PASS", () => {
     // 2 runs: run1 has a successful corpse loot, run2 doesn't → 50%, PASS.
     //
-    // WP-H.2 fixture refresh: the engine emits the LLM-verbatim
-    // `Corpse_Player_N` typed-id in the trace `target` field (post-WP-G.1
-    // — resolution.ts:567). Pre-WP-H.1 the aggregator only matched
-    // `Player_*`, so this run silently scored zero — the substrate was
-    // correct, the metric writer was authored against the pre-G.1
-    // contract. WP-H.1 widens the filter; this fixture exercises the
-    // post-G.1 shape.
+    // Phase 6 fixture refresh: trace targets use persona names as ids,
+    // including corpse ids shaped `Corpse_<PersonaName>`.
     const successAction: Phase3ActionTraceEntry = {
       characterId: "c0",
       kind: "loot",
-      target: "Corpse_Player_5",
+      target: "Corpse_Camper",
       result: "looted",
     };
     const run1 = makeTurn({
@@ -291,12 +285,12 @@ describe("computePhase3Metrics — corpse-loot success rate", () => {
       {
         matchId: "M1",
         turns: [run1],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
       {
         matchId: "M2",
         turns: [run2],
-        characters: [makeChar("c1", "Player_2")],
+        characters: [makeChar("c1", "Vulture")],
       },
     ]);
     expect(out.runsWithCorpseLoot).toBe(1);
@@ -320,7 +314,7 @@ describe("computePhase3Metrics — corpse-loot success rate", () => {
       {
         matchId: "M3",
         turns: [runChest],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out2.runsWithCorpseLoot).toBe(0);
@@ -329,17 +323,14 @@ describe("computePhase3Metrics — corpse-loot success rate", () => {
 
   // ── WP-H.1 regression — post-WP-G.1 trace shape ─────────────────────
   //
-  // The engine preserves the LLM's verbatim `Corpse_Player_N` typed-id
-  // in the loot trace `target` field (resolution.ts:567 —
-  // `traceTarget: rawTargetId`). Pre-WP-H.1 the aggregator's
-  // corpse-loot success filter only matched `Player_*`, so successful
-  // corpse-loots silently scored zero, masking an 80% closing-12 hit
-  // rate behind a 0% reported rate. This regression-fences the bug.
-  it("counts a Corpse_Player_* trace target as a corpse-loot success (WP-H.1 regression)", () => {
+  // Phase 6 keeps corpse ids persona-shaped in the loot trace `target`
+  // field. This regression fences the report filter against silently
+  // dropping successful corpse loots when the target is namespaced.
+  it("counts a Corpse_<Persona> trace target as a corpse-loot success", () => {
     const successAction: Phase3ActionTraceEntry = {
       characterId: "c0",
       kind: "loot",
-      target: "Corpse_Player_3",
+      target: "Corpse_Camper",
       result: "looted",
     };
     const turn = makeTurn({
@@ -352,7 +343,7 @@ describe("computePhase3Metrics — corpse-loot success rate", () => {
       {
         matchId: "M1",
         turns: [turn],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out.runsWithCorpseLoot).toBe(1);
@@ -361,22 +352,20 @@ describe("computePhase3Metrics — corpse-loot success rate", () => {
     expect(out.totalLootAttempts).toBe(1);
   });
 
-  it("still counts a bare Player_* trace target as a corpse-loot success (back-compat)", () => {
-    // Back-compat path per PM-lock D50: the filter accepts both
-    // `Corpse_Player_*` (post-WP-G.1 engine emit) AND `Player_*` (any
-    // historical fixtures or alternate emit paths). One assertion
-    // exercises both shapes side-by-side in the same run to lock the
-    // OR-acceptance contract.
+  it("counts persona-name trace targets as corpse-loot success", () => {
+    // Iter-2 path: the filter accepts both `Corpse_<PersonaName>` and a
+    // current character display name. It must not require the retired
+    // numeric-id compatibility path.
     const corpsePrefixed: Phase3ActionTraceEntry = {
       characterId: "c0",
       kind: "loot",
-      target: "Corpse_Player_2",
+      target: "Corpse_Camper",
       result: "looted",
     };
-    const barePlayer: Phase3ActionTraceEntry = {
+    const personaName: Phase3ActionTraceEntry = {
       characterId: "c0",
       kind: "loot",
-      target: "Player_4",
+      target: "Camper",
       result: "looted",
     };
     const turn = makeTurn({
@@ -385,7 +374,7 @@ describe("computePhase3Metrics — corpse-loot success rate", () => {
       agentRecords: [makeAgentRecord({ characterId: "c0" })],
       resolution: {
         moves: [],
-        actions: [corpsePrefixed, barePlayer],
+        actions: [corpsePrefixed, personaName],
         speech: [],
       },
     });
@@ -393,18 +382,18 @@ describe("computePhase3Metrics — corpse-loot success rate", () => {
       {
         matchId: "M1",
         turns: [turn],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [
+          makeChar("c0", "Rat"),
+          makeChar("c-camper", "Camper", "camper"),
+        ],
       },
     ]);
-    // Both entries are kind=loot, so totalLootAttempts=2 — and BOTH are
-    // looted+Player_*-or-Corpse_Player_*, so runsWithCorpseLoot=1 (the
-    // run-level flag fires once). The back-compat assertion is that
-    // *both* shapes flip the run-flag (proven by removing either entry
-    // — see the second sub-assertion below).
+    // Both entries are kind=loot, so totalLootAttempts=2 — and both
+    // persona-shaped targets flip the run-level corpse-loot flag once.
     expect(out.totalLootAttempts).toBe(2);
     expect(out.runsWithCorpseLoot).toBe(1);
 
-    // Sub-assertion: the bare Player_* shape alone still counts.
+    // Sub-assertion: the display-name shape alone still counts.
     const out2 = computePhase3Metrics([
       {
         matchId: "M2",
@@ -413,10 +402,13 @@ describe("computePhase3Metrics — corpse-loot success rate", () => {
             matchId: "M2",
             turn: 0,
             agentRecords: [makeAgentRecord({ characterId: "c0" })],
-            resolution: { moves: [], actions: [barePlayer], speech: [] },
+            resolution: { moves: [], actions: [personaName], speech: [] },
           }),
         ],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [
+          makeChar("c0", "Rat"),
+          makeChar("c-camper", "Camper", "camper"),
+        ],
       },
     ]);
     expect(out2.runsWithCorpseLoot).toBe(1);
@@ -424,15 +416,13 @@ describe("computePhase3Metrics — corpse-loot success rate", () => {
 });
 
 describe("computePhase3Metrics — overwatch stance differentiation", () => {
-  it("requires both defensive (fromOverwatch+stance=defensive) AND offensive (stance=offensive) > 0", () => {
+  it("requires both counter damage and movement-triggered overwatch damage > 0", () => {
     // Run with only defensive counter-fires → FAIL (offensive count = 0).
     const defensiveEntry: Phase3ActionTraceEntry = {
       characterId: "c0",
-      kind: "overwatch",
-      target: "Player_5",
+      kind: "counter",
+      target: "Duelist",
       result: "dmg 15",
-      fromOverwatch: true,
-      stance: "defensive",
     };
     const turnDef = makeTurn({
       matchId: "M1",
@@ -444,7 +434,7 @@ describe("computePhase3Metrics — overwatch stance differentiation", () => {
       {
         matchId: "M1",
         turns: [turnDef],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out.defensiveCounterFires).toBe(1);
@@ -455,9 +445,9 @@ describe("computePhase3Metrics — overwatch stance differentiation", () => {
     const offensiveEntry: Phase3ActionTraceEntry = {
       characterId: "c0",
       kind: "overwatch",
-      target: "Player_5",
+      target: "Duelist",
       result: "dmg 15",
-      stance: "offensive",
+      triggeredByMovement: true,
     };
     const turnBoth = makeTurn({
       matchId: "M1",
@@ -473,7 +463,7 @@ describe("computePhase3Metrics — overwatch stance differentiation", () => {
       {
         matchId: "M1",
         turns: [turnBoth],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out2.defensiveCounterFires).toBe(1);
@@ -485,10 +475,10 @@ describe("computePhase3Metrics — overwatch stance differentiation", () => {
 describe("computePhase3Metrics — outcome attribution heuristic", () => {
   it("counts a match when N+1 decision references attacker via attack target", () => {
     // Turn 0: attacker c-A hits defender c-B for dmg 20.
-    // Turn 1: defender c-B's decision attacks attacker (Player_A).
+    // Turn 1: defender c-B's decision attacks attacker (Duelist).
     const characters = [
-      makeChar("c-A", "Player_A"),
-      makeChar("c-B", "Player_B"),
+      makeChar("c-A", "Duelist", "duelist"),
+      makeChar("c-B", "Trader", "trader"),
     ];
     const t0 = makeTurn({
       matchId: "M1",
@@ -503,7 +493,7 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
           {
             characterId: "c-A",
             kind: "attack",
-            target: "Player_B",
+            target: "Trader",
             result: "dmg 20",
           },
         ],
@@ -518,8 +508,8 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
         makeAgentRecord({
           characterId: "c-B",
           decision: {
-            move: { kind: "none" },
-            action: { kind: "attack", targetCharacterId: "Player_A" },
+            position: { kind: "move", direction: { kind: "N" }, dist: 0 },
+            action: { kind: "attack", targetId: "Duelist" },
           },
         }),
       ],
@@ -536,9 +526,9 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
 
   it("counts a match when N+1 decision references attacker via toward/away character target", () => {
     const characters = [
-      makeChar("c-A", "Player_A"),
-      makeChar("c-B", "Player_B"),
-      makeChar("c-C", "Player_C"),
+      makeChar("c-A", "Duelist", "duelist"),
+      makeChar("c-B", "Trader", "trader"),
+      makeChar("c-C", "Vulture", "vulture"),
     ];
     const t0 = makeTurn({
       matchId: "M1",
@@ -554,13 +544,13 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
           {
             characterId: "c-A",
             kind: "attack",
-            target: "Player_B",
+            target: "Trader",
             result: "dmg 20",
           },
           {
             characterId: "c-A",
             kind: "attack",
-            target: "Player_C",
+            target: "Vulture",
             result: "dmg 12",
           },
         ],
@@ -575,14 +565,22 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
         makeAgentRecord({
           characterId: "c-B",
           decision: {
-            move: { kind: "toward", targetId: "Player_A" },
+            position: {
+              kind: "move",
+              direction: { kind: "toward", targetId: "Duelist" },
+              dist: 8,
+            },
             action: { kind: "none" },
           },
         }),
         makeAgentRecord({
           characterId: "c-C",
           decision: {
-            move: { kind: "away", targetId: "Player_A" },
+            position: {
+              kind: "move",
+              direction: { kind: "away", targetId: "Duelist" },
+              dist: 8,
+            },
             action: { kind: "none" },
           },
         }),
@@ -598,20 +596,24 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
   });
 
   it("does NOT count non-character move target ids as attacker attribution", () => {
-    const ignoredMoves: Phase3AgentRecord["decision"]["move"][] = [
-      { kind: "toward", targetId: "Chest_006" },
-      { kind: "toward", targetId: "Corpse_Player_A" },
-      { kind: "toward", targetId: "Cover_54_42" },
-      { kind: "away", targetId: "Wall_64_30" },
-      { kind: "toward", targetId: "Evac" },
-      { kind: "relative", dx: 1, dy: 0 },
-      { kind: "none" },
+    const ignoredPositions: Phase3AgentRecord["decision"]["position"][] = [
+      { kind: "move", direction: { kind: "toward", targetId: "Chest_006" }, dist: 8 },
+      {
+        kind: "move",
+        direction: { kind: "toward", targetId: "Corpse_Camper" },
+        dist: 8,
+      },
+      { kind: "move", direction: { kind: "toward", targetId: "Cover_54_42" }, dist: 8 },
+      { kind: "move", direction: { kind: "away", targetId: "Wall_64_30" }, dist: 8 },
+      { kind: "move", direction: { kind: "toward", targetId: "Evac" }, dist: 8 },
+      { kind: "move", direction: { kind: "E" }, dist: 1 },
+      { kind: "move", direction: { kind: "N" }, dist: 0 },
     ];
-    const runs = ignoredMoves.map((move, index) => {
+    const runs = ignoredPositions.map((position, index) => {
       const matchId = `M${index}`;
       const characters = [
-        makeChar("c-A", "Player_A"),
-        makeChar("c-B", "Player_B"),
+        makeChar("c-A", "Duelist", "duelist"),
+        makeChar("c-B", "Trader", "trader"),
       ];
       const t0 = makeTurn({
         matchId,
@@ -626,7 +628,7 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
             {
               characterId: "c-A",
               kind: "attack",
-              target: "Player_B",
+              target: "Trader",
               result: "dmg 8",
             },
           ],
@@ -641,7 +643,7 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
           makeAgentRecord({
             characterId: "c-B",
             decision: {
-              move,
+              position,
               action: { kind: "none" },
             },
           }),
@@ -652,15 +654,15 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
     });
 
     const out = computePhase3Metrics(runs);
-    expect(out.outcomeAttributionPairs).toBe(ignoredMoves.length);
+    expect(out.outcomeAttributionPairs).toBe(ignoredPositions.length);
     expect(out.outcomeAttributionMatches).toBe(0);
     expect(out.outcomeAttributionRate).toBe(0);
   });
 
   it("counts a match via scratchpad substring reference", () => {
     const characters = [
-      makeChar("c-A", "Player_A"),
-      makeChar("c-B", "Player_B"),
+      makeChar("c-A", "Duelist", "duelist"),
+      makeChar("c-B", "Trader", "trader"),
     ];
     const t0 = makeTurn({
       matchId: "M1",
@@ -675,7 +677,7 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
           {
             characterId: "c-A",
             kind: "attack",
-            target: "Player_B",
+            target: "Trader",
             result: "dmg 10",
           },
         ],
@@ -690,7 +692,7 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
         makeAgentRecord({
           characterId: "c-B",
           // no action / move targeting attacker, but scratchpad mentions them
-          scratchpadAfter: "Took 10 from Player_A — flee NW.",
+          scratchpadAfter: "Took 10 from Duelist; flee NW.",
         }),
       ],
       resolution: { moves: [], actions: [], speech: [] },
@@ -704,8 +706,8 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
 
   it("does NOT count a match when N+1 ignores attacker", () => {
     const characters = [
-      makeChar("c-A", "Player_A"),
-      makeChar("c-B", "Player_B"),
+      makeChar("c-A", "Duelist", "duelist"),
+      makeChar("c-B", "Trader", "trader"),
     ];
     const t0 = makeTurn({
       matchId: "M1",
@@ -720,7 +722,7 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
           {
             characterId: "c-A",
             kind: "attack",
-            target: "Player_B",
+            target: "Trader",
             result: "dmg 8",
           },
         ],
@@ -734,7 +736,7 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
         makeAgentRecord({ characterId: "c-A" }),
         makeAgentRecord({
           characterId: "c-B",
-          // no reference to Player_A anywhere
+          // no reference to Duelist anywhere
           scratchpadAfter: "Heading to evac.",
         }),
       ],
@@ -751,8 +753,8 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
 
   it("ignores out-of-range / non-damage results", () => {
     const characters = [
-      makeChar("c-A", "Player_A"),
-      makeChar("c-B", "Player_B"),
+      makeChar("c-A", "Duelist", "duelist"),
+      makeChar("c-B", "Trader", "trader"),
     ];
     const t0 = makeTurn({
       matchId: "M1",
@@ -767,7 +769,7 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
           {
             characterId: "c-A",
             kind: "attack",
-            target: "Player_B",
+            target: "Trader",
             result: "out_of_range",
           },
         ],
@@ -825,7 +827,7 @@ describe("computePhase3Metrics — reasoning capture rate", () => {
       {
         matchId: "M1",
         turns: [turn],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out.nonFallbackRecords).toBe(4);
@@ -849,7 +851,7 @@ describe("computePhase3Metrics — reasoning capture rate", () => {
       {
         matchId: "M1",
         turns: [turnB],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out2.nonFallbackRecords).toBe(5);
@@ -872,7 +874,7 @@ describe("computePhase3Metrics — carry-over phase-1 metrics", () => {
             agentRecords: [makeAgentRecord({ characterId: "c0" })],
           }),
         ],
-        characters: [makeChar("c0", "Player_1", "rat", true)],
+        characters: [makeChar("c0", "Rat", "rat", true)],
       },
       {
         matchId: "M2",
@@ -883,7 +885,7 @@ describe("computePhase3Metrics — carry-over phase-1 metrics", () => {
             agentRecords: [makeAgentRecord({ characterId: "c1" })],
           }),
         ],
-        characters: [makeChar("c1", "Player_1", "vulture", true)],
+        characters: [makeChar("c1", "Vulture", "vulture", true)],
       },
       {
         matchId: "M3",
@@ -894,7 +896,7 @@ describe("computePhase3Metrics — carry-over phase-1 metrics", () => {
             agentRecords: [makeAgentRecord({ characterId: "c2" })],
           }),
         ],
-        characters: [makeChar("c2", "Player_1", "rat", false)],
+        characters: [makeChar("c2", "Rat", "rat", false)],
       },
     ]);
     expect(out.runsWithExtraction).toBe(2);
@@ -919,7 +921,7 @@ describe("computePhase3Metrics — carry-over phase-1 metrics", () => {
           {
             characterId: "c0",
             kind: "attack",
-            target: "Player_2",
+            target: "Duelist",
             result: "dmg 25",
           },
         ],
@@ -936,12 +938,12 @@ describe("computePhase3Metrics — carry-over phase-1 metrics", () => {
       {
         matchId: "M1",
         turns: [killTurn],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
       {
         matchId: "M2",
         turns: [noKillTurn],
-        characters: [makeChar("c1", "Player_1")],
+        characters: [makeChar("c1", "Vulture")],
       },
     ]);
     expect(out.runsWithKill).toBe(1);
@@ -971,7 +973,7 @@ describe("computePhase3Metrics — carry-over phase-1 metrics", () => {
       {
         matchId: "M1",
         turns: [equipTurn],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
     ]);
     expect(out.runsWithEquip).toBe(1);
@@ -1000,12 +1002,12 @@ describe("computePhase3Metrics — carry-over phase-1 metrics", () => {
       {
         matchId: "M1",
         turns: [speechTurn],
-        characters: [makeChar("c0", "Player_1")],
+        characters: [makeChar("c0", "Rat")],
       },
       {
         matchId: "M2",
         turns: [noSpeechTurn],
-        characters: [makeChar("c1", "Player_1")],
+        characters: [makeChar("c1", "Vulture")],
       },
     ]);
     expect(out.runsWithSpeech).toBe(1);
@@ -1028,8 +1030,8 @@ describe("computePhase3Metrics — carry-over phase-1 metrics", () => {
           }),
         ],
         characters: [
-          makeChar(`c${i}-rat`, "Player_1", "rat", i === 0),
-          makeChar(`c${i}-vulture`, "Player_2", "vulture", true),
+          makeChar(`c${i}-rat`, "Rat", "rat", i === 0),
+          makeChar(`c${i}-vulture`, "Vulture", "vulture", true),
         ],
       });
     }
@@ -1069,7 +1071,7 @@ describe("computePhase3Metrics — composite gate", () => {
       {
         matchId: "M1",
         turns: [t],
-        characters: [makeChar("c0", "Player_1", "rat", true)],
+        characters: [makeChar("c0", "Rat", "rat", true)],
       },
     ]);
     expect(out.meetsWallBlockedThreshold).toBe(false);

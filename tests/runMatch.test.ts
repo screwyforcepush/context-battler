@@ -25,6 +25,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   buildHeardForObserver,
+  buildAgentInputRecord,
   buildAgentLlmRecord,
   buildMatchState,
   MAX_HP,
@@ -125,13 +126,11 @@ describe("WP10.5 A4 — buildHeardForObserver reads from persisted trace.heardBy
 // ─── A5: --reasoning end-to-end (wrapper-level assertion) ────────────────────
 
 const VALID_DECISION: ParsedDecision = {
-  consume: "none",
-  primary: "move",
-  move: { kind: "relative", dx: 1, dy: 0 },
+  use: null,
+  position: { kind: "move", direction: { kind: "E" }, dist: 1 },
   action: { kind: "none" },
   say: null,
-  overwatch_stance: null,
-  scratchpad_update: null,
+  scratchpad: null,
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -172,6 +171,7 @@ describe("WP10.5 A5 — reasoningEffort threads into Azure request body", () => 
       personaPrompt: "persona",
       scratchpad: "",
       visibleStateDigest: "",
+      composedUserMessage: "# Rat\n\n## Status\nready\n\n# Current Game State\n{}",
       reasoningEffort: "medium",
       maxOutputTokens: 64,
       azureUri: "https://example.test/openai/responses",
@@ -197,6 +197,7 @@ describe("WP10.5 A5 — reasoningEffort threads into Azure request body", () => 
       personaPrompt: "persona",
       scratchpad: "",
       visibleStateDigest: "",
+      composedUserMessage: "# Rat\n\n## Status\nready\n\n# Current Game State\n{}",
       reasoningEffort: "high",
       maxOutputTokens: 64,
       azureUri: "https://example.test/openai/responses",
@@ -210,19 +211,48 @@ describe("WP10.5 A5 — reasoningEffort threads into Azure request body", () => 
   });
 });
 
-// ─── B.3: validatorReason threads into the persisted agent-llm record ───────
+describe("Phase 6 D13 — system prompt persistence is template-stable", () => {
+  it("keeps systemPromptText and systemPromptHash identical across personas", () => {
+    const systemPrompt =
+      "You are <Player Name>, extraction-arena agent. Each turn, emit ONE tool call to `decide_turn`.";
+    const ratRecord = buildAgentInputRecord({
+      systemPrompt,
+      personaPromptText: "Rat persona",
+      visibleStateDigest: "{}",
+      scratchpadBefore: "",
+      composedUserMessage: "# Rat\n\n## Status\nready\n\n# Current Game State\n{}",
+      useVariant: "null_only",
+    });
+    const duelistRecord = buildAgentInputRecord({
+      systemPrompt,
+      personaPromptText: "Duelist persona",
+      visibleStateDigest: "{}",
+      scratchpadBefore: "",
+      composedUserMessage:
+        "# Duelist\n\n## Status\nready\n\n# Current Game State\n{}",
+      useVariant: "consumable_or_null",
+    });
+
+    expect(ratRecord.systemPromptText).toBe(systemPrompt);
+    expect(duelistRecord.systemPromptText).toBe(systemPrompt);
+    expect(ratRecord.systemPromptHash).toBe(duelistRecord.systemPromptHash);
+    expect(ratRecord.systemPromptText).toContain("<Player Name>");
+  });
+});
+
+// ─── B.3: field errors thread into the persisted agent-llm record ───────────
 //
 // The engine validator rejection reason is computed locally in
-// `runMatch.ts` (validation.reason). Pass B.3 wires it into the persisted
+// `runMatch.ts` (validation.fieldErrors). Pass B.3 wires it into the persisted
 // trace record so harness/analyze-match.ts and harness/cluster-failures.ts
-// can surface it. This test pins the mapping invariant on the pure helper
+// can surface it per field. This test pins the mapping invariant on the pure helper
 // `buildAgentLlmRecord` so future refactors can't silently drop the field.
 //
 // Cross-ref: `docs/project/phases/01-engine-and-harness/wp10-5-phase-a-findings.md`
 // — without this field, the validator-rejection bucket (62.2% of fallbacks
 // in the gate-1 smoke) is opaque.
 
-describe("WP10.5 B.3 — validatorReason persists into agent-llm trace record", () => {
+describe("WP10.5 B.3 — validatorFieldErrors persist into agent-llm trace record", () => {
   const baseR = {
     callId: "call_x",
     rawArguments: '{"foo":"bar"}',
@@ -231,41 +261,59 @@ describe("WP10.5 B.3 — validatorReason persists into agent-llm trace record", 
     latencyMs: 12,
     httpStatus: 200,
     // Phase-3 ADR §2 — required-nullable reasoning. Tests for the
-    // existing failureReason / validatorReason invariants don't care
+    // existing failureReason / field-error invariants don't care
     // about reasoning content; persisting null keeps them honest.
     reasoning: null,
   };
 
-  it("includes validatorReason when the engine validator rejected the decision", () => {
+  it("includes validatorFieldErrors when the engine validator rejected a field", () => {
     const record = buildAgentLlmRecord({
       ...baseR,
       wrapperFellBack: true,
       failureReason: undefined,
-      validatorReason:
-        "interact target 'chest_001' is already opened",
+      validatorFieldErrors: {
+        action: "loot target 'Chest_001' is already opened",
+      },
     });
 
     expect(record.fellBackToSafeDefault).toBe(true);
-    expect(record.validatorReason).toBe(
-      "interact target 'chest_001' is already opened",
-    );
+    expect(record.validatorFieldErrors).toEqual({
+      action: "loot target 'Chest_001' is already opened",
+    });
     // No wrapper-level failureReason for validator-only rejections.
     expect(record.failureReason).toBeUndefined();
   });
 
-  it("omits validatorReason when validation passed (no rejection)", () => {
+  it("preserves field-scoped zeroing by persisting only rejected fields", () => {
+    const record = buildAgentLlmRecord({
+      ...baseR,
+      wrapperFellBack: true,
+      failureReason: undefined,
+      validatorFieldErrors: {
+        use: "use='consumable' but actor has no consumable equipped",
+      },
+    });
+
+    expect(record.validatorFieldErrors).toEqual({
+      use: "use='consumable' but actor has no consumable equipped",
+    });
+    expect(record.validatorFieldErrors?.position).toBeUndefined();
+    expect(record.validatorFieldErrors?.action).toBeUndefined();
+  });
+
+  it("omits validatorFieldErrors when validation passed (no rejection)", () => {
     const record = buildAgentLlmRecord({
       ...baseR,
       wrapperFellBack: false,
       failureReason: undefined,
-      validatorReason: undefined,
+      validatorFieldErrors: undefined,
     });
 
     expect(record.fellBackToSafeDefault).toBe(false);
-    expect("validatorReason" in record).toBe(false);
+    expect("validatorFieldErrors" in record).toBe(false);
   });
 
-  it("threads BOTH failureReason and validatorReason when wrapper failed AND validator rejected the safe-default substitute", () => {
+  it("threads BOTH failureReason and validatorFieldErrors when wrapper failed AND validation rejected a field", () => {
     // Edge: the wrapper already fell back (e.g. http_non_200 → safe-default),
     // and although the safe-default *should* validate, in principle the
     // helper must not lose either signal. Pin the invariant.
@@ -273,24 +321,26 @@ describe("WP10.5 B.3 — validatorReason persists into agent-llm trace record", 
       ...baseR,
       wrapperFellBack: true,
       failureReason: "http_non_200" as FailureReason,
-      validatorReason: "actor 'foo' is not alive",
+      validatorFieldErrors: { position: "actor 'foo' is not alive" },
     });
 
     expect(record.failureReason).toBe("http_non_200");
-    expect(record.validatorReason).toBe("actor 'foo' is not alive");
+    expect(record.validatorFieldErrors).toEqual({
+      position: "actor 'foo' is not alive",
+    });
     expect(record.fellBackToSafeDefault).toBe(true);
   });
 
-  it("preserves the existing wrapper-only failureReason path (no validatorReason)", () => {
+  it("preserves the existing wrapper-only failureReason path (no field errors)", () => {
     const record = buildAgentLlmRecord({
       ...baseR,
       wrapperFellBack: true,
       failureReason: "schema_validation_failed" as FailureReason,
-      validatorReason: undefined,
+      validatorFieldErrors: undefined,
     });
 
     expect(record.failureReason).toBe("schema_validation_failed");
-    expect("validatorReason" in record).toBe(false);
+    expect("validatorFieldErrors" in record).toBe(false);
   });
 });
 
@@ -355,7 +405,7 @@ describe("Gate-2.5 Path A — CHARACTER_MAX_HP shared-source-of-truth invariant"
       matchId: matchRow._id,
       personaId: "duelist" as const,
       spawnIndex: 0,
-      displayName: "Player_1",
+      displayName: "Duelist",
       hp: CHARACTER_MAX_HP, // ← the matches.start seed value
       pos: { x: 28, y: 28 },
       equipped: {},

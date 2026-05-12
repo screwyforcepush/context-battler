@@ -40,6 +40,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { loadPersonas } from "../../convex/llm/personas.js";
+import { PERSONAS_INLINE } from "../../convex/_data/personas.js";
 import {
   PERSONA_IDS,
   type PersonaId,
@@ -62,6 +63,14 @@ function approxTokenCount(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+function readPersonaFile(id: PersonaId): string {
+  return readFileSync(resolve(personasDir(), `${id}.md`), "utf8").trim();
+}
+
+function personaDisplayName(id: PersonaId): string {
+  return `${id.slice(0, 1).toUpperCase()}${id.slice(1)}`;
+}
+
 // Token budget: WP9 originally locked this at 80 tokens per body (chars/4
 // proxy). Gate-2.5 review (docs/project/phases/01-engine-and-harness/
 // gate-2-5-review.md "Reviewer Spot-Check Addendum") ratified a narrow
@@ -74,6 +83,28 @@ function approxTokenCount(text: string): number {
 // remains qualitative; the 80→105 lift is bounded to this Path A pass.
 const TOKEN_BUDGET = 105;
 const EXPECTED_IDS_SORTED = [...PERSONA_IDS].sort() as readonly PersonaId[];
+const EXPECTED_DISPLAY_NAMES_SORTED = [
+  "Camper",
+  "Duelist",
+  "Opportunist",
+  "Paranoid",
+  "Rat",
+  "Sprinter",
+  "Trader",
+  "Vulture",
+] as const;
+const NUMERIC_PLAYER_ID_PATTERN = new RegExp(
+  ["Player", String.raw`\d+`].join("_"),
+);
+const DEAD_SCHEMA_REFS: Array<{ label: string; pattern: RegExp }> = [
+  { label: "numeric player id", pattern: NUMERIC_PLAYER_ID_PATTERN },
+  { label: "overwatch priority", pattern: /overwatch_priority/ },
+  { label: "overwatch stance", pattern: /overwatch_stance/ },
+  { label: "primary commitment field", pattern: /\bprimary\b/ },
+  { label: "consume field", pattern: /\bconsume\b/ },
+  { label: "scratchpad update field", pattern: /scratchpad_update/ },
+  { label: "move.kind field path", pattern: /move\.kind/ },
+];
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
@@ -134,6 +165,45 @@ describe("WP9 — loadPersonas() locked-ids contract (ADR §6)", () => {
         body,
         `${id} body must be trimmed by the loader`,
       ).toBe(body.trim());
+    }
+  });
+});
+
+describe("Phase 6 — persona display names", () => {
+  it("derives the exact one-of-each display-name set from PERSONA_IDS", () => {
+    const displayNames = PERSONA_IDS.map(personaDisplayName);
+    expect([...displayNames].sort()).toEqual(EXPECTED_DISPLAY_NAMES_SORTED);
+    expect(new Set(displayNames).size).toBe(PERSONA_IDS.length);
+  });
+
+  it("keeps every display name single-word and id-safe", () => {
+    for (const id of PERSONA_IDS) {
+      expect(personaDisplayName(id), id).toMatch(/^[A-Z][A-Za-z]*$/);
+    }
+  });
+});
+
+describe("Phase 6 — persona prompt source hygiene", () => {
+  it("keeps markdown and inline persona prompts byte-aligned after trim", () => {
+    for (const id of PERSONA_IDS) {
+      expect(PERSONAS_INLINE[id], id).toBe(readPersonaFile(id));
+    }
+  });
+
+  it("does not contain numeric player ids or retired decision-field names", () => {
+    for (const id of PERSONA_IDS) {
+      const surfaces = [
+        { name: `${id}.md`, body: readPersonaFile(id) },
+        { name: `PERSONAS_INLINE.${id}`, body: PERSONAS_INLINE[id] },
+      ];
+      for (const surface of surfaces) {
+        for (const ref of DEAD_SCHEMA_REFS) {
+          expect(
+            ref.pattern.test(surface.body),
+            `${surface.name} contains retired ${ref.label}`,
+          ).toBe(false);
+        }
+      }
     }
   });
 });

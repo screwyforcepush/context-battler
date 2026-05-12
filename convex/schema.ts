@@ -156,64 +156,64 @@ const corpseContentsValidator = v.object({
 const azureUsageValidator = v.any();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ParsedDecision — mirrors ADR §4 exactly. Discriminated unions for
-// `move` and `action`. WP2 declares the validators; WP6 owns the Zod
-// equivalent + structural-equivalence test.
+// ParsedDecision — mirrors Phase 6 ADR-2 exactly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const moveValidator = v.union(
+const directionValidator = v.union(
   v.object({
-    kind: v.literal("relative"),
-    dx: v.number(),
-    dy: v.number(),
-  }),
-  v.object({
-    kind: v.literal("toward"),
+    kind: v.union(v.literal("toward"), v.literal("away")),
     targetId: v.string(),
   }),
   v.object({
-    kind: v.literal("away"),
-    targetId: v.string(),
+    kind: v.union(
+      v.literal("N"),
+      v.literal("NE"),
+      v.literal("E"),
+      v.literal("SE"),
+      v.literal("S"),
+      v.literal("SW"),
+      v.literal("W"),
+      v.literal("NW"),
+    ),
   }),
-  v.object({ kind: v.literal("none") }),
 );
 
-// Phase-3 ADR §1 — 3-arm action union (interact arm REMOVED;
-// loot.targetCorpseId renamed to loot.targetId; chests + corpses both
-// flow through loot, dispatched by id namespace in the engine).
+const positionValidator = v.union(
+  v.object({ kind: v.union(v.literal("overwatch"), v.literal("counter")) }),
+  v.object({
+    kind: v.literal("move"),
+    direction: directionValidator,
+    dist: v.number(),
+  }),
+);
+
 const actionValidator = v.union(
   v.object({
-    kind: v.literal("attack"),
-    targetCharacterId: v.string(),
-  }),
-  v.object({
-    kind: v.literal("loot"),
+    kind: v.union(v.literal("attack"), v.literal("loot")),
     targetId: v.string(),
   }),
   v.object({ kind: v.literal("none") }),
 );
 
-// Phase-3 ADR §1 — `overwatch_priority` REMOVED; replaced by structured
-// `overwatch_stance` (`"offensive" | "defensive" | null`). Stance/primary
-// consistency is enforced by the Zod refinement in
-// `convex/llm/decisionTool.ts` BEFORE persistence reaches this validator.
 const decisionValidator = v.object({
-  consume: v.union(v.literal("none"), v.literal("heal"), v.literal("speed")),
-  primary: v.union(
-    v.literal("move"),
-    v.literal("stationary_action"),
-    v.literal("overwatch"),
-  ),
-  move: moveValidator,
+  use: v.union(v.literal("consumable"), v.null()),
+  position: positionValidator,
   action: actionValidator,
-  // Nullable strings (JSON Schema `["string", "null"]`).
   say: v.union(v.string(), v.null()),
-  overwatch_stance: v.union(
-    v.literal("offensive"),
-    v.literal("defensive"),
-    v.null(),
-  ),
-  scratchpad_update: v.union(v.string(), v.null()),
+  scratchpad: v.union(v.string(), v.null()),
+});
+
+const useVariantValidator = v.union(
+  v.literal("consumable_or_null"),
+  v.literal("null_only"),
+);
+
+const validatorFieldErrorsValidator = v.object({
+  use: v.optional(v.string()),
+  position: v.optional(v.string()),
+  action: v.optional(v.string()),
+  say: v.optional(v.string()),
+  scratchpad: v.optional(v.string()),
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -231,6 +231,7 @@ const agentInputValidator = v.object({
   scratchpadBefore: v.string(),
   // Phase-4 WP-A / ADR §1b — optional slot only. WP-D owns population.
   composedUserMessage: v.optional(v.string()),
+  useVariant: v.optional(useVariantValidator),
 });
 
 const agentLlmValidator = v.object({
@@ -242,16 +243,7 @@ const agentLlmValidator = v.object({
   httpStatus: v.union(v.number(), v.null()),
   fellBackToSafeDefault: v.boolean(),
   failureReason: v.optional(failureReasonValidator),
-  // WP10.5 Pass B.3 — engine validator rejection reason. Populated when the
-  // engine's `validateDecision` (WP5) rejects a wrapper-emitted decision on
-  // semantic grounds (target-not-visible, chest-already-opened, range, etc).
-  // Distinct from `failureReason` (which is wrapper-level: HTTP/parse/schema
-  // failures). The diagnostic key that makes substrate noise debuggable —
-  // see `docs/project/phases/01-engine-and-harness/wp10-5-phase-a-findings.md`
-  // for why this was the missing signal in gate-1.
-  // Optional + additive: existing rows without this field validate cleanly;
-  // no migration needed.
-  validatorReason: v.optional(v.string()),
+  validatorFieldErrors: v.optional(validatorFieldErrorsValidator),
   // WP10.5 Pass F — captured non-OK HTTP response body (sanitised +
   // truncated to ≤ 2 KB by `convex/llm/azure.ts`). Set ONLY when
   // `failureReason === "http_non_200"`; the wrapper drains the body on
@@ -320,18 +312,15 @@ const resolutionValidator = v.object({
   actions: v.array(
     v.object({
       characterId: v.id("characters"),
-      kind: v.string(),
+      kind: v.union(
+        v.literal("attack"),
+        v.literal("loot"),
+        v.literal("overwatch"),
+        v.literal("counter"),
+      ),
       target: v.string(),
       result: v.string(),
-      // Phase-3 ADR §3 — overwatch-stance attribution emitted by the
-      // engine. `fromOverwatch=true` + `stance="defensive"` for
-      // counter-fire entries; `stance="offensive"` (fromOverwatch
-      // omitted/false) for offensive overwatch fire entries; both
-      // omitted for non-overwatch attacks.
-      fromOverwatch: v.optional(v.boolean()),
-      stance: v.optional(
-        v.union(v.literal("offensive"), v.literal("defensive")),
-      ),
+      triggeredByMovement: v.optional(v.boolean()),
       // Phase-4 WP-A / ADR §1a — strike-time equipped weapon name for
       // attack/overwatch damage entries. Optional for historical rows and
       // unarmed strikes.
@@ -516,6 +505,77 @@ const phase3PayloadValidator = v.object({
   meetsAllThresholds: v.boolean(),
 });
 
+const phase6PerPersonaStatsValidator = v.object({
+  personaId: personaIdValidator,
+  extractionsCount: v.number(),
+  extractionRate: v.number(),
+});
+
+const phase6DamageFeedAuditValidator = v.object({
+  matchId: v.string(),
+  turn: v.number(),
+  observer: v.string(),
+  attacker: v.string(),
+  expectedLine: v.string(),
+  present: v.boolean(),
+});
+
+const phase6PayloadValidator = v.object({
+  reportType: v.literal("phase-6-closing-20"),
+  runCount: v.number(),
+  matchIds: v.array(v.string()),
+  failedMatches: v.number(),
+
+  runsWithExtraction: v.number(),
+  runsWithKill: v.number(),
+  runsWithEquip: v.number(),
+  runsWithSpeech: v.number(),
+  extractionRate: v.number(),
+  killRate: v.number(),
+  equipRate: v.number(),
+  speechRate: v.number(),
+  perPersona: v.array(phase6PerPersonaStatsValidator),
+  personaExtractionSpread: v.number(),
+
+  totalAgentRecords: v.number(),
+  nullOnlyUseViolations: v.number(),
+  actionOverwatchCombos: v.number(),
+  overwatchTriggerFires: v.number(),
+  counterRetaliations: v.number(),
+  compassBearings: v.array(v.string()),
+  targetRelativeKinds: v.array(v.string()),
+  damageFeedEvents: v.number(),
+  damageFeedMissing: v.number(),
+  damageFeedAuditSamples: v.array(phase6DamageFeedAuditValidator),
+  damageFeedAuditScopeNote: v.string(),
+  validatorRecords: v.number(),
+  validatorFieldErrors: v.number(),
+  perFieldRejectionRate: v.number(),
+  wholeTurnZeroedValidatorRecords: v.number(),
+  noOpCount: v.number(),
+  noOpRate: v.number(),
+  playerNLiteralCount: v.number(),
+
+  meetsExtractionThreshold: v.boolean(),
+  meetsKillThreshold: v.boolean(),
+  meetsEquipThreshold: v.boolean(),
+  meetsSpeechThreshold: v.boolean(),
+  meetsPersonaSpreadThreshold: v.boolean(),
+  meetsUseVariantThreshold: v.boolean(),
+  meetsActionOverwatchComboThreshold: v.boolean(),
+  meetsOverwatchTriggerThreshold: v.boolean(),
+  meetsCounterThreshold: v.boolean(),
+  meetsCompassThreshold: v.boolean(),
+  meetsTargetRelativeThreshold: v.boolean(),
+  meetsDamageFeedThreshold: v.boolean(),
+  meetsFieldScopedThreshold: v.boolean(),
+  meetsPerFieldRejectionThreshold: v.boolean(),
+  meetsNoOpThreshold: v.boolean(),
+  meetsPersonaIdThreshold: v.boolean(),
+  meetsZeroCrashThreshold: v.boolean(),
+  meetsAllThresholds: v.boolean(),
+});
+
 /**
  * `reports.payload` validator — the §10 done-bar payload Stage-3 emits.
  * Mirrors `ReportPayload` from `convex/engine/reportStats.ts` exactly.
@@ -594,7 +654,7 @@ export default defineSchema({
     // Numeric only at the validator layer; range correctness (0..7) enforced
     // by WP3's seeded permutation per ADR §6.
     spawnIndex: v.number(),
-    displayName: v.string(), // Player_1..Player_8
+    displayName: v.string(), // Persona display name, e.g. "Duelist".
     hp: v.number(),
     pos: tileValidator,
     equipped: equippedValidator,
@@ -721,6 +781,7 @@ export default defineSchema({
      * both the carry-over and the new metrics.
      */
     phase3Payload: v.optional(phase3PayloadValidator),
+    phase6Payload: v.optional(phase6PayloadValidator),
   })
     .index("by_generatedAt", ["generatedAt"])
     // WP14 idempotency index: `reports.create` reads by this tuple before

@@ -24,7 +24,7 @@ import "dotenv/config";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { decisionTool } from "../convex/llm/decisionTool.js";
+import { buildDecisionTool } from "../convex/llm/decisionTool.js";
 
 const OUTPUT_PATH = resolve(
   new URL(".", import.meta.url).pathname,
@@ -64,33 +64,60 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
-  // Per-turn-shape body. We deliberately use the production decisionTool
-  // (current shape is fine for the probe — we're not validating the
-  // returned arguments, just inspecting whether reasoning items appear).
+  // Per-turn-shape body. We use the Phase 6 null-only use variant because
+  // this synthetic status block has no equipped consumable.
+  const decisionTool = buildDecisionTool({ useVariant: "null_only" });
   const requestBody = {
     model: azureModel,
     input: [
       {
         role: "system",
         content:
-          "You are an extraction-arena agent. Emit one tool call to decide_turn per turn. Pick a sensible move and action given the visible state.",
+          "You are Duelist, extraction-arena agent. Each turn, emit ONE tool call to `decide_turn`.",
       },
       {
         role: "user",
         content: [
-          "## Persona",
+          "# Duelist",
+          "You adopt Duelist persona:",
           "Pragmatic. Scavenge cautiously, retreat from heavy fire.",
           "",
-          "## Scratchpad",
-          "Turn 1. No prior observations.",
+          "## Status",
+          "📍(15,15)",
+          "❤️HP: 50/50 HP",
+          "⚔️weapon: rusty_blade [dmg 10]",
+          "🛡️armour: none",
+          "🧪consumable: none",
+          "🗒️scratchpad: Turn 1. No prior observations.",
           "",
-          "## Visible state",
-          "You: at (15,15), HP 50/50, weapon=rusty_blade, no armour, no consumable",
-          "Visible:",
-          "- Player_3, dist 7 SE",
-          "- Chest_005, dist 4 SW",
-          "",
-          "Make a decision.",
+          "# Current Game State",
+          "Turn 1, 8/8 players alive",
+          JSON.stringify(
+            {
+              Camper: {
+                kind: "character",
+                pos: { x: 22, y: 22 },
+                dist: 7,
+                bearing: "SE",
+                hp: "high",
+                equipped: {
+                  weapon: "rusty_blade",
+                  armour: null,
+                  consumable: null,
+                },
+              },
+              Chest_005: {
+                kind: "chest",
+                pos: { x: 11, y: 19 },
+                dist: 4,
+                bearing: "SW",
+                opened: false,
+                contents: null,
+              },
+            },
+            null,
+            2,
+          ),
         ].join("\n"),
       },
     ],

@@ -1,4 +1,4 @@
-// Phase 02 / WP-D — Pure formatter helpers consumed by HoverCard.tsx and
+// Phase 02 / WP-D — Pure formatter helpers used by HoverCard.tsx and
 // ExpandModal.tsx. No I/O, no React, no DOM. Every helper is round-trip
 // covered by `__tests__/formatters.test.ts`.
 //

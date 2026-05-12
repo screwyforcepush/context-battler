@@ -128,7 +128,7 @@ describe("WP12 — runs.aggregate top-level counts", () => {
     const roster = defaultRoster();
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 8, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
-        { characterId: "c4", kind: "loot", target: "c1", result: "looted" },
+        { characterId: "c4", kind: "loot", target: "Corpse_Duelist", result: "looted" },
         // out_of_range / no_corpse are NOT equips
         { characterId: "c5", kind: "loot", target: "c2", result: "out_of_range" },
       ] } }),
@@ -205,7 +205,7 @@ describe("WP12 — runs.aggregate per-persona breakdown (consistency invariant)"
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
         { characterId: "c0", kind: "loot", target: "chest_001", result: "opened" },
-        { characterId: "c1", kind: "loot", target: "c4", result: "looted" },
+        { characterId: "c1", kind: "loot", target: "Corpse_Paranoid", result: "looted" },
       ] } }),
     ];
     const result = aggregateRunStats(turns, roster);
@@ -215,6 +215,22 @@ describe("WP12 — runs.aggregate per-persona breakdown (consistency invariant)"
     expect(eBy.duelist).toBe(1);
     const sum = result.perPersona.reduce((acc, p) => acc + p.equips, 0);
     expect(sum).toBe(result.equips);
+  });
+
+  it("does not count malformed chest looted rows as corpse equips", () => {
+    const roster = defaultRoster();
+    const turns: AggregatorTurnRow[] = [
+      turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
+        { characterId: "c0", kind: "loot", target: "chest_001", result: "opened" },
+        { characterId: "c0", kind: "loot", target: "chest_001", result: "looted" },
+        { characterId: "c1", kind: "loot", target: "Corpse_Camper", result: "looted" },
+      ] } }),
+    ];
+    const result = aggregateRunStats(turns, roster);
+    expect(result.equips).toBe(2);
+    const eBy = Object.fromEntries(result.perPersona.map((p) => [p.personaId, p.equips]));
+    expect(eBy.rat).toBe(1);
+    expect(eBy.duelist).toBe(1);
   });
 
   it("perPersona.extracted sum equals top-level extractions", () => {
@@ -391,13 +407,11 @@ function makeState(opts: {
 
 function nullDecision(overrides: Partial<ParsedDecision> = {}): ParsedDecision {
   return {
-    consume: "none",
-    primary: "stationary_action",
-    move: { kind: "none" },
+    use: null,
+    position: { kind: "move", direction: { kind: "N" }, dist: 0 },
     action: { kind: "none" },
     say: null,
-    overwatch_stance: null,
-    scratchpad_update: null,
+    scratchpad: null,
     ...overrides,
   };
 }
@@ -567,7 +581,7 @@ describe("Fix #1 — equip ground-truth (corpse-loot)", () => {
       world: {
         corpses: [
           {
-            characterId: "Player_3",
+            characterId: "Camper",
             pos: { x: 1, y: 0 },
             contents: { weapon: { category: "weapon", name: "axe" } },
           },
@@ -575,8 +589,8 @@ describe("Fix #1 — equip ground-truth (corpse-loot)", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ action: { kind: "loot", targetId: "Player_3" } })],
-      ["B", nullDecision({ action: { kind: "loot", targetId: "Player_3" } })],
+      ["A", nullDecision({ action: { kind: "loot", targetId: "Corpse_Camper" } })],
+      ["B", nullDecision({ action: { kind: "loot", targetId: "Corpse_Camper" } })],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
 
@@ -608,7 +622,7 @@ describe("Fix #1 — equip ground-truth (corpse-loot)", () => {
       world: {
         corpses: [
           {
-            characterId: "Player_7",
+            characterId: "Vulture",
             pos: { x: 1, y: 0 },
             contents: {},
           },
@@ -616,7 +630,7 @@ describe("Fix #1 — equip ground-truth (corpse-loot)", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ action: { kind: "loot", targetId: "Player_7" } })],
+      ["A", nullDecision({ action: { kind: "loot", targetId: "Corpse_Vulture" } })],
     ]);
     const { trace, state: next } = resolveTurn(state, decisions);
 
@@ -635,13 +649,13 @@ describe("Fix #1 — equip ground-truth (corpse-loot)", () => {
 
 describe("Fix #2 — overwatch kill attribution (T42 scenario)", () => {
   it("overwatch lethal hit credits the attacker's persona with one kill (top-level + perPersona)", () => {
-    // T42 scenario verbatim: trader fires overwatch, target dies same turn.
+    // T42 scenario: trader fires overwatch, target dies same turn.
     // Pre-fix: per-persona kills under-counted because the aggregator filter
     // only credited `kind === "attack"`. Post-fix: `attack || overwatch`
     // both qualify.
     //
-    // A is the trader on overwatch with greatsword (40 dmg). B is the rat
-    // at low HP, walking into A's vision/range. Phase 5 overwatch fires; B
+    // A is the trader on overwatch with greatsword. B is the rat
+    // at low HP, walking into A's range. Phase 5 overwatch fires; B
     // dies; phase 6 records the death.
     const a = makeCharacter({
       id: "A",
@@ -651,7 +665,7 @@ describe("Fix #2 — overwatch kill attribution (T42 scenario)", () => {
     });
     const b = makeCharacter({
       id: "B",
-      pos: { x: 1, y: 0 },
+      pos: { x: 3, y: 0 },
       personaId: "rat",
       hp: 5,
     });
@@ -660,11 +674,15 @@ describe("Fix #2 — overwatch kill attribution (T42 scenario)", () => {
       [
         "A",
         nullDecision({
-          primary: "overwatch",
-          overwatch_stance: "offensive",
+          position: { kind: "overwatch" },
         }),
       ],
-      ["B", nullDecision()],
+      [
+        "B",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "W" }, dist: 1 },
+        }),
+      ],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
 
