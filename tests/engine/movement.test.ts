@@ -8,7 +8,11 @@
 //   - concept-spec.md §4 (movement budget = 8 default; speed consumable = 12)
 
 import { describe, expect, it } from "vitest";
-import { simulateMovement } from "../../convex/engine/movement.js";
+import {
+  desiredNextTile,
+  simulateMovement,
+  type Mover,
+} from "../../convex/engine/movement.js";
 import type {
   CharacterState,
   ItemRef,
@@ -37,6 +41,7 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
 function makeCharacter(opts: {
   id: string;
   pos: Tile;
+  displayName?: string;
   hp?: number;
   alive?: boolean;
   consumable?: ItemRef;
@@ -46,7 +51,7 @@ function makeCharacter(opts: {
     characterId: opts.id,
     personaId: opts.personaId ?? "rat",
     spawnIndex: 0,
-    displayName: opts.id,
+    displayName: opts.displayName ?? opts.id,
     hp: opts.hp ?? 100,
     maxHp: 100,
     pos: opts.pos,
@@ -101,53 +106,120 @@ function findChar(state: MatchState, id: string): CharacterState {
   return c;
 }
 
-// ─── §10 entity-targeted movement tracks current position ────────────────
+function chebyshevDistance(a: Tile, b: Tile): number {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+}
+
+function tileIsInWall(tile: Tile, wall: Wall): boolean {
+  return (
+    tile.x >= wall.x &&
+    tile.x < wall.x + wall.w &&
+    tile.y >= wall.y &&
+    tile.y < wall.y + wall.h
+  );
+}
+
+// ─── §10 target movement tracks current position ─────────────────────────
 
 describe("WP7 movement — concept-spec §10", () => {
-  it("§10 — toward_entity tracks target's CURRENT position substep-by-substep", () => {
+  it("§10 — toward Player_N tracks target's CURRENT position substep-by-substep", () => {
     // A at (0,0), B at (10,0). Both decide:
-    //   A: toward_entity B
+    //   A: toward Player_2
     //   B: relative (5, 0)  (moves east; A must keep tracking)
     // Expected: A moves 8 east; B moves 5 east. After substep loop, A
     // should be at (8,0), B at (15,0). Chebyshev between A and B is 7.
-    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
-    const b = makeCharacter({ id: "B", pos: { x: 10, y: 0 } });
+    const a = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 0, y: 0 },
+    });
+    const b = makeCharacter({
+      id: "opaque_b",
+      displayName: "Player_2",
+      pos: { x: 10, y: 0 },
+    });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward_entity", targetCharacterId: "B" })],
-      ["B", moveDecision({ kind: "relative", dx: 5, dy: 0 })],
+      ["A", moveDecision({ kind: "toward", targetId: "Player_2" })],
+      ["opaque_b", moveDecision({ kind: "relative", dx: 5, dy: 0 })],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     expect(findChar(next, "A").pos).toEqual({ x: 8, y: 0 });
-    expect(findChar(next, "B").pos).toEqual({ x: 15, y: 0 });
+    expect(findChar(next, "opaque_b").pos).toEqual({ x: 15, y: 0 });
   });
 
-  it("§10 — toward_entity stops at Chebyshev 2 (interaction range)", () => {
+  it("§10 — cached Player_N target keeps tracking after current LOS would drop", () => {
+    const a = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 0, y: 0 },
+    });
+    const b = makeCharacter({
+      id: "opaque_b",
+      displayName: "Player_2",
+      pos: { x: 30, y: 0 },
+    });
+    const state = makeState({ characters: [a, b] });
+    const mover: Mover = {
+      characterId: "A",
+      budget: 8,
+      decision: moveDecision({ kind: "toward", targetId: "Player_2" }),
+      resolvedTarget: {
+        kind: "character",
+        tile: { x: 20, y: 0 },
+        stopAtRange: 2,
+        engineRef: { characterId: "opaque_b" },
+      },
+      dxRemaining: 0,
+      dyRemaining: 0,
+    };
+
+    expect(desiredNextTile(state, mover)).toEqual({ x: 1, y: 0 });
+  });
+
+  it("§10 — toward Player_N stops at Chebyshev 2 (interaction range)", () => {
     // A at (0,0), B at (5,0), B does not move.
     // A moves toward B; should stop within Chebyshev 2 → at (3,0).
-    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
-    const b = makeCharacter({ id: "B", pos: { x: 5, y: 0 } });
+    const a = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 0, y: 0 },
+    });
+    const b = makeCharacter({
+      id: "opaque_b",
+      displayName: "Player_4",
+      pos: { x: 5, y: 0 },
+    });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward_entity", targetCharacterId: "B" })],
-      ["B", noMoveDecision()],
+      ["A", moveDecision({ kind: "toward", targetId: "Player_4" })],
+      ["opaque_b", noMoveDecision()],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     const aFinal = findChar(next, "A");
     // A should stop at distance ≤ 2 from B's actual final position.
-    expect(Math.max(Math.abs(aFinal.pos.x - 5), Math.abs(aFinal.pos.y - 0))).toBeLessThanOrEqual(2);
-    expect(Math.max(Math.abs(aFinal.pos.x - 5), Math.abs(aFinal.pos.y - 0))).toBeGreaterThanOrEqual(2);
+    expect(
+      Math.max(Math.abs(aFinal.pos.x - 5), Math.abs(aFinal.pos.y - 0)),
+    ).toBe(2);
   });
 
   it("§10 — speed consumable bumps movement budget to 12 this turn", () => {
     // Caller signals via `speedActiveIds` — the resolver applies consumables
     // in phase 2 then passes the set to phase 4.
-    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
-    const b = makeCharacter({ id: "B", pos: { x: 30, y: 0 } });
+    const a = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 0, y: 0 },
+    });
+    const b = makeCharacter({
+      id: "opaque_b",
+      displayName: "Player_2",
+      pos: { x: 20, y: 0 },
+    });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward_entity", targetCharacterId: "B" })],
-      ["B", noMoveDecision()],
+      ["A", moveDecision({ kind: "toward", targetId: "Player_2" })],
+      ["opaque_b", noMoveDecision()],
     ]);
     const { state: next } = simulateMovement(state, decisions, {
       speedActiveIds: new Set(["A"]),
@@ -158,13 +230,25 @@ describe("WP7 movement — concept-spec §10", () => {
   it("§10 — agent does NOT retarget on new enemy mid-movement", () => {
     // A moving toward original target B. C enters near A's path. A must
     // continue toward B, not retarget to C.
-    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
-    const b = makeCharacter({ id: "B", pos: { x: 20, y: 0 } });
-    const c = makeCharacter({ id: "C", pos: { x: 5, y: 5 } });
+    const a = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 0, y: 0 },
+    });
+    const b = makeCharacter({
+      id: "opaque_b",
+      displayName: "Player_2",
+      pos: { x: 20, y: 0 },
+    });
+    const c = makeCharacter({
+      id: "C",
+      displayName: "Player_3",
+      pos: { x: 5, y: 5 },
+    });
     const state = makeState({ characters: [a, b, c] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward_entity", targetCharacterId: "B" })],
-      ["B", noMoveDecision()],
+      ["A", moveDecision({ kind: "toward", targetId: "Player_2" })],
+      ["opaque_b", noMoveDecision()],
       ["C", noMoveDecision()],
     ]);
     const { state: next } = simulateMovement(state, decisions);
@@ -176,14 +260,14 @@ describe("WP7 movement — concept-spec §10", () => {
     expect(aFinal.pos.y).toBe(0);
   });
 
-  it("§10 — toward_evac uses evac.centre", () => {
+  it("§10 — toward Evac uses evac.centre", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({
       characters: [a],
       world: { evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 } },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward_evac" })],
+      ["A", moveDecision({ kind: "toward", targetId: "Evac" })],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     expect(findChar(next, "A").pos).toEqual({ x: 8, y: 8 });
@@ -210,7 +294,7 @@ describe("WP7 movement — concept-spec §10", () => {
     expect(findChar(next, "A").pos).toEqual({ x: 3, y: 5 });
   });
 
-  it("§10 — toward_object uses static chest position", () => {
+  it("§10 — toward Chest_NNN uses static chest position and stops at Chebyshev 2", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({
       characters: [a],
@@ -227,25 +311,245 @@ describe("WP7 movement — concept-spec §10", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward_object", targetObjectId: "chest_001" })],
+      ["A", moveDecision({ kind: "toward", targetId: "Chest_001" })],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     // Stops at Chebyshev 2 from chest at (5,0): A ends at (3,0).
     expect(findChar(next, "A").pos).toEqual({ x: 3, y: 0 });
   });
 
-  it("§10 — away_from_entity moves to increase Chebyshev distance", () => {
-    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-    const b = makeCharacter({ id: "B", pos: { x: 5, y: 6 } });
+  it("§10 — away Player_N moves to increase Chebyshev distance", () => {
+    const a = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 5, y: 5 },
+    });
+    const b = makeCharacter({
+      id: "opaque_b",
+      displayName: "Player_2",
+      pos: { x: 5, y: 6 },
+    });
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "away_from_entity", targetCharacterId: "B" })],
-      ["B", noMoveDecision()],
+      ["A", moveDecision({ kind: "away", targetId: "Player_2" })],
+      ["opaque_b", noMoveDecision()],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     const aFinal = findChar(next, "A");
     // A should move away from B (north). Distance must increase.
-    expect(Math.max(Math.abs(aFinal.pos.x - 5), Math.abs(aFinal.pos.y - 6))).toBeGreaterThan(1);
+    expect(chebyshevDistance(aFinal.pos, { x: 5, y: 6 })).toBeGreaterThan(1);
+  });
+});
+
+// ─── Phase 05 WP-C — typed target movement stopAtRange ───────────────────
+
+describe("Phase 05 WP-C movement resolver — typed target ids", () => {
+  it("toward Corpse_Player_N halts at corpse loot range 2", () => {
+    const actor = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const dead = makeCharacter({
+      id: "dead_5",
+      displayName: "Player_5",
+      pos: { x: 58, y: 51 },
+      alive: false,
+    });
+    const corpseTile = { x: 58, y: 50 };
+    const state = makeState({
+      characters: [actor, dead],
+      world: {
+        corpses: [
+          {
+            characterId: "dead_5",
+            pos: corpseTile,
+            contents: { weapon: { category: "weapon", name: "axe" } },
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "toward", targetId: "Corpse_Player_5" })],
+      ["dead_5", noMoveDecision()],
+    ]);
+
+    const { state: next } = simulateMovement(state, decisions);
+    const final = findChar(next, "A").pos;
+
+    expect(final).toEqual({ x: 56, y: 50 });
+    expect(chebyshevDistance(final, corpseTile)).toBe(2);
+  });
+
+  it("toward Cover_X_Y walks onto the visible cover tile when budget covers the path", () => {
+    const actor = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const cover = { x: 54, y: 42 };
+    const state = makeState({
+      characters: [actor],
+      world: { coverTiles: [cover] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "toward", targetId: "Cover_54_42" })],
+    ]);
+
+    const { state: next } = simulateMovement(state, decisions);
+
+    expect(state.world.coverTiles).toContainEqual(cover);
+    expect(findChar(next, "A").pos).toEqual(cover);
+  });
+
+  it("toward Wall_X_Y stops on a walkable Chebyshev-1 tile when reachable", () => {
+    const actor = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const wall: Wall = { x: 54, y: 50, w: 1, h: 1 };
+    const wallTile = { x: 54, y: 50 };
+    const state = makeState({
+      characters: [actor],
+      world: { walls: [wall] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "toward", targetId: "Wall_54_50" })],
+    ]);
+
+    const { state: next } = simulateMovement(state, decisions);
+    const final = findChar(next, "A").pos;
+
+    expect(final).toEqual({ x: 53, y: 50 });
+    expect(chebyshevDistance(final, wallTile)).toBe(1);
+    expect(tileIsInWall(final, wall)).toBe(false);
+  });
+
+  it("toward Wall_X_Y at a blocked map edge halts gracefully without entering a wall", () => {
+    const actor = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 2, y: 2 },
+    });
+    const walls: Wall[] = [
+      { x: 0, y: 0, w: 1, h: 1 },
+      { x: 1, y: 0, w: 1, h: 1 },
+      { x: 0, y: 1, w: 1, h: 1 },
+      { x: 1, y: 1, w: 1, h: 1 },
+    ];
+    const state = makeState({
+      characters: [actor],
+      world: { size: { w: 5, h: 5 }, walls },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "toward", targetId: "Wall_0_0" })],
+    ]);
+
+    const { state: next } = simulateMovement(state, decisions);
+    const final = findChar(next, "A").pos;
+
+    expect(final).toEqual({ x: 2, y: 2 });
+    expect(chebyshevDistance(final, { x: 0, y: 0 })).toBeGreaterThan(1);
+    expect(walls.some((wall) => tileIsInWall(final, wall))).toBe(false);
+  });
+
+  it("toward Evac walks onto evac.centre when revealed and within budget", () => {
+    const actor = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const state = makeState({
+      characters: [actor],
+      world: { evac: { centre: { x: 54, y: 54 }, revealedAtTurn: 30 } },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "toward", targetId: "Evac" })],
+    ]);
+
+    const { state: next } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 54, y: 54 });
+  });
+
+  it("away Player_N preserves the deterministic +x tie-break when actor is on the target tile", () => {
+    const actor = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const target = makeCharacter({
+      id: "opaque_target",
+      displayName: "Player_4",
+      pos: { x: 50, y: 50 },
+    });
+    const state = makeState({ characters: [actor, target] });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "away", targetId: "Player_4" })],
+      ["opaque_target", noMoveDecision()],
+    ]);
+
+    const { state: next } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 58, y: 50 });
+  });
+
+  it("away Cover_X_Y moves opposite from a cover tile", () => {
+    const actor = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const state = makeState({
+      characters: [actor],
+      world: { coverTiles: [{ x: 50, y: 50 }] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "away", targetId: "Cover_50_50" })],
+    ]);
+
+    const { state: next } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 58, y: 50 });
+  });
+
+  it("away Wall_X_Y moves opposite from a wall tile", () => {
+    const actor = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const state = makeState({
+      characters: [actor],
+      world: { walls: [{ x: 48, y: 50, w: 1, h: 1 }] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "away", targetId: "Wall_48_50" })],
+    ]);
+
+    const { state: next } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 58, y: 50 });
+  });
+
+  it("away Evac moves opposite from the revealed evac centre", () => {
+    const actor = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const state = makeState({
+      characters: [actor],
+      world: { evac: { centre: { x: 48, y: 50 }, revealedAtTurn: 30 } },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "away", targetId: "Evac" })],
+    ]);
+
+    const { state: next } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 58, y: 50 });
   });
 });
 
@@ -350,8 +654,8 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
     expect(findChar(next, "B").pos).toEqual({ x: 3, y: 0 });
   });
 
-  it("§24 — path-blocked-target: agent moves as far as it can, stops when no progress", () => {
-    // A at (0,0), wants to reach chest at (10,0), wall at (4,0,1,1).
+  it("§24 — path-blocked relative move stops when the next step is blocked", () => {
+    // A at (0,0), wants to move east, wall at (4,0,1,1).
     // A should advance to (3,0) and stop (cannot go around in straight-line v0).
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const wall: Wall = { x: 4, y: 0, w: 1, h: 1 };
@@ -359,34 +663,15 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
       characters: [a],
       world: {
         walls: [wall],
-        chests: [
-          {
-            id: "c1",
-            pos: { x: 10, y: 0 },
-            contents: null,
-            opened: false,
-            lootTable: "starter",
-          },
-        ],
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward_object", targetObjectId: "c1" })],
+      ["A", moveDecision({ kind: "relative", dx: 8, dy: 0 })],
     ]);
     const { state: next } = simulateMovement(state, decisions);
-    // The agent could try diagonals (e.g., (3,1), (4,1) bypassing the wall).
-    // Implementation choice: greedy step toward target — if blocked, try
-    // axis-aligned alternatives. For this test we accept either (3,0) or
-    // a diagonal detour, but assert the agent did NOT pass through the wall.
     const aFinal = findChar(next, "A");
-    // Final must not be in wall.
-    expect(
-      aFinal.pos.x === 4 && aFinal.pos.y === 0,
-    ).toBe(false);
-    // Final must be within budget=8 Chebyshev of start.
-    expect(
-      Math.max(Math.abs(aFinal.pos.x - 0), Math.abs(aFinal.pos.y - 0)),
-    ).toBeLessThanOrEqual(8);
+    expect(aFinal.pos).toEqual({ x: 3, y: 0 });
+    expect(tileIsInWall(aFinal.pos, wall)).toBe(false);
   });
 
   it("§24 — cover is walkable", () => {
@@ -602,18 +887,24 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
   });
 });
 
-// ─── WP-G.1 Corpse_Player_N toward_object routing — D38 PM-lock ──────────
+// ─── WP-G.1 Corpse_Player_N typed-id routing — D38 PM-lock ───────────────
 //
-// Reviewer-B HIGH-1: digest renders `Corpse_Player_N` typed-id but the
-// `toward_object` movement resolver only matched corpses by raw
-// `targetObjectId === characterId`, never by the rendered typed-id.
+// Reviewer-B HIGH-1: digest renders `Corpse_Player_N` typed-id. The movement
+// resolver must route that id to the corpse tile through the shared typed-id
+// helper, not through category-specific move arms.
 // PM-lock D38: fix at engine boundary; do NOT change digest rendering.
 
-describe("WP-G.1 Corpse_Player_N toward_object routing — D38", () => {
-  it("toward_object 'Corpse_Player_N' (digest typed-id) routes toward corpse tile (test-fixture: characterId === Player_N)", () => {
+describe("WP-G.1 Corpse_Player_N typed-id movement routing — D38", () => {
+  it("toward 'Corpse_Player_N' routes toward corpse tile (test-fixture: characterId === Player_N)", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const dead = makeCharacter({
+      id: "Player_5",
+      displayName: "Player_5",
+      pos: { x: 5, y: 0 },
+      alive: false,
+    });
     const state = makeState({
-      characters: [a],
+      characters: [a, dead],
       world: {
         corpses: [
           {
@@ -628,19 +919,23 @@ describe("WP-G.1 Corpse_Player_N toward_object routing — D38", () => {
       [
         "A",
         moveDecision({
-          kind: "toward_object",
-          targetObjectId: "Corpse_Player_5",
+          kind: "toward",
+          targetId: "Corpse_Player_5",
         }),
       ],
+      ["Player_5", noMoveDecision()],
     ]);
     const { state: next } = simulateMovement(state, decisions);
-    // toward_object stops at Chebyshev 2 of corpse at (5,0): A ends at (3,0).
+    // Corpse stopAtRange is 2: A ends at (3,0).
     expect(findChar(next, "A").pos).toEqual({ x: 3, y: 0 });
   });
 
-  it("toward_object 'Corpse_Player_N' resolves via displayName lookup when corpse.characterId is opaque (production shape)", () => {
-    const a = makeCharacter({ id: "char_opaque_a", pos: { x: 0, y: 0 } });
-    a.displayName = "Player_1";
+  it("toward 'Corpse_Player_N' resolves via displayName lookup when corpse.characterId is opaque (production shape)", () => {
+    const a = makeCharacter({
+      id: "char_opaque_a",
+      displayName: "Player_1",
+      pos: { x: 0, y: 0 },
+    });
     // Production shape: corpse.characterId is the engine `_id`, not Player_N.
     const state = makeState({
       characters: [a],
@@ -674,8 +969,8 @@ describe("WP-G.1 Corpse_Player_N toward_object routing — D38", () => {
       [
         "char_opaque_a",
         moveDecision({
-          kind: "toward_object",
-          targetObjectId: "Corpse_Player_5",
+          kind: "toward",
+          targetId: "Corpse_Player_5",
         }),
       ],
       ["char_opaque_e", noMoveDecision()],

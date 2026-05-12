@@ -168,18 +168,13 @@ const moveValidator = v.union(
     dy: v.number(),
   }),
   v.object({
-    kind: v.literal("toward_entity"),
-    targetCharacterId: v.string(),
+    kind: v.literal("toward"),
+    targetId: v.string(),
   }),
   v.object({
-    kind: v.literal("away_from_entity"),
-    targetCharacterId: v.string(),
+    kind: v.literal("away"),
+    targetId: v.string(),
   }),
-  v.object({
-    kind: v.literal("toward_object"),
-    targetObjectId: v.string(),
-  }),
-  v.object({ kind: v.literal("toward_evac") }),
   v.object({ kind: v.literal("none") }),
 );
 

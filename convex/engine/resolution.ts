@@ -293,34 +293,17 @@ export function resolveTurn(
   // Filter to ONLY decisions where primary === "move"; pass speedActiveIds.
   // Detect "leaving cover" reveal per-mover after the substep loop.
   //
-  // Phase-3 WP-F.2 — for `toward_entity` / `away_from_entity` move arms,
-  // the LLM emits `targetCharacterId` as a typed display id (`Player_N`,
-  // per North Star §1 + the system prompt). The validator boundary
-  // accepts that form; here we normalise it to the engine `characterId`
-  // before handing the decision to `simulateMovement` so the
-  // sub-substep `state.characters.find((c) => c.characterId === ...)`
-  // lookup inside `desiredNextTile` resolves correctly. Single
-  // normalisation point — engine-id flows through to movement.
+  // Phase-5 move-arm consolidation — movement target ids stay in the
+  // model-visible id space (`Player_N`, `Chest_NNN`, `Cover_X_Y`, etc.).
+  // `simulateMovement` consumes `resolveTypedEntity`, which owns the
+  // Player_N → engine-character lookup and per-entity stopAtRange logic.
+  // Attack/loot action ids are still normalised at their action sites below
+  // so traces can echo the model-visible ids while engine lookups use
+  // internal references.
   const moveDecisions = new Map<string, ParsedDecision>();
   for (const id of liveActorIds) {
     const decision = decisions.get(id)!;
     if (decision.primary !== "move") continue;
-    if (
-      decision.move.kind === "toward_entity" ||
-      decision.move.kind === "away_from_entity"
-    ) {
-      const engineId = normaliseCharacterTargetId(
-        decision.move.targetCharacterId,
-        working.characters,
-      );
-      if (engineId && engineId !== decision.move.targetCharacterId) {
-        moveDecisions.set(id, {
-          ...decision,
-          move: { ...decision.move, targetCharacterId: engineId },
-        });
-        continue;
-      }
-    }
     moveDecisions.set(id, decision);
   }
   const moveResult = simulateMovement(working, moveDecisions, {

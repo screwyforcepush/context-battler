@@ -1,3 +1,6 @@
+import type { MatchState, Tile } from "../engine/types.js";
+import { computeVisibleEntities } from "../engine/vision.js";
+
 // Phase-3 WP-F.2 — character target id normalisation at the validator
 // boundary.
 //
@@ -109,4 +112,146 @@ export function normaliseCorpseTargetId(
   const inner = targetId.slice("Corpse_".length);
   if (!inner) return null;
   return normaliseCharacterTargetId(inner, characters);
+}
+
+export type ResolvedEntity = {
+  kind: "character" | "chest" | "corpse" | "cover" | "wall" | "evac";
+  tile: Tile;
+  stopAtRange: number;
+  engineRef?: { characterId?: string; chestId?: string };
+};
+
+function copyTile(tile: Tile): Tile {
+  return { x: tile.x, y: tile.y };
+}
+
+function chestTargetIds(chestId: string): string[] {
+  const ids = new Set<string>([chestId]);
+  const lower = /^chest_(\d+)$/.exec(chestId);
+  if (lower) ids.add(`Chest_${lower[1]}`);
+  const upper = /^Chest_(\d+)$/.exec(chestId);
+  if (upper) ids.add(`chest_${upper[1]}`);
+  return [...ids];
+}
+
+function findChestByTargetId(state: MatchState, targetId: string) {
+  return state.world.chests.find((chest) =>
+    chestTargetIds(chest.id).includes(targetId),
+  );
+}
+
+function visibleTargetIds(state: MatchState, observerId: string): Set<string> {
+  const ids = new Set<string>();
+  const { visible } = computeVisibleEntities(state, observerId);
+
+  for (const entity of visible) {
+    switch (entity.kind) {
+      case "character": {
+        const character = state.characters.find(
+          (c) => c.characterId === entity.characterId,
+        );
+        if (character) ids.add(character.displayName);
+        break;
+      }
+      case "chest":
+        for (const id of chestTargetIds(entity.objectId)) ids.add(id);
+        break;
+      case "corpse": {
+        const character = state.characters.find(
+          (c) => c.characterId === entity.objectId,
+        );
+        if (character) ids.add(`Corpse_${character.displayName}`);
+        break;
+      }
+      case "cover":
+        ids.add(`Cover_${entity.pos.x}_${entity.pos.y}`);
+        break;
+      case "wall":
+        ids.add(`Wall_${entity.pos.x}_${entity.pos.y}`);
+        break;
+    }
+  }
+
+  if (state.world.evac.revealedAtTurn !== null) ids.add("Evac");
+  return ids;
+}
+
+function parsePositionId(
+  targetId: string,
+  prefix: "Cover" | "Wall",
+): Tile | null {
+  const match = new RegExp(`^${prefix}_(-?\\d+)_(-?\\d+)$`).exec(targetId);
+  if (!match) return null;
+  return { x: Number(match[1]), y: Number(match[2]) };
+}
+
+export function resolveTypedEntity(
+  state: MatchState,
+  observerId: string,
+  targetId: string,
+): ResolvedEntity | null {
+  if (!visibleTargetIds(state, observerId).has(targetId)) return null;
+
+  if (targetId === "Evac") {
+    return {
+      kind: "evac",
+      tile: copyTile(state.world.evac.centre),
+      stopAtRange: 0,
+    };
+  }
+
+  if (targetId.startsWith("Corpse_")) {
+    const characterId = normaliseCorpseTargetId(targetId, state.characters);
+    const corpse = characterId
+      ? state.world.corpses.find((c) => c.characterId === characterId)
+      : undefined;
+    if (!corpse) return null;
+    return {
+      kind: "corpse",
+      tile: copyTile(corpse.pos),
+      stopAtRange: 2,
+    };
+  }
+
+  if (targetId.startsWith("Chest_") || targetId.startsWith("chest_")) {
+    const chest = findChestByTargetId(state, targetId);
+    if (!chest) return null;
+    return {
+      kind: "chest",
+      tile: copyTile(chest.pos),
+      stopAtRange: 2,
+      engineRef: { chestId: chest.id },
+    };
+  }
+
+  if (targetId.startsWith("Player_")) {
+    const characterId = normaliseCharacterTargetId(
+      targetId,
+      state.characters,
+    );
+    const character = characterId
+      ? state.characters.find((c) => c.characterId === characterId)
+      : undefined;
+    if (!character) return null;
+    return {
+      kind: "character",
+      tile: copyTile(character.pos),
+      stopAtRange: 2,
+      engineRef: { characterId: character.characterId },
+    };
+  }
+
+  if (targetId.startsWith("Cover_")) {
+    const tile = parsePositionId(targetId, "Cover");
+    if (!tile) return null;
+    return { kind: "cover", tile, stopAtRange: 0 };
+  }
+
+  if (targetId.startsWith("Wall_")) {
+    const tile = parsePositionId(targetId, "Wall");
+    if (!tile) return null;
+    return { kind: "wall", tile, stopAtRange: 1 };
+  }
+
+  return null;
 }

@@ -534,6 +534,129 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
     expect(out.meetsOutcomeAttributionThreshold).toBe(true);
   });
 
+  it("counts a match when N+1 decision references attacker via toward/away character target", () => {
+    const characters = [
+      makeChar("c-A", "Player_A"),
+      makeChar("c-B", "Player_B"),
+      makeChar("c-C", "Player_C"),
+    ];
+    const t0 = makeTurn({
+      matchId: "M1",
+      turn: 0,
+      agentRecords: [
+        makeAgentRecord({ characterId: "c-A" }),
+        makeAgentRecord({ characterId: "c-B" }),
+        makeAgentRecord({ characterId: "c-C" }),
+      ],
+      resolution: {
+        moves: [],
+        actions: [
+          {
+            characterId: "c-A",
+            kind: "attack",
+            target: "Player_B",
+            result: "dmg 20",
+          },
+          {
+            characterId: "c-A",
+            kind: "attack",
+            target: "Player_C",
+            result: "dmg 12",
+          },
+        ],
+        speech: [],
+      },
+    });
+    const t1 = makeTurn({
+      matchId: "M1",
+      turn: 1,
+      agentRecords: [
+        makeAgentRecord({ characterId: "c-A" }),
+        makeAgentRecord({
+          characterId: "c-B",
+          decision: {
+            move: { kind: "toward", targetId: "Player_A" },
+            action: { kind: "none" },
+          },
+        }),
+        makeAgentRecord({
+          characterId: "c-C",
+          decision: {
+            move: { kind: "away", targetId: "Player_A" },
+            action: { kind: "none" },
+          },
+        }),
+      ],
+      resolution: { moves: [], actions: [], speech: [] },
+    });
+    const out = computePhase3Metrics([
+      { matchId: "M1", turns: [t0, t1], characters },
+    ]);
+    expect(out.outcomeAttributionPairs).toBe(2);
+    expect(out.outcomeAttributionMatches).toBe(2);
+    expect(out.outcomeAttributionRate).toBe(1);
+  });
+
+  it("does NOT count non-character move target ids as attacker attribution", () => {
+    const ignoredMoves: Phase3AgentRecord["decision"]["move"][] = [
+      { kind: "toward", targetId: "Chest_006" },
+      { kind: "toward", targetId: "Corpse_Player_A" },
+      { kind: "toward", targetId: "Cover_54_42" },
+      { kind: "away", targetId: "Wall_64_30" },
+      { kind: "toward", targetId: "Evac" },
+      { kind: "relative", dx: 1, dy: 0 },
+      { kind: "none" },
+    ];
+    const runs = ignoredMoves.map((move, index) => {
+      const matchId = `M${index}`;
+      const characters = [
+        makeChar("c-A", "Player_A"),
+        makeChar("c-B", "Player_B"),
+      ];
+      const t0 = makeTurn({
+        matchId,
+        turn: 0,
+        agentRecords: [
+          makeAgentRecord({ characterId: "c-A" }),
+          makeAgentRecord({ characterId: "c-B" }),
+        ],
+        resolution: {
+          moves: [],
+          actions: [
+            {
+              characterId: "c-A",
+              kind: "attack",
+              target: "Player_B",
+              result: "dmg 8",
+            },
+          ],
+          speech: [],
+        },
+      });
+      const t1 = makeTurn({
+        matchId,
+        turn: 1,
+        agentRecords: [
+          makeAgentRecord({ characterId: "c-A" }),
+          makeAgentRecord({
+            characterId: "c-B",
+            decision: {
+              move,
+              action: { kind: "none" },
+            },
+          }),
+        ],
+        resolution: { moves: [], actions: [], speech: [] },
+      });
+      return { matchId, turns: [t0, t1], characters };
+    });
+
+    const out = computePhase3Metrics(runs);
+    expect(out.outcomeAttributionPairs).toBe(ignoredMoves.length);
+    expect(out.outcomeAttributionMatches).toBe(0);
+    expect(out.outcomeAttributionRate).toBe(0);
+  });
+
   it("counts a match via scratchpad substring reference", () => {
     const characters = [
       makeChar("c-A", "Player_A"),

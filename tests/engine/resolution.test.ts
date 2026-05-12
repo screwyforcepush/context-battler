@@ -116,7 +116,8 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
       pos: { x: 0, y: 0 },
       consumable: { category: "consumable", name: "speed" },
     });
-    const b = makeCharacter({ id: "B", pos: { x: 30, y: 0 } });
+    const b = makeCharacter({ id: "B", pos: { x: 20, y: 0 } });
+    b.displayName = "Player_2";
     const state = makeState({ characters: [a, b] });
     const decisions = new Map<string, ParsedDecision>([
       [
@@ -124,7 +125,7 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
         {
           consume: "speed",
           primary: "move",
-          move: { kind: "toward_entity", targetCharacterId: "B" },
+          move: { kind: "toward", targetId: "Player_2" },
           action: { kind: "none" },
           say: "incoming",
           overwatch_stance: null,
@@ -139,8 +140,8 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
     expect(trace.speech).toContainEqual({
       characterId: "A",
       text: "incoming",
-      heardBy: [],
-    }); // B at dist 30 is out of hearing range (≤20)
+      heardBy: ["B"],
+    });
     // After: A consumable removed, A moved (speed bumps to 12), scratchpad updated.
     const aAfter = findChar(next, "A");
     expect(aAfter.equipped.consumable).toBeUndefined();
@@ -220,14 +221,14 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
         "A",
         nullDecision({
           primary: "move",
-          move: { kind: "toward_object", targetObjectId: "chest_001" },
+          move: { kind: "toward", targetId: "Chest_001" },
           action: { kind: "loot", targetId: "chest_001" },
         }),
       ],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
-    // A moved closer to the chest (toward_object stops at Chebyshev 2 from
-    // the chest's static target tile); confirm A is now within INTERACT_RANGE.
+    // A moved closer to the chest (toward stops at Chebyshev 2 from the
+    // chest's target tile); confirm A is now within INTERACT_RANGE.
     const aAfter = findChar(next, "A");
     expect(Math.max(Math.abs(aAfter.pos.x - 3), Math.abs(aAfter.pos.y - 0))).toBeLessThanOrEqual(2);
     // Chest opened, axe equipped (replacing rusty_blade).
@@ -407,7 +408,7 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
           primary: "move",
           // Move 5 west so B ends at (5,5)? But A is there. Move to (6,5) — distance 1.
           // We need B visible to A (no walls between) — same row works.
-          // Actually toward_entity needs visibility. Use relative.
+          // Relative move keeps this focused on proximity reveal.
           move: { kind: "relative", dx: -4, dy: 0 },
         }),
       ],
@@ -1153,6 +1154,7 @@ describe("WP7 resolution — concept-spec §10 no mid-movement retarget", () => 
     // A heads toward B; C enters near A's path. A continues toward B.
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const b = makeCharacter({ id: "B", pos: { x: 20, y: 0 } });
+    b.displayName = "Player_2";
     const c = makeCharacter({ id: "C", pos: { x: 5, y: 5 } });
     const state = makeState({ characters: [a, b, c] });
     const decisions = new Map<string, ParsedDecision>([
@@ -1160,7 +1162,7 @@ describe("WP7 resolution — concept-spec §10 no mid-movement retarget", () => 
         "A",
         nullDecision({
           primary: "move",
-          move: { kind: "toward_entity", targetCharacterId: "B" },
+          move: { kind: "toward", targetId: "Player_2" },
         }),
       ],
       ["B", nullDecision()],
@@ -1934,12 +1936,14 @@ describe("WP7 resolution — end-to-end short scenario", () => {
       weapon: { category: "weapon", name: "axe" },
       armour: { category: "armour", name: "leather" },
     });
+    a.displayName = "Player_1";
     const b = makeCharacter({
       id: "B",
       pos: { x: 5, y: 5 },
       hp: 50,
       weapon: { category: "weapon", name: "sword" },
     });
+    b.displayName = "Player_2";
     const c = makeCharacter({
       id: "C",
       pos: { x: 10, y: 10 },
@@ -1953,7 +1957,7 @@ describe("WP7 resolution — end-to-end short scenario", () => {
         "A",
         nullDecision({
           primary: "move",
-          move: { kind: "toward_entity", targetCharacterId: "B" },
+          move: { kind: "toward", targetId: "Player_2" },
         }),
       ],
       ["B", nullDecision({ say: "hi" })],
@@ -1979,7 +1983,7 @@ describe("WP7 resolution — end-to-end short scenario", () => {
         "C",
         nullDecision({
           primary: "move",
-          move: { kind: "toward_entity", targetCharacterId: "A" },
+          move: { kind: "toward", targetId: "Player_1" },
         }),
       ],
     ]);
@@ -2012,14 +2016,14 @@ describe("WP7 resolution — end-to-end short scenario", () => {
 // ─── WP-F.2 display-id normalisation through resolution ──────────────────
 //
 // Per North Star §1 (locked design decision #1) and the system prompt,
-// the LLM emits attack / move-toward / move-away targets as typed
+// the LLM emits attack and movement targets as typed
 // display ids (`Player_N`, the `displayName`). In production the engine
 // `characterId` is a Convex opaque `_id`, NOT `Player_N`. The
-// normalisation helper at `convex/llm/idNormalisation.ts` bridges the
-// two id spaces; resolution.ts applies it at the attack site and at the
-// move-decision-collection site (so `simulateMovement` sees engine ids).
-// These tests confirm Player_N targets resolve end-to-end through the
-// engine when the engine `characterId` is opaque.
+// normalisation helper at `convex/llm/idNormalisation.ts` bridges attack
+// ids at the action site, while movement consumes the model-visible id
+// directly through `resolveTypedEntity` inside `movement.ts`. These tests
+// confirm Player_N targets resolve end-to-end through the engine when the
+// engine `characterId` is opaque.
 describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
   it("attack with targetCharacterId='Player_3' resolves against opaque engine id and applies damage", () => {
     const a = makeCharacter({
@@ -2058,7 +2062,7 @@ describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
     expect(attackEntry!.result).toBe("dmg 15");
   });
 
-  it("move:toward_entity with targetCharacterId='Player_3' steps toward opaque target", () => {
+  it("move:toward with targetId='Player_3' steps toward opaque target", () => {
     const a = makeCharacter({
       id: "char_opaque_a",
       pos: { x: 0, y: 0 },
@@ -2066,7 +2070,7 @@ describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
     a.displayName = "Player_1";
     const b = makeCharacter({
       id: "char_opaque_b",
-      pos: { x: 30, y: 0 },
+      pos: { x: 20, y: 0 },
     });
     b.displayName = "Player_3";
     const state = makeState({ characters: [a, b] });
@@ -2075,13 +2079,13 @@ describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
         "char_opaque_a",
         nullDecision({
           primary: "move",
-          move: { kind: "toward_entity", targetCharacterId: "Player_3" },
+          move: { kind: "toward", targetId: "Player_3" },
         }),
       ],
       ["char_opaque_b", nullDecision()],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
-    // Default budget = 8; A starts at (0,0), target at (30,0), so A
+    // Default budget = 8; A starts at (0,0), target at (20,0), so A
     // should step 8 tiles toward target → x=8.
     expect(findChar(next, "char_opaque_a").pos.x).toBe(8);
     expect(
@@ -2089,7 +2093,7 @@ describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
     ).toBeTruthy();
   });
 
-  it("move:away_from_entity with targetCharacterId='Player_3' steps away from opaque target", () => {
+  it("move:away with targetId='Player_3' steps away from opaque target", () => {
     const a = makeCharacter({
       id: "char_opaque_a",
       pos: { x: 5, y: 0 },
@@ -2106,7 +2110,7 @@ describe("WP-F.2 display-id (Player_N) target resolution — ADR §1", () => {
         "char_opaque_a",
         nullDecision({
           primary: "move",
-          move: { kind: "away_from_entity", targetCharacterId: "Player_3" },
+          move: { kind: "away", targetId: "Player_3" },
         }),
       ],
       ["char_opaque_b", nullDecision()],

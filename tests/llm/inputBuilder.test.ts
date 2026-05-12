@@ -380,9 +380,9 @@ describe("WP-C.1 — Last turn (you) line", () => {
   });
 
   it("WP-F.4 — wall block with non-relative prior move kind falls back to existing wording", () => {
-    // toward_entity / toward_object / toward_evac don't carry a (dx,dy)
-    // intent vector; the renderer can't compute a bearing, so the existing
-    // fallback wording is preserved. Only the relative arm is enriched.
+    // toward / away / none don't carry a (dx,dy) intent vector; the
+    // renderer can't compute a bearing, so the existing fallback wording is
+    // preserved. Only the relative arm is enriched.
     const me = makeCharacter({
       id: "P1",
       displayName: "Player_1",
@@ -402,7 +402,7 @@ describe("WP-C.1 — Last turn (you) line", () => {
       },
       {
         priorMoveByActor: {
-          P1: { kind: "toward_entity", targetCharacterId: "P3" },
+          P1: { kind: "toward", targetId: "Player_3" },
         },
       },
     );

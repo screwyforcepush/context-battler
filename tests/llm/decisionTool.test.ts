@@ -6,7 +6,7 @@
 // shapes the wrapper rejects (or vice-versa) — every literal/field below
 // is a contract.
 //
-// Spec — phase-3 ADR §1 (replaces phase-1 ADR §4):
+// Spec — phase-5 WP-A / ADR §1 move-arm consolidation:
 //   - `type: "function"`, `name: "decide_turn"`, `parameters` is a single
 //     object schema with `additionalProperties: false`.
 //   - Required keys: ["consume","primary","move","action","say",
@@ -16,8 +16,10 @@
 //     legally omits a nullable field, Zod rejects, and we safe-default.
 //     Reviewer-B's audit of completion-review-2 traces saw 207/234 schema
 //     failures missing `say` for exactly this reason.
-//   - `move` is a 6-arm `oneOf` discriminated by `kind` (unchanged from
-//     phase 1).
+//   - `move` is a 4-arm `oneOf` discriminated by `kind`:
+//        toward | away | relative | none. `toward` and `away` accept a
+//        targetId string for any visible entity id; per-entity stopAtRange
+//        is engine-side data, not a schema discriminator.
 //   - `action` is a **3-arm** `oneOf` discriminated by `kind` (was 4-arm):
 //        attack | loot | none.  `interact` arm is REMOVED; chest opens
 //        flow through the `loot` arm with a `chest_*`-prefixed targetId.
@@ -111,22 +113,40 @@ describe("phase-3 decisionTool — JSON Schema shape", () => {
     expect((props as Record<string, unknown>).rationale).toBeUndefined();
   });
 
-  it("additionalProperties: false on every move arm (unchanged 6-arm union)", () => {
+  it("additionalProperties: false on every move arm (4-arm union)", () => {
     const moveArms = decisionTool.parameters.properties.move.oneOf;
-    expect(moveArms).toHaveLength(6);
+    expect(moveArms).toHaveLength(4);
     for (const arm of moveArms) {
       expect(arm.type).toBe("object");
       expect(arm.additionalProperties).toBe(false);
     }
     const kinds = moveArms.map((a) => a.properties.kind.const);
-    expect([...kinds].sort()).toEqual([
-      "away_from_entity",
-      "none",
-      "relative",
-      "toward_entity",
-      "toward_evac",
-      "toward_object",
-    ]);
+    expect([...kinds].sort()).toEqual(["away", "none", "relative", "toward"]);
+    expect(kinds).not.toEqual(
+      expect.arrayContaining([
+        "toward_entity",
+        "away_from_entity",
+        "toward_object",
+        "toward_evac",
+      ]),
+    );
+  });
+
+  it("toward and away move arms require targetId strings", () => {
+    const moveArms = decisionTool.parameters.properties.move.oneOf;
+    for (const kind of ["toward", "away"] as const) {
+      const arm = moveArms.find((a) => a.properties.kind.const === kind);
+      expect(arm).toBeDefined();
+      expect([...arm!.required].sort()).toEqual(["kind", "targetId"]);
+      const props = arm!.properties as unknown as {
+        targetId?: { type: string };
+        targetCharacterId?: { type: string };
+        targetObjectId?: { type: string };
+      };
+      expect(props.targetId).toEqual({ type: "string" });
+      expect(props.targetCharacterId).toBeUndefined();
+      expect(props.targetObjectId).toBeUndefined();
+    }
   });
 
   it("action is a 3-arm union — interact arm is REMOVED", () => {
@@ -215,20 +235,27 @@ describe("WP-C decisionTool — description fields carry action grammar", () => 
     expect(description).toContain("null otherwise");
   });
 
-  it("move description lists all six arms and movement range", () => {
+  it("move description lists the 4-arm contract, stopAtRange table, and movement range", () => {
     const description = descriptionOf(
       decisionTool.parameters.properties.move,
     );
+    expect(description).toContain("any visible entity id");
+    expect(description).toContain("toward {targetId}");
+    expect(description).toContain("away {targetId}");
     expect(description).toContain("relative dx,dy");
     expect(description).toContain("integers in [-12,12]");
-    expect(description).toContain("toward_entity Player_N");
-    expect(description).toContain("away_from_entity Player_N");
-    expect(description).toContain(
-      "toward_object <Chest_NNN|Corpse_Player_N>",
-    );
-    expect(description).toContain("toward_evac");
     expect(description).toContain("none");
+    expect(description).toContain("Character 2");
+    expect(description).toContain("Chest 2");
+    expect(description).toContain("Corpse 2");
+    expect(description).toContain("Cover 0");
+    expect(description).toContain("Wall 1");
+    expect(description).toContain("Evac 0");
     expect(description).toContain("Movement range max 8 (12 w/ speed)");
+    expect(description).not.toMatch(
+      /toward_entity|away_from_entity|toward_object|toward_evac/,
+    );
+    expect(description).not.toMatch(/fallback|safe default|invalid choices/i);
   });
 
   it("action description lists attack, loot, none, verbatim ids, and range", () => {
@@ -318,13 +345,16 @@ describe("phase-3 decisionTool — Zod parseDecision()", () => {
     }
   });
 
-  it("rejects move.kind=toward_entity without targetCharacterId", () => {
+  it("rejects move.kind=toward without targetId", () => {
     const raw = JSON.stringify({
       ...SAMPLE_VALID_DECISION,
-      move: { kind: "toward_entity" },
+      move: { kind: "toward" },
     });
     const result = parseDecision(raw);
     expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe("schema_validation");
+    }
   });
 
   it("rejects consume = wrong_value", () => {
@@ -355,11 +385,9 @@ describe("phase-3 decisionTool — Zod parseDecision()", () => {
 
   it("accepts every valid move arm in turn", () => {
     const arms: ParsedDecision["move"][] = [
-      { kind: "relative", dx: 0, dy: 0 },
-      { kind: "toward_entity", targetCharacterId: "c1" },
-      { kind: "away_from_entity", targetCharacterId: "c2" },
-      { kind: "toward_object", targetObjectId: "chest_1" },
-      { kind: "toward_evac" },
+      { kind: "toward", targetId: "Player_3" },
+      { kind: "away", targetId: "Player_3" },
+      { kind: "relative", dx: 3, dy: -2 },
       { kind: "none" },
     ];
     for (const arm of arms) {
@@ -367,6 +395,45 @@ describe("phase-3 decisionTool — Zod parseDecision()", () => {
         JSON.stringify({ ...SAMPLE_VALID_DECISION, move: arm }),
       );
       expect(r.ok, `move arm ${arm.kind} must validate`).toBe(true);
+    }
+  });
+
+  it("accepts toward targetId strings from every visible entity namespace verbatim", () => {
+    const targetIds = [
+      "Player_4",
+      "Chest_006",
+      "chest_006",
+      "Corpse_Player_5",
+      "Cover_54_42",
+      "Wall_64_30",
+      "Evac",
+    ];
+    for (const targetId of targetIds) {
+      const r = parseDecision(
+        JSON.stringify({
+          ...SAMPLE_VALID_DECISION,
+          move: { kind: "toward", targetId },
+        }),
+      );
+      expect(r.ok, `targetId ${targetId} must pass schema`).toBe(true);
+    }
+  });
+
+  it("rejects all four removed legacy move arms as schema_validation", () => {
+    const legacyArms = [
+      { kind: "toward_entity", targetCharacterId: "Player_3" },
+      { kind: "away_from_entity", targetCharacterId: "Player_3" },
+      { kind: "toward_object", targetObjectId: "Chest_006" },
+      { kind: "toward_evac" },
+    ];
+    for (const move of legacyArms) {
+      const result = parseDecision(
+        JSON.stringify({ ...SAMPLE_VALID_DECISION, move }),
+      );
+      expect(result.ok, `legacy arm ${move.kind} must reject`).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toBe("schema_validation");
+      }
     }
   });
 

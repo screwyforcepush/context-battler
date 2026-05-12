@@ -328,12 +328,14 @@ describe("WP6 callDecisionTool — FailureReason coverage", () => {
   });
 
   it("schema_validation_failed: arguments is valid JSON but breaks the schema → safe-default + rawArguments preserved", async () => {
-    // toward_entity arm without targetCharacterId — passes JSON.parse but
-    // fails Zod's discriminated-union arm.
-    const bad = JSON.stringify({
+    // Raw unknown on purpose: this is a complete legacy move arm payload,
+    // not a ParsedDecision fixture. The wrapper should reject it at schema
+    // validation after JSON.parse succeeds.
+    const legacyMovePayload: unknown = {
       ...VALID_DECISION,
-      move: { kind: "toward_entity" },
-    });
+      move: { kind: "toward_entity", targetCharacterId: "Player_3" },
+    };
+    const bad = JSON.stringify(legacyMovePayload);
     const fetchImpl = vi.fn(async () =>
       jsonResponse({
         id: "resp_x",

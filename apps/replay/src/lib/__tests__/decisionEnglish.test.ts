@@ -17,8 +17,7 @@
 //
 // Coverage map (every cell of the WP-C acceptance bullet list):
 //   - move.kind=none / relative (8 compass directions × chebyshev distance)
-//                   / toward_entity / away_from_entity / toward_object
-//                   / toward_evac
+//                   / toward / away
 //   - action.kind=none / attack / loot (chest_* + corpse Player_*)
 //     × every literal `result` in the engine vocabulary table
 //   - "dmg N" template parsed as a positive integer (incl. 0)
@@ -219,61 +218,31 @@ describe("summariseDecision — move.kind vocabulary", () => {
     expect(out.oneLine).not.toContain("Moved 1 tiles");
   });
 
-  it('"toward_entity" → "Moved toward <displayName>"', () => {
-    const me = makeChar("a", "Player_1");
-    const target = makeChar("b", "Player_5");
-    const ar = makeAgentRecord(me._id, {
-      primary: "move",
-      move: { kind: "toward_entity", targetCharacterId: target._id },
+  const towardCases = ["Player_4", "Cover_54_42", "Wall_64_30", "Evac"];
+  for (const targetId of towardCases) {
+    it(`"toward" ${targetId} → renders targetId verbatim`, () => {
+      const me = makeChar("a", "Player_1");
+      const ar = makeAgentRecord(me._id, {
+        primary: "move",
+        move: { kind: "toward", targetId },
+      });
+      const out = summariseDecision(ar, emptyResolution(), characterMap(me));
+      expect(out.oneLine).toContain(`Moved toward ${targetId}`);
+      expect(out.bullets).toContain(`Move: Moved toward ${targetId}`);
+      expect(out.intentVsOutcome[0]?.intent).toBe(`Moved toward ${targetId}`);
     });
-    const out = summariseDecision(ar, emptyResolution(), characterMap(me, target));
-    expect(out.oneLine).toContain("Moved toward Player_5");
-  });
+  }
 
-  it('"away_from_entity" → "Moved away from <displayName>"', () => {
-    const me = makeChar("a", "Player_1");
-    const target = makeChar("b", "Player_5");
-    const ar = makeAgentRecord(me._id, {
-      primary: "move",
-      move: { kind: "away_from_entity", targetCharacterId: target._id },
-    });
-    const out = summariseDecision(ar, emptyResolution(), characterMap(me, target));
-    expect(out.oneLine).toContain("Moved away from Player_5");
-  });
-
-  it('"toward_object" → "Moved toward <objectId>"', () => {
+  it('"away" Player_4 → renders targetId verbatim', () => {
     const me = makeChar("a", "Player_1");
     const ar = makeAgentRecord(me._id, {
       primary: "move",
-      move: { kind: "toward_object", targetObjectId: "chest_004" },
+      move: { kind: "away", targetId: "Player_4" },
     });
     const out = summariseDecision(ar, emptyResolution(), characterMap(me));
-    expect(out.oneLine).toContain("Moved toward chest_004");
-  });
-
-  it('"toward_evac" → "Moved toward evac"', () => {
-    const me = makeChar("a", "Player_1");
-    const ar = makeAgentRecord(me._id, {
-      primary: "move",
-      move: { kind: "toward_evac" },
-    });
-    const out = summariseDecision(ar, emptyResolution(), characterMap(me));
-    expect(out.oneLine).toContain("Moved toward evac");
-  });
-
-  it("unknown displayName for toward_entity falls back to truncated id", () => {
-    const me = makeChar("a", "Player_1");
-    const unknownId = asCharId("ghosthandle1234567890");
-    const ar = makeAgentRecord(me._id, {
-      primary: "move",
-      move: { kind: "toward_entity", targetCharacterId: unknownId },
-    });
-    const out = summariseDecision(ar, emptyResolution(), characterMap(me));
-    // Unknown → falls back to a stable short identifier (id-truncate). The
-    // exact format isn't load-bearing, but it MUST NOT throw or surface
-    // "undefined" / a full-length id in the user-facing string.
-    expect(out.oneLine).toContain("Moved toward ");
-    expect(out.oneLine).not.toContain("undefined");
+    expect(out.oneLine).toContain("Moved away from Player_4");
+    expect(out.bullets).toContain("Move: Moved away from Player_4");
+    expect(out.intentVsOutcome[0]?.intent).toBe("Moved away from Player_4");
   });
 });
 

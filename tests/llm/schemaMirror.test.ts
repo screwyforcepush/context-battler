@@ -46,6 +46,7 @@
 import { describe, expect, it } from "vitest";
 import { v } from "convex/values";
 import type { ParsedDecision } from "../../convex/engine/types.js";
+import { decisionTool } from "../../convex/llm/decisionTool.js";
 
 import schema from "../../convex/schema.js";
 import * as runMatchInternals from "../../convex/_internal_runMatch.js";
@@ -114,6 +115,22 @@ interface ConvexObjectJson {
   type: "object";
   value: Record<string, ConvexFieldJson>;
 }
+interface ConvexUnionJson {
+  type: "union";
+  value: ValidatorJson[];
+}
+interface ConvexLiteralJson {
+  type: "literal";
+  value: string;
+}
+
+const EXPECTED_MOVE_KINDS = ["away", "none", "relative", "toward"] as const;
+const LEGACY_MOVE_LITERALS = [
+  "toward_entity",
+  "away_from_entity",
+  "toward_object",
+  "toward_evac",
+] as const;
 
 function isArrayJson(j: ValidatorJson): j is ConvexArrayJson {
   return (
@@ -128,6 +145,23 @@ function isObjectJson(j: ValidatorJson): j is ConvexObjectJson {
     typeof j === "object" &&
     j !== null &&
     (j as { type?: string }).type === "object"
+  );
+}
+
+function isUnionJson(j: ValidatorJson): j is ConvexUnionJson {
+  return (
+    typeof j === "object" &&
+    j !== null &&
+    (j as { type?: string }).type === "union"
+  );
+}
+
+function isLiteralJson(j: ValidatorJson): j is ConvexLiteralJson {
+  return (
+    typeof j === "object" &&
+    j !== null &&
+    (j as { type?: string }).type === "literal" &&
+    typeof (j as { value?: unknown }).value === "string"
   );
 }
 
@@ -151,6 +185,44 @@ function arrayElement(j: ValidatorJson, ownerPath: string): ValidatorJson {
     throw new Error(`${ownerPath} is not an array validator`);
   }
   return j.value;
+}
+
+function moveFieldFromAgentRecord(
+  agentRecord: ValidatorJson,
+  ownerPath: string,
+): ValidatorJson {
+  const decisionField = objectField(
+    agentRecord,
+    "decision",
+    `${ownerPath}.agentRecord`,
+  );
+  const moveField = objectField(
+    decisionField.fieldType,
+    "move",
+    `${ownerPath}.agentRecord.decision`,
+  );
+  return moveField.fieldType;
+}
+
+function convexMoveKinds(moveJson: ValidatorJson, ownerPath: string): string[] {
+  if (!isUnionJson(moveJson)) {
+    throw new Error(`${ownerPath} move validator is not a union`);
+  }
+  return moveJson.value
+    .map((arm, index) => {
+      const kind = objectField(arm, "kind", `${ownerPath}.move[${index}]`);
+      if (!isLiteralJson(kind.fieldType)) {
+        throw new Error(`${ownerPath}.move[${index}].kind is not a literal`);
+      }
+      return kind.fieldType.value;
+    })
+    .sort();
+}
+
+function jsonSchemaMoveKinds(): string[] {
+  return decisionTool.parameters.properties.move.oneOf
+    .map((arm) => arm.properties.kind.const)
+    .sort();
 }
 
 function expectOptionalStringField(field: ConvexFieldJson): void {
@@ -229,6 +301,46 @@ describe("phase-3 WP-F.6 — schema↔mirror parity (live validator exports)", (
     expect(stringified).toContain('"loot"');
     expect(stringified).toContain('"attack"');
     expect(stringified).not.toContain('"interact"');
+  });
+
+  // ─── Phase-5 WP-A contract sentinels ──────────────────────────────────
+
+  it("schema, mirror, and JSON Schema move arm sets are the same 4-arm contract", () => {
+    const fromSchema = convexMoveKinds(
+      moveFieldFromAgentRecord(schemaValidators().agentRecord, "convex/schema.ts"),
+      "convex/schema.ts",
+    );
+    const fromMirror = convexMoveKinds(
+      moveFieldFromAgentRecord(
+        mirrorValidators().agentRecord,
+        "convex/_internal_runMatch.ts",
+      ),
+      "convex/_internal_runMatch.ts",
+    );
+    const fromJsonSchema = jsonSchemaMoveKinds();
+
+    expect(fromSchema).toEqual([...EXPECTED_MOVE_KINDS]);
+    expect(fromMirror).toEqual(fromSchema);
+    expect(fromJsonSchema).toEqual(fromSchema);
+  });
+
+  it("move validators contain no legacy 6-arm literals", () => {
+    const sources = [
+      JSON.stringify(
+        moveFieldFromAgentRecord(schemaValidators().agentRecord, "convex/schema.ts"),
+      ),
+      JSON.stringify(
+        moveFieldFromAgentRecord(
+          mirrorValidators().agentRecord,
+          "convex/_internal_runMatch.ts",
+        ),
+      ),
+      JSON.stringify(decisionTool.parameters.properties.move),
+    ].join("\n");
+
+    for (const legacyLiteral of LEGACY_MOVE_LITERALS) {
+      expect(sources).not.toContain(legacyLiteral);
+    }
   });
 
   it("resolution.actions[] carries optional fromOverwatch + stance per ADR §3", () => {

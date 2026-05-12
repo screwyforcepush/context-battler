@@ -160,8 +160,8 @@ export type PrevTurnRow = {
    *
    * Used by `renderMoveFragment` to render the *intent* direction of a
    * wall-blocked move per North Star §1: `moved 3 SW → hit wall`. The
-   * `relative` arm carries `{dx, dy}` directly; other arms (`toward_*` /
-   * `none`) lack a persisted (dx, dy) intent vector and the renderer
+   * `relative` arm carries `{dx, dy}` directly; other arms (`toward` /
+   * `away` / `none`) lack a persisted (dx, dy) intent vector and the renderer
    * falls back to the ADR §9 generic phrasing `tried to move → hit wall`.
    *
    * Optional. When absent (turn 0, missing record, legacy fixtures), the
@@ -242,7 +242,7 @@ function corpseDrained(contents: CorpseState["contents"]): boolean {
  *   - wall-blocked WITHOUT a usable intent vector (no `priorMoveByActor`,
  *     non-`relative` move kind, or zero-magnitude vector): falls back to
  *     the ADR §9 generic `tried to move → hit wall`. Non-`relative` kinds
- *     (`toward_entity` / `toward_object` / `toward_evac` / `none`) carry
+ *     (`toward` / `away` / `none`) carry
  *     no persisted (dx, dy) — the engine resolved a step at runtime that
  *     we never recorded — so we cannot synthesise a bearing without
  *     duplicating engine-side path math.

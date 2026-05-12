@@ -187,22 +187,18 @@ export type ConsumeChoice = "none" | "heal" | "speed";
 export type PrimaryCommitment = "move" | "stationary_action" | "overwatch";
 
 /**
- * Move sub-decision — locked discriminated union per ADR §4. WP6's Zod
- * schema must mirror this exactly (structural-equivalence test in WP6).
+ * Move sub-decision — locked discriminated union per phase-5 ADR §1.
+ * The LLM schema and Convex validators must mirror this exactly.
  *  - `relative` — bounded `dx,dy` ∈ [-12, 12] (concept-spec §10 + speed
  *    consumable cap).
- *  - `toward_entity` / `away_from_entity` — track target by id; movement
- *    substep tracks current position (concept-spec §10).
- *  - `toward_object` — chest or corpse id.
- *  - `toward_evac` — only valid after evac reveal at turn 30.
+ *  - `toward` / `away` — target any visible entity id; the engine resolves
+ *    the id namespace to a target tile and per-entity stopAtRange.
  *  - `none` — explicit "stay" (also the default).
  */
 export type MoveDecision =
   | { kind: "relative"; dx: number; dy: number }
-  | { kind: "toward_entity"; targetCharacterId: string }
-  | { kind: "away_from_entity"; targetCharacterId: string }
-  | { kind: "toward_object"; targetObjectId: string }
-  | { kind: "toward_evac" }
+  | { kind: "toward"; targetId: string }
+  | { kind: "away"; targetId: string }
   | { kind: "none" };
 
 /**

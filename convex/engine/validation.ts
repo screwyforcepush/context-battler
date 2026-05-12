@@ -10,9 +10,8 @@
 // Note: decisions are *shape-validated* upstream by Zod (WP6). This
 // module assumes the discriminator + required-field machinery is sound,
 // and validates the *semantic* claims:
-//   - Targets resolve to known entities.
-//   - Targets are alive / unopened / visible.
-//   - Evac is revealed when toward_evac is chosen.
+//   - Move targets are visible typed entity ids.
+//   - Action targets resolve to valid living / lootable entities.
 //   - The actor has the consumable they want to consume.
 //   - Numeric bounds (e.g. relative dx/dy ∈ [-12, 12]).
 //
@@ -38,6 +37,7 @@ import { computeVisibleEntities } from "./vision.js";
 import {
   normaliseCharacterTargetId,
   normaliseCorpseTargetId,
+  resolveTypedEntity,
 } from "../llm/idNormalisation.js";
 import {
   SAFE_DEFAULT_DECISION,
@@ -159,6 +159,20 @@ export function validateDecision(
 
   // ── move ─────────────────────────────────────────────────────────────
   switch (decision.move.kind) {
+    case "toward": {
+      const { targetId } = decision.move;
+      if (resolveTypedEntity(state, characterId, targetId) === null) {
+        return invalid(`move target '${targetId}' is not visible to actor`);
+      }
+      break;
+    }
+    case "away": {
+      const { targetId } = decision.move;
+      if (resolveTypedEntity(state, characterId, targetId) === null) {
+        return invalid(`move target '${targetId}' is not visible to actor`);
+      }
+      break;
+    }
     case "relative": {
       const { dx, dy } = decision.move;
       if (
@@ -173,99 +187,8 @@ export function validateDecision(
       }
       break;
     }
-    case "toward_entity":
-    case "away_from_entity": {
-      const rawTargetId = decision.move.targetCharacterId;
-      if (!rawTargetId) {
-        return invalid(
-          `move.kind === '${decision.move.kind}' missing targetCharacterId`,
-        );
-      }
-      // Phase-3 WP-F.2 — bridge the LLM-contract id space (typed
-      // displayName, e.g. `Player_3`) to the engine `characterId`
-      // space. See `convex/llm/idNormalisation.ts` for the rationale.
-      const targetId = normaliseCharacterTargetId(
-        rawTargetId,
-        state.characters,
-      );
-      if (!targetId) {
-        return invalid(
-          `move target '${rawTargetId}' is not a living character`,
-        );
-      }
-      const target = state.characters.find((c) => c.characterId === targetId);
-      if (!target || !target.alive) {
-        return invalid(
-          `move target '${rawTargetId}' is not a living character`,
-        );
-      }
-      if (!visibleCharacterIds.has(targetId)) {
-        return invalid(
-          `move target '${rawTargetId}' is not visible to actor`,
-        );
-      }
-      break;
-    }
-    case "toward_object": {
-      const rawTargetId = decision.move.targetObjectId;
-      if (!rawTargetId) {
-        return invalid(`move.kind='toward_object' missing targetObjectId`);
-      }
-      // Phase-3 WP-G.1 — accept the digest's `Corpse_<displayName>` typed-id
-      // form (rendered by `convex/llm/inputBuilder.ts:516`). Resolve to the
-      // engine `characterId` so `state.world.corpses.find(c =>
-      // c.characterId === resolved)` matches in production where
-      // `corpse.characterId` is the Convex `_id`. PM-lock D38: validator-
-      // boundary normalisation only; digest rendering stays as-is.
-      if (rawTargetId.startsWith("Corpse_")) {
-        const corpseCharId = normaliseCorpseTargetId(
-          rawTargetId,
-          state.characters,
-        );
-        const corpse = corpseCharId
-          ? state.world.corpses.find((c) => c.characterId === corpseCharId)
-          : state.world.corpses.find((c) =>
-              // Test-fixture path: corpse.characterId may itself be the
-              // typed Player_N literal — match against `Corpse_<corpse.characterId>`.
-              rawTargetId === `Corpse_${c.characterId}`,
-            );
-        if (!corpse) {
-          return invalid(
-            `move.kind='toward_object' targetObjectId='${rawTargetId}' is not a known chest or corpse`,
-          );
-        }
-        break;
-      }
-      // Phase-3 fix — accept both `Chest_NNN` (rendered typed-id) and
-      // `chest_NNN` (internal id). See `normaliseChestTargetId` rationale.
-      const targetId = normaliseChestTargetId(rawTargetId);
-      const isChest = state.world.chests.some((c) => c.id === targetId);
-      const isCorpse = state.world.corpses.some(
-        (c) => c.characterId === targetId,
-      );
-      if (!isChest && !isCorpse) {
-        return invalid(
-          `move.kind='toward_object' targetObjectId='${rawTargetId}' is not a known chest or corpse`,
-        );
-      }
-      break;
-    }
-    case "toward_evac": {
-      if (state.world.evac.revealedAtTurn === null) {
-        return invalid(
-          `move.kind='toward_evac' but evac is not yet revealed (revealedAtTurn=null)`,
-        );
-      }
-      break;
-    }
     case "none":
       break;
-    default: {
-      // Exhaustiveness: should be unreachable when ParsedDecision is well-typed.
-      const _exhaustive: never = decision.move;
-      void _exhaustive;
-      return invalid(`move.kind is unrecognised`);
-    }
   }
 
   // ── action ───────────────────────────────────────────────────────────

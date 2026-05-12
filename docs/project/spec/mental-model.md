@@ -214,6 +214,53 @@ The redesign lands four moves at once:
 
 **Done bar:** the user can step through a 10-run pass in the replay UI with **< 5% no-op turns** (a no-op = `primary:"stationary_action"` AND `move.kind === "none"` AND `action.kind === "none"`), without regressing phase-3 closing thresholds (extraction ≥ 30%, kill ≥ 80%, etc.).
 
+## 14. Substrate refactor — move-arm consolidation (dispatched 2026-05-12)
+
+> **Status: dispatched 2026-05-12.** Standalone substrate refactor, orthogonal to the blocked phase-4 D1 user gate. The phase-4 assignment stays parked at its prompt-strategy decision; this one ships the substrate underneath it so whichever prompt direction the user picks, the surface is principled.
+
+The trigger was a D1 finding: 56+ of the 806 slim-cohort validator zeros were `move.kind='toward_object' targetObjectId='Cover_54_42' is not a known chest or corpse`. The user pushed back: *"seems ergonomic player perspective and fits gameplay. Why can't the player move toward target? Are we staring down the barrel of a refactor?"*
+
+Yes — and the design pillars endorsed it. The current 6-arm move grammar (`relative` / `toward_entity` / `away_from_entity` / `toward_object` / `toward_evac` / `none`) splits navigation by entity *category* (characters vs lootables vs evac vs everything-else-becomes-arithmetic). From the player perspective there is no category distinction — every visible entity is "a thing in the world I can navigate toward". The only real per-type difference is *how close* you want to get; that's a property of the entity, not a structural feature of the verb grammar.
+
+**The principled shape:** 6 arms → 4:
+- `toward { targetId }` — any visible entity id
+- `away  { targetId }` — any visible entity id
+- `relative { dx, dy }` — escape hatch
+- `none`
+
+Per-type `stopAtRange` becomes data attached to the entity type (the engine looks it up by id namespace):
+
+| Entity type | stopAtRange | Why |
+|---|---:|---|
+| Character (living) | 2 | weapon / attack range |
+| Chest | 2 | loot range |
+| Corpse | 2 | loot range |
+| Cover | 0 | step onto — cover only hides while standing on it |
+| Wall | 1 | adjacent — wall-hugging for LOS break, can't enter walls |
+| Evac | 0 | step into the 3×3 zone — fold from old `toward_evac` arm |
+
+**Three user-confirmed scope decisions:**
+1. **Allow `away` for everything**, not just characters. Consistency over ergonomic restriction; persona self-selects what makes sense.
+2. **Fold `Evac` into `toward Evac`** — no special-case arm. Once revealed, evac is just another visible entity with `stopAtRange = 0`.
+3. **Wall stop-at-range 1.** Adjacent. Makes wall-hugging-for-LOS a first-class verb instead of arithmetic.
+
+**Why this is pillar-aligned, not scope-creep:**
+- Pillar 2 ("rules simple, minds messy") — collapsing 6 arms into 4 makes the rule blunter and the model's surface more legible. Persona depth comes from when/why to use these verbs, not from learning which obscure verb fits which entity category.
+- Pillar 6 ("build the substrate; let the strategy emerge") — cover-camping, wall-hugging, evac-rushing become *substrate affordances*, not arithmetic puzzles the prompt has to solve. The Camper, Rat, Trader-hiding-to-negotiate, Paranoid personas all benefit.
+- Pillar 4 ("scratchpad as explainability") — fewer asymmetric arm names → fewer failure modes the scratchpad has to explain back to the player.
+
+**What this fixes:**
+- 56+ cover-as-toward_object validator zeros — structurally retired.
+- Wall-toward and evac-toward become first-class verbs.
+- The slim-prompt teaching surface shrinks: there is no longer an asymmetric "characters use this arm, lootables use that arm, evac has its own arm" rule for the system prompt to teach.
+
+**What it does NOT solve (D1's bigger fish):**
+- 510 chest-re-loot rejections — separate `[opened]` semantics gap.
+- 96 `consume='speed'` without consumable — separate equipped-state semantics gap.
+- The +6.850 pp foundation residual — unknown source, needs its own probe.
+
+**POC posture:** schema break acceptable (`project_poc_schema_wipe_acceptable`); Convex wipe is on the table. Phase-4 doesn't unblock or block on this refactor — when WP-D unblocks, it will redesign against the new 4-arm grammar, which makes its job easier (less to teach in either prompt prose or schema descriptions).
+
 ## 12. Open questions / live tensions
 
 Tracked here because they shape the why, not the how:

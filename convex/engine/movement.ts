@@ -25,13 +25,17 @@
 // any commit; (c) deterministic tie-breaking via characterId sort when
 // iterating. Shuffling the input Map order produces byte-identical output.
 //
-// Entity tracking: for `toward_entity` / `away_from_entity`, each substep
-// recomputes direction from the TARGET'S CURRENT POSITION (which may be
-// updated by the target's own substep this very turn). For `toward_object`
-// / `toward_evac` / `relative`, the target tile is fixed at start-of-turn.
+// Target tracking: `toward` / `away` resolve the typed target id once from
+// the start-of-turn visible set, then each substep recomputes the target tile
+// only for living-character targets. Static entities keep their resolved
+// start-of-turn tile. For `relative`, the remaining delta is carried by the
+// mover state.
 
 import { chebyshev } from "./distance.js";
-import { normaliseCorpseTargetId } from "../llm/idNormalisation.js";
+import {
+  resolveTypedEntity,
+  type ResolvedEntity,
+} from "../llm/idNormalisation.js";
 import type {
   MatchState,
   ParsedDecision,
@@ -42,7 +46,6 @@ import type {
 const DEFAULT_BUDGET = 8;
 const SPEED_BUDGET = 12;
 const MAX_BUDGET = SPEED_BUDGET; // hard cap on substep count
-const STOP_AT_RANGE = 2; // toward_entity/object stop at Chebyshev 2
 
 // ─── Wall helpers ────────────────────────────────────────────────────────
 
@@ -69,20 +72,30 @@ function tileBlockedByWall(t: Tile, walls: readonly Wall[]): boolean {
  *  - `budget` — tiles remaining (initial = 8 or 12; decremented per commit).
  *  - `relativeRemaining` — for `kind: 'relative'`, dx/dy left to consume
  *    after clamping to budget. Recomputed at start, decremented on commit.
- *  - `staticTarget` — fixed target tile for `relative` / `toward_object` /
- *    `toward_evac`. `null` for entity-targeted moves (recomputed each substep).
  */
 type Mover = {
   characterId: string;
   budget: number;
   decision: ParsedDecision;
-  staticTarget: Tile | null;
+  resolvedTarget: ResolvedEntity | null;
   // Remaining delta for `relative` movement.
   dxRemaining: number;
   dyRemaining: number;
-  // Set when the target tile is itself the goal (vs "stop at range 2 of it").
-  stopAtTarget: boolean;
 };
+
+function targetTileForMover(state: MatchState, mover: Mover): Tile | null {
+  const target = mover.resolvedTarget;
+  if (!target) return null;
+  const characterId = target.engineRef?.characterId;
+  if (target.kind === "character" && characterId) {
+    const character = state.characters.find(
+      (c) => c.characterId === characterId,
+    );
+    if (!character || !character.alive) return null;
+    return character.pos;
+  }
+  return target.tile;
+}
 
 // ─── desiredNextTile — single-substep desire computation ─────────────────
 
@@ -90,8 +103,8 @@ type Mover = {
  * Compute the tile this character WANTS to enter on the current substep.
  * Returns `null` when:
  *   - budget exhausted,
- *   - already at goal (relative remaining = 0; or within range 2 of entity/object goal),
- *   - target is unresolvable (e.g., entity dead/missing),
+ *   - already at goal,
+ *   - target is unresolvable,
  *   - already in conflict-stuck state.
  *
  * Pure: same `state` + same `mover` → same desired tile.
@@ -107,13 +120,10 @@ export function desiredNextTile(
 
   const move = mover.decision.move;
 
-  // Resolve target tile per move kind.
-  let targetTile: Tile | null = null;
-  let stopAtRange2 = false;
-
   switch (move.kind) {
     case "none":
       return null;
+
     case "relative": {
       // Remaining-delta drives the desire each substep.
       if (mover.dxRemaining === 0 && mover.dyRemaining === 0) return null;
@@ -121,103 +131,34 @@ export function desiredNextTile(
       const dy = Math.sign(mover.dyRemaining);
       return { x: me.pos.x + dx, y: me.pos.y + dy };
     }
-    case "toward_evac":
-      targetTile = state.world.evac.centre;
-      // Move all the way to the evac centre tile (no range-2 stop).
-      stopAtRange2 = false;
-      break;
-    case "toward_object": {
-      // Phase-3 fix — accept both `Chest_NNN` (rendered typed-id) and
-      // `chest_NNN` (internal id). Player_* corpse ids stay case-sensitive
-      // (they round-trip through `displayName` which is `Player_N` capital).
-      const rawObjectId = move.targetObjectId;
-      // WP-G.1 D38 — accept the digest's `Corpse_<displayName>` typed-id
-      // form. Resolve to the engine `characterId` so the corpse lookup
-      // matches in production where `corpse.characterId` is a Convex Id.
-      // PM-lock D38: engine-boundary normalisation; do NOT change digest.
-      if (rawObjectId.startsWith("Corpse_")) {
-        const corpseCharId = normaliseCorpseTargetId(
-          rawObjectId,
-          state.characters,
-        );
-        let corpse = corpseCharId
-          ? state.world.corpses.find((c) => c.characterId === corpseCharId)
-          : undefined;
-        if (!corpse) {
-          // Test-fixture path: corpse.characterId itself is the typed
-          // `Player_N` literal.
-          corpse = state.world.corpses.find(
-            (c) => rawObjectId === `Corpse_${c.characterId}`,
-          );
-        }
-        if (corpse) {
-          targetTile = corpse.pos;
-          stopAtRange2 = true;
-        }
-        if (!targetTile) return null;
-        break;
+
+    case "toward": {
+      const targetTile = targetTileForMover(state, mover);
+      if (!targetTile || !mover.resolvedTarget) return null;
+      if (chebyshev(me.pos, targetTile) <= mover.resolvedTarget.stopAtRange) {
+        return null;
       }
-      const lookupId = rawObjectId.startsWith("Chest_")
-        ? "chest_" + rawObjectId.slice("Chest_".length)
-        : rawObjectId;
-      const chest = state.world.chests.find((c) => c.id === lookupId);
-      if (chest) {
-        targetTile = chest.pos;
-        stopAtRange2 = true;
-      } else {
-        const corpse = state.world.corpses.find(
-          (c) => c.characterId === rawObjectId,
-        );
-        if (corpse) {
-          targetTile = corpse.pos;
-          stopAtRange2 = true;
-        }
-      }
+      const sx = Math.sign(targetTile.x - me.pos.x);
+      const sy = Math.sign(targetTile.y - me.pos.y);
+      return { x: me.pos.x + sx, y: me.pos.y + sy };
+    }
+
+    case "away": {
+      const targetTile = targetTileForMover(state, mover);
       if (!targetTile) return null;
-      break;
-    }
-    case "toward_entity": {
-      const tgt = state.characters.find(
-        (c) => c.characterId === move.targetCharacterId,
-      );
-      if (!tgt || !tgt.alive) return null;
-      targetTile = tgt.pos;
-      stopAtRange2 = true;
-      break;
-    }
-    case "away_from_entity": {
-      const tgt = state.characters.find(
-        (c) => c.characterId === move.targetCharacterId,
-      );
-      if (!tgt || !tgt.alive) return null;
       // Direction AWAY from target.
-      const dx = me.pos.x - tgt.pos.x;
-      const dy = me.pos.y - tgt.pos.y;
+      const dx = me.pos.x - targetTile.x;
+      const dy = me.pos.y - targetTile.y;
       // If on top of target (dx=dy=0), pick an arbitrary deterministic axis.
       const sx = dx === 0 ? 1 : Math.sign(dx);
       const sy = dy === 0 ? 0 : Math.sign(dy);
       return { x: me.pos.x + sx, y: me.pos.y + sy };
     }
-    default: {
-      const _exhaustive: never = move;
-      void _exhaustive;
-      return null;
-    }
   }
 
-  if (!targetTile) return null;
-
-  // Check stop-condition for entity/object goals.
-  if (stopAtRange2 && chebyshev(me.pos, targetTile) <= STOP_AT_RANGE) {
-    return null;
-  }
-  // Already at target tile (toward_evac).
-  if (me.pos.x === targetTile.x && me.pos.y === targetTile.y) return null;
-
-  // Step one Chebyshev tile toward target.
-  const sx = Math.sign(targetTile.x - me.pos.x);
-  const sy = Math.sign(targetTile.y - me.pos.y);
-  return { x: me.pos.x + sx, y: me.pos.y + sy };
+  const _exhaustive: never = move;
+  void _exhaustive;
+  return null;
 }
 
 // ─── Block check (walls + other living characters) ──────────────────────
@@ -318,10 +259,12 @@ export function simulateMovement(
       characterId: id,
       budget,
       decision,
-      staticTarget: null,
+      resolvedTarget:
+        decision.move.kind === "toward" || decision.move.kind === "away"
+          ? resolveTypedEntity(state, id, decision.move.targetId)
+          : null,
       dxRemaining,
       dyRemaining,
-      stopAtTarget: false,
     });
   }
 

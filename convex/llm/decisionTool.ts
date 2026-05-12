@@ -1,12 +1,12 @@
-// Phase-3 WP-A.2 — the per-turn decision tool definition + Zod parser.
+// Phase-5 WP-A — the per-turn decision tool definition + Zod parser.
 //
 // Two artefacts ship from this module and they MUST stay in lockstep:
 //
 //   1. `decisionTool` — a single-tool JSON Schema, sent verbatim in every
-//      request body to Azure. Mirrors phase-3 ADR §1 exactly:
+//      request body to Azure. Mirrors phase-5 ADR §1 exactly:
 //        - type: "function", name: "decide_turn"
 //        - parameters: object schema with `additionalProperties: false`
-//        - move: 6-arm `oneOf` discriminated by `kind` (unchanged)
+//        - move: 4-arm `oneOf` discriminated by `kind`
 //        - action: 3-arm `oneOf` discriminated by `kind` (was 4-arm —
 //          `interact` arm is REMOVED; chest opens flow through the
 //          `loot` arm with a `chest_*`-prefixed targetId)
@@ -29,7 +29,7 @@
 //        - primary !== "overwatch"  ⇒ overwatch_stance === null
 //
 // Cross-references:
-//   - phase-3 ADR §1 — the canonical contract. Don't change here without
+//   - phase-5 ADR §1 — the move-arm contract. Don't change here without
 //     changing the schema validators in `convex/schema.ts`
 //     (decisionValidator), the mirror in
 //     `convex/_internal_runMatch.ts`, AND the type aliases in
@@ -38,7 +38,7 @@
 //     `parseDecision` runs `JSON.parse` first.
 //   - `convex/engine/validation.ts` — runs AFTER us. We gate shape +
 //     stance/primary; the engine validator gates semantic claims (target
-//     alive, in range, evac revealed, loot.targetId namespace validity).
+//     visible, in range, loot.targetId namespace validity).
 //
 // Boundary: this module does NOT call `fetch` or import Convex APIs. It
 // is pure shape + parser logic. `convex/llm/azure.ts` consumes us.
@@ -53,7 +53,7 @@ import {
 // default from). Keeps the wrapper module hermetic.
 export { SAFE_DEFAULT_DECISION };
 
-// ─── JSON Schema ToolDefinition (phase-3 ADR §1) ─────────────────────────────
+// ─── JSON Schema ToolDefinition (phase-5 WP-A) ───────────────────────────────
 
 // Strongly-typed shape of the decision tool. We could relax to a generic
 // `Record<string, unknown>` and the request body would still serialise the
@@ -95,30 +95,19 @@ type MoveRelativeArm = ObjectArm<
     readonly dy: IntegerBounded;
   }
 >;
-type MoveTowardEntityArm = ObjectArm<
-  readonly ["kind", "targetCharacterId"],
+type MoveTowardArm = ObjectArm<
+  readonly ["kind", "targetId"],
   {
-    readonly kind: { readonly const: "toward_entity" };
-    readonly targetCharacterId: StringProp;
+    readonly kind: { readonly const: "toward" };
+    readonly targetId: StringProp;
   }
 >;
-type MoveAwayFromEntityArm = ObjectArm<
-  readonly ["kind", "targetCharacterId"],
+type MoveAwayArm = ObjectArm<
+  readonly ["kind", "targetId"],
   {
-    readonly kind: { readonly const: "away_from_entity" };
-    readonly targetCharacterId: StringProp;
+    readonly kind: { readonly const: "away" };
+    readonly targetId: StringProp;
   }
->;
-type MoveTowardObjectArm = ObjectArm<
-  readonly ["kind", "targetObjectId"],
-  {
-    readonly kind: { readonly const: "toward_object" };
-    readonly targetObjectId: StringProp;
-  }
->;
-type MoveTowardEvacArm = ObjectArm<
-  readonly ["kind"],
-  { readonly kind: { readonly const: "toward_evac" } }
 >;
 type MoveNoneArm = ObjectArm<
   readonly ["kind"],
@@ -127,10 +116,8 @@ type MoveNoneArm = ObjectArm<
 
 type MoveArm =
   | MoveRelativeArm
-  | MoveTowardEntityArm
-  | MoveAwayFromEntityArm
-  | MoveTowardObjectArm
-  | MoveTowardEvacArm
+  | MoveTowardArm
+  | MoveAwayArm
   | MoveNoneArm;
 
 type ActionAttackArm = ObjectArm<
@@ -229,7 +216,7 @@ export const decisionTool: DecisionToolDefinition = {
       },
       move: {
         description:
-          "Move arms: relative dx,dy (integers in [-12,12]); toward_entity Player_N; away_from_entity Player_N; toward_object <Chest_NNN|Corpse_Player_N>; toward_evac; none. Movement range max 8 (12 w/ speed).",
+          "Move arms: toward {targetId} any visible entity id; away {targetId} any visible entity id; relative dx,dy (integers in [-12,12]); none. stopAtRange: Character 2; Chest 2; Corpse 2; Cover 0; Wall 1; Evac 0. Movement range max 8 (12 w/ speed).",
         oneOf: [
           {
             type: "object",
@@ -244,35 +231,20 @@ export const decisionTool: DecisionToolDefinition = {
           {
             type: "object",
             additionalProperties: false,
-            required: ["kind", "targetCharacterId"],
+            required: ["kind", "targetId"],
             properties: {
-              kind: { const: "toward_entity" },
-              targetCharacterId: { type: "string" },
+              kind: { const: "toward" },
+              targetId: { type: "string" },
             },
           },
           {
             type: "object",
             additionalProperties: false,
-            required: ["kind", "targetCharacterId"],
+            required: ["kind", "targetId"],
             properties: {
-              kind: { const: "away_from_entity" },
-              targetCharacterId: { type: "string" },
+              kind: { const: "away" },
+              targetId: { type: "string" },
             },
-          },
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["kind", "targetObjectId"],
-            properties: {
-              kind: { const: "toward_object" },
-              targetObjectId: { type: "string" },
-            },
-          },
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["kind"],
-            properties: { kind: { const: "toward_evac" } },
           },
           {
             type: "object",
@@ -344,23 +316,16 @@ const MoveSchema = z.discriminatedUnion("kind", [
     .strict(),
   z
     .object({
-      kind: z.literal("toward_entity"),
-      targetCharacterId: z.string(),
+      kind: z.literal("toward"),
+      targetId: z.string(),
     })
     .strict(),
   z
     .object({
-      kind: z.literal("away_from_entity"),
-      targetCharacterId: z.string(),
+      kind: z.literal("away"),
+      targetId: z.string(),
     })
     .strict(),
-  z
-    .object({
-      kind: z.literal("toward_object"),
-      targetObjectId: z.string(),
-    })
-    .strict(),
-  z.object({ kind: z.literal("toward_evac") }).strict(),
   z.object({ kind: z.literal("none") }).strict(),
 ]);
 

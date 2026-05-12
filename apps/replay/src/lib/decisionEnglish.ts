@@ -50,9 +50,9 @@ export type DecisionSummary = {
  * plain English. Pure: same input → same output.
  *
  * The `characterById` map resolves `Id<"characters">` references in
- * `decision.move`/`decision.action`/`resolution.actions[]` to displayName
- * strings ("Player_5"). Unknown ids fall back to a truncated id rather
- * than throwing — historical bundles are immutable, so an unknown id is a
+ * `decision.action`/`resolution.actions[]` to displayName strings
+ * ("Player_5"). Unknown ids fall back to a truncated id rather than
+ * throwing — historical bundles are immutable, so an unknown id is a
  * *signal* (e.g. the target was filtered out of `bundle.characters`), not a
  * crash.
  */
@@ -65,7 +65,7 @@ export function summariseDecision(
   const decision = agentRecord.decision;
 
   // ── 1) Render move (intent + outcome) ──────────────────────────────────
-  const moveIntent = renderMoveIntent(decision, characterById);
+  const moveIntent = renderMoveIntent(decision);
   const moveOutcome = renderMoveOutcome(resolution, me);
 
   // ── 2) Render action (intent + outcome). Outcome handles death suffix. ─
@@ -205,10 +205,7 @@ function sign(n: number): -1 | 0 | 1 {
   return 0;
 }
 
-function renderMoveIntent(
-  decision: ParsedDecision,
-  characterById: Map<Id<"characters">, Doc<"characters">>,
-): string {
+function renderMoveIntent(decision: ParsedDecision): string {
   const m = decision.move;
   switch (m.kind) {
     case "none":
@@ -225,24 +222,10 @@ function renderMoveIntent(
       const tileWord = n === 1 ? "tile" : "tiles";
       return `Moved ${n} ${tileWord} ${dir}`;
     }
-    case "toward_entity": {
-      const name = resolveCharacterName(
-        m.targetCharacterId as Id<"characters">,
-        characterById,
-      );
-      return `Moved toward ${name}`;
-    }
-    case "away_from_entity": {
-      const name = resolveCharacterName(
-        m.targetCharacterId as Id<"characters">,
-        characterById,
-      );
-      return `Moved away from ${name}`;
-    }
-    case "toward_object":
-      return `Moved toward ${m.targetObjectId}`;
-    case "toward_evac":
-      return "Moved toward evac";
+    case "toward":
+      return `Moved toward ${m.targetId}`;
+    case "away":
+      return `Moved away from ${m.targetId}`;
     default: {
       // Exhaustiveness guard. Should be unreachable.
       const _exhaustive: never = m;

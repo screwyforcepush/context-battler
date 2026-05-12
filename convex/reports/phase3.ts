@@ -58,7 +58,7 @@
 //      `result` matching `dmg <N>`), check turn N+1: does the agent's
 //      decision reference the attacker via
 //        (a) action.targetCharacterId matching attacker's displayName, OR
-//        (b) move.targetEntityId matching attacker's displayName, OR
+//        (b) move.targetId matching attacker's displayName, OR
 //        (c) scratchpadAfter containing the attacker's displayName.
 //      Count rate over matching N pairs. Threshold ≥ 50%.
 //
@@ -86,6 +86,7 @@ import { internalAction, mutation } from "../_generated/server.js";
 import { api } from "../_generated/api.js";
 import {
   PERSONA_IDS,
+  type MoveDecision,
   type PersonaId,
 } from "../engine/types.js";
 import { hashMatchIds } from "../reports.js";
@@ -148,13 +149,7 @@ export type Phase3AgentRecord = {
   personaId: PersonaId;
   scratchpadAfter: string;
   decision: {
-    move:
-      | { kind: "toward_entity"; targetCharacterId: string }
-      | { kind: "away_from_entity"; targetCharacterId: string }
-      | { kind: "toward_object"; targetObjectId: string }
-      | { kind: "relative"; dx: number; dy: number }
-      | { kind: "toward_evac" }
-      | { kind: "none" };
+    move: MoveDecision;
     action:
       | { kind: "attack"; targetCharacterId: string }
       | { kind: "loot"; targetId: string }
@@ -317,16 +312,17 @@ function buildIdMaps(
 }
 
 /**
- * Find the move's "target entity id" if any — the move arms that point
- * at a specific character (toward_entity / away_from_entity). Returns
- * the targetCharacterId verbatim, or null for arms that don't target
- * a character.
+ * Find the move target id if it points at a visible character display id.
+ * Non-character namespaces (chest/corpse/cover/wall/evac), relative moves,
+ * and explicit no-op moves do not count for outcome attribution.
  */
 function moveTargetEntityId(
   move: Phase3AgentRecord["decision"]["move"],
+  displayToCharId: ReadonlyMap<string, string>,
 ): string | null {
-  if (move.kind === "toward_entity") return move.targetCharacterId;
-  if (move.kind === "away_from_entity") return move.targetCharacterId;
+  if (move.kind !== "toward" && move.kind !== "away") return null;
+  if (move.targetId.startsWith("Player_")) return move.targetId;
+  if (displayToCharId.has(move.targetId)) return move.targetId;
   return null;
 }
 
@@ -578,9 +574,12 @@ export function computePhase3Metrics(
           ) {
             matched = true;
           }
-          // (b) move's target entity id matches attacker.
+          // (b) move.targetId matches attacker.
           if (!matched) {
-            const moveTarget = moveTargetEntityId(nextRecord.decision.move);
+            const moveTarget = moveTargetEntityId(
+              nextRecord.decision.move,
+              displayToCharId,
+            );
             if (
               moveTarget !== null &&
               (moveTarget === attackerCharId || moveTarget === attackerDisplay)

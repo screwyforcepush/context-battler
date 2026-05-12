@@ -527,14 +527,30 @@ The agent can choose movement like:
 
 ```text
 Move to relative position
-Move toward visible entity
-Move away from visible entity
-Move toward visible object
-Move toward evac, once evac is revealed
+Move toward any visible entity id
+Move away from any visible entity id
 No movement
 ```
 
 “Stay” is not an action. It is simply the absence of movement.
+
+Entity-targeted movement uses the same two verbs for every visible id:
+
+```text
+toward <Visible.id>
+away from <Visible.id>
+```
+
+The engine looks up how close to stop by entity type:
+
+| Entity type | stopAtRange |
+|---|---:|
+| Character (living) | 2 |
+| Chest | 2 |
+| Corpse | 2 |
+| Cover | 0 |
+| Wall | 1 |
+| Evac | 0 |
 
 ## Dynamic entity-targeted movement
 
@@ -551,7 +567,7 @@ A sees B.
 A chooses: move toward B.
 B also moves.
 During movement substeps, A keeps moving toward B’s current resolved position.
-A stops when within interaction/attack range 2, movement is exhausted, or path is blocked.
+A stops at the target type's stopAtRange, when movement is exhausted, or when path is blocked.
 ```
 
 ## New information during movement
@@ -569,10 +585,10 @@ After turn 30, evac is globally known.
 Agents can choose:
 
 ```text
-Move toward evac
+toward Evac
 ```
 
-even if evac is not currently within vision.
+Evac is a revealed singleton visible id, not a separate move arm.
 
 The agent should be told:
 
@@ -1235,7 +1251,7 @@ agent picks a concrete target id from the visible-state digest.
 
 ---
 
-# 22. Action grammar (phase-3 v0.2 — replaces "local affordances")
+# 22. Action grammar (phase-5 move-arm consolidation)
 
 Phase-3 substrate refinement removes the per-turn `Affordances:`
 block. The v0.1 design (system prompt teaches the contract; per-turn
@@ -1243,17 +1259,16 @@ digest enumerates the locally-available action arms) treated the prompt
 slots as independent and produced a teaching gap that the affordance
 list patched.
 
-Phase-3 inverts the contract: the system prompt is the schema teacher
-(see phase-3 ADR §7) and the digest carries no `Affordances:` block.
-The agent learns the grammar once from the system prompt and picks a
-concrete target id from the visible-state digest each turn:
+Phase-5 keeps that contract and collapses movement to the player-facing
+shape: `toward` / `away` target any visible id, while the engine owns
+per-entity stop distance. The agent learns the grammar once from the
+system prompt and picks a concrete target id from the visible-state
+digest each turn:
 
 ```text
-Move:    relative dx,dy
-         | toward_entity Player_N
-         | away_from_entity Player_N
-         | toward_object <id>
-         | toward_evac
+Move:    toward <Visible.id>
+         | away <Visible.id>
+         | relative dx,dy
          | none
 
 Action:  loot <Visible.id>     // chests AND corpses
@@ -1268,7 +1283,8 @@ The digest carries the typed ids the agent copies verbatim into a
 target field (e.g. `Chest_005` from the bullet `Chest_005, dist 6 SE`
 becomes `loot.targetId: "Chest_005"`; `Corpse_Player_5` from
 `Corpse_Player_5, dist 9 S [drained]` becomes
-`loot.targetId: "Corpse_Player_5"`). The "copy `Visible.id` verbatim"
+`loot.targetId: "Corpse_Player_5"`; `Cover_54_42` becomes
+`move.targetId: "Cover_54_42"`). The "copy `Visible.id` verbatim"
 contract is taught in `convex/llm/systemPrompt.ts:69`. Namespace
 normalisation (typed `Chest_NNN`/`Corpse_Player_N` →
 engine-side `chest_NNN` / underlying character id) is applied
@@ -1358,18 +1374,18 @@ Because attack/interact range is 2, exact adjacency/contact is less critical.
 
 If this creates too many awkward blocks, later add a simple tie-breaker or allow stacking only for corpses/items, not living agents.
 
-## Moving toward entity
+## Moving toward visible id
 
 Stops when:
 
 ```text
-within range 2
+within the target type's stopAtRange
 movement exhausted
 path blocked
 target no longer reachable
 ```
 
-## Moving away from entity
+## Moving away from visible id
 
 Moves to increase Chebyshev distance from target, subject to terrain/pathing.
 
@@ -1552,4 +1568,3 @@ The unique value is not tactical realism.
 The unique value is:
 
 > autonomous prompt-creatures surviving, deceiving, misreading, adapting, and occasionally being psychologically defeated by cursed item text.
-
