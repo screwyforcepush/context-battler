@@ -974,17 +974,20 @@ export function resolveTurn(
 
   // ── Phase 7 — Visibility update ───────────────────────────────────────
   // For each STILL-ALIVE character:
-  //   - Proximity reveal: if hidden + in cover + ANY OTHER LIVING char at
-  //     Chebyshev ≤ 2 → reveal (revealedBy: "proximity").
+  //   - Proximity reveal: if in cover + ANY OTHER LIVING char at Chebyshev
+  //     ≤ 2 → reveal event (revealedBy: "proximity"); hidden actors flip.
   //   - Visible + in cover + no reveal cause → become hidden.
+  //     Any revealMap entry, including proximity without a state flip, wins.
   //   - Update lastKnown using current visible characters.
   for (const id of [...working.characters.map((c) => c.characterId)].sort()) {
     const ch = working.characters.find((c) => c.characterId === id);
     if (!ch || !ch.alive) continue;
     let current = ch;
+    const currentInCover = isInCover(working.world, current.pos);
 
-    // Proximity check (only if still hidden and in cover).
-    if (current.hidden && isInCover(working.world, current.pos)) {
+    // Proximity check for any living character in cover. Visible characters
+    // keep state, but the reveal event still blocks cover-as-hide below.
+    if (currentInCover) {
       let withinTwo = false;
       for (const other of working.characters) {
         if (other.characterId === id) continue;
@@ -996,19 +999,17 @@ export function resolveTurn(
       }
       if (withinTwo) {
         recordRevealCause(id, "proximity");
-        working = patchCharacter(working, id, (c) => ({
-          ...c,
-          hidden: false,
-        }));
-        current = { ...current, hidden: false };
+        if (current.hidden) {
+          working = patchCharacter(working, id, (c) => ({
+            ...c,
+            hidden: false,
+          }));
+          current = { ...current, hidden: false };
+        }
       }
     }
 
-    if (
-      !current.hidden &&
-      !revealMap.has(id) &&
-      isInCover(working.world, current.pos)
-    ) {
+    if (!current.hidden && !revealMap.has(id) && currentInCover) {
       hideSet.add(id);
       working = patchCharacter(working, id, (c) => ({
         ...c,

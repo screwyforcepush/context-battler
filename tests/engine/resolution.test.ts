@@ -448,6 +448,37 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
     });
   });
 
+  it("§7 — moving onto cover near a living enemy stays revealed by proximity", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const b = makeCharacter({ id: "B", pos: { x: 4, y: 0 } });
+    const state = makeState({
+      characters: [a, b],
+      world: { coverTiles: [{ x: 3, y: 0 }] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          primary: "move",
+          move: { kind: "toward", targetId: "Cover_3_0" },
+        }),
+      ],
+      ["B", nullDecision()],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 3, y: 0 });
+    expect(findChar(next, "A").hidden).toBe(false);
+    expect(trace.visibilityUpdates).toContainEqual({
+      characterId: "A",
+      hidden: false,
+      revealedBy: "proximity",
+    });
+    expect(trace.visibilityUpdates.some(
+      (u) => u.characterId === "A" && u.hidden === true,
+    )).toBe(false);
+  });
+
   it("§7 — attacking while ending in cover keeps a visible actor revealed", () => {
     const a = makeCharacter({
       id: "A",
@@ -521,8 +552,11 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
       ["A", nullDecision()],
       ["B", nullDecision()],
     ]);
-    const { state: next } = resolveTurn(state, decisions);
+    const { state: next, trace } = resolveTurn(state, decisions);
     expect(findChar(next, "A").hidden).toBe(true);
+    expect(trace.visibilityUpdates.find(
+      (u) => u.characterId === "A",
+    )).toBeUndefined();
   });
 
   it("§7 — consumable removed from equipped after use", () => {
