@@ -495,6 +495,77 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
     expect(findChar(next, "A").pos).toEqual({ x: 58, y: 50 });
   });
 
+  it("away Chest_NNN moves opposite from a chest at loot range 1", () => {
+    const actor = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const chestTile = { x: 49, y: 50 };
+    const state = makeState({
+      characters: [actor],
+      world: {
+        chests: [
+          {
+            id: "chest_006",
+            pos: chestTile,
+            contents: { category: "weapon", name: "sword" },
+            opened: false,
+            lootTable: "starter",
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "away", targetId: "Chest_006" })],
+    ]);
+
+    const { state: next } = simulateMovement(state, decisions);
+    const final = findChar(next, "A").pos;
+
+    expect(chebyshevDistance(actor.pos, chestTile)).toBe(1);
+    expect(final).toEqual({ x: 58, y: 50 });
+    expect(chebyshevDistance(final, chestTile)).toBeGreaterThan(2);
+  });
+
+  it("away Corpse_Player_N moves opposite from a corpse at loot range 1", () => {
+    const actor = makeCharacter({
+      id: "A",
+      displayName: "Player_1",
+      pos: { x: 50, y: 50 },
+    });
+    const dead = makeCharacter({
+      id: "dead_5",
+      displayName: "Player_5",
+      pos: { x: 49, y: 50 },
+      alive: false,
+    });
+    const corpseTile = { x: 49, y: 50 };
+    const state = makeState({
+      characters: [actor, dead],
+      world: {
+        corpses: [
+          {
+            characterId: "dead_5",
+            pos: corpseTile,
+            contents: { weapon: { category: "weapon", name: "axe" } },
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "away", targetId: "Corpse_Player_5" })],
+      ["dead_5", noMoveDecision()],
+    ]);
+
+    const { state: next } = simulateMovement(state, decisions);
+    const final = findChar(next, "A").pos;
+
+    expect(chebyshevDistance(actor.pos, corpseTile)).toBe(1);
+    expect(final).toEqual({ x: 58, y: 50 });
+    expect(chebyshevDistance(final, corpseTile)).toBeGreaterThan(2);
+  });
+
   it("away Cover_X_Y moves opposite from a cover tile", () => {
     const actor = makeCharacter({
       id: "A",

@@ -1212,11 +1212,9 @@ Primary commitment:
 - overwatch
 
 Move target:
-- relative tile
-- toward visible entity
-- away from visible entity
-- toward object
-- toward evac
+- toward {targetId}
+- away {targetId}
+- relative {dx,dy}
 - none
 
 Action (3-arm — interact and loot are unified):

@@ -423,6 +423,89 @@ describe("WP7 resolution — concept-spec §7 hide reveal causes", () => {
     expect(findChar(next, "A").hidden).toBe(false);
   });
 
+  it("§7 — moving onto cover with no reveal cause hides a visible actor", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const state = makeState({
+      characters: [a],
+      world: { coverTiles: [{ x: 3, y: 0 }] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          primary: "move",
+          move: { kind: "toward", targetId: "Cover_3_0" },
+        }),
+      ],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 3, y: 0 });
+    expect(findChar(next, "A").hidden).toBe(true);
+    expect(trace.visibilityUpdates).toContainEqual({
+      characterId: "A",
+      hidden: true,
+    });
+  });
+
+  it("§7 — attacking while ending in cover keeps a visible actor revealed", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "sword" },
+    });
+    const b = makeCharacter({ id: "B", pos: { x: 2, y: 0 } });
+    const state = makeState({
+      characters: [a, b],
+      world: { coverTiles: [{ x: 1, y: 0 }] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          primary: "move",
+          move: { kind: "toward", targetId: "Cover_1_0" },
+          action: { kind: "attack", targetCharacterId: "B" },
+        }),
+      ],
+      ["B", nullDecision()],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 1, y: 0 });
+    expect(findChar(next, "A").hidden).toBe(false);
+    expect(trace.visibilityUpdates).toContainEqual({
+      characterId: "A",
+      hidden: false,
+      revealedBy: "attack",
+    });
+  });
+
+  it("§7 — hidden actor in cover with nearby living enemy reveals by proximity", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 5, y: 5 },
+      hidden: true,
+    });
+    const b = makeCharacter({ id: "B", pos: { x: 7, y: 6 } });
+    const state = makeState({
+      characters: [a, b],
+      world: { coverTiles: [{ x: 5, y: 5 }] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", nullDecision()],
+      ["B", nullDecision()],
+    ]);
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "A").hidden).toBe(false);
+    expect(trace.visibilityUpdates).toContainEqual({
+      characterId: "A",
+      hidden: false,
+      revealedBy: "proximity",
+    });
+  });
+
   it("§7 — agent in cover with no reveal cause stays hidden after end-of-turn recompute", () => {
     const a = makeCharacter({
       id: "A",

@@ -61,7 +61,7 @@ export function normaliseCharacterTargetId(
 // `convex/llm/inputBuilder.ts:516`, and the system prompt instructs
 // "loot <Visible.id> — copy id verbatim". But the validator + engine
 // resolvers historically only accepted `chest_*` and `Player_*` namespaces,
-// rejecting every `Corpse_Player_*` corpse-loot/toward_object as "invalid
+// rejecting every `Corpse_Player_*` corpse-loot/move-toward as "invalid
 // namespace prefix". 0% corpse-loot in the closing-10 run was rejection-
 // at-validator (substrate-bug), not propensity (combat-tuning).
 //

@@ -177,10 +177,15 @@ export function resolveTurn(
   };
 
   // visibilityRevealMap tracks per-character reveal causes accumulated across
-  // phases. We emit at most one visibilityUpdates entry per character at end
-  // of phase 7 (or earlier when reveal causes need to be observable to
-  // downstream phases — e.g., speech reveal must be visible to overwatch).
+  // phases. hideSet tracks cover-as-hide flips produced in phase 7. We emit
+  // at most one visibilityUpdates entry per character at end of phase 7 (or
+  // earlier when reveal causes need to be observable to downstream phases —
+  // e.g., speech reveal must be visible to overwatch).
   const revealMap = new Map<string, RevealCause>();
+  const hideSet = new Set<string>();
+  const recordRevealCause = (id: string, cause: RevealCause) => {
+    if (!revealMap.has(id)) revealMap.set(id, cause);
+  };
 
   // Working state — never mutate the input. We re-bind `working` on each
   // immutable update.
@@ -246,8 +251,8 @@ export function resolveTurn(
     trace.consumed.push({ characterId: id, item: consumable });
 
     // Reveal cause: consumable.
+    recordRevealCause(id, "consumable");
     if (ch.hidden) {
-      revealMap.set(id, "consumable");
       working = patchCharacter(working, id, (c) => ({ ...c, hidden: false }));
     }
   }
@@ -283,8 +288,8 @@ export function resolveTurn(
     trace.speech.push({ characterId: id, text, heardBy });
 
     const speaker = working.characters.find((c) => c.characterId === id);
+    recordRevealCause(id, "speech");
     if (speaker && speaker.hidden) {
-      revealMap.set(id, "speech");
       working = patchCharacter(working, id, (c) => ({ ...c, hidden: false }));
     }
   }
@@ -323,8 +328,8 @@ export function resolveTurn(
     if (!ch || !ch.alive) continue;
     if (!isInCover(working.world, ch.pos)) {
       // Only reveal if currently hidden.
+      recordRevealCause(id, "leaving_cover");
       if (ch.hidden) {
-        revealMap.set(id, "leaving_cover");
         working = patchCharacter(working, id, (c) => ({
           ...c,
           hidden: false,
@@ -807,8 +812,8 @@ export function resolveTurn(
     const attacker = working.characters.find(
       (c) => c.characterId === atk.attackerId,
     );
+    if (attacker) recordRevealCause(atk.attackerId, "attack");
     if (attacker && attacker.hidden) {
-      revealMap.set(atk.attackerId, "attack");
       working = patchCharacter(working, atk.attackerId, (c) => ({
         ...c,
         hidden: false,
@@ -846,6 +851,16 @@ export function resolveTurn(
       target: ev.chestId,
       result: "opened",
     });
+    const looter = working.characters.find((c) => c.characterId === ev.actorId);
+    if (looter) {
+      recordRevealCause(ev.actorId, "loot");
+      if (looter.hidden) {
+        working = patchCharacter(working, ev.actorId, (c) => ({
+          ...c,
+          hidden: false,
+        }));
+      }
+    }
   }
 
   // Apply corpse loots (one item per loot in priority order: weapon →
@@ -912,8 +927,8 @@ export function resolveTurn(
 
     // Reveal looter.
     const looter = working.characters.find((c) => c.characterId === ev.actorId);
+    if (looter) recordRevealCause(ev.actorId, "loot");
     if (looter && looter.hidden) {
-      revealMap.set(ev.actorId, "loot");
       working = patchCharacter(working, ev.actorId, (c) => ({
         ...c,
         hidden: false,
@@ -961,54 +976,74 @@ export function resolveTurn(
   // For each STILL-ALIVE character:
   //   - Proximity reveal: if hidden + in cover + ANY OTHER LIVING char at
   //     Chebyshev ≤ 2 → reveal (revealedBy: "proximity").
-  //   - Otherwise hidden + in cover + no reveal cause → stay hidden.
+  //   - Visible + in cover + no reveal cause → become hidden.
   //   - Update lastKnown using current visible characters.
   for (const id of [...working.characters.map((c) => c.characterId)].sort()) {
     const ch = working.characters.find((c) => c.characterId === id);
     if (!ch || !ch.alive) continue;
+    let current = ch;
 
     // Proximity check (only if still hidden and in cover).
-    if (ch.hidden && isInCover(working.world, ch.pos)) {
+    if (current.hidden && isInCover(working.world, current.pos)) {
       let withinTwo = false;
       for (const other of working.characters) {
         if (other.characterId === id) continue;
         if (!other.alive) continue;
-        if (chebyshev(ch.pos, other.pos) <= PROXIMITY_REVEAL_RANGE) {
+        if (chebyshev(current.pos, other.pos) <= PROXIMITY_REVEAL_RANGE) {
           withinTwo = true;
           break;
         }
       }
       if (withinTwo) {
-        revealMap.set(id, "proximity");
+        recordRevealCause(id, "proximity");
         working = patchCharacter(working, id, (c) => ({
           ...c,
           hidden: false,
         }));
+        current = { ...current, hidden: false };
       }
+    }
+
+    if (
+      !current.hidden &&
+      !revealMap.has(id) &&
+      isInCover(working.world, current.pos)
+    ) {
+      hideSet.add(id);
+      working = patchCharacter(working, id, (c) => ({
+        ...c,
+        hidden: true,
+      }));
+      current = { ...current, hidden: true };
     }
 
     // lastKnown update — based on currentTurn = state.turn (BEFORE phase 8
     // increment).
     const { visible } = computeVisibleEntities(working, id);
-    const updated = updateLastKnown(ch.lastKnown, visible, state.turn);
+    const updated = updateLastKnown(current.lastKnown, visible, state.turn);
     working = patchCharacter(working, id, (c) => ({
       ...c,
       lastKnown: updated,
     }));
   }
 
-  // Emit visibilityUpdates entries in deterministic order. We emit one
-  // entry per character that was REVEALED this turn (revealMap has them);
-  // we also emit an entry for every CURRENTLY-LIVING character so the trace
-  // is a full snapshot? — the schema validator is lenient but the tests
-  // only assert .some() on revealed entries, so emitting only revealed
-  // characters is sufficient and avoids noise.
-  for (const id of [...revealMap.keys()].sort()) {
-    trace.visibilityUpdates.push({
-      characterId: id,
-      hidden: false,
-      revealedBy: revealMap.get(id)!,
-    });
+  // Emit visibilityUpdates entries in deterministic order. Reveals carry a
+  // cause; cover-as-hide entries carry hidden=true with no revealedBy.
+  const visibilityUpdateIds = new Set([...revealMap.keys(), ...hideSet]);
+  for (const id of [...visibilityUpdateIds].sort()) {
+    const revealedBy = revealMap.get(id);
+    if (revealedBy !== undefined) {
+      trace.visibilityUpdates.push({
+        characterId: id,
+        hidden: false,
+        revealedBy,
+      });
+    } else {
+      trace.visibilityUpdates.push({
+        characterId: id,
+        hidden: true,
+      });
+    }
   }
 
   // Apply scratchpad updates (each agent's optional scratchpad_update,
