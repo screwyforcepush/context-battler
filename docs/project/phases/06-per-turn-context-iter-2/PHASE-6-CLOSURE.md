@@ -60,6 +60,12 @@ optimistic-concurrency storage-layer failures, not engine invalid states.
 Excluded matches are replaced 1-for-1 by a concurrency-1 live re-run of the
 same persona seed. Automatic retry policy in the harness is deferred to Phase 7.
 
+**Provenance:** excluded match `j975s0g4nm509vh0byv2mbw51s86jh81` failed at
+turn 2 with a Convex optimistic-concurrency storage-layer error
+(`/tmp/phase6-closing-20.jsonl:1343`). It was replaced by
+`j974w0qyq10d8j8jm6ynymq2gs86k1be`, a concurrency-1 live Azure re-run using
+the same persona seed (`/tmp/phase6-closing-20-replacement.jsonl:124`).
+
 ### 2.2 Match ids
 
 1. `j97e6dvmegsemdvazv52g66jxd86j7ad`

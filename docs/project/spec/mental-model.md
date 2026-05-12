@@ -368,7 +368,8 @@ replay UI.
 ### Phase-6 Closure Record
 
 Phase 6 closes as substrate-closed, not metric-perfect. The canonical
-persisted report id is `jd78f616beq7dvs84gcs1n2f9586kbqt`; 16/17
+persisted report id is `jd78f616beq7dvs84gcs1n2f9586kbqt`;
+`reportType` is `"phase-6-closing-20"`; `metBar` is `false`; 16/17
 gates pass. The honest miss is no-op rate 43.245% vs <5%. The bar
 is not lowered or redefined;
 the miss is carried forward as a behaviour-policy problem rather than

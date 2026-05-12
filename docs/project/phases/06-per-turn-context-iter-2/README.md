@@ -11,7 +11,9 @@
 > the user message. Demonstrates via a 20-run Convex closing report at
 > `low/1200`.
 >
-> Phase status: **dispatched 2026-05-12**. Mental-model anchor:
+> Phase status: **closed 2026-05-12**. Closure record:
+> `docs/project/phases/06-per-turn-context-iter-2/PHASE-6-CLOSURE.md`
+> (16/17 gates PASS; no-op miss deferred to Phase 7). Mental-model anchor:
 > `docs/project/spec/mental-model.md` §15. Intent anchors (source of
 > truth on shape + prose — do not refactor away):
 > `docs/project/spec/decision-tool-schema-draft.md` and

@@ -71,3 +71,13 @@ The no-op formula matches the North Star definition. The report counts records w
 - Completion can be ratified with the no-op threshold explicitly failed. Treat Phase 6 as substrate-closed, not metric-perfect.
 - Phase 7 should own no-op reduction through persona/policy tuning, not through schema/report redefinition.
 - Before relying on `/tmp/phase6-v3-*` as the final validation evidence bundle, refresh the live-Azure log so it has a complete Vitest summary and `exit_code=0`.
+
+## Conditions Closed
+
+The two Low conditions from this Review Architect block were resolved in commit
+`4f9e7ec`:
+
+- Live-Azure log truncation resolved; evidence:
+  `/tmp/phase6-v3-live-azure-iter2.log` was refreshed.
+- Unused system-prompt renderer export resolved; evidence: a repository-wide
+  ripgrep check for the removed export returned zero matches.

@@ -1,6 +1,6 @@
 # Convex Backend — Deployment, Auth, Smoke Test
 
-Operational reference for talking to the project's Convex deployment. **Verified working 2026-05-07.**
+Operational reference for talking to the project's Convex deployment. **Verified working 2026-05-12 (phase-6 closure).**
 
 > Convex is the backend-as-a-service for state, queries, mutations, and scheduled functions. Auth is via a deploy key in `.env`; the CLI picks it up automatically.
 
@@ -17,11 +17,11 @@ CONVEX_DEPLOY_KEY=dev:calculating-meerkat-923|<token>
 - `dev:` prefix = **dev deployment key**. Allows deploy + invoke + read. For prod, the prefix is `prod:` and you'd typically use it only in CI.
 - `.env` is gitignored. Never commit these.
 
-## 2. Deployment state (as of 2026-05-07)
+## 2. Deployment state (as of 2026-05-12)
 
-- Project: **fresh** — no `convex/` folder, no functions, no schema, no tables.
+- Project: **active** — full Convex schema (`convex/schema.ts`), functions deployed (`matches`, `runMatch`, `turns`, `reports`, `replay`, `spike`), active tables (`matches`, `characters`, `turns`, `worldState`, `runs`, `reports`).
+- Current data: 20 phase-6 closing matches + associated turns/characters/reports. Previous data was wiped per POC posture before the phase-6 closing run.
 - `package.json` includes `convex` as a devDependency.
-- Build version returned by `/version`: `20260504T231427Z-f1774a00487d`.
 
 ## 3. Smoke tests (no functions required)
 
@@ -45,16 +45,15 @@ npx convex function-spec
 
 If any of these fail, suspect: stale/rotated deploy key, deployment paused, or URL/key slug mismatch.
 
-## 4. Going from fresh → first function
+## 4. Developer loop
 
 ```bash
-npx convex dev --once   # codegens convex/_generated/, creates convex/ if missing
-# author convex/<file>.ts with `query` / `mutation` / `action` exports
-npx convex dev          # watches & redeploys on change (long-running)
+npx convex dev          # watches convex/, redeploys on change, streams logs (long-running)
+npx convex dev --once   # single push + codegen, then exit
 npx convex run <fn>     # invoke a deployed function from the CLI
 ```
 
-`npx convex dev` (long-running) is the standard developer loop — it watches `convex/`, redeploys on change, and streams logs. **Not yet exercised** for this project — first function will validate the write path.
+`npx convex dev` (long-running) is the standard developer loop. It watches `convex/`, redeploys on change, and streams logs. Use `--typecheck=disable` when pushing schema changes that temporarily break type coherence (e.g. after a DB wipe).
 
 ## 5. Useful commands
 
@@ -81,5 +80,5 @@ npx convex env set AZURE_API_KEY "$AZURE_API_KEY"
 ## 7. When this guide goes stale
 
 - Deployment renamed or rotated: update both `CONVEX_URL` and `CONVEX_DEPLOY_KEY` in `.env`, re-run §3.
-- Schema/functions exist: §2 ("fresh project") will be wrong — update or delete that section.
-- After first successful `npx convex dev --once`, replace §4's "Not yet exercised" note with the verified write-path command.
+- Schema/functions change: update §2 table counts and function list after major phase closures.
+- DB wipe: after a POC wipe, update §2 to reflect the new data state.
