@@ -1,0 +1,213 @@
+{
+  "matchIds": [
+    "j971pzkks3xqrvn9fnt36f3g6n86j015",
+    "j972gg47kxafne7ecrk8qj3dhh86kws8",
+    "j970nwa8dsnn9ayqdfsy3rt9q186kbmv",
+    "j97648q7gdhw0w9enrdz8hg88186k57h",
+    "j970m9d19xn6fbcyf9ryr1036s86kt7x"
+  ],
+  "totals": {
+    "matches": 5,
+    "turns": 250,
+    "totalAgentRecords": 1798,
+    "schemaValidationFailed": 7,
+    "legacyArmSchemaValidationFailed": 0,
+    "legacyFieldSchemaValidationFailed": 0,
+    "validatorRejected": 272,
+    "coverTargetObjectCluster": 0,
+    "wallTargetObjectCluster": 0,
+    "chestRelootAlreadyOpened": 189,
+    "consumeSpeedNoConsumable": 82,
+    "httpNon200": 1
+  },
+  "perMatch": [
+    {
+      "matchId": "j971pzkks3xqrvn9fnt36f3g6n86j015",
+      "turns": 50,
+      "totalAgentRecords": 302,
+      "schemaValidationFailed": 0,
+      "legacyArmSchemaValidationFailed": 0,
+      "legacyFieldSchemaValidationFailed": 0,
+      "validatorRejected": 32,
+      "coverTargetObjectCluster": 0,
+      "wallTargetObjectCluster": 0,
+      "chestRelootAlreadyOpened": 17,
+      "consumeSpeedNoConsumable": 14,
+      "httpNon200": 0,
+      "topValidatorReasons": [
+        {
+          "reason": "consume='speed' but actor has no consumable equipped",
+          "count": 14
+        },
+        {
+          "reason": "loot target 'Chest_005' is already opened",
+          "count": 14
+        },
+        {
+          "reason": "loot target 'Chest_007' is already opened",
+          "count": 3
+        },
+        {
+          "reason": "attack target 'Player_4' is not visible to actor",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "matchId": "j972gg47kxafne7ecrk8qj3dhh86kws8",
+      "turns": 50,
+      "totalAgentRecords": 332,
+      "schemaValidationFailed": 0,
+      "legacyArmSchemaValidationFailed": 0,
+      "legacyFieldSchemaValidationFailed": 0,
+      "validatorRejected": 72,
+      "coverTargetObjectCluster": 0,
+      "wallTargetObjectCluster": 0,
+      "chestRelootAlreadyOpened": 52,
+      "consumeSpeedNoConsumable": 20,
+      "httpNon200": 0,
+      "topValidatorReasons": [
+        {
+          "reason": "loot target 'Chest_002' is already opened",
+          "count": 37
+        },
+        {
+          "reason": "consume='speed' but actor has no consumable equipped",
+          "count": 20
+        },
+        {
+          "reason": "loot target 'Chest_011' is already opened",
+          "count": 7
+        },
+        {
+          "reason": "loot target 'Chest_006' is already opened",
+          "count": 4
+        },
+        {
+          "reason": "loot target 'Chest_005' is already opened",
+          "count": 3
+        },
+        {
+          "reason": "loot target 'Chest_012' is already opened",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "matchId": "j970nwa8dsnn9ayqdfsy3rt9q186kbmv",
+      "turns": 50,
+      "totalAgentRecords": 364,
+      "schemaValidationFailed": 4,
+      "legacyArmSchemaValidationFailed": 0,
+      "legacyFieldSchemaValidationFailed": 0,
+      "validatorRejected": 29,
+      "coverTargetObjectCluster": 0,
+      "wallTargetObjectCluster": 0,
+      "chestRelootAlreadyOpened": 14,
+      "consumeSpeedNoConsumable": 15,
+      "httpNon200": 1,
+      "topValidatorReasons": [
+        {
+          "reason": "consume='speed' but actor has no consumable equipped",
+          "count": 15
+        },
+        {
+          "reason": "loot target 'Chest_005' is already opened",
+          "count": 8
+        },
+        {
+          "reason": "loot target 'Chest_010' is already opened",
+          "count": 4
+        },
+        {
+          "reason": "loot target 'Chest_011' is already opened",
+          "count": 1
+        },
+        {
+          "reason": "loot target 'Chest_012' is already opened",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "matchId": "j97648q7gdhw0w9enrdz8hg88186k57h",
+      "turns": 50,
+      "totalAgentRecords": 400,
+      "schemaValidationFailed": 1,
+      "legacyArmSchemaValidationFailed": 0,
+      "legacyFieldSchemaValidationFailed": 0,
+      "validatorRejected": 72,
+      "coverTargetObjectCluster": 0,
+      "wallTargetObjectCluster": 0,
+      "chestRelootAlreadyOpened": 58,
+      "consumeSpeedNoConsumable": 14,
+      "httpNon200": 0,
+      "topValidatorReasons": [
+        {
+          "reason": "loot target 'Chest_007' is already opened",
+          "count": 48
+        },
+        {
+          "reason": "consume='speed' but actor has no consumable equipped",
+          "count": 14
+        },
+        {
+          "reason": "loot target 'Chest_003' is already opened",
+          "count": 6
+        },
+        {
+          "reason": "loot target 'Chest_012' is already opened",
+          "count": 2
+        },
+        {
+          "reason": "loot target 'Chest_006' is already opened",
+          "count": 1
+        },
+        {
+          "reason": "loot target 'Chest_010' is already opened",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "matchId": "j970m9d19xn6fbcyf9ryr1036s86kt7x",
+      "turns": 50,
+      "totalAgentRecords": 400,
+      "schemaValidationFailed": 2,
+      "legacyArmSchemaValidationFailed": 0,
+      "legacyFieldSchemaValidationFailed": 0,
+      "validatorRejected": 67,
+      "coverTargetObjectCluster": 0,
+      "wallTargetObjectCluster": 0,
+      "chestRelootAlreadyOpened": 48,
+      "consumeSpeedNoConsumable": 19,
+      "httpNon200": 0,
+      "topValidatorReasons": [
+        {
+          "reason": "loot target 'Chest_002' is already opened",
+          "count": 38
+        },
+        {
+          "reason": "consume='speed' but actor has no consumable equipped",
+          "count": 19
+        },
+        {
+          "reason": "loot target 'Chest_001' is already opened",
+          "count": 5
+        },
+        {
+          "reason": "loot target 'Chest_006' is already opened",
+          "count": 2
+        },
+        {
+          "reason": "loot target 'Chest_005' is already opened",
+          "count": 2
+        },
+        {
+          "reason": "loot target 'Chest_010' is already opened",
+          "count": 1
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,165 @@
+=== j971pzkks3xqrvn9fnt36f3g6n86j015 ===
+=== schema_validation_failed ( 0 ) sampling 10 ===
+
+=== validator-rejection ( 32 ) grouped by reason ===
+
+  [14 cases] consume='speed' but actor has no consumable equipped
+    T1 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":0,"dy":3},"action":{"kind":"loot","targetId":"Chest_006"},"say":"On the move—taking the nearest chest and pushing south.","overwatch_stance":null,"scratchpad_update":"Sprint-focused. Current goal: loot nearby Ches
+    T4 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":7,"dy":-7},"action":{"kind":"none"},"say":"Taking any speed boost and sprinting northwest to keep distance and improve my position.","overwatch_stance":null,"scratchpad_update":"Sprinter plan: prioritize speed con
+    T5 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":0,"dy":8},"action":{"kind":"none"},"say":null,"overwatch_stance":null,"scratchpad_update":"Sprinter plan: prioritize speed consumables and direct movement. Avoid fights; reposition toward evac ASAP once revealed. 
+
+  [14 cases] loot target 'Chest_005' is already opened
+    T2 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_005"},"say":null,"overwatch_stance":null,"scratchpad_update":"Opportunist plan: prioritize gear. Loot Chest_005 if still contains items; otherwise continue to nearest 
+    T3 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"toward","targetId":"Chest_005"},"action":{"kind":"loot","targetId":"Chest_005"},"say":null,"overwatch_stance":null,"scratchpad_update":"Prioritize gear. Chest_005 is in loot range at dist 2 SE; loot it now. Keep oppo
+    T4 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_005"},"say":null,"overwatch_stance":null,"scratchpad_update":"Opportunist plan: loot nearby gear first. Chest_005 is within range 2 and opened; attempt loot now. Monit
+
+  [3 cases] loot target 'Chest_007' is already opened
+    T3 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_007"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed. Chest_007 is in range and opened; attempt loot now. Avoid full-HP fights; reassess after gear."}
+    T4 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_007"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed. Prioritize nearby loot over dueling full-HP enemies. In range to loot Chest_007; if empty, reass
+    T5 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_007"},"say":"Looting chest.","overwatch_stance":null,"scratchpad_update":"Unarmed, 10 HP. Chest_007 is open and in range; loot now. Avoid full-HP fights unless armed o
+
+  [1 cases] attack target 'Player_4' is not visible to actor
+    T46 duelist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"attack","targetCharacterId":"Player_4"},"say":null,"overwatch_stance":null,"scratchpad_update":"Armed rusty_blade. In evac zone near center. Engage visible enemies in range 2; Player_4 was ad
+
+=== http_non_200 turns ( 0 ): ===
+  per-turn count: 
+
+=== j972gg47kxafne7ecrk8qj3dhh86kws8 ===
+=== schema_validation_failed ( 0 ) sampling 10 ===
+
+=== validator-rejection ( 72 ) grouped by reason ===
+
+  [37 cases] loot target 'Chest_002' is already opened
+    T14 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_002"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed; continue toward Chest_002 to loot. Avoid combat until armed. Chest_002 is opened and in range; a
+    T15 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_002"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed but chest is in range 2 and already opened; loot Chest_002 now. Avoid combat until armed. If loot
+    T16 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_002"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed; Chest_002 is in range and already opened, so loot now. Continue opportunistic gear-up; avoid com
+
+  [20 cases] consume='speed' but actor has no consumable equipped
+    T4 sprinter: {"consume":"speed","primary":"move","move":{"kind":"toward","targetId":"Chest_010"},"action":{"kind":"none"},"say":null,"overwatch_stance":null,"scratchpad_update":"Sprinter: avoid fights, prioritize speed consumables. Chest_011 already opened. Move north toward Chest_010 to loot
+    T5 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":0,"dy":-1},"action":{"kind":"loot","targetId":"Chest_011"},"say":null,"overwatch_stance":null,"scratchpad_update":"Sprinter: avoid fights, prioritize speed consumables. Loot Chest_011 if possible, then keep pushin
+    T22 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":0,"dy":-8},"action":{"kind":"none"},"say":"Pushing north at top speed; avoiding fights and keeping the sprint plan.","overwatch_stance":null,"scratchpad_update":"Sprinter: avoid fights, prioritize speed consumable
+
+  [7 cases] loot target 'Chest_011' is already opened
+    T6 sprinter: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_011"},"say":null,"overwatch_stance":null,"scratchpad_update":"Sprinter: avoid fights, prioritize speed consumables. Chest_011 is in range and already opened; loot it n
+    T7 sprinter: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_011"},"say":null,"overwatch_stance":null,"scratchpad_update":"Sprinter: avoid fights, prioritize speed consumables. Loot Chest_011 now if possible. Keep moving north t
+    T8 sprinter: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_011"},"say":"Looting the chest, then I’ll keep pushing north.","overwatch_stance":null,"scratchpad_update":"Sprinter: avoid fights, prioritize speed consumables. Chest
+
+  [4 cases] loot target 'Chest_006' is already opened
+    T3 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_006"},"say":null,"overwatch_stance":null,"scratchpad_update":"Looted Chest_006 is still in range and opened. Unarmed but likely equipped with whatever is inside after 
+    T4 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_006"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed; Chest_006 adjacent N and opened. Loot it this turn, then reassess gear and threats next turn."}
+    T5 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_006"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed. Chest_006 is adjacent and opened; loot it now, then reassess gear/threats next turn."}
+
+  [3 cases] loot target 'Chest_005' is already opened
+    T6 duelist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_005"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed; loot opened Chest_005 at range 2. If still unarmed next turn, continue nearest chest/loot. Avoid
+    T7 duelist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_005"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed, adjacent to Chest_005 at range 2 west. Loot chest before any combat. If weapon gained, next turn
+    T9 duelist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_005"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed; chest nearby is open. Loot Chest_005 first; never attack until armed. Then close and attack visi
+
+  [1 cases] loot target 'Chest_012' is already opened
+    T47 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_012"},"say":null,"overwatch_stance":null,"scratchpad_update":"Turn 12. Armed axe/leather. No wounded visible. Near opened Chest_012; loot now, then drift SE into cover
+
+=== http_non_200 turns ( 0 ): ===
+  per-turn count: 
+
+=== j970nwa8dsnn9ayqdfsy3rt9q186kbmv ===
+=== schema_validation_failed ( 4 ) sampling 10 ===
+  T25 rat: {"consume":"none","primary":"stationary_action","move":{"kind":"any"},"action":{"kind":"any"},"say":null,"overwatch_stance":null,"scratchpad_update":"Rat mode: survival first. Current pos (75,48) in cover. No enemies visible; remain silent and avoid loot/combat. Await evac reveal
+  T31 sprinter: {"consume":"none","primary":"move","move":{"kind":"any","dx":8,"dy":0},"action":{"kind":"any"},"say":"Keeping east along the north edge toward evac.","overwatch_stance":null,"scratchpad_update":"Sprinter. Avoid fights, prioritize speed. Pos (99,0). Continue east along north edge 
+  T34 vulture: {"consume":"none","primary":"move","move":{"kind":"toward","targetId":"Player_1"},"action":{"kind":"targetCharacterId","targetCharacterId":"Player_1"},"say":"Closing on Player_1. I’m not chasing full-HP fights, just opportunistic strikes.","overwatch_stance":null,"scratchpad_upda
+  T40 sprinter: {"consume":"speed","primary":"move","move":{"kind":"dxdy","dx":-1,"dy":1},"action":{"kind":"none"},"say":null,"overwatch_stance":null,"scratchpad_update":"Sprinter. Evac revealed. Current pos (81,17). Prioritize direct SW sprint to evac, avoid fights/chests unless speed is availa
+
+=== validator-rejection ( 29 ) grouped by reason ===
+
+  [15 cases] consume='speed' but actor has no consumable equipped
+    T2 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":0,"dy":-8},"action":{"kind":"none"},"say":"Pushing north on speed and keeping clear of trouble.","overwatch_stance":null,"scratchpad_update":"Sprinter plan: prioritize speed consumables, avoid combat, take direct 
+    T3 camper: {"consume":"speed","primary":"move","move":{"kind":"toward","targetId":"Cover_46_73"},"action":{"kind":"none"},"say":null,"overwatch_stance":null,"scratchpad_update":"Armed with greatsword. Move into nearest cover (Cover_46_73) and then overwatch from cover; avoid Player_7."}
+    T4 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":0,"dy":-8},"action":{"kind":"none"},"say":null,"overwatch_stance":null,"scratchpad_update":"Sprinter plan: avoid fights, prioritize speed, head north. Current position (33,32)->moving N. Chest_005 already opened. 
+
+  [8 cases] loot target 'Chest_005' is already opened
+    T2 trader: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_005"},"say":"Still peaceful here. I’m looting this chest, then I’ll head toward evac when it appears. Happy to share extraction if everyone keeps it calm—no need to fi
+    T3 trader: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_005"},"say":"Friendly trader here—no aggression. I’m looting the nearby chest and heading toward evac openly. If you want a truce, I’ll honor it and share extraction."
+    T5 trader: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_005"},"say":"Friendly trader here—no fight. I’m looting and heading for evac. If you want, let’s share the extraction and keep this peaceful.","overwatch_stance":null,
+
+  [4 cases] loot target 'Chest_010' is already opened
+    T9 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"relative","dx":0,"dy":0},"action":{"kind":"loot","targetId":"Chest_010"},"say":"Looting the nearest chest first.","overwatch_stance":null,"scratchpad_update":"Vulture plan: loot-first while unarmed/low-risk. Current 
+    T11 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_010"},"say":null,"overwatch_stance":null,"scratchpad_update":"Vulture plan: loot-first while unhurt. At (48,44) with rusty_blade and heal. Chest_010 is in range 2 SW a
+    T12 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_010"},"say":"Looting chest at range; avoiding full-HP fights until I have a better opportunity.","overwatch_stance":null,"scratchpad_update":"Vulture plan: loot-first.
+
+  [1 cases] loot target 'Chest_011' is already opened
+    T15 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_011"},"say":"Looting Chest_011 first; staying out of fair fights.","overwatch_stance":null,"scratchpad_update":"Unarmed/loot-first. Position (49,50). Chest_011 adjacen
+
+  [1 cases] loot target 'Chest_012' is already opened
+    T22 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_012"},"say":null,"overwatch_stance":null,"scratchpad_update":"Armed axe/leather at (53,53), 50/50 HP. No wounded enemies visible. Prioritize loot/open nearby chests/co
+
+=== http_non_200 turns ( 1 ): ===
+  per-turn count: T31:1
+
+=== j97648q7gdhw0w9enrdz8hg88186k57h ===
+=== schema_validation_failed ( 1 ) sampling 10 ===
+  T35 vulture: {"consume":"none","primary":"move","move":{"kind":"any","dx":4,"dy":-2},"action":{"kind":"none"},"say":null,"overwatch_stance":null,"scratchpad_update":"Armed rusty_blade, 50/50 HP. No visible enemies/corpses; continue east/NE scouting, prioritize loot, avoid full-HP duels. Turn 
+
+=== validator-rejection ( 72 ) grouped by reason ===
+
+  [48 cases] loot target 'Chest_007' is already opened
+    T3 duelist: {"consume":"none","primary":"stationary_action","move":{"kind":"relative","dx":0,"dy":0},"action":{"kind":"loot","targetId":"Chest_007"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed. Chest_007 is open and in range; loot it now. Do not attack until armed. After 
+    T4 duelist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_007"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed. Chest_007 is adjacent and opened; loot it if possible. After arming, hunt visible enemies; Playe
+    T5 duelist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_007"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed, chest already opened and in loot range. Loot Chest_007 first, then reassess for armed hunt."}
+
+  [14 cases] consume='speed' but actor has no consumable equipped
+    T2 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":0,"dy":6},"action":{"kind":"none"},"say":"Pushing south, keeping pace and avoiding the fight.","overwatch_stance":null,"scratchpad_update":"Sprint plan: prioritize speed consumables and avoid fights. Chest_006 alr
+    T8 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":0,"dy":8},"action":{"kind":"none"},"say":null,"overwatch_stance":null,"scratchpad_update":"Sprint plan: avoid fights, prioritize speed consumables. Continue moving south on open ground; pivot to evac immediately o
+    T11 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":0,"dy":8},"action":{"kind":"none"},"say":null,"overwatch_stance":null,"scratchpad_update":"Sprint plan: avoid fights, prioritize speed consumables. Keep moving south on open ground; pivot to evac immediately once 
+
+  [6 cases] loot target 'Chest_003' is already opened
+    T23 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_003"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed, 40 HP. Chest_003 opened and still in range 2; loot it now. Prioritize nearest loot, avoid fights
+    T24 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_003"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed, 40 HP. Prioritize nearest loot. Chest_003 is in range 2; attempt loot now. Avoid fights unless c
+    T25 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_003"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed, 40 HP. Chest_003 was in range 2 and opened; loot it now. Prioritize nearest loot, avoid fights u
+
+  [2 cases] loot target 'Chest_012' is already opened
+    T6 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_012"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed; nearest loot is Chest_012 at 1 E and already opened. Loot it this turn. Avoid combat; if still u
+    T7 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_012"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed; loot nearest chest/corpse. Chest_012 adjacent and opened; loot now. If empty/failed, reassess ne
+
+  [1 cases] loot target 'Chest_006' is already opened
+    T2 opportunist: {"consume":"none","primary":"move","move":{"kind":"toward","targetId":"Chest_006"},"action":{"kind":"loot","targetId":"Chest_006"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed; prioritize nearest chest/corpse. Target Chest_006 N, currently dist 7, opened. Move 
+
+  [1 cases] loot target 'Chest_010' is already opened
+    T11 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_010"},"say":"Looting the nearby chest before I move on.","overwatch_stance":null,"scratchpad_update":"Armed. Prioritize loot/corpses and wounded enemies; avoid full-HP
+
+=== http_non_200 turns ( 0 ): ===
+  per-turn count: 
+
+=== j970m9d19xn6fbcyf9ryr1036s86kt7x ===
+=== schema_validation_failed ( 2 ) sampling 10 ===
+  T44 paranoid: {"consume":"none","primary":"move","move":{"kind":"targetId","targetId":"Cover_53_53"},"action":{"kind":"none"},"say":"Moving to corner cover. Anyone crowding or talking is a threat; I’m not trusting the zone.","overwatch_stance":null,"scratchpad_update":"Paranoid stance. Evac is
+  T46 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"any"},"action":{"kind":"loot","targetId":"Chest_002"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed; prioritize looting. Chest_002 is opened and adjacent east; loot it first. After gear, reassess fo
+
+=== validator-rejection ( 67 ) grouped by reason ===
+
+  [38 cases] loot target 'Chest_002' is already opened
+    T11 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_002"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed; prioritize looting nearest chest. Chest_002 is in loot range and was opened last turn, attempt l
+    T13 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_002"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed; loot nearby opened chest first. Chest_002 is 1 E and in loot range. After looting, reassess gear
+    T14 opportunist: {"consume":"none","primary":"move","move":{"kind":"toward","targetId":"Chest_002"},"action":{"kind":"loot","targetId":"Chest_002"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed; prioritize loot/gain gear. Chest_002 is opened and east at dist 1; move east to loot
+
+  [19 cases] consume='speed' but actor has no consumable equipped
+    T8 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":1,"dy":0},"action":{"kind":"none"},"say":null,"overwatch_stance":null,"scratchpad_update":"Sprinter: avoid fights, prioritize speed. Current position 54,55. Move east along open path; east one tile remains open th
+    T10 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":1,"dy":1},"action":{"kind":"none"},"say":null,"overwatch_stance":null,"scratchpad_update":"Sprinter: avoid fights, prioritize speed. Current plan: move SE toward open ground and eventual evac path; use speed consu
+    T11 sprinter: {"consume":"speed","primary":"move","move":{"kind":"relative","dx":1,"dy":1},"action":{"kind":"none"},"say":null,"overwatch_stance":null,"scratchpad_update":"Sprinter: avoid fights, prioritize speed. Current plan: keep moving east/northeast along open path, no combat unless force
+
+  [5 cases] loot target 'Chest_001' is already opened
+    T13 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"relative","dx":0,"dy":0},"action":{"kind":"loot","targetId":"Chest_001"},"say":"Looting Chest_001.","overwatch_stance":null,"scratchpad_update":"Unarmed. Chest_001 is adjacent-range and opened; loot it now. Avoid ful
+    T14 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_001"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed. Chest_001 in range and opened; attempt loot. Avoid full-HP duels; after arming, hunt wounded ene
+    T15 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_001"},"say":"Looting the nearby chest.","overwatch_stance":null,"scratchpad_update":"Unarmed. Loot nearby Chest_001 first; then hunt wounded enemies, avoid full-HP due
+
+  [2 cases] loot target 'Chest_006' is already opened
+    T2 opportunist: {"consume":"none","primary":"move","move":{"kind":"toward","targetId":"Chest_006"},"action":{"kind":"loot","targetId":"Chest_006"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed. Chest_006 is nearest loot but 7N away and already opened; move toward it to get with
+    T4 opportunist: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_006"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed. Chest_006 is in range 2 N and opened; attempt loot now. Avoid combat until geared. If empty, rea
+
+  [2 cases] loot target 'Chest_005' is already opened
+    T3 vulture: {"consume":"none","primary":"move","move":{"kind":"toward","targetId":"Chest_005"},"action":{"kind":"loot","targetId":"Chest_005"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed. Chest_009 already opened. Head west toward Chest_005; avoid full-HP players until ar
+    T5 vulture: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_005"},"say":null,"overwatch_stance":null,"scratchpad_update":"Unarmed. Try looting opened Chest_005 in place; stay clear of full-HP players until armed."}
+
+  [1 cases] loot target 'Chest_010' is already opened
+    T47 trader: {"consume":"none","primary":"stationary_action","move":{"kind":"none"},"action":{"kind":"loot","targetId":"Chest_010"},"say":"Truce stands: no swings, no shots, no chasing. I’m looting quietly and holding evac. P5, P6, keep it peaceful and we all split the extraction.","overwatch
+
+=== http_non_200 turns ( 0 ): ===
+  per-turn count: 
+

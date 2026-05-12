@@ -907,7 +907,7 @@ At turn 30:
 Exact 3x3 evac zone is revealed to all living agents.
 ```
 
-Agents can move toward evac even when not visible.
+Agents can move toward evac once it is revealed as the `Evac` visible id.
 
 ## Extraction
 
