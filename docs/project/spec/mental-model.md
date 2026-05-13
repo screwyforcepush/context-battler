@@ -392,6 +392,94 @@ Deferred to Phase 7: no-op reduction via persona/policy tuning,
 harness auto-retry for OCC, and paginated server-side aggregation if
 future reports need server recompute.
 
+## 16. Phase 7 — context payload iter-3 + diagnostics tooling (dispatched 2026-05-13)
+
+> **Status:** dispatched 2026-05-13. Three workstreams in one assignment;
+> the crew sequences/parallelises. Canonical intent anchors:
+> [`docs/project/spec/context-payload-iter-3-intent.md`](./context-payload-iter-3-intent.md)
+> (substrate slice) and
+> [`docs/project/spec/behavioural-diagnostics-intent.md`](./behavioural-diagnostics-intent.md)
+> (tooling slice). The trigger was a phase-6 closure debrief that surfaced
+> three pillar regressions (Vision over-sharing, in-range hearing lost,
+> loot outcomes silent on empty) and a metric-vs-substrate mismatch (the
+> no-op rate conflating armed-stance pause with true do-nothing).
+
+The three workstreams:
+
+1. **Substrate — context payload iter-3.** Vision shrinks: drop `kind`,
+   `pos.x/y`, `opened`, `drained`, `contents`; opponent `equipped` masks
+   to `armed: true|false`; Evac entry suppressed when inside; rename to
+   `Vision:`. Status gains an `Outside Evac` / `Inside Evac` flag and a
+   `unarmed [dmg 5]` baseline weapon line. Current Game State splits the
+   own-outcome line from own-speech (clean kill-feed-symmetric chronology),
+   restores in-range inbound speech (regression), and verbose-honest
+   loot outcomes (`looted speed from Chest_53_54` / `looted nothing from
+   empty Corpse_Duelist`). Chest ids rename engine-wide from ordinal
+   (`chest_012`) to coord-encoded (`Chest_53_54`) — consistent with cover
+   and walls. System prompt evac countdown flips at turn 30:
+   `Evac location spawns in <N> turns` → `Extraction in <N> turns`.
+   Pillar 4 (scratchpad-as-explainability) becomes load-bearing — the
+   agent must scratchpad-track lootable state because the substrate no
+   longer re-tells it. Pillar 5 (text is terrain) escalates — weapon and
+   armour intel propagates only via speech, kill feed, and corpse loot.
+
+2. **Convex 16 MB read-budget unblock — Option A (slim query, client fan-out).**
+   New per-match Convex query returning agentRecords projected to the
+   diagnostics-relevant fields (heavy text — `systemPromptText`,
+   `personaPromptText`, `visibleStateDigest`, `scratchpadBefore`,
+   `composedUserMessage`, `llm.reasoning`, `llm.rawArguments`,
+   `llm.httpBodyExcerpt` — stripped after read). Per-match read budget
+   well under 16 MB; CLI / UI fan out N parallel calls and aggregate
+   client-side. No schema change. Drill-down on click continues to fetch
+   the full agentRecord via the existing `turns.getAgentTurn` query.
+   Materialised lean rollup tables and pagination remain options for a
+   future closing-50 escalation; punt until measured.
+
+3. **Behavioural diagnostics view.** CLI at `harness/diagnostics.ts` and
+   a sibling dashboard tab in `apps/replay`, both consuming the slim
+   Convex query with `--last N ≤ 20` matches. Three metric families
+   per the intent doc: (a) critical fails — fallback rate by
+   `failureReason`, retry recovery, `output_tokens` cap proximity,
+   per-field validator-rejection breakdown; (b) game-mechanic sanity —
+   attack outcomes, overwatch fires split offensive/defensive, counter
+   retaliations, chest/corpse funnels, consume waste, speech metrics,
+   damage-feed delivery audit, wall-blocked moves, declared-vs-actual
+   move distance; (c) behavioural distribution — top-level totals,
+   contextual combos (move+attack, counter+attack, overwatch+loot,
+   move+consume:speed, etc.), cross-cuts by persona / turn-phase /
+   visibility / equipment, plus a "saw enemy AND no-op" carve-out.
+   Drill-down deep-links to the existing replay turn-detail modal — no
+   new modal. Recompute on demand; no persisted aggregate rows.
+
+**Metric redefinition.** The phase-6 no-op metric is *not* preserved
+verbatim. Iter-3's diagnostics view replaces it with two separate
+distributions: armed-stance pause (`position:{overwatch|counter}` +
+`action:none`) and true stationary (`position:{move, dist:0}` +
+`action:none`). The closure-record framing of "behaviour-policy gap" was
+inaccurate — substrate analysis showed armed stance is the model
+deliberately priming reactive fires. This is not a tuning slice; it is a
+measurement slice.
+
+**Authority for execution:**
+- Schema break authorised (chest id rename engine-wide); dev DB wipe
+  expected per `project_poc_schema_wipe_acceptable`.
+- No persona behaviour-tuning in scope. The 8 persona prompts get a
+  mechanical scrub for any dead chest-id references; nothing else.
+- The diagnostics CLI is the canonical machine-introspection surface
+  (`feedback_observability_targets_agents`); the dashboard is the user's
+  human-introspection surface.
+
+**Done bar:** 20-run iter-3 closing report preserves phase-6 thresholds
+where comparable (extraction ≥ 30%, kill ≥ 80%, equip ≥ 80%, speech ≥
+50%, persona spread ≥ 15 pp, zero crashes, ≥ 5 counter / ≥ 5 overwatch
+trigger / ≥ 10 action+overwatch combos, all 8 compass bearings, zero
+illegal `use:"consumable"` emissions, zero `Player_N` literals, zero
+whole-turn validator zeroes, per-field rejection ≤ 10%). The Convex
+16 MB read-budget no longer blocks any closing-report compute path; the
+diagnostics CLI emits the three families over the last 20 matches; the
+dashboard renders the same with clickable drill-down to the existing
+turn modal.
+
 ## 12. Open questions / live tensions
 
 Tracked here because they shape the why, not the how:
