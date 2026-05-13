@@ -310,11 +310,11 @@ function ChestHover(props: {
  * Per D-P2-13, lookup is by `row.turn` not array index.
  *
  * Phase-3 ADR §1 / PM lock D7 — chest opens emit
- * `kind: "loot"`, `result: "opened"`, with the chest id (chest_*) as the
- * target. The id-namespace gate (`target.startsWith("chest_")`) prevents
+ * `kind: "loot"`, `result: "opened"`, with the chest id (`Chest_<x>_<y>`) as the
+ * target. The id-namespace gate (`isChestId(target)`) prevents
  * a corpse loot of the same `result: "opened"` from being misread as a
  * chest open, even though the engine's chest-open path always writes
- * `chest_*` and the corpse path writes the character id.
+ * coord-encoded chest ids and the corpse path writes the character id.
  */
 function findChestOpenTurn(
   bundle: ReplayBundle,
@@ -325,7 +325,7 @@ function findChestOpenTurn(
       if (
         a.kind === "loot" &&
         a.result === "opened" &&
-        a.target.startsWith("chest_") &&
+        isChestId(a.target) &&
         a.target === chestId
       ) {
         return row.turn;
@@ -333,6 +333,10 @@ function findChestOpenTurn(
     }
   }
   return null;
+}
+
+function isChestId(id: string): boolean {
+  return /^Chest_-?\d+_-?\d+$/.test(id);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

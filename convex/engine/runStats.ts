@@ -58,6 +58,10 @@
 
 import { PERSONA_IDS, type PersonaId } from "./types.js";
 
+function isChestId(id: string): boolean {
+  return /^Chest_-?\d+_-?\d+$/.test(id);
+}
+
 // ─── Types (mirror Convex row shapes; plain-object) ──────────────────────
 
 /** A single trace action entry — schema-shaped (kind + target + result). */
@@ -218,7 +222,7 @@ export function aggregateRunStats(
       const isChestEquip =
         a.kind === "loot" &&
         a.result === "opened" &&
-        a.target.startsWith("chest_");
+        isChestId(a.target);
       const isCorpseLootEquip =
         a.kind === "loot" &&
         a.result === "looted" &&

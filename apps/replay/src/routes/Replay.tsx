@@ -37,6 +37,7 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 export function Replay(props: {
   matchId: string;
   turn: number | null;
+  character: string | null;
 }): React.ReactElement {
   const matchId = props.matchId as unknown as Id<"matches">;
   const initialTurn = props.turn ?? 0;
@@ -70,6 +71,16 @@ export function Replay(props: {
     turn: number;
     characterId: Id<"characters">;
   } | null>(null);
+
+  useEffect(() => {
+    if (!bundle || props.turn === null || props.character === null) return;
+    const targetName = normaliseDisplayName(props.character);
+    const character = bundle.characters.find(
+      (candidate) => normaliseDisplayName(candidate.displayName) === targetName,
+    );
+    if (!character) return;
+    setModalTarget({ turn: props.turn, characterId: character._id });
+  }, [bundle, props.turn, props.character]);
 
   // ── Bundle fetch (one-shot per ADR §3) ───────────────────────────────
   useEffect(() => {
@@ -375,6 +386,10 @@ function parseLocalCoord(el: HTMLElement, name: string): number | null {
 
 function truncateId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id;
+}
+
+function normaliseDisplayName(name: string): string {
+  return name.trim().toLowerCase();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

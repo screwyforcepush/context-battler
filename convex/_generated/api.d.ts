@@ -34,10 +34,12 @@ import type * as replay from "../replay.js";
 import type * as reports from "../reports.js";
 import type * as reports_phase3 from "../reports/phase3.js";
 import type * as reports_phase6 from "../reports/phase6.js";
+import type * as reports_phase7 from "../reports/phase7.js";
 import type * as runMatch from "../runMatch.js";
 import type * as runs from "../runs.js";
 import type * as spike from "../spike.js";
 import type * as turns from "../turns.js";
+import type * as turnsDerived from "../turnsDerived.js";
 
 import type {
   ApiFromModules,
@@ -72,10 +74,12 @@ declare const fullApi: ApiFromModules<{
   reports: typeof reports;
   "reports/phase3": typeof reports_phase3;
   "reports/phase6": typeof reports_phase6;
+  "reports/phase7": typeof reports_phase7;
   runMatch: typeof runMatch;
   runs: typeof runs;
   spike: typeof spike;
   turns: typeof turns;
+  turnsDerived: typeof turnsDerived;
 }>;
 
 /**

@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAgentInput,
+  buildInboundSpeechLines,
   buildKillFeedLines,
+  buildOwnSpeechLine,
   buildVisibleStateDigest,
   renderDamageEventLines,
   type PrevTurnRow,
 } from "../../convex/llm/inputBuilder.js";
-import { SYSTEM_PROMPT } from "../../convex/llm/systemPrompt.js";
+import { buildSystemPrompt } from "../../convex/llm/systemPrompt.js";
 import { loadPersonas } from "../../convex/llm/personas.js";
 import {
   PERSONA_IDS,
@@ -123,7 +125,14 @@ function parseVisible(
   characterId: string,
   prev: PrevTurnRow | null = null,
 ): VisibleObject {
-  return JSON.parse(buildVisibleStateDigest(state, characterId, prev)) as VisibleObject;
+  const digest = buildVisibleStateDigest(state, characterId, prev);
+  expect(digest.startsWith("Vision:\n")).toBe(true);
+  return JSON.parse(digest.slice("Vision:\n".length)) as VisibleObject;
+}
+
+function visibleKeys(value: Record<string, unknown> | undefined): string[] {
+  if (!value) throw new Error("missing Vision entry");
+  return Object.keys(value).sort();
 }
 
 describe("Phase 6 input builder — composed user message", () => {
@@ -156,7 +165,7 @@ describe("Phase 6 input builder — composed user message", () => {
       Win direct fights.
 
       ## Status
-      📍(44,53)
+      📍(44,53) Outside Evac
       ❤️HP: 35/50 HP
       ⚔️weapon: rusty_blade [dmg 10]
       🛡️armour: none
@@ -166,6 +175,7 @@ describe("Phase 6 input builder — composed user message", () => {
       # Current Game State
       Turn 44, 1/8 players alive
 
+      Vision:
       {}"
     `);
   });
@@ -242,11 +252,11 @@ describe("Phase 6 input builder — composed user message", () => {
 
     const built = buildAgentInput(state, "c_duelist", "Win direct fights.", prev, 3);
 
-    expect(built.systemPrompt).toBe(SYSTEM_PROMPT);
+    expect(built.systemPrompt).toBe(buildSystemPrompt(44));
     expect(built.composedUserMessage).toContain("# Duelist");
     expect(built.composedUserMessage).toContain("You adopt Duelist persona:");
     expect(built.composedUserMessage).toContain("## Status");
-    expect(built.composedUserMessage).toContain("📍(44,53)");
+    expect(built.composedUserMessage).toContain("📍(44,53) Outside Evac");
     expect(built.composedUserMessage).toContain("❤️HP: 35/50 HP");
     expect(built.composedUserMessage).toContain("⚔️weapon: rusty_blade [dmg 10]");
     expect(built.composedUserMessage).toContain("🛡️armour: leather [-3 dmg]");
@@ -259,37 +269,323 @@ describe("Phase 6 input builder — composed user message", () => {
     expect(built.composedUserMessage).toContain("# Current Game State");
     expect(built.composedUserMessage).toContain("Turn 44, 3/8 players alive");
     expect(built.composedUserMessage).toContain(
-      "You moved 2 SE, attacked Vulture (dmg 10), said \"Hold range.\"",
+      "You moved 2 SE, attacked Vulture (dmg 10)",
     );
+    expect(built.composedUserMessage).not.toContain(
+      "attacked Vulture (dmg 10), said",
+    );
+    expect(built.composedUserMessage).toContain("You said \"Hold range.\"");
     expect(built.composedUserMessage).toContain(
       "Camper attacked you with axe (dmg 8)",
     );
     expect(built.composedUserMessage).toContain("Camper killed Rat with axe");
 
-    const visible = JSON.parse(built.visibleStateDigest) as VisibleObject;
+    const visible = JSON.parse(
+      built.visibleStateDigest.slice("Vision:\n".length),
+    ) as VisibleObject;
     expect(visible.Camper).toMatchObject({
-      kind: "character",
       dist: 2,
       bearing: "E",
       hp: "high",
+      armed: true,
     });
     expect(visible.Corpse_Rat).toMatchObject({
-      kind: "corpse",
-      drained: true,
+      dist: 3,
+      bearing: "E",
     });
   });
 
   it("returns a minimal fallback shape when the observer is missing", () => {
     const state = makeState({ characters: [] });
     expect(buildAgentInput(state, "missing", "persona", null, 0)).toEqual({
-      systemPrompt: SYSTEM_PROMPT,
-      visibleStateDigest: "{}",
+      systemPrompt: buildSystemPrompt(1),
+      visibleStateDigest: "Vision:\n{}",
       composedUserMessage: "{}",
     });
   });
 });
 
 describe("Phase 6 input builder — event helpers", () => {
+  it("orders own outcome, damage, own speech, inbound speech, then kill feed", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 10, y: 10 },
+    });
+    const camper = makeCharacter({
+      id: "c_camper",
+      personaId: "camper",
+      displayName: "Camper",
+      pos: { x: 11, y: 10 },
+      weapon: "axe",
+    });
+    const trader = makeCharacter({
+      id: "c_trader",
+      personaId: "trader",
+      displayName: "Trader",
+      pos: { x: 12, y: 10 },
+    });
+    const rat = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 13, y: 10 },
+      hp: 0,
+      alive: false,
+    });
+    const state = makeState({
+      characters: [me, camper, trader, rat],
+      turn: 12,
+    });
+    const prev = makePrevTurn({
+      moves: [
+        {
+          characterId: "c_duelist",
+          from: { x: 9, y: 9 },
+          to: { x: 10, y: 10 },
+        },
+      ],
+      actions: [
+        {
+          characterId: "c_duelist",
+          kind: "attack",
+          target: "Trader",
+          result: "out_of_range",
+          weapon: "rusty_blade",
+        },
+        {
+          characterId: "c_camper",
+          kind: "attack",
+          target: "Duelist",
+          result: "dmg 8",
+          weapon: "axe",
+        },
+        {
+          characterId: "c_camper",
+          kind: "attack",
+          target: "Rat",
+          result: "dmg 50",
+          weapon: "axe",
+        },
+      ],
+      speech: [
+        {
+          characterId: "c_duelist",
+          text: "Hold position.",
+          heardBy: ["c_trader"],
+        },
+        {
+          characterId: "c_trader",
+          text: "I heard you.",
+          heardBy: ["c_duelist"],
+        },
+      ],
+      deaths: ["c_rat"],
+    });
+
+    const lines = buildAgentInput(
+      state,
+      "c_duelist",
+      "Win direct fights.",
+      prev,
+      4,
+    ).composedUserMessage.split("\n");
+    const start = lines.indexOf("# Current Game State");
+
+    expect(lines.slice(start, start + 8)).toEqual([
+      "# Current Game State",
+      "Turn 12, 4/8 players alive",
+      "You moved 1 SE, attacked Trader (out_of_range)",
+      "Camper attacked you with axe (dmg 8)",
+      "You said \"Hold position.\"",
+      "Trader said \"I heard you.\"",
+      "Camper killed Rat with axe",
+      "",
+    ]);
+  });
+
+  it("renders own speech and inbound heard speech as separate JSON-safe feed lines", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 10, y: 10 },
+    });
+    const trader = makeCharacter({
+      id: "c_trader",
+      personaId: "trader",
+      displayName: "Trader",
+      pos: { x: 11, y: 10 },
+    });
+    const rat = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 12, y: 10 },
+    });
+    const state = makeState({ characters: [me, trader, rat] });
+    const prev = makePrevTurn({
+      speech: [
+        {
+          characterId: "c_duelist",
+          text: "Hold\nrange.",
+          heardBy: ["c_trader"],
+        },
+        {
+          characterId: "c_trader",
+          text: "Peace \"for now\".",
+          heardBy: ["c_duelist"],
+        },
+        {
+          characterId: "c_rat",
+          text: "Too far.",
+          heardBy: ["c_trader"],
+        },
+      ],
+    });
+
+    expect(buildOwnSpeechLine(prev, "c_duelist")).toBe(
+      "You said \"Hold range.\"",
+    );
+    expect(buildInboundSpeechLines(prev, state, me)).toEqual([
+      "Trader said \"Peace \\\"for now\\\".\"",
+    ]);
+
+    const built = buildAgentInput(state, "c_duelist", "Win direct fights.", prev, 3);
+    expect(built.composedUserMessage).toContain("You said \"Hold range.\"");
+    expect(built.composedUserMessage).toContain(
+      "Trader said \"Peace \\\"for now\\\".\"",
+    );
+    expect(built.composedUserMessage).not.toContain("Rat said");
+  });
+
+  it("renders loot outcomes with item names and empty markers", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me] });
+
+    expect(
+      buildAgentInput(
+        state,
+        "c_duelist",
+        "Win direct fights.",
+        makePrevTurn({
+          actions: [
+            {
+              characterId: "c_duelist",
+              kind: "loot",
+              target: "Chest_53_54",
+              result: "opened",
+              lootedItem: "speed",
+            },
+          ],
+        }),
+        1,
+      ).composedUserMessage,
+    ).toContain("You looted speed from Chest_53_54");
+
+    expect(
+      buildAgentInput(
+        state,
+        "c_duelist",
+        "Win direct fights.",
+        makePrevTurn({
+          actions: [
+            {
+              characterId: "c_duelist",
+              kind: "loot",
+              target: "Corpse_Rat",
+              result: "looted",
+              lootedItem: "sword",
+            },
+          ],
+        }),
+        1,
+      ).composedUserMessage,
+    ).toContain("You looted sword from Corpse_Rat");
+
+    expect(
+      buildAgentInput(
+        state,
+        "c_duelist",
+        "Win direct fights.",
+        makePrevTurn({
+          actions: [
+            {
+              characterId: "c_duelist",
+              kind: "loot",
+              target: "Chest_53_54",
+              result: "already_opened",
+            },
+          ],
+        }),
+        1,
+      ).composedUserMessage,
+    ).toContain("You looted nothing from empty Chest_53_54");
+
+    expect(
+      buildAgentInput(
+        state,
+        "c_duelist",
+        "Win direct fights.",
+        makePrevTurn({
+          actions: [
+            {
+              characterId: "c_duelist",
+              kind: "loot",
+              target: "Chest_53_54",
+              result: "empty",
+            },
+          ],
+        }),
+        1,
+      ).composedUserMessage,
+    ).toContain("You looted nothing from empty Chest_53_54");
+
+    expect(
+      buildAgentInput(
+        state,
+        "c_duelist",
+        "Win direct fights.",
+        makePrevTurn({
+          actions: [
+            {
+              characterId: "c_duelist",
+              kind: "loot",
+              target: "Corpse_Rat",
+              result: "no_corpse",
+            },
+          ],
+        }),
+        1,
+      ).composedUserMessage,
+    ).toContain("You looted nothing from empty Corpse_Rat");
+
+    expect(
+      buildAgentInput(
+        state,
+        "c_duelist",
+        "Win direct fights.",
+        makePrevTurn({
+          actions: [
+            {
+              characterId: "c_duelist",
+              kind: "loot",
+              target: "Corpse_Rat",
+              result: "empty",
+            },
+          ],
+        }),
+        1,
+      ).composedUserMessage,
+    ).toContain("You looted nothing from empty Corpse_Rat");
+  });
+
   it("renders incoming damage attribution for attack, overwatch, and counter rows", () => {
     const me = makeCharacter({
       id: "c_duelist",
@@ -385,7 +681,7 @@ describe("Phase 6 input builder — event helpers", () => {
 });
 
 describe("Phase 6 input builder — visible object", () => {
-  it("renders characters, chests, corpses, cover, walls, and evac as keyed JSON", () => {
+  it("renders slim Vision entries for characters, lootables, cover, walls, and outside evac", () => {
     const me = makeCharacter({
       id: "c_duelist",
       personaId: "duelist",
@@ -412,7 +708,7 @@ describe("Phase 6 input builder — visible object", () => {
     const state = makeState({
       characters: [me, camper, rat],
       world: {
-        chests: [makeChest("chest_005", { x: 53, y: 50 })],
+        chests: [makeChest("Chest_53_50", { x: 53, y: 50 })],
         corpses: [
           makeCorpse("c_rat", { x: 50, y: 53 }, {
             weapon: { category: "weapon", name: "sword" },
@@ -420,48 +716,116 @@ describe("Phase 6 input builder — visible object", () => {
         ],
         coverTiles: [{ x: 52, y: 52 }],
         walls: [wall],
-        evac: { centre: { x: 49, y: 50 }, revealedAtTurn: 30 },
+        evac: { centre: { x: 47, y: 50 }, revealedAtTurn: 30 },
       },
       turn: 35,
     });
 
     const visible = parseVisible(state, "c_duelist");
 
+    for (const [key, value] of Object.entries(visible)) {
+      for (const forbidden of [
+        "kind",
+        "pos",
+        "opened",
+        "drained",
+        "contents",
+        "equipped",
+        "inZone",
+      ]) {
+        expect(value, `${key} leaked ${forbidden}`).not.toHaveProperty(
+          forbidden,
+        );
+      }
+    }
     expect(visible.Camper).toMatchObject({
-      kind: "character",
       dist: 5,
       bearing: "E",
       hp: "high",
-      equipped: { weapon: "axe", armour: "chain", consumable: "heal" },
+      armed: true,
     });
-    expect(visible.Chest_005).toMatchObject({
-      kind: "chest",
+    expect(visibleKeys(visible.Camper)).toEqual([
+      "armed",
+      "bearing",
+      "dist",
+      "hp",
+    ]);
+    expect(visible.Chest_53_50).toMatchObject({
       dist: 3,
       bearing: "E",
-      opened: false,
     });
+    expect(visibleKeys(visible.Chest_53_50)).toEqual([
+      "bearing",
+      "dist",
+    ]);
     expect(visible.Corpse_Rat).toMatchObject({
-      kind: "corpse",
       dist: 3,
       bearing: "S",
-      drained: false,
     });
+    expect(visibleKeys(visible.Corpse_Rat)).toEqual([
+      "bearing",
+      "dist",
+    ]);
     expect(visible.Cover_52_52).toMatchObject({
-      kind: "cover",
       dist: 2,
       bearing: "SE",
     });
+    expect(visibleKeys(visible.Cover_52_52)).toEqual([
+      "bearing",
+      "dist",
+    ]);
     expect(visible.Wall_49_51).toMatchObject({
-      kind: "wall",
       dist: 1,
       bearing: "SW",
     });
+    expect(visibleKeys(visible.Wall_49_51)).toEqual([
+      "bearing",
+      "dist",
+    ]);
     expect(visible.Evac).toMatchObject({
-      kind: "evac",
-      dist: 1,
+      dist: 3,
       bearing: "W",
-      inZone: true,
     });
+    expect(visibleKeys(visible.Evac)).toEqual(["bearing", "dist"]);
+  });
+
+  it("shows unarmed baseline damage and suppresses Evac from Vision inside the zone", () => {
+    const me = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 49, y: 50 },
+    });
+    const state = makeState({
+      characters: [me],
+      world: { evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 } },
+      turn: 35,
+    });
+
+    const built = buildAgentInput(state, "c_rat", "Survive.", null, 1);
+    expect(built.composedUserMessage).toContain("📍(49,50) Inside Evac");
+    expect(built.composedUserMessage).toContain("⚔️weapon: unarmed [dmg 5]");
+    const visible = parseVisible(state, "c_rat");
+    expect(visible.Evac).toBeUndefined();
+  });
+
+  it("renders Outside Evac before reveal and omits Evac from Vision", () => {
+    const me = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 49, y: 50 },
+    });
+    const state = makeState({
+      characters: [me],
+      world: { evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null } },
+      turn: 5,
+    });
+
+    const built = buildAgentInput(state, "c_rat", "Survive.", null, 1);
+    expect(built.composedUserMessage).toContain("📍(49,50) Outside Evac");
+    const visible = parseVisible(state, "c_rat");
+    expect(visible.Evac).toBeUndefined();
   });
 
   it("filters hidden living characters and dead characters without corpses", () => {
@@ -520,7 +884,7 @@ describe("Phase 6 input builder — visible object", () => {
     );
     const chests: ChestState[] = [];
     for (let i = 0; i < 6; i++) {
-      chests.push(makeChest(`chest_${100 + i}`, { x: 50, y: 55 + i }));
+      chests.push(makeChest(`Chest_50_${55 + i}`, { x: 50, y: 55 + i }));
     }
     const state = makeState({
       characters: [me, ...enemies],
@@ -531,13 +895,23 @@ describe("Phase 6 input builder — visible object", () => {
     });
 
     const visible = parseVisible(state, "c_duelist");
-    const values = Object.values(visible);
-    const cappedKinds = values.filter((v) =>
-      v.kind === "character" || v.kind === "chest" || v.kind === "corpse"
+    const keys = Object.keys(visible);
+    const cappedKeys = keys.filter((key) =>
+      [
+        "Rat",
+        "Trader",
+        "Opportunist",
+        "Paranoid",
+        "Camper",
+        "Sprinter",
+        "Vulture",
+      ].includes(key) ||
+      key.startsWith("Chest_") ||
+      key.startsWith("Corpse_")
     );
-    const covers = values.filter((v) => v.kind === "cover");
+    const covers = keys.filter((key) => key.startsWith("Cover_"));
 
-    expect(cappedKinds).toHaveLength(8);
+    expect(cappedKeys).toHaveLength(8);
     expect(covers).toHaveLength(2);
   });
 
@@ -565,7 +939,7 @@ describe("Phase 6 input builder — visible object", () => {
       const state = makeState({
         characters: [me, camper],
         world: {
-          chests: [makeChest("chest_001", { x: 53, y: 50 })],
+          chests: [makeChest("Chest_53_50", { x: 53, y: 50 })],
           coverTiles: [{ x: 51, y: 51 }],
           walls: [{ x: 49, y: 49, w: 1, h: 1 }],
           evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 },

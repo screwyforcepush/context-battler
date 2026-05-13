@@ -21,7 +21,7 @@
 //     canonical source is `convex/engine/resolution.ts`. Phase-3 unifies
 //     `interact`+`loot` into a single `loot` kind dispatched by id
 //     namespace. The walk consults `result` ONLY for
-//     `kind === "loot" && result === "opened" && target.startsWith("chest_")`.
+//     `kind === "loot" && result === "opened" && isChestId(target)`.
 //     Death detection comes from `resolution.deaths[]`, NEVER from a
 //     result string.
 //   - Phase-8 extraction (NOT a `kind:"extract"` action) is read from the
@@ -187,7 +187,7 @@ function synthesiseTurnZero(bundle: ReplayBundle): EntitySnapshot {
 // Internal: apply one turn's resolution to the snapshot. Returns NEW state.
 // Order mirrors concept-spec.md §23 (and engine resolution.ts):
 //   1. moves         — set named characters' pos to move.to
-//   2. actions       — loot/opened/chest_* flips chests; corpse-loot and
+//   2. actions       — loot/opened/Chest_<x>_<y> flips chests; corpse-loot and
 //                      attack are no-ops (per D-P2-11/D-P2-12; HP &
 //                      equipment not snapshot-tracked)
 //   3. deaths        — flip alive=false, set diedAtTurn=t, push corpse at
@@ -216,7 +216,7 @@ function applyTurn(
 
   // ── 2) Actions ────────────────────────────────────────────────────────
   // Per phase-3 ADR §1 / PM lock D7 walk rules: only `loot` with
-  // `result === "opened"` AND `target.startsWith("chest_")` mutates the
+  // `result === "opened"` AND `isChestId(target)` mutates the
   // snapshot (chest's `opened` flips true). Corpse loots — same `kind:
   // "loot"` — must NOT trigger the chest-flip (the target id namespace
   // disambiguates). Other action results are no-ops at the snapshot
@@ -226,7 +226,7 @@ function applyTurn(
     if (
       a.kind === "loot" &&
       a.result === "opened" &&
-      a.target.startsWith("chest_")
+      isChestId(a.target)
     ) {
       const targetId = a.target;
       let mutated = false;
@@ -281,6 +281,10 @@ function applyTurn(
     chests,
     evacRevealed: prev.evacRevealed,
   };
+}
+
+function isChestId(id: string): boolean {
+  return /^Chest_-?\d+_-?\d+$/.test(id);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

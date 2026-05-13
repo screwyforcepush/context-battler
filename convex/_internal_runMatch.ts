@@ -149,6 +149,8 @@ const agentLlmValidator = v.object({
   fellBackToSafeDefault: v.boolean(),
   failureReason: v.optional(failureReasonValidator),
   validatorFieldErrors: v.optional(validatorFieldErrorsValidator),
+  // Phase 7 WP-A1 mirror — optional retry-attempt marker.
+  retried: v.optional(v.boolean()),
   // WP10.5 Pass F — mirrors `convex/schema.ts` agentLlmValidator. Captured
   // non-OK HTTP body (sanitised+truncated). Optional+additive.
   httpBodyExcerpt: v.optional(v.string()),
@@ -205,6 +207,8 @@ const resolutionValidator = v.object({
       triggeredByMovement: v.optional(v.boolean()),
       // Phase-4 WP-A mirror — strike-time weapon name on damage trace entries.
       weapon: v.optional(v.string()),
+      // Phase 7 WP-A1 mirror — item name for successful loot traces.
+      lootedItem: v.optional(v.string()),
     }),
   ),
   deaths: v.array(v.id("characters")),

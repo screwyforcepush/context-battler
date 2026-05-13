@@ -36,7 +36,7 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
     ],
     chests: [
       {
-        id: "chest_003",
+        id: "Chest_14_10",
         pos: { x: 14, y: 10 },
         contents: { category: "weapon", name: "sword" },
         opened: false,
@@ -89,7 +89,7 @@ function makeIntegrationInput(useVariant: UseVariant) {
     weapon: "rusty_blade",
     armour: "leather",
     consumable: useVariant === "consumable_or_null" ? "speed" : undefined,
-    scratchpad: "Turn 9. Camper is east. Chest_003 is reachable.",
+    scratchpad: "Turn 9. Camper is east. Chest_14_10 is reachable.",
   });
   const enemy = makeCharacter({
     id: "c_camper",

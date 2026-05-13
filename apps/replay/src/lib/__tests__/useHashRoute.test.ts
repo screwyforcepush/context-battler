@@ -10,6 +10,9 @@
 //   #/                      → { kind: "picker" }
 //   #/match/<id>            → { kind: "replay", matchId: <id>, turn: null }
 //   #/match/<id>?turn=N     → { kind: "replay", matchId: <id>, turn: N }
+//   #/match/<id>?turn=N&character=Name
+//                           → { kind: "replay", matchId, turn: N, character: Name }
+//   #/diagnostics?last=N    → { kind: "diagnostics", last: clamp(N, 1, 20) }
 //   anything else           → { kind: "picker" } (graceful fallback)
 //
 // `parseHash` is exported as a *pure function* so the tests don't have to
@@ -58,6 +61,7 @@ describe("parseHash — replay route (no turn query)", () => {
       kind: "replay",
       matchId: "abc",
       turn: null,
+      character: null,
     });
   });
 
@@ -66,6 +70,7 @@ describe("parseHash — replay route (no turn query)", () => {
       kind: "replay",
       matchId: "jh7d2x9k0bM3p",
       turn: null,
+      character: null,
     });
   });
 });
@@ -76,6 +81,7 @@ describe("parseHash — replay route with `turn=N`", () => {
       kind: "replay",
       matchId: "abc",
       turn: 23,
+      character: null,
     });
   });
 
@@ -84,6 +90,7 @@ describe("parseHash — replay route with `turn=N`", () => {
       kind: "replay",
       matchId: "abc",
       turn: 0,
+      character: null,
     });
   });
 
@@ -92,6 +99,7 @@ describe("parseHash — replay route with `turn=N`", () => {
       kind: "replay",
       matchId: "abc",
       turn: null,
+      character: null,
     });
   });
 
@@ -100,6 +108,7 @@ describe("parseHash — replay route with `turn=N`", () => {
       kind: "replay",
       matchId: "abc",
       turn: null,
+      character: null,
     });
   });
 
@@ -109,6 +118,7 @@ describe("parseHash — replay route with `turn=N`", () => {
       kind: "replay",
       matchId: "abc",
       turn: null,
+      character: null,
     });
   });
 
@@ -117,6 +127,7 @@ describe("parseHash — replay route with `turn=N`", () => {
       kind: "replay",
       matchId: "abc",
       turn: 5,
+      character: null,
     });
   });
 
@@ -125,6 +136,73 @@ describe("parseHash — replay route with `turn=N`", () => {
       kind: "replay",
       matchId: "abc",
       turn: null,
+      character: null,
+    });
+  });
+
+  it("parses character display name alongside turn for replay drilldown", () => {
+    expect(parseHash("#/match/abc?turn=12&character=Duelist")).toEqual({
+      kind: "replay",
+      matchId: "abc",
+      turn: 12,
+      character: "Duelist",
+    });
+  });
+
+  it("decodes encoded character display names", () => {
+    expect(
+      parseHash("#/match/abc?turn=12&character=The%20Trader"),
+    ).toEqual({
+      kind: "replay",
+      matchId: "abc",
+      turn: 12,
+      character: "The Trader",
+    });
+  });
+
+  it("ignores an empty character query", () => {
+    expect(parseHash("#/match/abc?turn=12&character=")).toEqual({
+      kind: "replay",
+      matchId: "abc",
+      turn: 12,
+      character: null,
+    });
+  });
+});
+
+describe("parseHash — diagnostics route", () => {
+  it("defaults diagnostics last to 20 when query is absent", () => {
+    expect(parseHash("#/diagnostics")).toEqual({
+      kind: "diagnostics",
+      last: 20,
+    });
+  });
+
+  it("parses `#/diagnostics?last=7`", () => {
+    expect(parseHash("#/diagnostics?last=7")).toEqual({
+      kind: "diagnostics",
+      last: 7,
+    });
+  });
+
+  it("clamps diagnostics last below range to 1", () => {
+    expect(parseHash("#/diagnostics?last=0")).toEqual({
+      kind: "diagnostics",
+      last: 1,
+    });
+  });
+
+  it("clamps diagnostics last above range to 20", () => {
+    expect(parseHash("#/diagnostics?last=999")).toEqual({
+      kind: "diagnostics",
+      last: 20,
+    });
+  });
+
+  it("defaults diagnostics last to 20 for non-numeric input", () => {
+    expect(parseHash("#/diagnostics?last=abc")).toEqual({
+      kind: "diagnostics",
+      last: 20,
     });
   });
 });

@@ -279,6 +279,10 @@ function isDamageResult(result: string): boolean {
   return /^dmg\s+\d+/.test(result);
 }
 
+function isChestId(id: string): boolean {
+  return /^Chest_-?\d+_-?\d+$/.test(id);
+}
+
 /**
  * Build a (characterId → displayName) lookup map for ONE run's characters.
  * The trace's `target` field on attack entries is the DEFENDER'S
@@ -443,10 +447,7 @@ export function computePhase3Metrics(
           ) {
             runHasCorpseLoot = true;
           }
-          if (
-            a.result === "opened" &&
-            a.target.startsWith("chest_")
-          ) {
+          if (a.result === "opened" && isChestId(a.target)) {
             runHasEquip = true;
           }
         }

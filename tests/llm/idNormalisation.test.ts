@@ -95,7 +95,7 @@ function makeVisibleFixture(): MatchState {
   return makeState({
     characters: [observer, camper, deadVulture],
     world: {
-      chests: [makeChest("chest_006", { x: 56, y: 50 })],
+      chests: [makeChest("Chest_56_50", { x: 56, y: 50 })],
       corpses: [makeCorpse("opaque_character_vulture", { x: 58, y: 50 })],
       coverTiles: [{ x: 54, y: 42 }],
       walls: [{ x: 64, y: 30, w: 1, h: 1 }],
@@ -115,18 +115,13 @@ describe("resolveTypedEntity", () => {
       stopAtRange: 2,
       engineRef: { characterId: "opaque_character_camper" },
     });
-    expect(resolveTypedEntity(state, observerId, "Chest_006")).toEqual({
+    expect(resolveTypedEntity(state, observerId, "Chest_56_50")).toEqual({
       kind: "chest",
       tile: { x: 56, y: 50 },
       stopAtRange: 2,
-      engineRef: { chestId: "chest_006" },
+      engineRef: { chestId: "Chest_56_50" },
     });
-    expect(resolveTypedEntity(state, observerId, "chest_006")).toEqual({
-      kind: "chest",
-      tile: { x: 56, y: 50 },
-      stopAtRange: 2,
-      engineRef: { chestId: "chest_006" },
-    });
+    expect(resolveTypedEntity(state, observerId, "chest_legacy")).toBeNull();
     expect(resolveTypedEntity(state, observerId, "Corpse_Vulture")).toEqual({
       kind: "corpse",
       tile: { x: 58, y: 50 },
@@ -203,7 +198,7 @@ describe("resolveTypedEntity", () => {
     const state = makeState({
       characters: [observer, hidden, dead, far, deadFar],
       world: {
-        chests: [makeChest("chest_099", { x: 80, y: 50 })],
+        chests: [makeChest("Chest_80_50", { x: 80, y: 50 })],
         corpses: [makeCorpse("opaque_character_9", { x: 82, y: 50 })],
         coverTiles: [{ x: 80, y: 50 }],
         walls: [{ x: 80, y: 51, w: 1, h: 1 }],
@@ -217,7 +212,7 @@ describe("resolveTypedEntity", () => {
       "Paranoid",
       "Trader",
       "Sprinter",
-      "Chest_099",
+      "Chest_80_50",
       "Corpse_Opportunist",
       "Cover_80_50",
       "Wall_80_51",

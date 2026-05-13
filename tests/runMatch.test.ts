@@ -272,13 +272,13 @@ describe("WP10.5 B.3 — validatorFieldErrors persist into agent-llm trace recor
       wrapperFellBack: true,
       failureReason: undefined,
       validatorFieldErrors: {
-        action: "loot target 'Chest_001' is already opened",
+        action: "loot target 'Chest_6_5' is already opened",
       },
     });
 
     expect(record.fellBackToSafeDefault).toBe(true);
     expect(record.validatorFieldErrors).toEqual({
-      action: "loot target 'Chest_001' is already opened",
+      action: "loot target 'Chest_6_5' is already opened",
     });
     // No wrapper-level failureReason for validator-only rejections.
     expect(record.failureReason).toBeUndefined();
@@ -341,6 +341,29 @@ describe("WP10.5 B.3 — validatorFieldErrors persist into agent-llm trace recor
 
     expect(record.failureReason).toBe("schema_validation_failed");
     expect("validatorFieldErrors" in record).toBe(false);
+  });
+
+  it("persists retried when the wrapper reports a retry", () => {
+    const record = buildAgentLlmRecord({
+      ...baseR,
+      wrapperFellBack: false,
+      failureReason: undefined,
+      validatorFieldErrors: undefined,
+      retried: true,
+    });
+
+    expect(record.retried).toBe(true);
+  });
+
+  it("omits retried when the wrapper did not provide it", () => {
+    const record = buildAgentLlmRecord({
+      ...baseR,
+      wrapperFellBack: false,
+      failureReason: undefined,
+      validatorFieldErrors: undefined,
+    });
+
+    expect("retried" in record).toBe(false);
   });
 });
 

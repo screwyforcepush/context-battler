@@ -150,6 +150,15 @@ describe("WP3 — expandMap returns a valid 100x100 WorldState", () => {
     }
   });
 
+  it("Test 3c: chest ids are coord-encoded from their expanded position", () => {
+    const descriptor = loadReferenceMap();
+    const world = expandMap(descriptor, "seed1");
+
+    for (const chest of world.chests) {
+      expect(chest.id).toBe(`Chest_${chest.pos.x}_${chest.pos.y}`);
+    }
+  });
+
   it("Test 4: evac centre reachable from all 8 spawns", () => {
     const descriptor = loadReferenceMap();
     const world = expandMap(descriptor, "seed1");

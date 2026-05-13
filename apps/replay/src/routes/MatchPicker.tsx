@@ -194,11 +194,17 @@ export function MatchPicker(): React.ReactElement {
   return (
     <main style={mainStyle}>
       <header style={headerStyle}>
-        <h1 style={h1Style}>Personal Replay Overseer</h1>
-        <p style={subtitleStyle}>
-          Phase 02 v0 — completed matches, newest first. Click a row to
-          step through it.
-        </p>
+        <div style={headerTopStyle}>
+          <div>
+            <h1 style={h1Style}>Personal Replay Overseer</h1>
+            <p style={subtitleStyle}>
+              Completed matches, newest first. Click a row to step through it.
+            </p>
+          </div>
+          <a href="#/diagnostics?last=20" style={diagnosticsLinkStyle}>
+            Diagnostics
+          </a>
+        </div>
       </header>
       <PickerErrorBoundary>
         <MatchPickerBody />
@@ -220,6 +226,13 @@ const mainStyle: React.CSSProperties = {
 };
 
 const headerStyle: React.CSSProperties = { marginBottom: "1.5rem" };
+
+const headerTopStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "1rem",
+};
 
 const h1Style: React.CSSProperties = {
   fontSize: "1.5rem",
@@ -258,6 +271,16 @@ const rowStyle: React.CSSProperties = {};
 const linkStyle: React.CSSProperties = {
   color: "#0366d6",
   textDecoration: "none",
+};
+
+const diagnosticsLinkStyle: React.CSSProperties = {
+  color: "#0366d6",
+  textDecoration: "none",
+  border: "1px solid #d0d7de",
+  borderRadius: 4,
+  padding: "0.375rem 0.75rem",
+  fontSize: "0.875rem",
+  background: "#f6f8fa",
 };
 
 const mutedStyle: React.CSSProperties = {

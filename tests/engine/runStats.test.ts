@@ -113,11 +113,11 @@ describe("WP12 — runs.aggregate top-level counts", () => {
     const roster = defaultRoster();
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
-        { characterId: "c0", kind: "loot", target: "chest_001", result: "opened" },
-        { characterId: "c1", kind: "loot", target: "chest_002", result: "opened" },
-        { characterId: "c2", kind: "loot", target: "chest_003", result: "opened" },
+        { characterId: "c0", kind: "loot", target: "Chest_1_1", result: "opened" },
+        { characterId: "c1", kind: "loot", target: "Chest_2_1", result: "opened" },
+        { characterId: "c2", kind: "loot", target: "Chest_3_1", result: "opened" },
         // already_opened is NOT counted as an equip
-        { characterId: "c3", kind: "loot", target: "chest_001", result: "already_opened" },
+        { characterId: "c3", kind: "loot", target: "Chest_1_1", result: "already_opened" },
       ] } }),
     ];
     const result = aggregateRunStats(turns, roster);
@@ -204,7 +204,7 @@ describe("WP12 — runs.aggregate per-persona breakdown (consistency invariant)"
     // c0=rat, c1=duelist, c4=paranoid (per default roster ordering)
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
-        { characterId: "c0", kind: "loot", target: "chest_001", result: "opened" },
+        { characterId: "c0", kind: "loot", target: "Chest_1_1", result: "opened" },
         { characterId: "c1", kind: "loot", target: "Corpse_Paranoid", result: "looted" },
       ] } }),
     ];
@@ -221,8 +221,8 @@ describe("WP12 — runs.aggregate per-persona breakdown (consistency invariant)"
     const roster = defaultRoster();
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
-        { characterId: "c0", kind: "loot", target: "chest_001", result: "opened" },
-        { characterId: "c0", kind: "loot", target: "chest_001", result: "looted" },
+        { characterId: "c0", kind: "loot", target: "Chest_1_1", result: "opened" },
+        { characterId: "c0", kind: "loot", target: "Chest_1_1", result: "looted" },
         { characterId: "c1", kind: "loot", target: "Corpse_Camper", result: "looted" },
       ] } }),
     ];
@@ -311,11 +311,11 @@ describe("WP12 — runs.aggregate WP12 acceptance scenario", () => {
     ];
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
-        { characterId: "c0", kind: "loot", target: "chest_001", result: "opened" },
-        { characterId: "c3", kind: "loot", target: "chest_002", result: "opened" },
-        { characterId: "c4", kind: "loot", target: "chest_003", result: "opened" },
+        { characterId: "c0", kind: "loot", target: "Chest_1_1", result: "opened" },
+        { characterId: "c3", kind: "loot", target: "Chest_2_1", result: "opened" },
+        { characterId: "c4", kind: "loot", target: "Chest_3_1", result: "opened" },
         // 4th chest open with no equip — emitted as already_opened or out_of_range
-        { characterId: "c5", kind: "loot", target: "chest_001", result: "already_opened" },
+        { characterId: "c5", kind: "loot", target: "Chest_1_1", result: "already_opened" },
       ] } }),
       turn({ turn: 5, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: ["c1"], actions: [
         { characterId: "c0", kind: "attack", target: "c1", result: "dmg 100" },
@@ -452,7 +452,7 @@ function rosterFromState(state: MatchState): AggregatorCharacterRow[] {
 
 describe("Fix #1 — equip ground-truth (chest)", () => {
   it("two actors target the same un-opened chest same turn → equips counter increments by exactly 1, not 2", () => {
-    // Two actors A (rat) and B (duelist) both adjacent to chest_001 and both
+    // Two actors A (rat) and B (duelist) both adjacent to Chest_1_0 and both
     // commit `interact` against it the same turn. Phase 5 only equips ONE of
     // them (whichever runs first in sorted order). Aggregator must count the
     // equip exactly once — top-level + per-persona.
@@ -473,7 +473,7 @@ describe("Fix #1 — equip ground-truth (chest)", () => {
       world: {
         chests: [
           {
-            id: "chest_001",
+            id: "Chest_1_0",
             pos: { x: 1, y: 0 },
             contents: { category: "weapon", name: "axe" },
             opened: false,
@@ -483,13 +483,13 @@ describe("Fix #1 — equip ground-truth (chest)", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ action: { kind: "loot", targetId: "chest_001" } })],
-      ["B", nullDecision({ action: { kind: "loot", targetId: "chest_001" } })],
+      ["A", nullDecision({ action: { kind: "loot", targetId: "Chest_1_0" } })],
+      ["B", nullDecision({ action: { kind: "loot", targetId: "Chest_1_0" } })],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
 
     // Sanity: chest is opened, exactly one of A/B has axe equipped.
-    const chest = next.world.chests.find((c) => c.id === "chest_001")!;
+    const chest = next.world.chests.find((c) => c.id === "Chest_1_0")!;
     expect(chest.opened).toBe(true);
     const aWeap = next.characters.find((c) => c.characterId === "A")!.equipped.weapon;
     const bWeap = next.characters.find((c) => c.characterId === "B")!.equipped.weapon;
@@ -525,7 +525,7 @@ describe("Fix #1 — equip ground-truth (chest)", () => {
       world: {
         chests: [
           {
-            id: "chest_dud",
+            id: "Chest_1_0",
             pos: { x: 1, y: 0 },
             contents: null,
             opened: false,
@@ -535,12 +535,12 @@ describe("Fix #1 — equip ground-truth (chest)", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ action: { kind: "loot", targetId: "chest_dud" } })],
+      ["A", nullDecision({ action: { kind: "loot", targetId: "Chest_1_0" } })],
     ]);
     const { trace, state: next } = resolveTurn(state, decisions);
 
-    // No success trace was emitted (it may have a non-success result OR be
-    // absent entirely — both are acceptable per the fix).
+    // No success trace is emitted; empty chests now produce an explicit
+    // non-success trace.
     // Phase-3 PM lock D7: chest opens emit `kind="loot"` / `result="opened"`
     // (the resolved-engine-path, unified under loot per ADR §1).
     const successOpens = trace.actions.filter(
@@ -548,9 +548,15 @@ describe("Fix #1 — equip ground-truth (chest)", () => {
         act.kind === "loot" &&
         act.result === "opened" &&
         typeof act.target === "string" &&
-        act.target.startsWith("chest_"),
+        /^Chest_-?\d+_-?\d+$/.test(act.target),
     );
     expect(successOpens).toHaveLength(0);
+    expect(trace.actions).toContainEqual({
+      characterId: "A",
+      kind: "loot",
+      target: "Chest_1_0",
+      result: "empty",
+    });
 
     const result = aggregateRunStats(
       [turnRowFromTrace(1, trace)],

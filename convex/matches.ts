@@ -94,8 +94,8 @@ function rectToTiles(rect: Wall): Tile[] {
 
 /**
  * Mirror of `convex/engine/map.ts` `expandMap`. Pure; deterministic given
- * `rngSeed`. Chest ids are 1-indexed `chest_001`, `chest_002`, …, in
- * descriptor order. Per-chest seed: `rngSeed + ":chest:" + chestId`.
+ * `rngSeed`. Chest ids are coord-encoded (`Chest_<x>_<y>`). Per-chest seed:
+ * `rngSeed + ":chest:" + chestId`.
  */
 function expandMapInline(
   descriptor: MapDescriptor,
@@ -106,8 +106,8 @@ function expandMapInline(
     coverTiles.push(...rectToTiles(cluster));
   }
 
-  const chests: ChestState[] = descriptor.chests.map((c, i) => {
-    const chestId = `chest_${String(i + 1).padStart(3, "0")}`;
+  const chests: ChestState[] = descriptor.chests.map((c) => {
+    const chestId = `Chest_${c.x}_${c.y}`;
     const rng = makeRng(`${rngSeed}:chest:${chestId}`);
     const contents = rollLoot(c.lootTable, rng);
     return {

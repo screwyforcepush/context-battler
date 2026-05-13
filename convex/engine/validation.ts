@@ -26,13 +26,6 @@ export type ValidationResult = {
   fieldErrors: ValidatorFieldErrors;
 };
 
-function normaliseChestTargetId(targetId: string): string {
-  if (targetId.startsWith("Chest_")) {
-    return "chest_" + targetId.slice("Chest_".length);
-  }
-  return targetId;
-}
-
 function canMovementChangeActionRange(position: ParsedDecision["position"]): boolean {
   return position.kind === "move" && position.dist > 0;
 }
@@ -165,15 +158,9 @@ export function validateDecision(
       }
 
       if (entity.kind === "chest") {
-        const chestId = normaliseChestTargetId(rawTargetId);
-        const chest = state.world.chests.find((c) => c.id === chestId);
+        const chest = state.world.chests.find((c) => c.id === rawTargetId);
         if (!chest) {
           fieldErrors.action = `loot target '${rawTargetId}' is not a known chest`;
-          next.action = { kind: "none" };
-          break;
-        }
-        if (chest.opened) {
-          fieldErrors.action = `loot target '${rawTargetId}' is already opened`;
           next.action = { kind: "none" };
           break;
         }

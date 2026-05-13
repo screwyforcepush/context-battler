@@ -11,6 +11,9 @@
 //   #/                      → { kind: "picker" }
 //   #/match/<id>            → { kind: "replay", matchId, turn: null }
 //   #/match/<id>?turn=N     → { kind: "replay", matchId, turn: N >= 0 }
+//   #/match/<id>?turn=N&character=<displayName>
+//                           → { kind: "replay", matchId, turn, character }
+//   #/diagnostics?last=N    → { kind: "diagnostics", last: clamp(N, 1, 20) }
 //   anything malformed      → { kind: "picker" } (graceful fallback)
 //
 // The parser is defensive against:
@@ -23,9 +26,17 @@ import { useEffect, useState } from "react";
 
 export type HashRoute =
   | { kind: "picker" }
-  | { kind: "replay"; matchId: string; turn: number | null };
+  | { kind: "diagnostics"; last: number }
+  | {
+      kind: "replay";
+      matchId: string;
+      turn: number | null;
+      character: string | null;
+    };
 
 const PICKER: HashRoute = { kind: "picker" };
+const DEFAULT_DIAGNOSTICS_LAST = 20;
+const MAX_DIAGNOSTICS_LAST = 20;
 
 /**
  * Pure parser: hash string → typed route.
@@ -48,17 +59,26 @@ export function parseHash(rawHash: string): HashRoute {
   // `#/` and `#` collapse to picker.
   if (hash === "" || hash === "/") return PICKER;
 
-  // Only the `/match/<id>[?turn=N]` shape is recognised. Everything else
-  // falls back to the picker — that's the v0 contract.
-  if (!hash.startsWith("/match/")) return PICKER;
-
   // Split path and query at the first `?`.
   const qIndex = hash.indexOf("?");
   const path = qIndex === -1 ? hash : hash.slice(0, qIndex);
   const queryString = qIndex === -1 ? "" : hash.slice(qIndex + 1);
+  const params = new URLSearchParams(queryString);
+
+  if (path === "/diagnostics") {
+    return {
+      kind: "diagnostics",
+      last: parseDiagnosticsLast(params.get("last")),
+    };
+  }
+
+  // Only the `/match/<id>[?turn=N]` shape is recognised. Everything else
+  // falls back to the picker — that's the v0 contract.
+  if (!path.startsWith("/match/")) return PICKER;
 
   // path is `/match/<id>` — slice off the prefix and validate non-empty.
-  const matchId = path.slice("/match/".length);
+  const rawMatchId = path.slice("/match/".length);
+  const matchId = safeDecodeURIComponent(rawMatchId);
   if (matchId.length === 0) return PICKER;
   // Reject ids that contain a path separator — that means the URL had
   // extra segments (e.g. `#/match/abc/def`), which is malformed.
@@ -67,7 +87,6 @@ export function parseHash(rawHash: string): HashRoute {
   // Parse `?turn=N` if present.
   let turn: number | null = null;
   if (queryString.length > 0) {
-    const params = new URLSearchParams(queryString);
     const raw = params.get("turn");
     if (raw !== null && raw.length > 0) {
       // Only accept non-negative integers. `Number.parseInt` is permissive
@@ -81,7 +100,33 @@ export function parseHash(rawHash: string): HashRoute {
     }
   }
 
-  return { kind: "replay", matchId, turn };
+  const rawCharacter = params.get("character");
+  const character =
+    rawCharacter !== null && rawCharacter.trim().length > 0
+      ? rawCharacter.trim()
+      : null;
+
+  return { kind: "replay", matchId, turn, character };
+}
+
+export function clampDiagnosticsLast(last: number): number {
+  if (!Number.isFinite(last)) return DEFAULT_DIAGNOSTICS_LAST;
+  return Math.max(1, Math.min(MAX_DIAGNOSTICS_LAST, Math.trunc(last)));
+}
+
+function parseDiagnosticsLast(raw: string | null): number {
+  if (raw === null || raw.length === 0 || !/^\d+$/.test(raw)) {
+    return DEFAULT_DIAGNOSTICS_LAST;
+  }
+  return clampDiagnosticsLast(Number.parseInt(raw, 10));
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 /**

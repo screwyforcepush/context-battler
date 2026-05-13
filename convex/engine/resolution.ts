@@ -128,6 +128,10 @@ const EVAC_HALF_SIZE = 1; // 3×3 zone = centre ± 1
 
 // ─── Internal helpers ────────────────────────────────────────────────────
 
+function isChestId(id: string): boolean {
+  return /^Chest_-?\d+_-?\d+$/.test(id);
+}
+
 /**
  * Replace the named character in the state with a new value (NEW characters
  * array; never mutates input). Returns the input unchanged if id missing.
@@ -444,7 +448,7 @@ export function resolveTurn(
       }
       case "loot": {
         // Unified loot dispatch by id namespace.
-        //   chest_* / Chest_* → chest-open path
+        //   Chest_<x>_<y> → chest-open path
         //   Corpse_*         → corpse-loot path (rendered typed id from
         //                      digest, e.g. `Corpse_Camper`)
         //   otherwise        → result="no_target" (rejection)
@@ -510,15 +514,8 @@ export function resolveTurn(
           });
           break;
         }
-        // Phase-3 fix — accept both `Chest_NNN` (rendered typed-id) and
-        // `chest_NNN` (internal id) on the chest namespace branch. The
-        // trace `target` field preserves the model's verbatim emit so
-        // replay/diagnostic tooling sees what the agent actually wrote.
-        const targetId = rawTargetId.startsWith("Chest_")
-          ? "chest_" + rawTargetId.slice("Chest_".length)
-          : rawTargetId;
-        if (targetId.startsWith("chest_")) {
-          const chestId = targetId;
+        if (isChestId(rawTargetId)) {
+          const chestId = rawTargetId;
           const chest = working.world.chests.find((c) => c.id === chestId);
           if (!chest) {
             trace.actions.push({
@@ -549,9 +546,8 @@ export function resolveTurn(
           }
           // Queue the equip side-effect for phase-5 application below.
           // Success trace (`kind: "loot"`, `result: "opened"`) is
-          // emitted inside the phase-5 inner loop AFTER the
-          // `chest.opened || chest.contents === null` short-circuit
-          // (Gate-2 fix #1 invariant preserved).
+          // emitted inside the phase-5 inner loop after the equip
+          // side-effect succeeds.
           interacts.push({ actorId: id, chestId });
           break;
         }
@@ -560,7 +556,7 @@ export function resolveTurn(
         trace.actions.push({
           characterId: id,
           kind: "loot",
-          target: targetId,
+          target: rawTargetId,
           result: "no_target",
         });
         break;
@@ -712,15 +708,30 @@ export function resolveTurn(
   }
 
   // Apply chest interactions (open chest, equip contents into matching slot,
-  // discard previous; flip opened=true, contents=null). Emit `result: "opened"`
-  // ONLY for the actor whose equip side-effect actually runs (Gate-2 fix #1):
-  // dud chests (`contents === null`) and same-turn collisions (a chest opened
-  // by an earlier actor in this same loop) are silently skipped — the
-  // aggregator at convex/engine/runStats.ts:200-212 keys equip counts off
-  // `result === "opened"`, so this keeps `equips` ground-truth.
+  // discard previous; flip opened=true, contents=null). Every valid chest
+  // attempt produces a trace entry: success includes the looted item; dud
+  // chests and same-turn collisions are explicit non-success outcomes.
   for (const ev of interacts) {
     const chest = working.world.chests.find((c) => c.id === ev.chestId);
-    if (!chest || chest.opened || chest.contents === null) continue;
+    if (!chest) continue;
+    if (chest.opened) {
+      trace.actions.push({
+        characterId: ev.actorId,
+        kind: "loot",
+        target: ev.chestId,
+        result: "already_opened",
+      });
+      continue;
+    }
+    if (chest.contents === null) {
+      trace.actions.push({
+        characterId: ev.actorId,
+        kind: "loot",
+        target: ev.chestId,
+        result: "empty",
+      });
+      continue;
+    }
     const item: ItemRef = chest.contents;
     working = equipIntoSlot(working, ev.actorId, item);
     // Mutate chests array immutably.
@@ -731,15 +742,12 @@ export function resolveTurn(
       ...working,
       world: { ...working.world, chests: newChests },
     };
-    // Phase-3 PM lock D7: chest opens emit `kind = "loot"` (the
-    // resolved-engine-path, unified under loot per ADR §1). Consumers
-    // (replay, runStats, harness analyze) read
-    // `kind === "loot" && result === "opened" && target.startsWith("chest_")`.
     trace.actions.push({
       characterId: ev.actorId,
       kind: "loot",
       target: ev.chestId,
       result: "opened",
+      lootedItem: item.name,
     });
     const looter = working.characters.find((c) => c.characterId === ev.actorId);
     if (looter) {
@@ -813,6 +821,7 @@ export function resolveTurn(
       kind: "loot",
       target: ev.traceTarget,
       result: "looted",
+      lootedItem: picked.name,
     });
 
     // Reveal looter.

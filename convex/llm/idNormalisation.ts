@@ -101,19 +101,12 @@ function copyTile(tile: Tile): Tile {
   return { x: tile.x, y: tile.y };
 }
 
-function chestTargetIds(chestId: string): string[] {
-  const ids = new Set<string>([chestId]);
-  const lower = /^chest_(\d+)$/.exec(chestId);
-  if (lower) ids.add(`Chest_${lower[1]}`);
-  const upper = /^Chest_(\d+)$/.exec(chestId);
-  if (upper) ids.add(`chest_${upper[1]}`);
-  return [...ids];
+function isChestId(targetId: string): boolean {
+  return /^Chest_-?\d+_-?\d+$/.test(targetId);
 }
 
 function findChestByTargetId(state: MatchState, targetId: string) {
-  return state.world.chests.find((chest) =>
-    chestTargetIds(chest.id).includes(targetId),
-  );
+  return state.world.chests.find((chest) => chest.id === targetId);
 }
 
 function visibleTargetIds(state: MatchState, observerId: string): Set<string> {
@@ -131,7 +124,7 @@ function visibleTargetIds(state: MatchState, observerId: string): Set<string> {
         break;
       }
       case "chest":
-        for (const id of chestTargetIds(entity.objectId)) ids.add(id);
+        ids.add(entity.objectId);
         break;
       case "corpse": {
         ids.add(entity.objectId);
@@ -203,7 +196,7 @@ export function resolveTypedEntity(
     };
   }
 
-  if (targetId.startsWith("Chest_") || targetId.startsWith("chest_")) {
+  if (isChestId(targetId)) {
     if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
     const chest = findChestByTargetId(state, targetId);
     if (!chest) return null;

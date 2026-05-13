@@ -190,6 +190,43 @@ describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", (
     expect(adapted.actions[0]!.weapon).toBe("axe");
   });
 
+  it("WP-A1 — propagates actions[].lootedItem when present", () => {
+    const trace = makeTrace({
+      actions: [
+        {
+          characterId: "char_looter",
+          kind: "loot",
+          target: "Chest_4_5",
+          result: "opened",
+          lootedItem: "speed",
+        },
+      ],
+    });
+
+    const adapted = adaptResolutionForSchema(trace);
+
+    expect(adapted.actions).toHaveLength(1);
+    expect(adapted.actions[0]!.lootedItem).toBe("speed");
+  });
+
+  it("WP-A1 — keeps actions[].lootedItem absent when omitted", () => {
+    const trace = makeTrace({
+      actions: [
+        {
+          characterId: "char_looter",
+          kind: "loot",
+          target: "Chest_4_5",
+          result: "empty",
+        },
+      ],
+    });
+
+    const adapted = adaptResolutionForSchema(trace);
+
+    expect(adapted.actions).toHaveLength(1);
+    expect("lootedItem" in adapted.actions[0]!).toBe(false);
+  });
+
   it("WP-A — keeps actions[].weapon absent when the engine omitted it", () => {
     const trace = makeTrace({
       actions: [

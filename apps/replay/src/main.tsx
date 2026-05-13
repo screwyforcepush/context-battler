@@ -22,6 +22,7 @@ import ReactDOM from "react-dom/client";
 import { ConvexProvider } from "convex/react";
 import { convexClient } from "./lib/convexClient";
 import { useHashRoute } from "./lib/useHashRoute";
+import { Diagnostics } from "./routes/Diagnostics";
 import { MatchPicker } from "./routes/MatchPicker";
 import { Replay } from "./routes/Replay";
 import {
@@ -94,11 +95,56 @@ function App(): React.ReactElement {
   if (route.kind === "replay") {
     return (
       <ReplayErrorBoundary key={route.matchId}>
-        <Replay matchId={route.matchId} turn={route.turn} />
+        <Replay
+          matchId={route.matchId}
+          turn={route.turn}
+          character={route.character}
+        />
       </ReplayErrorBoundary>
     );
   }
-  return <MatchPicker />;
+  return (
+    <AppFrame active={route.kind}>
+      {route.kind === "diagnostics" ? (
+        <Diagnostics last={route.last} />
+      ) : (
+        <MatchPicker />
+      )}
+    </AppFrame>
+  );
+}
+
+function AppFrame(props: {
+  active: "picker" | "diagnostics";
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <div>
+      <header style={appHeaderStyle}>
+        <nav aria-label="Replay app" style={appNavStyle}>
+          <a
+            href="#/"
+            style={{
+              ...appTabStyle,
+              ...(props.active === "picker" ? appTabActiveStyle : {}),
+            }}
+          >
+            Matches
+          </a>
+          <a
+            href="#/diagnostics?last=20"
+            style={{
+              ...appTabStyle,
+              ...(props.active === "diagnostics" ? appTabActiveStyle : {}),
+            }}
+          >
+            Diagnostics
+          </a>
+        </nav>
+      </header>
+      {props.children}
+    </div>
+  );
 }
 
 const rootEl = document.getElementById("root");
@@ -185,4 +231,39 @@ const errorCodeStyle: React.CSSProperties = {
   fontSize: "0.75rem",
   whiteSpace: "pre-wrap",
   wordBreak: "break-word",
+};
+
+const appHeaderStyle: React.CSSProperties = {
+  borderBottom: "1px solid #d8dee4",
+  background: "#fff",
+};
+
+const appNavStyle: React.CSSProperties = {
+  maxWidth: "1500px",
+  margin: "0 auto",
+  padding: "0.75rem 2rem 0 2rem",
+  display: "flex",
+  gap: "0.25rem",
+  fontFamily: "system-ui, -apple-system, sans-serif",
+};
+
+const appTabStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: "2.25rem",
+  padding: "0 0.875rem",
+  color: "#444",
+  textDecoration: "none",
+  border: "1px solid transparent",
+  borderBottom: "none",
+  borderTopLeftRadius: 4,
+  borderTopRightRadius: 4,
+  fontSize: "0.875rem",
+  fontWeight: 600,
+};
+
+const appTabActiveStyle: React.CSSProperties = {
+  color: "#1a1a1a",
+  background: "#f6f8fa",
+  borderColor: "#d8dee4",
 };

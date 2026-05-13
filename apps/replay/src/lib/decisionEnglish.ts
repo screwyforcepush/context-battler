@@ -243,7 +243,7 @@ function renderActionIntent(
       )}`;
     case "loot": {
       const targetId = action.targetId;
-      if (/^chest_/i.test(targetId)) return `Opened ${targetId}`;
+      if (isChestId(targetId)) return `Opened ${targetId}`;
       if (/^corpse_/i.test(targetId)) return `Looted from ${targetId}`;
       const name = resolveCharacterName(
         targetId as Id<"characters">,
@@ -407,9 +407,13 @@ function resolveCharacterName(
     if (candidate.displayName === raw) return candidate.displayName;
   }
 
-  if (/^(chest|corpse)_/i.test(raw)) return raw;
+  if (isChestId(raw) || /^corpse_/i.test(raw)) return raw;
   if (raw.length <= 16) return raw;
   return raw.slice(0, 8);
+}
+
+function isChestId(id: string): boolean {
+  return /^Chest_-?\d+_-?\d+$/.test(id);
 }
 
 function resolveCharacterIdForTarget(

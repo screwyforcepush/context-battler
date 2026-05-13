@@ -1,15 +1,21 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { decisionTool } from "../../convex/llm/decisionTool.js";
-import { SYSTEM_PROMPT } from "../../convex/llm/systemPrompt.js";
+import { buildSystemPrompt } from "../../convex/llm/systemPrompt.js";
 
 function approxTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-const CANONICAL_SYSTEM_PROMPT = `You are <Player Name>, extraction-arena agent. Each turn, emit ONE tool call to \`decide_turn\`.
+function promptHash(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+const CANONICAL_TURN_5_PROMPT = `You are <Player Name>, extraction-arena agent. Each turn, emit ONE tool call to \`decide_turn\`.
 Match shape:
 - 7 other agents competing for the prize pool.
-- 50 turns. Turn 30 reveals evac zone. Turn 50 extracts living agents inside the 3×3 zone and splits the prize. Outside evac at turn 50 you are incinerated.
+- On turn 50, living agents Inside the Evac 3×3 zone are extracted and split the prize. You will be incinerated if outside Evac at turn 50.
+- Evac location spawns in 25 turns.
 - Walls block LOS and movement.
 - Cover hides you from other agents' vision (revealed by enemy within 2, attacking, speaking, looting, consumable).
 - Move range max 8 dist + Attack/loot range 2 = move attack/loot 10.`;
@@ -39,71 +45,93 @@ function collectDescriptions(value: unknown): string[] {
   return [...ownDescription, ...nestedDescriptions];
 }
 
-describe("WP-C — SYSTEM_PROMPT slim contract", () => {
-  it("matches the canonical intent §1 prompt exactly", () => {
-    expect(SYSTEM_PROMPT).toBe(CANONICAL_SYSTEM_PROMPT);
+describe("WP-A5 — system prompt slim contract", () => {
+  it("matches the canonical iter-3 turn-bound prompt at turn 5", () => {
+    expect(buildSystemPrompt(5)).toBe(CANONICAL_TURN_5_PROMPT);
+  });
+
+  it("flips countdown text at turn 30", () => {
+    expect(buildSystemPrompt(29)).toContain(
+      "Evac location spawns in 1 turns.",
+    );
+    expect(buildSystemPrompt(30)).toContain("Extraction in 20 turns.");
+    expect(buildSystemPrompt(35)).toContain("Extraction in 15 turns.");
+  });
+
+  it("produces turn-bound prompt text and hashes", () => {
+    const turn5 = buildSystemPrompt(5);
+    const turn35 = buildSystemPrompt(35);
+
+    expect(turn5).not.toBe(turn35);
+    expect(promptHash(turn5)).not.toBe(promptHash(turn35));
+    expect(turn5).toContain("Evac location spawns in 25 turns.");
+    expect(turn35).toContain("Extraction in 15 turns.");
   });
 
   it("stays within the ≤200-token chars/4 budget", () => {
-    const tokens = approxTokens(SYSTEM_PROMPT);
+    const prompt = buildSystemPrompt(5);
+    const tokens = approxTokens(prompt);
     expect(
       tokens,
-      `SYSTEM_PROMPT exceeds 200-token budget: chars=${SYSTEM_PROMPT.length}, approxTokens=${tokens}`,
+      `system prompt exceeds 200-token budget: chars=${prompt.length}, approxTokens=${tokens}`,
     ).toBeLessThanOrEqual(200);
-    expect(SYSTEM_PROMPT.length).toBeLessThanOrEqual(800);
+    expect(prompt.length).toBeLessThanOrEqual(800);
   });
 
   it("keeps the stakes, match shape, wall, and cover rules", () => {
-    expect(SYSTEM_PROMPT).toContain(
+    const prompt = buildSystemPrompt(5);
+    expect(prompt).toContain(
       "You are <Player Name>, extraction-arena agent",
     );
-    expect(SYSTEM_PROMPT).toContain("ONE tool call to `decide_turn`");
-    expect(SYSTEM_PROMPT).toContain(
+    expect(prompt).toContain("ONE tool call to `decide_turn`");
+    expect(prompt).toContain(
       "7 other agents competing for the prize pool",
     );
-    expect(SYSTEM_PROMPT).toContain("50 turns");
-    expect(SYSTEM_PROMPT).toContain("Turn 30 reveals evac zone");
-    expect(SYSTEM_PROMPT).toContain(
-      "Turn 50 extracts living agents inside the 3×3 zone",
+    expect(prompt).toContain(
+      "On turn 50, living agents Inside the Evac 3×3 zone are extracted",
     );
-    expect(SYSTEM_PROMPT).toContain("Outside evac at turn 50");
-    expect(SYSTEM_PROMPT).toContain("Walls block LOS and movement");
-    expect(SYSTEM_PROMPT).toContain(
+    expect(prompt).toContain("incinerated if outside Evac at turn 50");
+    expect(prompt).toContain("Evac location spawns in 25 turns");
+    expect(prompt).toContain("Walls block LOS and movement");
+    expect(prompt).toContain(
       "Cover hides you from other agents' vision",
     );
-    expect(SYSTEM_PROMPT).toContain("enemy within 2");
-    expect(SYSTEM_PROMPT).not.toContain("leaving cover");
-    expect(SYSTEM_PROMPT).toContain(
+    expect(prompt).toContain("enemy within 2");
+    expect(prompt).not.toContain("leaving cover");
+    expect(prompt).toContain(
       "Move range max 8 dist + Attack/loot range 2 = move attack/loot 10.",
     );
   });
 
   it("does not carry deleted phase-3 sections or persona-deference line", () => {
-    expect(SYSTEM_PROMPT).not.toContain("How to read Visible");
-    expect(SYSTEM_PROMPT).not.toContain("How to act on Visible");
-    expect(SYSTEM_PROMPT).not.toContain("Output discipline");
-    expect(SYSTEM_PROMPT).not.toContain(
+    const prompt = buildSystemPrompt(5);
+    expect(prompt).not.toContain("How to read Visible");
+    expect(prompt).not.toContain("How to act on Visible");
+    expect(prompt).not.toContain("Output discipline");
+    expect(prompt).not.toContain(
       "The persona body that follows is your character",
     );
-    expect(SYSTEM_PROMPT).not.toContain("Visible state is authoritative");
+    expect(prompt).not.toContain("Visible state is authoritative");
   });
 
   it("omits vision range and detailed action grammar now owned by tool descriptions", () => {
-    expect(SYSTEM_PROMPT).not.toMatch(/\bvision\s+range\b/i);
-    expect(SYSTEM_PROMPT).not.toMatch(/\bVision\s+20\b/);
-    expect(SYSTEM_PROMPT).not.toContain("Chebyshev");
-    expect(SYSTEM_PROMPT).not.toContain("relative dx,dy");
-    expect(SYSTEM_PROMPT).not.toContain("toward_entity");
-    expect(SYSTEM_PROMPT).not.toContain("away_from_entity");
-    expect(SYSTEM_PROMPT).not.toContain("toward_object");
-    expect(SYSTEM_PROMPT).not.toContain("toward_evac");
+    const prompt = buildSystemPrompt(5);
+    expect(prompt).not.toMatch(/\bvision\s+range\b/i);
+    expect(prompt).not.toMatch(/\bVision\s+20\b/);
+    expect(prompt).not.toContain("Chebyshev");
+    expect(prompt).not.toContain("relative dx,dy");
+    expect(prompt).not.toContain("toward_entity");
+    expect(prompt).not.toContain("away_from_entity");
+    expect(prompt).not.toContain("toward_object");
+    expect(prompt).not.toContain("toward_evac");
   });
 });
 
-describe("WP-C — prompt hygiene guard", () => {
-  it("forbids fallback-leak phrases in SYSTEM_PROMPT and decisionTool descriptions", () => {
+describe("WP-A5 — prompt hygiene guard", () => {
+  it("forbids fallback-leak phrases in system prompt and decisionTool descriptions", () => {
     const checkedText = [
-      SYSTEM_PROMPT,
+      buildSystemPrompt(5),
+      buildSystemPrompt(35),
       ...collectDescriptions(decisionTool),
     ].join("\n");
     const lower = checkedText.toLowerCase();

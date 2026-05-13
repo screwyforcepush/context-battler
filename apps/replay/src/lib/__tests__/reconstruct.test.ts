@@ -448,7 +448,7 @@ describe("reconstruct — §1.2 death timing (post-movement, pre-visibilityUpdat
 describe("reconstruct — §1.3 chest open persistence", () => {
   it("loot kind + opened result on turn 3 → chest opened on turn 5", () => {
     // Phase-3 ADR §1 / PM lock D7 — chest opens emit
-    // `kind: "loot"`, `target: "chest_NNN"`, `result: "opened"`. The walk
+    // `kind: "loot"`, `target: "Chest_<x>_<y>"`, `result: "opened"`. The walk
     // dispatches the chest-flip on this exact tuple.
     const A = makeCharacter("a", 0);
     const bundle: ReplayBundle = {
@@ -462,7 +462,7 @@ describe("reconstruct — §1.3 chest open persistence", () => {
             {
               characterId: A._id,
               kind: "loot",
-              target: "chest_001",
+              target: "Chest_50_50",
               result: "opened",
             },
           ],
@@ -476,7 +476,7 @@ describe("reconstruct — §1.3 chest open persistence", () => {
         // turn-0 chests closed so we can prove the walk re-derives the flip.
         chests: [
           {
-            id: "chest_001",
+            id: "Chest_50_50",
             pos: { x: 50, y: 50 },
             contents: null,
             opened: true,
@@ -490,7 +490,7 @@ describe("reconstruct — §1.3 chest open persistence", () => {
     expect(reconstruct(bundle, 5).chests[0]!.opened).toBe(true);
   });
 
-  it("loot/chest_* with non-opened result (already_opened/no_chest/out_of_range) does NOT toggle", () => {
+  it("loot/Chest_<x>_<y> with non-opened result (already_opened/no_chest/out_of_range) does NOT toggle", () => {
     const A = makeCharacter("a", 0);
     const bundle: ReplayBundle = {
       match: makeMatch({ turn: 1 }),
@@ -501,19 +501,19 @@ describe("reconstruct — §1.3 chest open persistence", () => {
             {
               characterId: A._id,
               kind: "loot",
-              target: "chest_001",
+              target: "Chest_1_1",
               result: "already_opened",
             },
             {
               characterId: A._id,
               kind: "loot",
-              target: "chest_002",
+              target: "Chest_-2_2",
               result: "no_chest",
             },
             {
               characterId: A._id,
               kind: "loot",
-              target: "chest_003",
+              target: "Chest_2_2",
               result: "out_of_range",
             },
           ],
@@ -522,9 +522,9 @@ describe("reconstruct — §1.3 chest open persistence", () => {
       characters: [A],
       worldState: makeWorld({
         chests: [
-          { id: "chest_001", pos: { x: 1, y: 1 }, contents: null, opened: true },
+          { id: "Chest_1_1", pos: { x: 1, y: 1 }, contents: null, opened: true },
           {
-            id: "chest_003",
+            id: "Chest_2_2",
             pos: { x: 2, y: 2 },
             contents: null,
             opened: false,
@@ -539,7 +539,7 @@ describe("reconstruct — §1.3 chest open persistence", () => {
 
   it("corpse loot (kind=loot + corpse target) does NOT trigger chest-flip", () => {
     // Phase-3 ADR §1 — chests + corpses both flow through the unified loot
-    // arm; the walk's chest-flip MUST gate on `target.startsWith("chest_")`
+    // arm; the walk's chest-flip MUST gate on coord-encoded chest ids
     // so a successful corpse loot can't flip a same-id chest by accident.
     const A = makeCharacter("a", 0);
     const dead = makeCharacter("b", 1, { displayName: "Camper" });
@@ -552,7 +552,7 @@ describe("reconstruct — §1.3 chest open persistence", () => {
             {
               characterId: A._id,
               kind: "loot",
-              // Corpse target — id namespace is the character's id, not chest_*.
+              // Corpse target — id namespace is the character's id, not Chest_<x>_<y>.
               target: dead._id,
               result: "opened",
             },
@@ -562,7 +562,7 @@ describe("reconstruct — §1.3 chest open persistence", () => {
       characters: [A, dead],
       worldState: makeWorld({
         chests: [
-          { id: "chest_001", pos: { x: 1, y: 1 }, contents: null, opened: true },
+          { id: "Chest_1_1", pos: { x: 1, y: 1 }, contents: null, opened: true },
         ],
       }),
     };
@@ -702,7 +702,7 @@ describe("reconstruct — §1.6 idempotency", () => {
             {
               characterId: A._id,
               kind: "loot",
-              target: "chest_001",
+              target: "Chest_50_50",
               result: "opened",
             },
           ],
@@ -723,7 +723,7 @@ describe("reconstruct — §1.6 idempotency", () => {
       worldState: makeWorld({
         chests: [
           {
-            id: "chest_001",
+            id: "Chest_50_50",
             pos: { x: 50, y: 50 },
             contents: null,
             opened: true,

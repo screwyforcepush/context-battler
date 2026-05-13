@@ -244,6 +244,9 @@ const agentLlmValidator = v.object({
   fellBackToSafeDefault: v.boolean(),
   failureReason: v.optional(failureReasonValidator),
   validatorFieldErrors: v.optional(validatorFieldErrorsValidator),
+  // Phase 7 WP-A1 — whether the Azure wrapper made a retryable second HTTP
+  // attempt. Optional + additive so historical rows validate cleanly.
+  retried: v.optional(v.boolean()),
   // WP10.5 Pass F — captured non-OK HTTP response body (sanitised +
   // truncated to ≤ 2 KB by `convex/llm/azure.ts`). Set ONLY when
   // `failureReason === "http_non_200"`; the wrapper drains the body on
@@ -325,6 +328,9 @@ const resolutionValidator = v.object({
       // attack/overwatch damage entries. Optional for historical rows and
       // unarmed strikes.
       weapon: v.optional(v.string()),
+      // Phase 7 WP-A1 — item name carried by successful chest/corpse loot
+      // traces so the next-turn feed can name the reward.
+      lootedItem: v.optional(v.string()),
     }),
   ),
   deaths: v.array(v.id("characters")),
@@ -576,6 +582,85 @@ const phase6PayloadValidator = v.object({
   meetsAllThresholds: v.boolean(),
 });
 
+const phase7PerPersonaStatsValidator = v.object({
+  personaId: personaIdValidator,
+  extractionsCount: v.number(),
+  extractionRate: v.number(),
+});
+
+const phase7PayloadValidator = v.object({
+  reportType: v.literal("phase-7-closing-20"),
+  runCount: v.number(),
+  matchIds: v.array(v.string()),
+  failedMatches: v.number(),
+
+  runsWithExtraction: v.number(),
+  runsWithKill: v.number(),
+  runsWithEquip: v.number(),
+  runsWithSpeech: v.number(),
+  extractionRate: v.number(),
+  killRate: v.number(),
+  equipRate: v.number(),
+  speechRate: v.number(),
+  perPersona: v.array(phase7PerPersonaStatsValidator),
+  personaExtractionSpread: v.number(),
+
+  totalAgentRecords: v.number(),
+  nullOnlyUseViolations: v.number(),
+  actionOverwatchCombos: v.number(),
+  overwatchTriggerFires: v.number(),
+  counterRetaliations: v.number(),
+  compassBearings: v.array(v.string()),
+  targetRelativeKinds: v.array(v.string()),
+  damageFeedEvents: v.number(),
+  damageFeedMissing: v.number(),
+  damageFeedAuditScopeNote: v.string(),
+  validatorRecords: v.number(),
+  validatorFieldErrors: v.number(),
+  perFieldRejectionRate: v.number(),
+  wholeTurnZeroedValidatorRecords: v.number(),
+  armedStancePauseCount: v.number(),
+  armedStancePauseRate: v.number(),
+  trueStationaryCount: v.number(),
+  trueStationaryRate: v.number(),
+  playerNLiteralCount: v.number(),
+
+  inboundSpeechDelivered: v.number(),
+  lootSuccesses: v.number(),
+  lootSuccessesNamed: v.number(),
+  lootSuccessNamingRate: v.number(),
+  lootFailureOutcomes: v.number(),
+  lootFailuresMarkedEmpty: v.number(),
+  lootEmptyMarkingRate: v.number(),
+  legacyChestLiteralCount: v.number(),
+  retryAttempts: v.number(),
+  retryRecovered: v.number(),
+  retryFailedAfterRetry: v.number(),
+  retryRecoveryRate: v.number(),
+
+  meetsExtractionThreshold: v.boolean(),
+  meetsKillThreshold: v.boolean(),
+  meetsEquipThreshold: v.boolean(),
+  meetsSpeechThreshold: v.boolean(),
+  meetsPersonaSpreadThreshold: v.boolean(),
+  meetsUseVariantThreshold: v.boolean(),
+  meetsActionOverwatchComboThreshold: v.boolean(),
+  meetsOverwatchTriggerThreshold: v.boolean(),
+  meetsCounterThreshold: v.boolean(),
+  meetsCompassThreshold: v.boolean(),
+  meetsTargetRelativeThreshold: v.boolean(),
+  meetsDamageFeedThreshold: v.boolean(),
+  meetsFieldScopedThreshold: v.boolean(),
+  meetsPerFieldRejectionThreshold: v.boolean(),
+  meetsPersonaIdThreshold: v.boolean(),
+  meetsZeroCrashThreshold: v.boolean(),
+  meetsInboundSpeechThreshold: v.boolean(),
+  meetsLootSuccessNamingThreshold: v.boolean(),
+  meetsLootEmptyMarkingThreshold: v.boolean(),
+  meetsChestLiteralThreshold: v.boolean(),
+  meetsAllThresholds: v.boolean(),
+});
+
 /**
  * `reports.payload` validator — the §10 done-bar payload Stage-3 emits.
  * Mirrors `ReportPayload` from `convex/engine/reportStats.ts` exactly.
@@ -782,6 +867,7 @@ export default defineSchema({
      */
     phase3Payload: v.optional(phase3PayloadValidator),
     phase6Payload: v.optional(phase6PayloadValidator),
+    phase7Payload: v.optional(phase7PayloadValidator),
   })
     .index("by_generatedAt", ["generatedAt"])
     // WP14 idempotency index: `reports.create` reads by this tuple before

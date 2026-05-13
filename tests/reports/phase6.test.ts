@@ -138,7 +138,7 @@ describe("computePhase6Metrics — action plus overwatch combo success", () => {
     const chestLootDecision: ParsedDecision = {
       ...NONE_DECISION,
       position: { kind: "overwatch" },
-      action: { kind: "loot", targetId: "chest_1" },
+      action: { kind: "loot", targetId: "Chest_53_54" },
     };
 
     const out = computePhase6Metrics([
@@ -174,7 +174,7 @@ describe("computePhase6Metrics — action plus overwatch combo success", () => {
                 {
                   characterId: "chest-looter",
                   kind: "loot",
-                  target: "chest_1",
+                  target: "Chest_53_54",
                   result: "opened",
                 },
               ],

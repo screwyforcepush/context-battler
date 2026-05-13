@@ -301,7 +301,7 @@ describe("computePhase3Metrics — corpse-loot success rate", () => {
     const chestAction: Phase3ActionTraceEntry = {
       characterId: "c0",
       kind: "loot",
-      target: "chest_005",
+      target: "Chest_53_54",
       result: "opened",
     };
     const runChest = makeTurn({
@@ -597,7 +597,7 @@ describe("computePhase3Metrics — outcome attribution heuristic", () => {
 
   it("does NOT count non-character move target ids as attacker attribution", () => {
     const ignoredPositions: Phase3AgentRecord["decision"]["position"][] = [
-      { kind: "move", direction: { kind: "toward", targetId: "Chest_006" }, dist: 8 },
+      { kind: "move", direction: { kind: "toward", targetId: "Chest_56_50" }, dist: 8 },
       {
         kind: "move",
         direction: { kind: "toward", targetId: "Corpse_Camper" },
@@ -962,7 +962,7 @@ describe("computePhase3Metrics — carry-over phase-1 metrics", () => {
           {
             characterId: "c0",
             kind: "loot",
-            target: "chest_005",
+            target: "Chest_53_54",
             result: "opened",
           },
         ],

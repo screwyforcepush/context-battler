@@ -18,6 +18,10 @@ const turns: any[] = await client.query(api.turns.byMatch, {
   matchId: matchId as never,
 });
 
+function isChestId(id: string): boolean {
+  return /^Chest_-?\d+_-?\d+$/.test(id);
+}
+
 let total = 0;
 let fellBack = 0;
 const failureReasons: Record<string, number> = {};
@@ -58,7 +62,7 @@ for (const t of turns) {
     } else if (
       a.kind === "loot" &&
       typeof a.target === "string" &&
-      a.target.startsWith("chest_")
+      isChestId(a.target)
     ) {
       chestInteracts += 1;
       if (a.result === "opened" || a.result === "equipped") chestEquips += 1;

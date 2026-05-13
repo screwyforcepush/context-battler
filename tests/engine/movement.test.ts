@@ -293,14 +293,14 @@ describe("WP7 movement — concept-spec §10", () => {
     expect(findChar(next, "A").pos).toEqual({ x: 5, y: 5 });
   });
 
-  it("§10 — toward Chest_NNN uses static chest position and stops at Chebyshev 2", () => {
+  it("§10 — toward Chest_x_y uses static chest position and stops at Chebyshev 2", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({
       characters: [a],
       world: {
         chests: [
           {
-            id: "chest_001",
+            id: "Chest_5_0",
             pos: { x: 5, y: 0 },
             contents: { category: "weapon", name: "sword" },
             opened: false,
@@ -310,7 +310,7 @@ describe("WP7 movement — concept-spec §10", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward", targetId: "Chest_001" })],
+      ["A", moveDecision({ kind: "toward", targetId: "Chest_5_0" })],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     // Stops at Chebyshev 2 from chest at (5,0): A ends at (3,0).
@@ -494,7 +494,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
     expect(findChar(next, "A").pos).toEqual({ x: 58, y: 50 });
   });
 
-  it("away Chest_NNN moves opposite from a chest at loot range 1", () => {
+  it("away Chest_x_y moves opposite from a chest at loot range 1", () => {
     const actor = makeCharacter({
       id: "A",
       displayName: "Rat",
@@ -506,7 +506,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
       world: {
         chests: [
           {
-            id: "chest_006",
+            id: "Chest_49_50",
             pos: chestTile,
             contents: { category: "weapon", name: "sword" },
             opened: false,
@@ -516,7 +516,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "away", targetId: "Chest_006" })],
+      ["A", moveDecision({ kind: "away", targetId: "Chest_49_50" })],
     ]);
 
     const { state: next } = simulateMovement(state, decisions);

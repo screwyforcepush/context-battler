@@ -112,8 +112,8 @@ function rectToTiles(rect: Wall): Tile[] {
  *    WP7/WP10 per concept-spec §15).
  *  - `corpses[]` initialises to empty (WP7 phase 6 fills it on death).
  *
- * Chest ids: stable, 1-indexed `chest_001`, `chest_002`, …, in descriptor
- * order. Per WP3 brief — keeps trace records interpretable.
+ * Chest ids: stable coord-encoded ids (`Chest_<x>_<y>`) derived from the
+ * descriptor position.
  */
 export function expandMap(
   descriptor: MapDescriptor,
@@ -124,8 +124,8 @@ export function expandMap(
     coverTiles.push(...rectToTiles(cluster));
   }
 
-  const chests: ChestState[] = descriptor.chests.map((c, i) => {
-    const chestId = `chest_${String(i + 1).padStart(3, "0")}`;
+  const chests: ChestState[] = descriptor.chests.map((c) => {
+    const chestId = `Chest_${c.x}_${c.y}`;
     const rng = makeRng(`${rngSeed}:chest:${chestId}`);
     const contents = rollLoot(c.lootTable, rng);
     return {

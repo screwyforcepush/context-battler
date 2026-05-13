@@ -3,6 +3,7 @@ import { computeVisibleEntities } from "../engine/vision.js";
 import {
   ARMOUR,
   CONSUMABLES,
+  MIN_DAMAGE_FLOOR,
   WEAPONS,
   type CharacterState,
   type CorpseState,
@@ -13,7 +14,7 @@ import {
   type Tile,
   type VisibleEntity,
 } from "../engine/types.js";
-import { SYSTEM_PROMPT } from "./systemPrompt.js";
+import { buildSystemPrompt } from "./systemPrompt.js";
 
 const VISIBLE_ENTITY_CAP = 8;
 const WALL_CAP = 12;
@@ -40,6 +41,7 @@ export type PrevTurnRow = {
       result: string;
       triggeredByMovement?: boolean;
       weapon?: string;
+      lootedItem?: string;
     }>;
     deaths: ReadonlyArray<string>;
     visibilityUpdates: ReadonlyArray<{
@@ -82,9 +84,7 @@ function renderCharacterTypedId(state: MatchState, characterId: string): string 
 }
 
 function renderChestId(objectId: string): string {
-  const m = /^chest_(\d+)$/.exec(objectId);
-  if (!m) return objectId;
-  return `Chest_${m[1]}`;
+  return objectId;
 }
 
 function corpseDrained(contents: CorpseState["contents"]): boolean {
@@ -97,13 +97,11 @@ function parseDamageResult(result: string): number | null {
   return Number(match[1]);
 }
 
-function itemName(item: ItemRef | undefined): string | null {
-  return item?.name ?? null;
-}
-
 function renderWeaponSlot(actor: CharacterState): string {
   const weapon = actor.equipped.weapon;
-  if (!weapon || weapon.category !== "weapon") return "none";
+  if (!weapon || weapon.category !== "weapon") {
+    return `unarmed [dmg ${MIN_DAMAGE_FLOOR}]`;
+  }
   const stats = WEAPONS[weapon.name];
   return `${weapon.name} [dmg ${stats.damage}]`;
 }
@@ -146,13 +144,47 @@ function renderActionFragment(prev: PrevTurnRow, characterId: string): string | 
   if (entry.kind === "attack") {
     return result ? `attacked ${target} (${result})` : `attacked ${target}`;
   }
+  if (result === "empty" || result === "already_opened" || result === "no_corpse") {
+    return `looted nothing from empty ${target}`;
+  }
+  if (
+    (result === "opened" || result === "looted") &&
+    entry.lootedItem &&
+    entry.lootedItem.trim().length > 0
+  ) {
+    return `looted ${entry.lootedItem} from ${target}`;
+  }
   return result ? `looted ${target} (${result})` : `looted ${target}`;
 }
 
-function renderSaidFragment(prev: PrevTurnRow, characterId: string): string | null {
+function quoteSpeech(text: string): string {
+  return JSON.stringify(text.replace(/\s*\r?\n\s*/g, " ").trim());
+}
+
+export function buildOwnSpeechLine(
+  prev: PrevTurnRow | null,
+  characterId: string,
+): string | null {
+  if (!prev) return null;
   const entry = prev.resolution.speech.find((s) => s.characterId === characterId);
   if (!entry) return null;
-  return `said "${entry.text}"`;
+  return `You said ${quoteSpeech(entry.text)}`;
+}
+
+export function buildInboundSpeechLines(
+  prev: PrevTurnRow | null,
+  state: MatchState,
+  observer: CharacterState,
+): string[] {
+  if (!prev) return [];
+  const lines: string[] = [];
+  for (const speech of prev.resolution.speech) {
+    if (speech.characterId === observer.characterId) continue;
+    if (!speech.heardBy.includes(observer.characterId)) continue;
+    const speaker = renderCharacterTypedId(state, speech.characterId);
+    lines.push(`${speaker} said ${quoteSpeech(speech.text)}`);
+  }
+  return lines;
 }
 
 export function buildOwnOutcomeLine(
@@ -166,8 +198,6 @@ export function buildOwnOutcomeLine(
   if (move) fragments.push(move);
   const action = renderActionFragment(prev, characterId);
   if (action) fragments.push(action);
-  const said = renderSaidFragment(prev, characterId);
-  if (said) fragments.push(said);
   if (fragments.length === 0) return null;
   return `You ${fragments.join(", ")}`;
 }
@@ -251,7 +281,6 @@ export function buildKillFeedLines(
 type VisibleEntry = {
   tier: 1 | 2 | 3 | 4 | 5;
   dist: number;
-  drained: boolean;
   key: string;
   value: { [key: string]: VisibleJsonValue };
 };
@@ -259,16 +288,13 @@ type VisibleEntry = {
 function visibleComparator(a: VisibleEntry, b: VisibleEntry): number {
   if (a.tier !== b.tier) return a.tier - b.tier;
   if (a.dist !== b.dist) return a.dist - b.dist;
-  if (a.drained !== b.drained) return a.drained ? 1 : -1;
   return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
 }
 
-function baseVisibleValue(kind: string, observer: CharacterState, pos: Tile) {
+function baseVisibleValue(observer: CharacterState, pos: Tile) {
   const dist = chebyshev(observer.pos, pos);
   const bearing = compassDirection(observer.pos, pos);
   return {
-    kind,
-    pos: { x: pos.x, y: pos.y },
     dist,
     ...(bearing ? { bearing } : {}),
   };
@@ -288,54 +314,31 @@ function visibleEntryFor(
       return {
         tier: 1,
         dist: chebyshev(observer.pos, entity.pos),
-        drained: false,
         key,
         value: {
-          ...baseVisibleValue("character", observer, entity.pos),
+          ...baseVisibleValue(observer, entity.pos),
           hp: entity.hpBucket,
-          equipped: {
-            weapon: entity.weapon ?? null,
-            armour: itemName(character?.equipped.armour),
-            consumable: itemName(character?.equipped.consumable),
-          },
+          armed: Boolean(entity.weapon ?? character?.equipped.weapon),
         },
       };
     }
     case "chest": {
       const key = renderChestId(entity.objectId);
-      const chest = state.world.chests.find((c) => c.id === entity.objectId);
       return {
         tier: 2,
         dist: chebyshev(observer.pos, entity.pos),
-        drained: false,
         key,
-        value: {
-          ...baseVisibleValue("chest", observer, entity.pos),
-          opened: entity.opened,
-          contents: chest?.contents
-            ? { [chest.contents.category]: chest.contents.name }
-            : null,
-        },
+        value: baseVisibleValue(observer, entity.pos),
       };
     }
     case "corpse": {
       const name = resolveDisplayName(state, entity.objectId);
       const key = `Corpse_${name}`;
-      const drained = corpseDrained(entity.contents);
       return {
         tier: 2,
         dist: chebyshev(observer.pos, entity.pos),
-        drained,
         key,
-        value: {
-          ...baseVisibleValue("corpse", observer, entity.pos),
-          contents: {
-            weapon: itemName(entity.contents.weapon),
-            armour: itemName(entity.contents.armour),
-            consumable: itemName(entity.contents.consumable),
-          },
-          drained,
-        },
+        value: baseVisibleValue(observer, entity.pos),
       };
     }
     case "cover": {
@@ -343,9 +346,8 @@ function visibleEntryFor(
       return {
         tier: 3,
         dist: chebyshev(observer.pos, entity.pos),
-        drained: false,
         key,
-        value: baseVisibleValue("cover", observer, entity.pos),
+        value: baseVisibleValue(observer, entity.pos),
       };
     }
     case "wall": {
@@ -353,9 +355,8 @@ function visibleEntryFor(
       return {
         tier: 4,
         dist: chebyshev(observer.pos, entity.pos),
-        drained: false,
         key,
-        value: baseVisibleValue("wall", observer, entity.pos),
+        value: baseVisibleValue(observer, entity.pos),
       };
     }
   }
@@ -392,16 +393,13 @@ function buildVisibleObject(
     ...walls.sort(visibleComparator).slice(0, WALL_CAP),
   ];
 
-  if (state.world.evac.revealedAtTurn !== null) {
+  const inEvacZone = observerInEvacZone(state, observer);
+  if (state.world.evac.revealedAtTurn !== null && !inEvacZone) {
     entries.push({
       tier: 5,
       dist: chebyshev(observer.pos, state.world.evac.centre),
-      drained: false,
       key: "Evac",
-      value: {
-        ...baseVisibleValue("evac", observer, state.world.evac.centre),
-        inZone: observerInEvacZone(state, observer),
-      },
+      value: baseVisibleValue(observer, state.world.evac.centre),
     });
   }
 
@@ -418,14 +416,17 @@ export function buildVisibleStateDigest(
   _prev: PrevTurnRow | null,
 ): string {
   const observer = state.characters.find((c) => c.characterId === characterId);
-  if (!observer) return "{}";
-  return JSON.stringify(buildVisibleObject(state, observer), null, 2);
+  if (!observer) return "Vision:\n{}";
+  return `Vision:\n${JSON.stringify(buildVisibleObject(state, observer), null, 2)}`;
 }
 
-function renderStatusBlock(observer: CharacterState): string {
+function renderStatusBlock(state: MatchState, observer: CharacterState): string {
+  const evacStatus = observerInEvacZone(state, observer)
+    ? "Inside Evac"
+    : "Outside Evac";
   return [
     "## Status",
-    `📍(${observer.pos.x},${observer.pos.y})`,
+    `📍(${observer.pos.x},${observer.pos.y}) ${evacStatus}`,
     `❤️HP: ${observer.hp}/${observer.maxHp} HP`,
     `⚔️weapon: ${renderWeaponSlot(observer)}`,
     `🛡️armour: ${renderArmourSlot(observer)}`,
@@ -447,17 +448,21 @@ export function buildAgentInput(
 } {
   const observer = state.characters.find((c) => c.characterId === characterId);
   if (!observer) {
+    const systemPrompt = buildSystemPrompt(state.turn);
     return {
-      systemPrompt: SYSTEM_PROMPT,
-      visibleStateDigest: "{}",
+      systemPrompt,
+      visibleStateDigest: "Vision:\n{}",
       composedUserMessage: "{}",
     };
   }
 
+  const systemPrompt = buildSystemPrompt(state.turn);
   const visibleStateDigest = buildVisibleStateDigest(state, characterId, prev);
   const events = [
     buildOwnOutcomeLine(state, characterId, prev),
     ...renderDamageEventLines(prev, state, observer),
+    buildOwnSpeechLine(prev, characterId),
+    ...buildInboundSpeechLines(prev, state, observer),
     ...buildKillFeedLines(prev, state),
   ].filter((line): line is string => typeof line === "string" && line.length > 0);
 
@@ -466,7 +471,7 @@ export function buildAgentInput(
     `You adopt ${observer.displayName} persona:`,
     personaPromptText,
     "",
-    renderStatusBlock(observer),
+    renderStatusBlock(state, observer),
     "",
     "# Current Game State",
     `Turn ${state.turn}, ${aliveCount}/8 players alive`,
@@ -476,7 +481,7 @@ export function buildAgentInput(
   ].join("\n");
 
   return {
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt,
     visibleStateDigest,
     composedUserMessage,
   };

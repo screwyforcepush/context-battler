@@ -206,7 +206,7 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
       world: {
         chests: [
           {
-            id: "chest_001",
+            id: "Chest_3_0",
             pos: { x: 3, y: 0 },
             contents: { category: "weapon", name: "axe" },
             opened: false,
@@ -221,10 +221,10 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
         nullDecision({
           position: {
             kind: "move",
-            direction: { kind: "toward", targetId: "Chest_001" },
+            direction: { kind: "toward", targetId: "Chest_3_0" },
             dist: 8,
           },
-          action: { kind: "loot", targetId: "chest_001" },
+          action: { kind: "loot", targetId: "Chest_3_0" },
         }),
       ],
     ]);
@@ -235,7 +235,7 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
     expect(Math.max(Math.abs(aAfter.pos.x - 3), Math.abs(aAfter.pos.y - 0))).toBeLessThanOrEqual(2);
     // Chest opened, axe equipped (replacing rusty_blade).
     expect(aAfter.equipped.weapon).toEqual({ category: "weapon", name: "axe" });
-    const chest = next.world.chests.find((c) => c.id === "chest_001")!;
+    const chest = next.world.chests.find((c) => c.id === "Chest_3_0")!;
     expect(chest.opened).toBe(true);
     expect(chest.contents).toBeNull();
     // Phase-3 PM lock D7: chest opens emit `kind === "loot"` (the
@@ -247,7 +247,9 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
         (act) =>
           act.characterId === "A" &&
           act.kind === "loot" &&
-          act.target === "chest_001",
+          act.target === "Chest_3_0" &&
+          act.result === "opened" &&
+          act.lootedItem === "axe",
       ),
     ).toBeTruthy();
   });
@@ -747,7 +749,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       world: {
         chests: [
           {
-            id: "chest_001",
+            id: "Chest_1_0",
             pos: { x: 1, y: 0 },
             contents: { category: "weapon", name: "axe" },
             opened: false,
@@ -760,27 +762,29 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "loot", targetId: "chest_001" },
+          action: { kind: "loot", targetId: "Chest_1_0" },
         }),
       ],
     ]);
-    const { state: next } = resolveTurn(state, decisions);
+    const { state: next, trace } = resolveTurn(state, decisions);
     expect(findChar(next, "A").equipped.weapon).toEqual({
       category: "weapon",
       name: "axe",
     });
-    const chest = next.world.chests.find((c) => c.id === "chest_001")!;
+    const chest = next.world.chests.find((c) => c.id === "Chest_1_0")!;
     expect(chest.opened).toBe(true);
     expect(chest.contents).toBeNull();
+    expect(
+      trace.actions.find(
+        (act) =>
+          act.kind === "loot" &&
+          act.target === "Chest_1_0" &&
+          act.result === "opened",
+      )?.lootedItem,
+    ).toBe("axe");
   });
 
-  // Phase-3 fix — case-insensitive chest namespace dispatch in the
-  // resolver. Mirrors the validator-side fix (validation.ts) so the model
-  // can copy the rendered `Chest_NNN` typed-id verbatim and have the
-  // resolver dispatch to the chest-open path. The trace `target` field
-  // is normalised to the lowercase internal id, keeping consumer filters
-  // (`target.startsWith("chest_")` in runStats / replay UI) honest.
-  it("§13 — chest equip dispatches under capital `Chest_NNN` typed-id (case-insensitive chest namespace)", () => {
+  it("§13 — chest equip dispatches under coord-encoded `Chest_x_y` id", () => {
     const a = makeCharacter({
       id: "A",
       pos: { x: 0, y: 0 },
@@ -791,7 +795,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       world: {
         chests: [
           {
-            id: "chest_007",
+            id: "Chest_1_0",
             pos: { x: 1, y: 0 },
             contents: { category: "weapon", name: "sword" },
             opened: false,
@@ -804,7 +808,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "loot", targetId: "Chest_007" },
+          action: { kind: "loot", targetId: "Chest_1_0" },
         }),
       ],
     ]);
@@ -813,18 +817,93 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       category: "weapon",
       name: "sword",
     });
-    const chest = next.world.chests.find((c) => c.id === "chest_007")!;
+    const chest = next.world.chests.find((c) => c.id === "Chest_1_0")!;
     expect(chest.opened).toBe(true);
-    // Trace target is the normalised lowercase form so downstream
-    // consumers (`target.startsWith("chest_")`) keep working.
     expect(
       trace.actions.some(
         (act) =>
           act.kind === "loot" &&
-          act.target === "chest_007" &&
-          act.result === "opened",
+          act.target === "Chest_1_0" &&
+          act.result === "opened" &&
+          act.lootedItem === "sword",
       ),
     ).toBe(true);
+  });
+
+  it("§13 — same-turn chest collision traces winner item and loser already_opened", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const b = makeCharacter({ id: "B", pos: { x: 2, y: 0 } });
+    const state = makeState({
+      characters: [a, b],
+      world: {
+        chests: [
+          {
+            id: "Chest_1_0",
+            pos: { x: 1, y: 0 },
+            contents: { category: "weapon", name: "axe" },
+            opened: false,
+            lootTable: "weapons-heavy",
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", nullDecision({ action: { kind: "loot", targetId: "Chest_1_0" } })],
+      ["B", nullDecision({ action: { kind: "loot", targetId: "Chest_1_0" } })],
+    ]);
+
+    const { state: next, trace } = resolveTurn(state, decisions);
+    const lootTraces = trace.actions.filter(
+      (act) => act.kind === "loot" && act.target === "Chest_1_0",
+    );
+
+    expect(lootTraces).toEqual([
+      {
+        characterId: "A",
+        kind: "loot",
+        target: "Chest_1_0",
+        result: "opened",
+        lootedItem: "axe",
+      },
+      {
+        characterId: "B",
+        kind: "loot",
+        target: "Chest_1_0",
+        result: "already_opened",
+      },
+    ]);
+    expect(findChar(next, "A").equipped.weapon?.name).toBe("axe");
+    expect(findChar(next, "B").equipped.weapon).toBeUndefined();
+  });
+
+  it("§13 — empty chest attempts emit result empty instead of disappearing", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const state = makeState({
+      characters: [a],
+      world: {
+        chests: [
+          {
+            id: "Chest_1_0",
+            pos: { x: 1, y: 0 },
+            contents: null,
+            opened: false,
+            lootTable: "weapons-heavy",
+          },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", nullDecision({ action: { kind: "loot", targetId: "Chest_1_0" } })],
+    ]);
+
+    const { trace } = resolveTurn(state, decisions);
+
+    expect(trace.actions).toContainEqual({
+      characterId: "A",
+      kind: "loot",
+      target: "Chest_1_0",
+      result: "empty",
+    });
   });
 
   it("§13 — corpse loot replaces slot, discards previous, removes from corpse", () => {
@@ -856,7 +935,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
         }),
       ],
     ]);
-    const { state: next } = resolveTurn(state, decisions);
+    const { state: next, trace } = resolveTurn(state, decisions);
     // Loot picks ONE item; engine choice: pick weapon if present, else armour, else consumable.
     const aAfter = findChar(next, "A");
     expect(aAfter.equipped.weapon).toEqual({
@@ -866,6 +945,14 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
     const corpse = next.world.corpses.find((c) => c.characterId === "Camper")!;
     // Looted item removed from corpse.
     expect(corpse.contents.weapon).toBeUndefined();
+    expect(
+      trace.actions.find(
+        (act) =>
+          act.kind === "loot" &&
+          act.target === "Corpse_Camper" &&
+          act.result === "looted",
+      )?.lootedItem,
+    ).toBe("greatsword");
   });
 
   it("§13 — corpse formation on death: corpse contents = full equipped slots", () => {
@@ -1531,7 +1618,7 @@ describe("WP-B.2 drained-corpse trace — ADR §4", () => {
 // ─── WP-B.3 Loot dispatch by id namespace — Phase-3 ADR §1 ───────────────
 
 describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
-  it("chest_* prefix → chest-open path (kind='loot', result='opened')", () => {
+  it("Chest_x_y prefix → chest-open path (kind='loot', result='opened')", () => {
     const a = makeCharacter({
       id: "A",
       pos: { x: 0, y: 0 },
@@ -1542,7 +1629,7 @@ describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
       world: {
         chests: [
           {
-            id: "chest_001",
+            id: "Chest_1_0",
             pos: { x: 1, y: 0 },
             contents: { category: "weapon", name: "axe" },
             opened: false,
@@ -1555,7 +1642,7 @@ describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "loot", targetId: "chest_001" },
+          action: { kind: "loot", targetId: "Chest_1_0" },
         }),
       ],
     ]);
@@ -1564,8 +1651,9 @@ describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
       (act) =>
         act.characterId === "A" &&
         act.kind === "loot" &&
-        act.target === "chest_001" &&
-        act.result === "opened",
+        act.target === "Chest_1_0" &&
+        act.result === "opened" &&
+        act.lootedItem === "axe",
     );
     expect(opened).toBeDefined();
   });
@@ -1603,7 +1691,7 @@ describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
     expect(looted).toBeDefined();
   });
 
-  it("bogus id (neither chest_ nor Corpse_ prefix) → trace emits result='no_target'", () => {
+  it("bogus id (neither Chest_x_y nor Corpse_ prefix) → trace emits result='no_target'", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({ characters: [a] });
     const decisions = new Map<string, ParsedDecision>([

@@ -23,6 +23,7 @@
 
 import { v } from "convex/values";
 import { query } from "./_generated/server.js";
+import { projectSlimTurnRows } from "./turnsDerived.js";
 
 /**
  * `turns.getAgentTurn` — returns the full agent record for
@@ -69,5 +70,25 @@ export const byMatch = query({
       .withIndex("by_match_turn", (q) => q.eq("matchId", matchId))
       .order("asc")
       .collect();
+  },
+});
+
+/**
+ * `turns.byMatchSlim` — per-match trace projection for diagnostics.
+ *
+ * Reads the same bounded match ledger as `byMatch`, then strips heavy prompt /
+ * LLM text fields and computes compact derived signals before returning. This
+ * keeps each client fan-out response small while preserving drill-down via
+ * `getAgentTurn` for the full record.
+ */
+export const byMatchSlim = query({
+  args: { matchId: v.id("matches") },
+  handler: async (ctx, { matchId }) => {
+    const rows = await ctx.db
+      .query("turns")
+      .withIndex("by_match_turn", (q) => q.eq("matchId", matchId))
+      .order("asc")
+      .collect();
+    return projectSlimTurnRows(rows);
   },
 });

@@ -241,7 +241,7 @@ describe("WP5 — computeVisibleEntities (concept-spec §7)", () => {
   it("§7 — chests, corpses, and cover tiles within range with LOS appear", () => {
     const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const chest = {
-      id: "chest_001",
+      id: "Chest_4_0",
       pos: { x: 4, y: 0 },
       contents: null,
       opened: false,

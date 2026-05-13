@@ -311,6 +311,7 @@ export type ActionTraceEntry = {
   target: string;
   result: string;
   weapon?: string;
+  lootedItem?: string;
   triggeredByMovement?: boolean;
 };
 

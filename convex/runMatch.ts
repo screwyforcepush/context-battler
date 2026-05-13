@@ -329,6 +329,8 @@ export function buildAgentLlmRecord(r: {
   /** WP10.5 Pass F — captured non-OK HTTP body excerpt (already sanitised
    *  + truncated by the wrapper). Set only on `failureReason: "http_non_200"`. */
   httpBodyExcerpt?: string | undefined;
+  /** Phase 7 WP-A1 — wrapper retry marker. Optional for historical rows. */
+  retried?: boolean | undefined;
   /** Phase-3 ADR §2 / PM lock D13 — captured reasoning text. REQUIRED-
    *  NULLABLE: persisted as `null` on every non-captured path. */
   reasoning: string | null;
@@ -343,6 +345,7 @@ export function buildAgentLlmRecord(r: {
   failureReason?: FailureReason;
   validatorFieldErrors?: ValidatorFieldErrors;
   httpBodyExcerpt?: string;
+  retried?: boolean;
   reasoning: string | null;
 } {
   return {
@@ -364,6 +367,7 @@ export function buildAgentLlmRecord(r: {
     ...(r.httpBodyExcerpt !== undefined
       ? { httpBodyExcerpt: r.httpBodyExcerpt }
       : {}),
+    ...(r.retried !== undefined ? { retried: r.retried } : {}),
     // Phase-3 — required-nullable, NEVER conditionally spread. The
     // schema validator is `v.union(v.string(), v.null())` (PM lock D13);
     // every persisted row carries this field with `null` as the
@@ -449,6 +453,7 @@ export function adaptResolutionForSchema(
 	    result: string;
 	    triggeredByMovement?: boolean;
 	    weapon?: string;
+	    lootedItem?: string;
 	  }>;
   deaths: Id<"characters">[];
   visibilityUpdates: Array<{
@@ -491,6 +496,7 @@ export function adaptResolutionForSchema(
 	        ? { triggeredByMovement: a.triggeredByMovement }
 	        : {}),
       ...(a.weapon !== undefined ? { weapon: a.weapon } : {}),
+      ...(a.lootedItem !== undefined ? { lootedItem: a.lootedItem } : {}),
     })),
     deaths: trace.deaths.map((d) => d as Id<"characters">),
     visibilityUpdates: trace.visibilityUpdates.map((u) => ({
@@ -592,11 +598,14 @@ export const advanceTurn = action({
 	                characterId: a.characterId as string,
 	                kind: a.kind,
 	                target: a.target,
-	                result: a.result,
-	                ...(a.triggeredByMovement !== undefined
-	                  ? { triggeredByMovement: a.triggeredByMovement }
-	                  : {}),
+                result: a.result,
+                ...(a.triggeredByMovement !== undefined
+                  ? { triggeredByMovement: a.triggeredByMovement }
+                  : {}),
                 ...(a.weapon !== undefined ? { weapon: a.weapon } : {}),
+                ...(a.lootedItem !== undefined
+                  ? { lootedItem: a.lootedItem }
+                  : {}),
               })),
               deaths: priorTurnRow.resolution.deaths.map((d) => d as string),
               visibilityUpdates: priorTurnRow.resolution.visibilityUpdates.map(
@@ -721,6 +730,8 @@ export const advanceTurn = action({
         /** WP10.5 Pass F — non-OK HTTP body excerpt (sanitised+truncated
          *  by the wrapper). Set only on `failureReason: "http_non_200"`. */
         httpBodyExcerpt: string | undefined;
+        /** Phase 7 WP-A1 — wrapper retry marker. */
+        retried: boolean | undefined;
         /** Phase-3 ADR §2 — captured reasoning text. REQUIRED-NULLABLE:
          *  `null` on every non-captured path. */
         reasoning: string | null;
@@ -767,6 +778,7 @@ export const advanceTurn = action({
           usage: result.raw.usage,
           latencyMs: result.raw.latencyMs,
           httpStatus: result.raw.httpStatus,
+          retried: result.raw.retried,
           // WP10.5 Pass F — pass-through of the captured non-OK body
           // excerpt. Wrapper sets it only on http_non_200; absent/undefined
           // on every other path.
@@ -823,6 +835,7 @@ export const advanceTurn = action({
           failureReason: r.failureReason,
           validatorFieldErrors: r.validatorFieldErrors,
           httpBodyExcerpt: r.httpBodyExcerpt,
+          retried: r.retried,
           // Phase-3 ADR §2 — required-nullable reasoning text.
           reasoning: r.reasoning,
         }),
