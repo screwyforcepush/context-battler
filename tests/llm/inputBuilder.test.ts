@@ -211,7 +211,13 @@ describe("Phase 6 input builder — composed user message", () => {
     const state = makeState({
       characters: [me, attacker, victim],
       turn: 44,
-      world: { corpses: [makeCorpse("c_rat", { x: 47, y: 53 })] },
+      world: {
+        corpses: [
+          makeCorpse("c_rat", { x: 47, y: 53 }, {
+            weapon: { category: "weapon", name: "sword" },
+          }),
+        ],
+      },
     });
     const prev = makePrevTurn({
       moves: [
@@ -826,6 +832,68 @@ describe("Phase 6 input builder — visible object", () => {
     expect(built.composedUserMessage).toContain("📍(49,50) Outside Evac");
     const visible = parseVisible(state, "c_rat");
     expect(visible.Evac).toBeUndefined();
+  });
+
+  it("drops spent chests from Vision once opened", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 50, y: 50 },
+    });
+    const state = makeState({
+      characters: [me],
+      world: {
+        chests: [
+          makeChest("Chest_52_50", { x: 52, y: 50 }, true),
+          makeChest("Chest_53_50", { x: 53, y: 50 }, false),
+        ],
+      },
+    });
+
+    const visible = parseVisible(state, "c_duelist");
+
+    expect(visible.Chest_52_50).toBeUndefined();
+    expect(visible.Chest_53_50).toBeDefined();
+  });
+
+  it("drops drained corpses from Vision once contents exhausted", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 50, y: 50 },
+    });
+    const rat = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 52, y: 50 },
+      alive: false,
+    });
+    const camper = makeCharacter({
+      id: "c_camper",
+      personaId: "camper",
+      displayName: "Camper",
+      pos: { x: 53, y: 50 },
+      alive: false,
+    });
+    const state = makeState({
+      characters: [me, rat, camper],
+      world: {
+        corpses: [
+          makeCorpse("c_rat", { x: 52, y: 50 }, {}),
+          makeCorpse("c_camper", { x: 53, y: 50 }, {
+            weapon: { category: "weapon", name: "sword" },
+          }),
+        ],
+      },
+    });
+
+    const visible = parseVisible(state, "c_duelist");
+
+    expect(visible.Corpse_Rat).toBeUndefined();
+    expect(visible.Corpse_Camper).toBeDefined();
   });
 
   it("filters hidden living characters and dead characters without corpses", () => {

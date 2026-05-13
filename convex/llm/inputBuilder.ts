@@ -20,6 +20,7 @@ const VISIBLE_ENTITY_CAP = 8;
 const WALL_CAP = 12;
 const EVAC_HALF_SIZE = 1;
 
+// Engine vision intentionally still emits spent entries; this projection filters affordance-spent entities.
 export type PrevTurnRow = {
   resolution: {
     consumed: ReadonlyArray<{ characterId: string; item: string }>;
@@ -89,6 +90,16 @@ function renderChestId(objectId: string): string {
 
 function corpseDrained(contents: CorpseState["contents"]): boolean {
   return !contents.weapon && !contents.armour && !contents.consumable;
+}
+
+function chestSpentById(state: MatchState, objectId: string): boolean {
+  const chest = state.world.chests.find((c) => c.id === objectId);
+  return chest?.opened === true;
+}
+
+function corpseDrainedById(state: MatchState, objectId: string): boolean {
+  const corpse = state.world.corpses.find((c) => c.characterId === objectId);
+  return corpse ? corpseDrained(corpse.contents) : false;
 }
 
 function parseDamageResult(result: string): number | null {
@@ -381,6 +392,12 @@ function buildVisibleObject(
   const walls: VisibleEntry[] = [];
 
   for (const entity of visible) {
+    if (entity.kind === "chest" && chestSpentById(state, entity.objectId)) {
+      continue;
+    }
+    if (entity.kind === "corpse" && corpseDrainedById(state, entity.objectId)) {
+      continue;
+    }
     const entry = visibleEntryFor(entity, state, observer);
     if (entry.tier <= 2) charAndLoot.push(entry);
     else if (entry.tier === 3) cover.push(entry);

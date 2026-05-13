@@ -85,6 +85,7 @@ Non-negotiable framings. Mechanics serve them, not the other way around.
 5. **Text is terrain.** Speech, item names, inscriptions, corpse notes, signs — all can influence agents. Prompt injection is *part of the game*, not a vulnerability.
 6. **Build the substrate; let the strategy emerge.** The engine provides affordances. Players' prompts produce strategy. Diplomacy, lying, and betrayal are not engine features — they are emergent consequences of speech + scratchpad + prompt authorship.
 7. **State is the contract; runtime is swappable.** Convex holds the canonical game state and turn ledger. The engine and the renderer meet only at this data — neither knows about the other. Any slice can be rewritten in another language without touching the others. See `architecture.md`.
+8. **Vision is the affordance channel.** The agent's Vision contains only points of interest intended to impact gameplay or behaviour. Inert scenery filters out — we wouldn't show sand tiles unless some are quicksand and we wanted the agent to weigh the risk. Empty chests, drained corpses, and other spent affordances fall out of Vision the turn they become inert. Contents and intel (what was inside, who has what, who looted whom) live in outcome lines, scratchpad, speech, and the kill feed — the text-as-terrain layer (pillar 5). The substrate signals "this affordance exists / no longer exists" through entity presence and absence; the agent never has to scratchpad-track *whether* something is spent. If the answer to *what behaviour does this entry change* is *none*, it doesn't belong in Vision. The replay-render modality is orthogonal — looted chests can remain visible scenery for the human watcher without appearing in the LLM context.
 
 ## 7. North star (decision filter)
 
@@ -392,9 +393,18 @@ Deferred to Phase 7: no-op reduction via persona/policy tuning,
 harness auto-retry for OCC, and paginated server-side aggregation if
 future reports need server recompute.
 
-## 16. Phase 7 — context payload iter-3 + diagnostics tooling (dispatched 2026-05-13)
+## 16. Phase 7 — context payload iter-3 + diagnostics tooling (closed 2026-05-13)
 
-> **Status:** dispatched 2026-05-13. Three workstreams in one assignment;
+> **Status:** closed 2026-05-13. Three workstreams landed in one assignment.
+> Canonical persisted report id `jd73vy815k7rdq6y7935hjagn186n9ga`,
+> `reportType: "phase-7-closing-20"`, `metBar: true`, 20/20 gates pass,
+> `failedMatches: 0`. Closure record at
+> [`docs/project/phases/07-context-payload-iter-3/PHASE-7-CLOSURE.md`](../phases/07-context-payload-iter-3/PHASE-7-CLOSURE.md).
+> Completion review approved on attempt #2 after the diagnostics-delivery-audit
+> tautology and `selfHp`/consumable-projection gaps from attempt #1 were
+> structurally fixed (commit `ac6347c`). UAT passed 8/8 stories with browser
+> evidence; final validation gates green (lint, typecheck, 626 tests, build).
+> Three workstreams in one assignment;
 > the crew sequences/parallelises. Canonical intent anchors:
 > [`docs/project/spec/context-payload-iter-3-intent.md`](./context-payload-iter-3-intent.md)
 > (substrate slice) and
@@ -479,6 +489,84 @@ whole-turn validator zeroes, per-field rejection ≤ 10%). The Convex
 diagnostics CLI emits the three families over the last 20 matches; the
 dashboard renders the same with clickable drill-down to the existing
 turn modal.
+
+### Phase-7 Closure Record
+
+Phase 7 closes substrate-complete, diagnostics-trustworthy, and metric-clean.
+Canonical persisted report id `jd73vy815k7rdq6y7935hjagn186n9ga`;
+`reportType` is `"phase-7-closing-20"`; `metBar` is `true`; 20/20 gates pass;
+`failedMatches: 0`. No documented-why-not gate misses — every comparable
+phase-6 mechanics threshold preserved (extraction 100%, kill 90%, equip
+100%, speech 100%, persona spread 50 pp, action+overwatch 33, overwatch
+triggers 48, counter 78, all 8 compass bearings, target-relative toward+away,
+zero illegal `use:"consumable"`, zero `Player_N` literals, zero whole-turn
+validator zeroes, 0.119% field rejection, damage-feed missing 0 / 265).
+The phase-6 `noOpRate < 5%` gate is *intentionally absent*, replaced by the
+two data-only distributions `armedStancePauseRate` (31.767%) and
+`trueStationaryRate` (3.910%) — true-no-op falls *under* the old 5% bar,
+confirming the prior-jam finding that armed stance is deliberate priming,
+not behaviour-policy failure.
+
+Iter-3 substrate-specific gates also pass evidence-backed: in-range inbound
+speech feed events 2,239, loot-outcome line names content 160/160, marks
+empty 1,035/1,035, zero `chest_NNN` literals (coord-encoded engine-wide).
+
+Three workstreams landed in shape:
+- **A (substrate)** — `Vision:` slim, Inside/Outside Evac, unarmed [dmg 5],
+  own/inbound speech split, named/empty loot outcomes, coord-encoded chest
+  ids, two-phase countdown (pre-30 `Evac location spawns in N turns`,
+  post-30 `Extraction in N turns`).
+- **B (Convex unblock)** — `turns.byMatchSlim` strips heavy text post-derive;
+  CLI/UI fan out per-match; closing report uses Path-2 (local compute, small
+  persist); no schema rollups, no write hooks.
+- **C (diagnostics)** — `harness/diagnostics.ts` + replay-app
+  `#/diagnostics?last=N` tab; three families (Critical / Mechanics /
+  Behaviour); rows deep-link to the existing turn-detail modal; no new
+  modal. CLI and dashboard reconcile (1,757 records at last=5; 7,212 at
+  last=20).
+
+OCC replacement policy: one Convex optimistic-concurrency storage-layer
+transient (match `j977k3ht15zb0jgs0tydjkjcd586m4wq`) excluded from the
+canonical set, replaced by two concurrency-1 live re-runs to land at the
+20-match closing bar. Phase-6 precedent honoured.
+
+Completion review took two attempts. Attempt #1 caught a HIGH issue —
+diagnostics "delivery" counters were same-turn resolution counters, not
+evidence the next-turn user-role feed line carried the event — and a MED
+issue — `selfHp`/consumable not projected so `consume:heal at full HP` and
+consumable-cross-cut were structurally non-functional. Commit `ac6347c`
+landed structural fixes: cross-turn audit of `composedUserMessage` before
+heavy-text strip; `selfHp` + `selfEquipment.consumable` extended on the
+slim projection. Re-run report `jd73vy815k7rdq6y7935hjagn186n9ga`
+superseded the attempt-#1 report `jd7c6qjj5dmhxa97m2md7f533n86m9sk` with
+identical user-facing surfaces but trustworthy diagnostic evidence.
+Attempt #2 approved unanimously (Reviews A/B/C all APPROVE).
+
+Deferred to a future slice: persona behaviour-tuning (the diagnostics
+view now exposes the surfaces a tuning pass would read — armed-stance
+pause, true stationary, saw-enemy/no-op, equipment cross-cuts including
+consumable-present); harness auto-retry for Convex OCC transients;
+server-side fan-out or pagination if a future closing-50 needs it.
+
+**Substrate addendum (2026-05-13) — Vision is the affordance channel.**
+Stepping through post-iter-3 matches surfaced agents repeatedly looting
+empty chests despite the outcome line `looted nothing from empty
+Chest_53_54` firing the next turn — across many sampled matches, only
+one observed agent scratchpad-noted an empty. Iter-3 stripped
+`opened`/`drained`/`contents` on the bet that Pillar 4
+(scratchpad-as-explainability) would compensate. The bet was
+directionally right but halfway: leaving the husk entity in Vision
+created the memory tax without the affordance, and the BR-genre-style
+"spent visual scenery" framing imports a replay-render convention that
+does not apply to a text-only LLM context (no perceptual glance;
+tokens earn their keep by changing what the agent might do). The
+corrective follow-up — drop spent chests and drained corpses from
+Vision entirely, expressed as absence rather than as a `looted: true`
+flag — is codified upstream as pillar 8 ("Vision is the affordance
+channel"). Pillar 4 stays load-bearing for *intel/contents* tracking
+(what was inside, who has what) — affordance-spent is a substrate
+signal, not a memory test. Implementation is a follow-up substrate
+slice, not in scope for phase 7's closure.
 
 ## 12. Open questions / live tensions
 
