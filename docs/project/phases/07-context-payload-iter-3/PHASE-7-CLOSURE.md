@@ -307,3 +307,4 @@ skipped) PASS, build:replay PASS. Working tree clean.
 3. Persona behaviour tuning remains out of scope. Diagnostics now expose
    armed-stance pause, true stationary, and saw-enemy/no-op distributions for a
    future tuning slice.
+4. Vision affordance filter (substrate addendum trigger — empty-chest re-loot) resolved by [Phase 8](../08-vision-affordance-filter/README.md). Closed 2026-05-13.

@@ -1,6 +1,6 @@
 # Phase 8 — Vision Affordance Filter (Drop Spent Entities)
 
-> **Status:** implemented + smoke validated 2026-05-13. Substrate follow-up
+> **Status:** closed 2026-05-13. Substrate follow-up
 > to phase 7's closure addendum. Small, contained slice — one filter, one
 > smoke validate. No phase closing report.
 >
@@ -41,6 +41,8 @@ substrate signal.
 > Yes — re-looting an empty chest looks like forgetfulness; collapsing
 > the inert affordance restores the legibility of every loot decision
 > the agent does make.
+
+**North-star achieved:** smoke pass (5 matches, 250 turns, 1 737 records) shows `chest.empty=0`, `chest.sameTurnCollision=0`, `corpse.drainedRepeat=0`; headline mechanics (attacks 67, deaths 14, speech 241) within phase-7 envelope with no regression or crashes.
 
 ## 2. Overview — what is being built
 
