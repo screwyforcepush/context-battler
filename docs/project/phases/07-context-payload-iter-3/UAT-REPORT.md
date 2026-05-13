@@ -137,3 +137,33 @@ Minor optional follow-ups (out of scope for this UAT, do not block phase closure
 
 - Cosmetic: dev server returns a 404 for `/favicon.ico`. Add a small favicon at some future opportunity.
 - Optional: explicitly exercise the "Inside Evac" branch of the Status line by sampling a turn where any agent is inside the 3×3 evac zone — schema obviously distinguishes, but I did not happen to land on a turn that produced the literal `Inside Evac` token during this session.
+
+---
+
+## Attempt #2 Addendum
+
+**Date:** 2026-05-13
+**Build under test:** commit `ac6347c` (`fix(phase-7): make diagnostics delivery audits evidence-backed`)
+**Canonical report:** `jd73vy815k7rdq6y7935hjagn186n9ga` (supersedes `jd7c6qjj5dmhxa97m2md7f533n86m9sk`)
+
+**Verdict: PASS — attempt-#1 verdict stands. No user-facing regressions.**
+
+### Scope
+
+The attempt-#2 fix-up was a backend diagnostics correction (delivery audit cross-turn evidence, `selfHp`/consumable projection, stale test fixtures). No user-facing surfaces changed — the diagnostics dashboard, CLI, replay modal, substrate shape, and system prompt are identical to the attempt-#1 build. The 8 UAT stories from attempt #1 remain valid.
+
+### Confirmation checks
+
+| Check | Result |
+|---|---|
+| Diagnostics dashboard at `#/diagnostics?last=20` renders without error | PASS — same 20 matches, 1,000 turns, 7,212 records |
+| Three metric families display | PASS — Critical / Mechanics / Behaviour headings present |
+| Drill-down deep-link opens existing modal | PASS — verified via `#/match/<id>?turn=T&character=Persona` |
+| CLI `--last 20 --format json` exits 0 | PASS — 3 top-level keys, counts match dashboard |
+| Validation gates green | PASS — lint, typecheck, 626 tests, build:replay |
+
+### Notes
+
+- The `damageFeedMissing` metric in the diagnostics Mechanics section now reflects 0/265 from the evidence-backed cross-turn audit (was hard-coded 0 in attempt #1 — same displayed number, but now trustworthy).
+- `consume:heal at full HP` and consumable equipment cross-cuts are now computable from the extended slim projection. Whether these produce non-zero counts depends on match data; the structural capability is confirmed.
+- No new stories required. The attempt-#2 changes are invisible to the end user — they make the diagnostics *trustworthy*, not visually different.

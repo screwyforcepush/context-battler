@@ -250,12 +250,15 @@ Three metric families:
    breakdown, persona × failure-reason cross-tab.
 2. **Game-mechanic sanity** — attack outcomes, overwatch fires split by
    `triggeredByMovement`, counter retaliations, chest/corpse loot funnels,
-   consume waste, speech metrics, damage-feed delivery audit,
-   wall-blocked moves, declared-vs-actual move distance.
+   consume waste (including `consume:heal at full HP`), speech metrics,
+   damage-feed delivery audit (evidence-backed: audits next-turn
+   `composedUserMessage` before projection), wall-blocked moves,
+   declared-vs-actual move distance.
 3. **Behavioural distribution** — totals by persona × turn-phase,
    contextual combos (`counter + attack`, `overwatch + loot`,
-   `move:dist=0 + action≠none`, etc.), cross-cuts by persona ×
-   turn-phase × visibility × equipment.
+   `move:dist=0 + action≠none`, `consume:heal at full HP`, etc.),
+   cross-cuts by persona × turn-phase × visibility × equipment
+   (including consumable-present state).
 
 ### 4.5c. Diagnostics dashboard (`#/diagnostics`)
 

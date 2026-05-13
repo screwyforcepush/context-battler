@@ -264,6 +264,37 @@ text, then re-persisted the canonical Path-2 report with the same explicit
 The old report row was overwritten by the closing driver (`--overwrite`), so
 the corrected report id above is the canonical Phase 7 closeout source.
 
+### 7.5.1 Completion Review — Attempt #2 Outcome
+
+**Verdict: APPROVE.** All three attempt-#1 findings resolved.
+
+The attempt-#2 completion review re-assessed the HIGH (damage-feed delivery
+audit tautology) and MED (consume:heal at full HP + consumable cross-cut)
+findings from attempt #1. Both are now structurally resolved:
+
+- **HIGH → RESOLVED.** `turnsDerived.ts` `DamageFeedAudit` now carries
+  `expectedIncoming`/`missingIncoming`/`expectedOutgoing`/`missingOutgoing`
+  fields computed by auditing next-turn `composedUserMessage` before heavy
+  text is stripped. `reports/phase7.ts` `damageFeedDeliveryCounts` reads
+  the audit struct. Canonical report: `damageFeedMissing = 0 / 265` —
+  evidence-backed.
+- **MED → RESOLVED.** `SelfEquipment` includes `consumable`; `SelfHp`
+  carries `hp`/`maxHp`. Diagnostics compute `healAtFullHp` and consumable
+  cross-cuts from the extended projection.
+- **LOW → RESOLVED.** Stale non-coordinate chest ids and iter-2 Vision
+  shape replaced in `probe-reasoning.ts` and `schemaMirror.test.ts`;
+  intentional legacy negative fixture documented.
+
+UAT attempt-#1 verdict (PASS 8/8) reconfirmed — the fix-up was a backend
+diagnostics correction with no user-facing surface change.
+
+All 20/20 acceptance criteria PASS. Canonical reportId
+`jd73vy815k7rdq6y7935hjagn186n9ga` confirmed: `metBar=true`,
+`failedMatches=0`. **Phase 7 is approved for closure.**
+
+Validation gates at close: lint PASS, typecheck PASS, 626 tests (2
+skipped) PASS, build:replay PASS. Working tree clean.
+
 ---
 
 ## 8. Deferred Items

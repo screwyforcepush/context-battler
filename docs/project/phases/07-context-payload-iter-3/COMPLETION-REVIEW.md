@@ -53,3 +53,50 @@
 - PM decision: do not close Phase 7 as fully approved until the two diagnostics edits above land and `phase-7-closing-20` is recomputed/persisted from corrected derived signals.
 - The OCC substitution policy is acceptable for this phase. A harness auto-retry remains a future operational improvement, not a closure blocker.
 - Validation context: Navigator pre-confirmed `npm run lint`, `npm run typecheck`, `npm test` (623 passed, 2 skipped), and `npm run build:replay`. This review additionally ran Convex `reports:byId`, `turns:byMatchSlim`, `turns:getAgentTurn`, and `harness/diagnostics.ts --last 20 --format json` spot checks.
+
+---
+
+# Completion Review — Attempt #2
+
+**Verdict: APPROVE**
+**Date:** 2026-05-13
+**Trigger:** Attempt #1 HIGH (damage-feed delivery audit tautology) and MED (consume:heal at full HP + consumable cross-cut non-functional) findings required structural fixes before Phase 7 could close.
+
+## What changed between attempts
+
+Commit `ac6347c` (`fix(phase-7): make diagnostics delivery audits evidence-backed`) landed three structural fixes:
+
+1. **`turns.byMatchSlim` / `turnsDerived.ts` delivery audit** — `projectSlimTurnRows` now audits previous-turn speech, loot, and damage events against the next turn's `input.composedUserMessage` *before* stripping heavy text. The `damageFeedAudit` derived signal carries `expectedIncoming`, `missingIncoming`, `expectedOutgoing`, `missingOutgoing`, `expectedDealtKills`, and `missingDealtKills` — all computed from cross-turn evidence, not same-turn resolution counters.
+2. **Slim projection extended** — `selfHp: {hp, maxHp}` and `selfEquipment.consumable` are now projected before heavy text is stripped. `SelfEquipment` type includes `consumable: string | null`.
+3. **Downstream diagnostics wired** — `healAtFullHp` combo (mechanics family) and `consume:heal at full HP` combo (behaviour family) now check `selfHp.hp === selfHp.maxHp`. Equipment cross-cut keys include consumable-present state.
+
+## Re-assessment of attempt-#1 findings
+
+| # | Severity | Finding | Attempt #2 Status | Evidence |
+|---|---|---|---|---|
+| 1 | High | Damage-feed delivery audit is same-turn counter; `damageFeedMissing` hard-coded 0 | **RESOLVED** | `convex/turnsDerived.ts` `DamageFeedAudit` type now has `expectedIncoming`/`missingIncoming`/`expectedOutgoing`/`missingOutgoing`/`expectedDealtKills`/`missingDealtKills` fields computed from next-turn `composedUserMessage`. `convex/reports/phase7.ts:288` `damageFeedDeliveryCounts` reads from the audit struct. Canonical report `jd73vy815k7rdq6y7935hjagn186n9ga` shows `damageFeedMissing = 0` across 265 audited events — now evidence-backed, not hard-coded. |
+| 2 | Med | `consume:heal at full HP` non-functional; consumable cross-cut missing | **RESOLVED** | `turnsDerived.ts:8-12` `SelfEquipment` includes `consumable: string | null`; `SelfHp` type at lines 14-17 carries `hp`/`maxHp`. `harness/diagnostics/mechanics.ts` `healAtFullHp` checks `selfHp.hp === selfHp.maxHp` when `use === "consumable"` and consumable is heal. `harness/diagnostics/behaviour.ts` equipment key includes consumable-present. |
+| 3 | Low | Stale chest ids and iter-2 Vision in test fixtures | **RESOLVED** | `harness/probe-reasoning.ts` updated to coord-encoded `Chest_53_54` and iter-3 Vision shape. `tests/llm/schemaMirror.test.ts` non-negative fixture updated. Intentional legacy negative fixture in `tests/reports/phase7.test.ts` documented with comment. |
+
+## Acceptance Criteria Re-scores (previously PARTIAL)
+
+| Criterion | Attempt #1 | Attempt #2 | Evidence |
+|---|---|---|---|
+| C.4 Game-mechanic sanity family | PARTIAL | **PASS** | Damage-feed delivery audit is now evidence-backed via next-turn cross-audit. `healAtFullHp` computable from projected `selfHp`. |
+| C.5 Behavioural distribution family | PARTIAL | **PASS** | `consume:heal at full HP` fires when `selfHp.hp === selfHp.maxHp`. Equipment cross-cuts include consumable-present via extended `SelfEquipment`. |
+| E.3 Feed/loot delivery gates in closure | PARTIAL | **PASS** | Canonical report `jd73vy815k7rdq6y7935hjagn186n9ga` carries `damageFeedMissing = 0 / 265` from evidence-backed audit. Loot and speech delivery counters also cross-turn audited. |
+
+All other criteria remain PASS from attempt #1. **20/20 acceptance criteria now PASS.**
+
+## Validation context
+- `npm run lint` PASS
+- `npm run typecheck` PASS
+- `npm test` PASS (626 passed, 2 skipped)
+- `npm run build:replay` PASS
+- Canonical report `jd73vy815k7rdq6y7935hjagn186n9ga`: `metBar=true`, `failedMatches=0`
+
+## UAT
+Attempt-#1 UAT already passed 8/8 stories. The attempt-#2 fixes are backend diagnostics corrections — no user-facing regression surface. UAT-#1 verdict stands; see UAT-REPORT.md §Attempt #2 Addendum for confirmation.
+
+## Final verdict
+**APPROVE.** All three attempt-#1 findings are structurally resolved with evidence. The canonical Phase 7 report is evidence-backed end-to-end. No residual gaps block closure.
