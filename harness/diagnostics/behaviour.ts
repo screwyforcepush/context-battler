@@ -8,6 +8,7 @@ import {
   decisionConsumedItem,
   increment,
   isArmedStancePause,
+  isHealAtFullHp,
   isMoveDecision,
   isTrueStationary,
   pushExample,
@@ -411,22 +412,17 @@ function comboKeysForRecord(
   return keys;
 }
 
-function isHealAtFullHp(record: SlimAgentRecord): boolean {
-  const maybe = record as SlimAgentRecord & {
-    selfHp?: { hp: number; maxHp: number };
-  };
-  return (
-    record.decision.use === "consumable" &&
-    record.selfEquipment.consumable === "heal" &&
-    maybe.selfHp !== undefined &&
-    maybe.selfHp.hp >= maybe.selfHp.maxHp
-  );
-}
-
 function equipmentKey(record: SlimAgentRecord): string {
   const weapon = record.selfEquipment.weapon === null ? "unarmed" : "armed";
   const armour = record.selfEquipment.armour ?? "no_armour";
-  return `${weapon}|${armour}`;
+  const consumable = consumableKey(record.selfEquipment.consumable);
+  return `${weapon}|${armour}|${consumable}`;
+}
+
+function consumableKey(consumable: SlimAgentRecord["selfEquipment"]["consumable"]): string {
+  if (consumable === undefined) return "consumable:unknown";
+  if (consumable === null) return "consumable:none";
+  return `consumable:${consumable}`;
 }
 
 function sortNested<T extends Record<string, CountMap>>(input: T): T {

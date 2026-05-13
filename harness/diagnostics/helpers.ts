@@ -104,7 +104,20 @@ export function decisionConsumedItem(
     (c) => c.characterId === record.characterId,
   );
   if (consumed) return consumed.item.name;
-  return record.selfEquipment.consumable ?? null;
+  if (record.decision.use === "consumable") {
+    return record.selfEquipment.consumable ?? null;
+  }
+  return null;
+}
+
+export function isHealAtFullHp(record: SlimAgentRecord): boolean {
+  const hp = record.selfHp;
+  return (
+    record.decision.use === "consumable" &&
+    record.selfEquipment.consumable === "heal" &&
+    hp !== undefined &&
+    hp.hp >= hp.maxHp
+  );
 }
 
 export function isMoveDecision(

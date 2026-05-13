@@ -43,7 +43,7 @@ const DECISION_FIELDS: ValidatorFieldName[] = [
 const PLAYER_N_PATTERN = /Player_\d+/g;
 const LEGACY_CHEST_PATTERN = /\bchest_\d+\b/g;
 const DAMAGE_FEED_AUDIT_SCOPE_NOTE =
-  "Phase 7 closing uses the slim byMatchSlim damageFeedAudit counters; the local Path-2 driver does not re-read full composed user messages server-side.";
+  "Phase 7 closing uses byMatchSlim damageFeedAudit delivery counters computed from next-turn composed user messages before heavy text is stripped; final-turn damage and victims without next-turn records are outside the audit window.";
 
 export type Phase7PerPersonaStats = {
   personaId: PersonaId;
@@ -239,6 +239,103 @@ function isLootMarkedEmpty(result: string): boolean {
   return result === "empty" || result === "already_opened" || result === "no_corpse";
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function auditNumber(
+  source: Record<string, unknown>,
+  keys: string[],
+): number | null {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function hasExplicitDamageDeliveryFields(source: Record<string, unknown>): boolean {
+  return (
+    auditNumber(source, [
+      "expected",
+      "deliveryExpected",
+      "feedExpected",
+      "incomingExpected",
+      "expectedIncoming",
+    ]) !== null ||
+    auditNumber(source, [
+      "delivered",
+      "deliveryDelivered",
+      "feedDelivered",
+      "incomingDelivered",
+      "incoming",
+    ]) !== null ||
+    auditNumber(source, [
+      "missing",
+      "deliveryMissing",
+      "feedMissing",
+      "incomingMissing",
+      "missingIncoming",
+    ]) !== null
+  );
+}
+
+function damageFeedDeliveryCounts(record: SlimAgentRecord): {
+  events: number;
+  missing: number;
+} {
+  const audit = asRecord(record.damageFeedAudit) ?? {};
+  const explicitSource = [
+    asRecord(audit.delivery),
+    asRecord(audit.feedDelivery),
+    audit,
+  ].find(
+    (source): source is Record<string, unknown> =>
+      source !== null && hasExplicitDamageDeliveryFields(source),
+  );
+
+  if (explicitSource !== undefined) {
+    const expected = auditNumber(explicitSource, [
+      "expected",
+      "deliveryExpected",
+      "feedExpected",
+      "incomingExpected",
+      "expectedIncoming",
+    ]);
+    const delivered = auditNumber(explicitSource, [
+      "delivered",
+      "deliveryDelivered",
+      "feedDelivered",
+      "incomingDelivered",
+      "incoming",
+    ]);
+    const explicitMissing = auditNumber(explicitSource, [
+      "missing",
+      "deliveryMissing",
+      "feedMissing",
+      "incomingMissing",
+      "missingIncoming",
+    ]);
+    const missing =
+      explicitMissing ??
+      (expected !== null && delivered !== null
+        ? Math.max(0, expected - delivered)
+        : 0);
+    const events = expected ?? (delivered ?? 0) + missing;
+    return { events, missing };
+  }
+
+  return {
+    events: auditNumber(audit, ["incoming"]) ?? 0,
+    missing: 0,
+  };
+}
+
 export function computePhase7Metrics(runs: Phase7RunInput[]): Phase7Payload {
   let failedMatches = 0;
   let runsWithExtraction = 0;
@@ -250,6 +347,7 @@ export function computePhase7Metrics(runs: Phase7RunInput[]): Phase7Payload {
   let overwatchTriggerFires = 0;
   let counterRetaliations = 0;
   let damageFeedEvents = 0;
+  let damageFeedMissing = 0;
   let validatorRecords = 0;
   let validatorFieldErrors = 0;
   let wholeTurnZeroedValidatorRecords = 0;
@@ -352,7 +450,9 @@ export function computePhase7Metrics(runs: Phase7RunInput[]): Phase7Payload {
         }
       }
 
-      damageFeedEvents += record.damageFeedAudit.incoming;
+      const damageFeed = damageFeedDeliveryCounts(record);
+      damageFeedEvents += damageFeed.events;
+      damageFeedMissing += damageFeed.missing;
 
       const errors = record.llm.validatorFieldErrors;
       if (errors !== undefined && Object.keys(errors).length > 0) {
@@ -367,12 +467,16 @@ export function computePhase7Metrics(runs: Phase7RunInput[]): Phase7Payload {
       for (const outcome of record.lootOutcomeFeed) {
         if (isLootSuccess(outcome.result)) {
           lootSuccesses += 1;
-          if (outcome.item !== undefined && outcome.item.trim().length > 0) {
+          if (
+            outcome.delivered !== false &&
+            outcome.item !== undefined &&
+            outcome.item.trim().length > 0
+          ) {
             lootSuccessesNamed += 1;
           }
         } else {
           lootFailureOutcomes += 1;
-          if (isLootMarkedEmpty(outcome.result)) {
+          if (outcome.delivered !== false && isLootMarkedEmpty(outcome.result)) {
             lootFailuresMarkedEmpty += 1;
           }
         }
@@ -432,7 +536,7 @@ export function computePhase7Metrics(runs: Phase7RunInput[]): Phase7Payload {
     compassBearings: [...compassBearings].sort(),
     targetRelativeKinds: [...targetRelativeKinds].sort(),
     damageFeedEvents,
-    damageFeedMissing: 0,
+    damageFeedMissing,
     validatorRecords,
     validatorFieldErrors,
     perFieldRejectionRate,

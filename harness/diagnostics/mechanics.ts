@@ -5,6 +5,7 @@ import {
   isChestTarget,
   isCorpseTarget,
   isDamageResult,
+  isHealAtFullHp,
   pushExample,
   rate,
   sortedCountMap,
@@ -93,6 +94,7 @@ export function computeMechanicsDiagnostics(
   let corpseNoCorpse = 0;
   const consumeByItem: CountMap = {};
   let wastedSpeedWithoutMovement = 0;
+  let healAtFullHp = 0;
   let speechEvents = 0;
   let speechTextLength = 0;
   let heardFanout = 0;
@@ -158,6 +160,7 @@ export function computeMechanicsDiagnostics(
       incomingDamageFeed += record.damageFeedAudit.incoming;
       outgoingDamageFeed += record.damageFeedAudit.outgoing;
       dealtKills += record.damageFeedAudit.dealtKills;
+      if (isHealAtFullHp(record)) healAtFullHp += 1;
 
       if (
         record.decision.position.kind === "counter" &&
@@ -250,7 +253,7 @@ export function computeMechanicsDiagnostics(
     consume: {
       byItem: sortedCountMap(consumeByItem),
       wastedSpeedWithoutMovement,
-      healAtFullHp: 0,
+      healAtFullHp,
     },
     speech: {
       events: speechEvents,

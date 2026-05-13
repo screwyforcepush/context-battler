@@ -8,12 +8,24 @@ type VisibleSummary = {
 type SelfEquipment = {
   weapon: string | null;
   armour: string | null;
+  consumable: string | null;
+};
+
+type SelfHp = {
+  hp: number;
+  maxHp: number;
 };
 
 type DamageFeedAudit = {
   incoming: number;
   outgoing: number;
   dealtKills: number;
+  expectedIncoming: number;
+  missingIncoming: number;
+  expectedOutgoing: number;
+  missingOutgoing: number;
+  expectedDealtKills: number;
+  missingDealtKills: number;
 };
 
 type AgentInputLike = {
@@ -97,6 +109,8 @@ type LootOutcomeResult =
 type LootOutcome = {
   result: LootOutcomeResult;
   item?: string;
+  target?: string;
+  delivered?: boolean;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -212,7 +226,20 @@ export function extractSelfEquipment(source: string): SelfEquipment {
   return {
     weapon: slotValueFromLine(source, ["weapon"]),
     armour: slotValueFromLine(source, ["armour", "armor"]),
+    consumable: slotValueFromLine(source, ["consumable"]),
   };
+}
+
+export function extractSelfHp(source: string): SelfHp | null {
+  for (const line of source.split(/\r?\n/)) {
+    const match = line.match(/hp:\s*(\d+)\s*\/\s*(\d+)\s*hp/i);
+    if (!match) continue;
+    const hp = Number.parseInt(match[1]!, 10);
+    const maxHp = Number.parseInt(match[2]!, 10);
+    if (Number.isNaN(hp) || Number.isNaN(maxHp)) return null;
+    return { hp, maxHp };
+  }
+  return null;
 }
 
 function personaToDisplayName(personaId: string | undefined): string | null {
@@ -242,6 +269,33 @@ function buildTargetIdLookup(
   return lookup;
 }
 
+function displayNameForParticipant(
+  characterId: string,
+  participants: readonly DamageParticipant[],
+): string {
+  const participant = participants.find((entry) => entry.characterId === characterId);
+  return (
+    participant?.displayName ??
+    personaToDisplayName(participant?.personaId) ??
+    characterId
+  );
+}
+
+function weaponName(weapon: string | undefined): string {
+  return weapon && weapon.trim().length > 0 ? weapon : "bare hands";
+}
+
+function damageAmount(result: string): number | null {
+  const match = result.match(/^dmg\s+(\d+)/i);
+  if (!match) return null;
+  const amount = Number.parseInt(match[1]!, 10);
+  return Number.isNaN(amount) ? null : amount;
+}
+
+function quoteSpeech(text: string): string {
+  return JSON.stringify(text.replace(/\s*\r?\n\s*/g, " ").trim());
+}
+
 function isDamageAction(action: ResolutionActionLike): boolean {
   return (
     (action.kind === "attack" ||
@@ -251,6 +305,22 @@ function isDamageAction(action: ResolutionActionLike): boolean {
   );
 }
 
+function emptyDamageFeedAudit(): DamageFeedAudit {
+  return {
+    incoming: 0,
+    outgoing: 0,
+    dealtKills: 0,
+    expectedIncoming: 0,
+    missingIncoming: 0,
+    expectedOutgoing: 0,
+    missingOutgoing: 0,
+    expectedDealtKills: 0,
+    missingDealtKills: 0,
+  };
+}
+
+// Same-turn damage involvement helper; projectSlimTurnRows uses cross-turn
+// composed-message evidence for the delivery-facing damageFeedAudit field.
 export function auditDamageFeed(
   resolution: Pick<ResolutionLike, "actions" | "deaths">,
   characterId: string,
@@ -273,7 +343,12 @@ export function auditDamageFeed(
     }
   }
 
-  return { incoming, outgoing, dealtKills: dealtKillIds.size };
+  return {
+    ...emptyDamageFeedAudit(),
+    incoming,
+    outgoing,
+    dealtKills: dealtKillIds.size,
+  };
 }
 
 export function countInboundSpeech(
@@ -312,7 +387,7 @@ export function extractLootOutcomes(
         action.characterId === characterId && isLootOutcomeAction(action),
     )
     .map((action) => {
-      const base: LootOutcome = { result: action.result };
+      const base: LootOutcome = { result: action.result, target: action.target };
       if (
         (action.result === "opened" || action.result === "looted") &&
         typeof action.lootedItem === "string" &&
@@ -322,6 +397,193 @@ export function extractLootOutcomes(
       }
       return base;
     });
+}
+
+type DeliverySignals = {
+  damageFeedAudit: DamageFeedAudit;
+  inboundSpeechCount: number;
+  inboundSpeechExpected: number;
+  inboundSpeechMissing: number;
+  lootOutcomeFeed: LootOutcome[];
+  lootOutcomeExpected: number;
+  lootOutcomeMissing: number;
+};
+
+function emptyDeliverySignals(): DeliverySignals {
+  return {
+    damageFeedAudit: emptyDamageFeedAudit(),
+    inboundSpeechCount: 0,
+    inboundSpeechExpected: 0,
+    inboundSpeechMissing: 0,
+    lootOutcomeFeed: [],
+    lootOutcomeExpected: 0,
+    lootOutcomeMissing: 0,
+  };
+}
+
+function cloneDeliverySignals(signal: DeliverySignals): DeliverySignals {
+  return {
+    damageFeedAudit: { ...signal.damageFeedAudit },
+    inboundSpeechCount: signal.inboundSpeechCount,
+    inboundSpeechExpected: signal.inboundSpeechExpected,
+    inboundSpeechMissing: signal.inboundSpeechMissing,
+    lootOutcomeFeed: signal.lootOutcomeFeed.map((entry) => ({ ...entry })),
+    lootOutcomeExpected: signal.lootOutcomeExpected,
+    lootOutcomeMissing: signal.lootOutcomeMissing,
+  };
+}
+
+function participantsForRows(
+  ...rows: Array<TurnRowLike | null | undefined>
+): DamageParticipant[] {
+  const byCharacter = new Map<string, DamageParticipant>();
+  for (const row of rows) {
+    for (const record of row?.agentRecords ?? []) {
+      if (byCharacter.has(record.characterId)) continue;
+      byCharacter.set(record.characterId, {
+        characterId: record.characterId,
+        personaId: record.personaId,
+      });
+    }
+  }
+  return [...byCharacter.values()];
+}
+
+function expectedLootFragment(action: ResolutionActionLike): string | null {
+  if (!isLootOutcomeAction(action)) return null;
+  if (
+    action.result === "empty" ||
+    action.result === "already_opened" ||
+    action.result === "no_corpse"
+  ) {
+    return `looted nothing from empty ${action.target}`;
+  }
+  if (
+    (action.result === "opened" || action.result === "looted") &&
+    typeof action.lootedItem === "string" &&
+    action.lootedItem.trim().length > 0
+  ) {
+    return `looted ${action.lootedItem} from ${action.target}`;
+  }
+  return action.result ? `looted ${action.target} (${action.result})` : `looted ${action.target}`;
+}
+
+function buildDeliverySignals(
+  previousRow: TurnRowLike | null,
+  currentRow: TurnRowLike,
+): Map<string, DeliverySignals> {
+  const signalsByCharacter = new Map<string, DeliverySignals>();
+  const currentRecords = new Map(
+    currentRow.agentRecords.map((record) => [record.characterId, record]),
+  );
+
+  for (const record of currentRow.agentRecords) {
+    signalsByCharacter.set(record.characterId, emptyDeliverySignals());
+  }
+
+  if (!previousRow) return signalsByCharacter;
+
+  const participants = participantsForRows(previousRow, currentRow);
+  const targetIdLookup = buildTargetIdLookup(participants);
+  const deaths = new Set(previousRow.resolution.deaths);
+
+  for (const speech of previousRow.resolution.speech) {
+    const speaker = displayNameForParticipant(speech.characterId, participants);
+    const expectedLine = `${speaker} said ${quoteSpeech(speech.text)}`;
+    for (const listenerId of speech.heardBy) {
+      if (listenerId === speech.characterId) continue;
+      const listenerRecord = currentRecords.get(listenerId);
+      const listenerSignals = signalsByCharacter.get(listenerId);
+      if (!listenerRecord || !listenerSignals) continue;
+
+      listenerSignals.inboundSpeechExpected += 1;
+      if (listenerRecord.input.composedUserMessage?.includes(expectedLine) === true) {
+        listenerSignals.inboundSpeechCount += 1;
+      } else {
+        listenerSignals.inboundSpeechMissing += 1;
+      }
+    }
+  }
+
+  for (const action of previousRow.resolution.actions) {
+    if (isLootOutcomeAction(action)) {
+      const actorRecord = currentRecords.get(action.characterId);
+      const actorSignals = signalsByCharacter.get(action.characterId);
+      const expected = expectedLootFragment(action);
+      if (!actorRecord || !actorSignals || !expected) continue;
+
+      actorSignals.lootOutcomeExpected += 1;
+      const delivered =
+        actorRecord.input.composedUserMessage?.includes(expected) === true;
+      const outcome = extractLootOutcomes([action], action.characterId)[0];
+      if (outcome) {
+        const deliveredOutcome: LootOutcome = {
+          result: outcome.result,
+          ...(outcome.target !== undefined ? { target: outcome.target } : {}),
+          ...(delivered && outcome.item !== undefined
+            ? { item: outcome.item }
+            : {}),
+          delivered,
+        };
+        actorSignals.lootOutcomeFeed.push(deliveredOutcome);
+      }
+      if (!delivered) {
+        actorSignals.lootOutcomeMissing += 1;
+      }
+      continue;
+    }
+
+    if (!isDamageAction(action)) continue;
+
+    const damage = damageAmount(action.result);
+    if (damage === null) continue;
+
+    const attackerName = displayNameForParticipant(
+      action.characterId,
+      participants,
+    );
+    const victimId = targetIdLookup.get(action.target) ?? action.target;
+    const victimName = displayNameForParticipant(victimId, participants);
+    const expectedDamageLine = `${attackerName} attacked you with ${weaponName(
+      action.weapon,
+    )} (dmg ${damage})`;
+    const victimRecord = currentRecords.get(victimId);
+    const victimSignals = signalsByCharacter.get(victimId);
+    const attackerSignals = signalsByCharacter.get(action.characterId);
+
+    if (victimRecord && victimSignals) {
+      const delivered =
+        victimRecord.input.composedUserMessage?.includes(expectedDamageLine) ===
+        true;
+      victimSignals.damageFeedAudit.expectedIncoming += 1;
+      if (delivered) victimSignals.damageFeedAudit.incoming += 1;
+      else victimSignals.damageFeedAudit.missingIncoming += 1;
+
+      if (attackerSignals) {
+        attackerSignals.damageFeedAudit.expectedOutgoing += 1;
+        if (delivered) attackerSignals.damageFeedAudit.outgoing += 1;
+        else attackerSignals.damageFeedAudit.missingOutgoing += 1;
+      }
+    }
+
+    if (deaths.has(victimId) && attackerSignals) {
+      const expectedKillLine = `${attackerName} killed ${victimName} with ${weaponName(
+        action.weapon,
+      )}`;
+      attackerSignals.damageFeedAudit.expectedDealtKills += 1;
+      if (
+        currentRecords
+          .get(action.characterId)
+          ?.input.composedUserMessage?.includes(expectedKillLine) === true
+      ) {
+        attackerSignals.damageFeedAudit.dealtKills += 1;
+      } else {
+        attackerSignals.damageFeedAudit.missingDealtKills += 1;
+      }
+    }
+  }
+
+  return signalsByCharacter;
 }
 
 function slimInput(input: AgentInputLike) {
@@ -350,51 +612,49 @@ function slimLlm(llm: AgentLlmLike) {
   };
 }
 
-export function projectSlimTurnRow<Row extends TurnRowLike>(row: Row) {
-  const participants = row.agentRecords.map((record) => ({
-    characterId: record.characterId,
-    personaId: record.personaId,
-  }));
+export function projectSlimTurnRow<Row extends TurnRowLike>(
+  row: Row,
+  deliverySignalsByCharacter?: ReadonlyMap<string, DeliverySignals>,
+) {
+  const fallbackSignals = deliverySignalsByCharacter ?? buildDeliverySignals(null, row);
 
   return {
     _id: row._id,
     matchId: row.matchId,
     turn: row.turn,
     resolution: row.resolution,
-    agentRecords: row.agentRecords.map((record) => ({
-      characterId: record.characterId,
-      personaId: record.personaId,
-      decision: record.decision,
-      scratchpadAfter: record.scratchpadAfter,
-      scratchpadChanged:
-        record.input.scratchpadBefore !== record.scratchpadAfter,
-      visibleSummary: summariseVisible(record.input.visibleStateDigest),
-      selfEquipment: extractSelfEquipment(
-        record.input.composedUserMessage ?? "",
-      ),
-      damageFeedAudit: auditDamageFeed(
-        row.resolution,
-        record.characterId,
-        participants,
-      ),
-      inboundSpeechCount: countInboundSpeech(
-        row.resolution.speech,
-        record.characterId,
-      ),
-      lootOutcomeFeed: extractLootOutcomes(
-        row.resolution.actions,
-        record.characterId,
-      ),
-      input: slimInput(record.input),
-      llm: slimLlm(record.llm),
-    })),
+    agentRecords: row.agentRecords.map((record) => {
+      const source = record.input.composedUserMessage ?? "";
+      const selfHp = extractSelfHp(source);
+      const signals =
+        fallbackSignals.get(record.characterId) ?? emptyDeliverySignals();
+      const clonedSignals = cloneDeliverySignals(signals);
+
+      return {
+        characterId: record.characterId,
+        personaId: record.personaId,
+        decision: record.decision,
+        scratchpadAfter: record.scratchpadAfter,
+        scratchpadChanged:
+          record.input.scratchpadBefore !== record.scratchpadAfter,
+        visibleSummary: summariseVisible(record.input.visibleStateDigest),
+        selfEquipment: extractSelfEquipment(source),
+        ...(selfHp !== null ? { selfHp } : {}),
+        ...clonedSignals,
+        input: slimInput(record.input),
+        llm: slimLlm(record.llm),
+      };
+    }),
   };
 }
 
 export function projectSlimTurnRows<Row extends TurnRowLike>(
   rows: readonly Row[],
 ) {
-  return rows.map(projectSlimTurnRow);
+  return rows.map((row, index) => {
+    const previousRow: Row | null = index > 0 ? rows[index - 1]! : null;
+    return projectSlimTurnRow(row, buildDeliverySignals(previousRow, row));
+  });
 }
 
 export type {
@@ -402,5 +662,6 @@ export type {
   DamageParticipant,
   LootOutcome,
   SelfEquipment,
+  SelfHp,
   VisibleSummary,
 };

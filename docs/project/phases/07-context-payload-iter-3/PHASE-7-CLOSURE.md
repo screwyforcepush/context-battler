@@ -33,7 +33,7 @@ turn-detail modal.
 
 ## 2. Canonical Source
 
-- `reportId` = `jd7c6qjj5dmhxa97m2md7f533n86m9sk`
+- `reportId` = `jd73vy815k7rdq6y7935hjagn186n9ga`
 - `reportType` = `phase-7-closing-20`
 - `runCount` = 20
 - `metBar` / `phase7Payload.meetsAllThresholds` = `true`
@@ -43,7 +43,7 @@ turn-detail modal.
 The canonical report is queryable with:
 
 ```bash
-npx convex run reports:byId '{"id":"jd7c6qjj5dmhxa97m2md7f533n86m9sk"}'
+npx convex run reports:byId '{"id":"jd73vy815k7rdq6y7935hjagn186n9ga"}'
 ```
 
 The canonical metric payload is `phase7Payload`. The legacy top-level
@@ -134,13 +134,13 @@ Those replacements are `j9728435kfmmt09h1jnf56tcjn86mpnq` and
 | Counter retaliations | >= 5 | 78 | PASS |
 | Compass bearings | all 8 | E, N, NE, NW, S, SE, SW, W | PASS |
 | Target-relative movement | toward and away | away, toward | PASS |
-| Personal damage feed missing lines | 0 | 0 / 328 | PASS |
+| Personal damage feed missing lines | 0 | 0 / 265 | PASS |
 | Whole-turn validator zeroes | 0 | 0 | PASS |
 | Per-field rejection rate | <= 10% | 0.119% (43 / 36,060 fields) | PASS |
 | `Player_N` surfaced literals | 0 | 0 | PASS |
-| In-range inbound speech feed events delivered | > 0 | 2,323 | PASS |
+| In-range inbound speech feed events delivered | > 0 | 2,239 | PASS |
 | Loot-outcome line carries item name on success | 100% of successful loots | 100% (160 / 160) | PASS |
-| Loot-outcome line marks `empty` on failure | 100% of empty/repeat loots | 100% (1,039 / 1,039) | PASS |
+| Loot-outcome line marks `empty` on failure | 100% of empty/repeat loots | 100% (1,035 / 1,035) | PASS |
 | Chest target id literals coord-encoded | zero `chest_NNN` literals | 0 | PASS |
 | `armedStancePauseRate` | DATA ONLY | 31.767% (2,291 / 7,212) | DATA |
 | `trueStationaryRate` | DATA ONLY | 3.910% (282 / 7,212) | DATA |
@@ -178,10 +178,12 @@ server function reads full per-turn LLM input across the cohort.
 
 The persisted damage-feed note states the report boundary:
 
-> Phase 7 closing uses the slim byMatchSlim damageFeedAudit counters; the
-> local Path-2 driver does not re-read full composed user messages server-side.
+> Phase 7 closing uses byMatchSlim damageFeedAudit delivery counters computed
+> from next-turn composed user messages before heavy text is stripped;
+> final-turn damage and victims without next-turn records are outside the
+> audit window.
 
-The closing payload reports 328 incoming damage-feed events and
+The closing payload reports 265 audited incoming damage-feed events and
 `damageFeedMissing = 0`.
 
 The diagnostics CLI smoke run:
@@ -238,6 +240,29 @@ Manual replay smoke used the existing Vite dev server at
 - The modal sample confirmed the iter-3 substrate shape in a live row:
   `Vision:` root, status `Outside Evac`, unarmed baseline
   `unarmed [dmg 5]`, coord-encoded chest ids, and separate speech feed lines.
+
+---
+
+## 7.5 Completion Review Addendum
+
+The first completion-review pass approved the substrate and UAT but found that
+the diagnostics feed-delivery counters were same-turn resolution counters, not
+evidence from the next-turn user-role message. The fix-up pass changed
+`turns.byMatchSlim` to audit previous-turn speech, loot, and damage events
+against the next turn's `input.composedUserMessage` before stripping heavy
+text, then re-persisted the canonical Path-2 report with the same explicit
+20-match set.
+
+- Superseded reportId: `jd7c6qjj5dmhxa97m2md7f533n86m9sk`
+- Corrected reportId: `jd73vy815k7rdq6y7935hjagn186n9ga`
+- Re-persist trigger: completion-review evidence-backed-gates fix
+- `phase7Payload.meetsAllThresholds`: `true`
+- `phase7Payload.failedMatches`: 0
+- Evidence-backed damage-feed audit: `damageFeedMissing = 0` across 265
+  next-turn-audited incoming damage feed lines
+
+The old report row was overwritten by the closing driver (`--overwrite`), so
+the corrected report id above is the canonical Phase 7 closeout source.
 
 ---
 

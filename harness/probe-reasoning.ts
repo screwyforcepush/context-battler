@@ -83,7 +83,7 @@ async function main(): Promise<void> {
           "Pragmatic. Scavenge cautiously, retreat from heavy fire.",
           "",
           "## Status",
-          "📍(15,15)",
+          "📍(15,15) Outside Evac",
           "❤️HP: 50/50 HP",
           "⚔️weapon: rusty_blade [dmg 10]",
           "🛡️armour: none",
@@ -92,27 +92,19 @@ async function main(): Promise<void> {
           "",
           "# Current Game State",
           "Turn 1, 8/8 players alive",
+          "",
+          "Vision:",
           JSON.stringify(
             {
               Camper: {
-                kind: "character",
-                pos: { x: 22, y: 22 },
                 dist: 7,
                 bearing: "SE",
                 hp: "high",
-                equipped: {
-                  weapon: "rusty_blade",
-                  armour: null,
-                  consumable: null,
-                },
+                armed: true,
               },
-              Chest_005: {
-                kind: "chest",
-                pos: { x: 11, y: 19 },
+              Chest_53_54: {
                 dist: 4,
                 bearing: "SW",
-                opened: false,
-                contents: null,
               },
             },
             null,

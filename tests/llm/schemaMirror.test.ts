@@ -619,10 +619,10 @@ describe("phase-6 schema mirror", () => {
           use: null,
           position: {
             kind: "move",
-            direction: { kind: "toward", targetId: "Chest_003" },
+            direction: { kind: "toward", targetId: "Chest_53_54" },
             dist: 8,
           },
-          action: { kind: "loot", targetId: "Chest_003" },
+          action: { kind: "loot", targetId: "Chest_53_54" },
           say: null,
           scratchpad: "Move toward the chest and loot if in range.",
         },

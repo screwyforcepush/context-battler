@@ -37,15 +37,28 @@ export type SelfEquipment = {
   consumable?: string | null;
 };
 
+export type SelfHp = {
+  hp: number;
+  maxHp: number;
+};
+
 export type DamageFeedAudit = {
   incoming: number;
   outgoing: number;
   dealtKills: number;
+  expectedIncoming?: number;
+  missingIncoming?: number;
+  expectedOutgoing?: number;
+  missingOutgoing?: number;
+  expectedDealtKills?: number;
+  missingDealtKills?: number;
 };
 
 export type LootOutcomeFeedEntry = {
   result: "opened" | "looted" | "already_opened" | "empty" | "no_corpse" | string;
   item?: string;
+  target?: string;
+  delivered?: boolean;
 };
 
 export type SlimAgentRecord = {
@@ -56,9 +69,14 @@ export type SlimAgentRecord = {
   scratchpadChanged: boolean;
   visibleSummary: VisibleSummary;
   selfEquipment: SelfEquipment;
+  selfHp?: SelfHp;
   damageFeedAudit: DamageFeedAudit;
   inboundSpeechCount: number;
+  inboundSpeechExpected?: number;
+  inboundSpeechMissing?: number;
   lootOutcomeFeed: LootOutcomeFeedEntry[];
+  lootOutcomeExpected?: number;
+  lootOutcomeMissing?: number;
   input: {
     systemPromptHash: string;
     personaPromptHash: string;

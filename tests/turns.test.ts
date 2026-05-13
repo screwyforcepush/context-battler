@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   auditDamageFeed,
   countInboundSpeech,
+  extractSelfHp,
   extractLootOutcomes,
   extractSelfEquipment,
   projectSlimTurnRow,
+  projectSlimTurnRows,
   summariseVisible,
 } from "../convex/turnsDerived.js";
 import { fetchSlimAcross } from "../harness/diagnostics/fanout.js";
@@ -186,17 +188,208 @@ describe("turns.byMatchSlim projection contract", () => {
       "enemies",
       "evacSeen",
     ]);
-    expect(record.selfEquipment).toEqual({ weapon: "sword", armour: "leather" });
-    expect(record.damageFeedAudit).toEqual({
-      incoming: 1,
-      outgoing: 1,
-      dealtKills: 1,
+    expect(record.selfEquipment).toEqual({
+      weapon: "sword",
+      armour: "leather",
+      consumable: null,
     });
-    expect(record.inboundSpeechCount).toBe(1);
-    expect(record.lootOutcomeFeed).toEqual([
-      { result: "opened", item: "speed" },
-      { result: "already_opened" },
+    expect(record.damageFeedAudit).toEqual({
+      incoming: 0,
+      outgoing: 0,
+      dealtKills: 0,
+      expectedIncoming: 0,
+      missingIncoming: 0,
+      expectedOutgoing: 0,
+      missingOutgoing: 0,
+      expectedDealtKills: 0,
+      missingDealtKills: 0,
+    });
+    expect(record.inboundSpeechCount).toBe(0);
+    expect(record.lootOutcomeFeed).toEqual([]);
+  });
+
+  it("audits speech, loot, and damage delivery from the previous turn feed", () => {
+    const baseStatus = [
+      "# Duelist",
+      "## Status",
+      "❤️HP: 25/40 HP",
+      "⚔️weapon: sword [dmg 20]",
+      "🛡️armour: leather [-3 dmg]",
+      "🧪consumable: heal [heal 50% max HP]",
+      "",
+      "# Current Game State",
+      "Turn 1, 3/8 players alive",
+      "",
+      "Vision:",
+      "{}",
+    ].join("\n");
+    const turnOne = {
+      _id: "turn_1",
+      matchId: "match_1",
+      turn: 1,
+      resolution: {
+        consumed: [],
+        speech: [
+          {
+            characterId: "char_trader",
+            text: "Peace nearby.",
+            heardBy: ["char_duelist"],
+          },
+        ],
+        moves: [],
+        actions: [
+          {
+            characterId: "char_camper",
+            kind: "attack",
+            target: "Duelist",
+            result: "dmg 12",
+            weapon: "axe",
+          },
+          {
+            characterId: "char_duelist",
+            kind: "attack",
+            target: "Camper",
+            result: "dmg 99",
+            weapon: "sword",
+          },
+          {
+            characterId: "char_duelist",
+            kind: "loot",
+            target: "Chest_53_54",
+            result: "opened",
+            lootedItem: "speed",
+          },
+          {
+            characterId: "char_camper",
+            kind: "loot",
+            target: "Corpse_Rat",
+            result: "empty",
+          },
+        ],
+        deaths: ["char_camper"],
+        visibilityUpdates: [],
+      },
+      agentRecords: [
+        makeAgentRecord({
+          characterId: "char_duelist",
+          personaId: "duelist",
+          composedUserMessage: baseStatus,
+        }),
+        makeAgentRecord({
+          characterId: "char_camper",
+          personaId: "camper",
+          composedUserMessage: baseStatus.replace("# Duelist", "# Camper"),
+        }),
+        makeAgentRecord({
+          characterId: "char_trader",
+          personaId: "trader",
+          composedUserMessage: baseStatus.replace("# Duelist", "# Trader"),
+        }),
+      ],
+    };
+    const turnTwo = {
+      ...turnOne,
+      _id: "turn_2",
+      turn: 2,
+      resolution: {
+        consumed: [],
+        speech: [],
+        moves: [],
+        actions: [],
+        deaths: [],
+        visibilityUpdates: [],
+      },
+      agentRecords: [
+        makeAgentRecord({
+          characterId: "char_duelist",
+          personaId: "duelist",
+          composedUserMessage: [
+            "# Duelist",
+            "## Status",
+            "❤️HP: 13/40 HP",
+            "⚔️weapon: sword [dmg 20]",
+            "🛡️armour: leather [-3 dmg]",
+            "🧪consumable: heal [heal 50% max HP]",
+            "",
+            "# Current Game State",
+            "Turn 2, 2/8 players alive",
+            "You looted speed from Chest_53_54",
+            "Camper attacked you with axe (dmg 12)",
+            "Trader said \"Peace nearby.\"",
+            "Duelist killed Camper with sword",
+            "",
+            "Vision:",
+            "{}",
+          ].join("\n"),
+        }),
+        makeAgentRecord({
+          characterId: "char_trader",
+          personaId: "trader",
+          composedUserMessage: [
+            "# Trader",
+            "## Status",
+            "❤️HP: 40/40 HP",
+            "⚔️weapon: unarmed [dmg 5]",
+            "🛡️armour: none",
+            "🧪consumable: none",
+            "",
+            "# Current Game State",
+            "Turn 2, 2/8 players alive",
+            "",
+            "Vision:",
+            "{}",
+          ].join("\n"),
+        }),
+      ],
+    };
+
+    const slim = projectSlimTurnRows([turnOne, turnTwo]);
+    const turnOneDuelist = slim[0]!.agentRecords.find(
+      (record) => record.characterId === "char_duelist",
+    )!;
+    const turnTwoDuelist = slim[1]!.agentRecords.find(
+      (record) => record.characterId === "char_duelist",
+    )!;
+    const turnTwoTrader = slim[1]!.agentRecords.find(
+      (record) => record.characterId === "char_trader",
+    )!;
+
+    expect(turnOneDuelist.inboundSpeechCount).toBe(0);
+    expect(turnOneDuelist.damageFeedAudit.incoming).toBe(0);
+    expect(turnOneDuelist.lootOutcomeFeed).toEqual([]);
+
+    expect(turnTwoDuelist.inboundSpeechCount).toBe(1);
+    expect(turnTwoDuelist.inboundSpeechExpected).toBe(1);
+    expect(turnTwoDuelist.inboundSpeechMissing).toBe(0);
+    expect(turnTwoDuelist.damageFeedAudit).toMatchObject({
+      incoming: 1,
+      expectedIncoming: 1,
+      missingIncoming: 0,
+      dealtKills: 1,
+      expectedDealtKills: 1,
+      missingDealtKills: 0,
+    });
+    expect(turnTwoDuelist.lootOutcomeFeed).toEqual([
+      {
+        result: "opened",
+        item: "speed",
+        target: "Chest_53_54",
+        delivered: true,
+      },
     ]);
+    expect(turnTwoDuelist.lootOutcomeExpected).toBe(1);
+    expect(turnTwoDuelist.lootOutcomeMissing).toBe(0);
+    expect(turnTwoDuelist.selfHp).toEqual({ hp: 13, maxHp: 40 });
+    expect(turnTwoDuelist.selfEquipment).toEqual({
+      weapon: "sword",
+      armour: "leather",
+      consumable: "heal",
+    });
+
+    expect(turnTwoTrader.inboundSpeechCount).toBe(0);
+    expect(turnTwoTrader.inboundSpeechExpected).toBe(0);
+    expect(turnTwoTrader.damageFeedAudit.incoming).toBe(0);
+    expect(turnTwoTrader.lootOutcomeFeed).toEqual([]);
   });
 });
 
@@ -229,9 +422,21 @@ describe("turns derived helper functions", () => {
   it("extractSelfEquipment returns null slots for unarmed or unarmoured status", () => {
     expect(
       extractSelfEquipment(
-        ["## Status", "weapon: unarmed [dmg 5]", "armour: none"].join("\n"),
+        [
+          "## Status",
+          "weapon: unarmed [dmg 5]",
+          "armour: none",
+          "consumable: none",
+        ].join("\n"),
       ),
-    ).toEqual({ weapon: null, armour: null });
+    ).toEqual({ weapon: null, armour: null, consumable: null });
+  });
+
+  it("extracts self HP from the Status block", () => {
+    expect(extractSelfHp(["## Status", "❤️HP: 50/75 HP"].join("\n"))).toEqual({
+      hp: 50,
+      maxHp: 75,
+    });
   });
 
   it("audits damage and kills using the turn roster display names", () => {
@@ -260,7 +465,7 @@ describe("turns derived helper functions", () => {
           { characterId: "char_camper", personaId: "camper" },
         ],
       ),
-    ).toEqual({ incoming: 1, outgoing: 1, dealtKills: 1 });
+    ).toMatchObject({ incoming: 1, outgoing: 1, dealtKills: 1 });
   });
 
   it("counts inbound speech only when heard by self and speaker differs", () => {
@@ -303,7 +508,10 @@ describe("turns derived helper functions", () => {
         ],
         "self",
       ),
-    ).toEqual([{ result: "already_opened" }, { result: "looted", item: "axe" }]);
+    ).toEqual([
+      { result: "already_opened", target: "Chest_1_2" },
+      { result: "looted", item: "axe", target: "Corpse_Rat" },
+    ]);
   });
 });
 

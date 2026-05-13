@@ -17,6 +17,17 @@ const NONE_DECISION: ParsedDecision = {
   scratchpad: null,
 };
 
+function damageAudit(
+  overrides: Partial<SlimAgentRecord["damageFeedAudit"]>,
+): SlimAgentRecord["damageFeedAudit"] {
+  return {
+    incoming: 0,
+    outgoing: 0,
+    dealtKills: 0,
+    ...overrides,
+  } as SlimAgentRecord["damageFeedAudit"];
+}
+
 function record(
   overrides: Partial<SlimAgentRecord> & { characterId: string },
 ): SlimAgentRecord {
@@ -180,7 +191,11 @@ function passingRows(): SlimTurnRow[] {
         action: { kind: "none" },
       },
       inboundSpeechCount: 1,
-      damageFeedAudit: { incoming: 1, outgoing: 0, dealtKills: 0 },
+      damageFeedAudit: damageAudit({
+        incoming: 1,
+        expectedIncoming: 1,
+        missingIncoming: 0,
+      }),
       llm: {
         responseId: "retry-ok",
         callId: "call-retry-ok",
@@ -265,6 +280,10 @@ describe("computePhase7Metrics", () => {
     expect(out.trueStationaryRate).toBeGreaterThan(0);
     expect(out.retryRecoveryRate).toBe(0.5);
     expect(Number.isNaN(out.retryRecoveryRate)).toBe(false);
+    expect(out.damageFeedAuditScopeNote).toContain(
+      "before heavy text is stripped",
+    );
+    expect(out.damageFeedAuditScopeNote).not.toContain("does not re-read");
   });
 
   it("computes the phase-7 substrate gates from slim rows", () => {
@@ -282,6 +301,7 @@ describe("computePhase7Metrics", () => {
                 characterId: "unnamed-loot",
                 decision: {
                   ...NONE_DECISION,
+                  // Intentional legacy chest literal negative fixture: keep this non-coordinate to exercise the detector.
                   action: { kind: "loot", targetId: "chest_007" },
                 },
                 lootOutcomeFeed: [{ result: "opened" }],
@@ -294,6 +314,17 @@ describe("computePhase7Metrics", () => {
                 },
                 lootOutcomeFeed: [{ result: "out_of_range" }],
               }),
+              record({
+                characterId: "missing-loot-feed",
+                decision: {
+                  ...NONE_DECISION,
+                  action: { kind: "loot", targetId: "Chest_53_54" },
+                },
+                lootOutcomeFeed: [
+                  { result: "opened", item: "speed", delivered: false },
+                  { result: "already_opened", delivered: false },
+                ],
+              }),
             ],
             resolution: {
               consumed: [],
@@ -303,6 +334,7 @@ describe("computePhase7Metrics", () => {
                 {
                   characterId: "unnamed-loot",
                   kind: "loot",
+                  // Intentional legacy chest literal negative fixture: keep this non-coordinate to exercise the detector.
                   target: "chest_007",
                   result: "opened",
                 },
@@ -317,16 +349,66 @@ describe("computePhase7Metrics", () => {
 
     expect(out.inboundSpeechDelivered).toBe(0);
     expect(out.meetsInboundSpeechThreshold).toBe(false);
-    expect(out.lootSuccesses).toBe(1);
+    expect(out.lootSuccesses).toBe(2);
     expect(out.lootSuccessesNamed).toBe(0);
     expect(out.lootSuccessNamingRate).toBe(0);
     expect(out.meetsLootSuccessNamingThreshold).toBe(false);
-    expect(out.lootFailureOutcomes).toBe(1);
+    expect(out.lootFailureOutcomes).toBe(2);
     expect(out.lootFailuresMarkedEmpty).toBe(0);
     expect(out.lootEmptyMarkingRate).toBe(0);
     expect(out.meetsLootEmptyMarkingThreshold).toBe(false);
     expect(out.legacyChestLiteralCount).toBe(2);
     expect(out.meetsChestLiteralThreshold).toBe(false);
     expect(Number.isNaN(out.retryRecoveryRate)).toBe(false);
+  });
+
+  it("uses slim damage-feed delivery counters for the phase-7 threshold", () => {
+    const delivered = computePhase7Metrics([
+      runInput({
+        turns: [
+          turn({
+            turn: 1,
+            agentRecords: [
+              record({
+                characterId: "delivered-feed",
+                damageFeedAudit: damageAudit({
+                  incoming: 1,
+                  expectedIncoming: 1,
+                  missingIncoming: 0,
+                }),
+              }),
+            ],
+          }),
+        ],
+      }),
+    ]);
+
+    expect(delivered.damageFeedEvents).toBe(1);
+    expect(delivered.damageFeedMissing).toBe(0);
+    expect(delivered.meetsDamageFeedThreshold).toBe(true);
+
+    const missing = computePhase7Metrics([
+      runInput({
+        turns: [
+          turn({
+            turn: 1,
+            agentRecords: [
+              record({
+                characterId: "missing-feed",
+                damageFeedAudit: damageAudit({
+                  incoming: 0,
+                  expectedIncoming: 1,
+                  missingIncoming: 1,
+                }),
+              }),
+            ],
+          }),
+        ],
+      }),
+    ]);
+
+    expect(missing.damageFeedEvents).toBe(1);
+    expect(missing.damageFeedMissing).toBe(1);
+    expect(missing.meetsDamageFeedThreshold).toBe(false);
   });
 });

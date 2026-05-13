@@ -56,6 +56,7 @@ function record(
       weapon: null,
       armour: null,
     },
+    selfHp: overrides.selfHp,
     damageFeedAudit: overrides.damageFeedAudit ?? {
       incoming: 0,
       outgoing: 0,
@@ -189,6 +190,7 @@ describe("diagnostics mechanics", () => {
         resolution: {
           consumed: [
             { characterId: "c_speed", item: { category: "consumable", name: "speed" } },
+            { characterId: "c_healer", item: { category: "consumable", name: "heal" } },
           ],
           speech: [
             { characterId: "c_trader", text: "Peace?", heardBy: ["c_duelist", "c_rat"] },
@@ -263,6 +265,19 @@ describe("diagnostics mechanics", () => {
             },
           }),
           record({
+            characterId: "c_healer",
+            decision: {
+              ...NONE_DECISION,
+              use: "consumable",
+            },
+            selfEquipment: {
+              weapon: null,
+              armour: null,
+              consumable: "heal",
+            },
+            selfHp: { hp: 30, maxHp: 30 },
+          }),
+          record({
             characterId: "c_counter_prime",
             decision: { ...NONE_DECISION, position: { kind: "counter" } },
           }),
@@ -321,6 +336,7 @@ describe("diagnostics mechanics", () => {
       drainedRepeat: 0,
     });
     expect(out.consume.wastedSpeedWithoutMovement).toBe(1);
+    expect(out.consume.healAtFullHp).toBe(1);
     expect(out.speech).toMatchObject({
       events: 1,
       heardFanout: 2,
@@ -375,14 +391,19 @@ describe("diagnostics behaviour", () => {
           record({
             characterId: "c_actor",
             personaId: "duelist",
-            decision: moveDecision(3, {
-              kind: "attack",
-              targetId: "Trader",
-            }),
             scratchpadChanged: true,
             selfEquipment: {
               weapon: "sword",
               armour: "leather",
+              consumable: "heal",
+            },
+            selfHp: { hp: 40, maxHp: 40 },
+            decision: {
+              ...moveDecision(3, {
+                kind: "attack",
+                targetId: "Trader",
+              }),
+              use: "consumable",
             },
           }),
         ],
@@ -400,8 +421,9 @@ describe("diagnostics behaviour", () => {
       trueStationary: 1,
     });
     expect(out.contextualCombos["move+attack"]?.count).toBe(1);
+    expect(out.contextualCombos["consume:heal at full HP"]?.count).toBe(1);
     expect(out.crossCuts.persona.camper?.visibility.enemyVisible).toBe(1);
-    expect(out.crossCuts.equipment["armed|leather"] ?? 0).toBe(1);
+    expect(out.crossCuts.equipment["armed|leather|consumable:heal"] ?? 0).toBe(1);
   });
 });
 
