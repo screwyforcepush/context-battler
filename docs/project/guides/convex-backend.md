@@ -1,6 +1,6 @@
 # Convex Backend — Deployment, Auth, Smoke Test
 
-Operational reference for talking to the project's Convex deployment. **Verified working 2026-05-12 (phase-6 closure).**
+Operational reference for talking to the project's Convex deployment. **Verified working 2026-05-13 (phase-7 closure).**
 
 > Convex is the backend-as-a-service for state, queries, mutations, and scheduled functions. Auth is via a deploy key in `.env`; the CLI picks it up automatically.
 
@@ -17,10 +17,11 @@ CONVEX_DEPLOY_KEY=dev:calculating-meerkat-923|<token>
 - `dev:` prefix = **dev deployment key**. Allows deploy + invoke + read. For prod, the prefix is `prod:` and you'd typically use it only in CI.
 - `.env` is gitignored. Never commit these.
 
-## 2. Deployment state (as of 2026-05-12)
+## 2. Deployment state (as of 2026-05-13)
 
-- Project: **active** — full Convex schema (`convex/schema.ts`), functions deployed (`matches`, `runMatch`, `turns`, `reports`, `replay`, `spike`), active tables (`matches`, `characters`, `turns`, `worldState`, `runs`, `reports`).
-- Current data: 20 phase-6 closing matches + associated turns/characters/reports. Previous data was wiped per POC posture before the phase-6 closing run.
+- Project: **active** — full Convex schema (`convex/schema.ts`), functions deployed (`matches`, `runMatch`, `turns`, `turnsDerived`, `reports`, `reports/phase7`, `replay`, `spike`), active tables (`matches`, `characters`, `turns`, `worldState`, `runs`, `reports`).
+- Current data: 20 phase-7 closing matches + associated turns/characters/reports. Previous data was wiped per POC posture before the phase-7 closing run. Canonical report: `jd7c6qjj5dmhxa97m2md7f533n86m9sk` (`phase-7-closing-20`).
+- Notable query: `turns.byMatchSlim` — slim per-match trace projection that strips heavy LLM text fields. Used by the diagnostics CLI, dashboard, and phase-7 closing driver to stay under the 16 MB per-function read budget.
 - `package.json` includes `convex` as a devDependency.
 
 ## 3. Smoke tests (no functions required)

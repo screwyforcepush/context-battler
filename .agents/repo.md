@@ -18,7 +18,7 @@ The replay overseer is a local Vite app at `apps/replay/`.
   schema + functions on save), or have pushed once so `convex/replay.ts`
   is deployed. `apps/replay/.env` must set `VITE_CONVEX_URL` to that
   deployment URL.
-- Hash-routed: `#/` picker, `#/match/<id>` replay view.
+- Hash-routed: `#/` match picker, `#/match/<id>` replay view, `#/diagnostics?last=N` behavioural diagnostics dashboard.
 
 No other long-running app process exists today. The harness
 (`npm run harness`) is a finite multi-run driver, not a server.

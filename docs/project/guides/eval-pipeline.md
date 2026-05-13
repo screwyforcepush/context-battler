@@ -2,9 +2,9 @@
 
 > Practical recipe: tweak a prompt / value / config → 10 runs → metric +
 > verbose-failure report. Reflects the actual state of harness + Convex
-> aggregators as of phase 6 (iter-2 schema landed, closing-20 report
-> persisted). Keep this current; future shifts in the report contract
-> belong here.
+> aggregators as of phase 7 (iter-3 context payload, slim per-match query,
+> behavioural diagnostics CLI + dashboard). Keep this current; future
+> shifts in the report contract belong here.
 
 ---
 
@@ -44,7 +44,8 @@ The harness command (step 2) is the only one that's a single
 ergonomic verb. Step 4 uses `convex/reports/phase6.ts` which
 computes the full iter-2 mechanics gate set (no-op rate, action+
 overwatch combos, counter retaliations, compass coverage, etc.)
-plus all phase-1 carry-over thresholds.
+plus all phase-1 carry-over thresholds. For phase-7 closing runs,
+use the phase-7 closing driver instead — see §4.5.
 
 ---
 
@@ -171,16 +172,98 @@ npx convex run reports/phase6:persistComputedPhase6Report \
 The persisted row has `reportType: "phase-6-closing-20"` and is
 queryable via `reports:byId` by `_id`.
 
-### 4c. No-op rate (iter-2 definition)
+### 4c. No-op rate (iter-2 definition — superseded by phase-7 split)
 
 `use:null` AND `say:null` AND `action.kind:"none"` AND stationary
 position resolution (`move` with `dist:0`, or `overwatch`/`counter`
 with no action). Overwatch/counter with `action.attack` or
 `action.loot` are NOT no-ops. Computed by `computePhase6Metrics`.
 
+**Phase 7 replaced `noOpRate` with two separate distributions:**
+
+- `armedStancePauseRate` — `position:{overwatch|counter}` + `action:none`. Models deliberately priming reactive fires; not a behaviour-policy gap.
+- `trueStationaryRate` — `position:{move, dist:0}` + `action:none`. Genuinely idle turns.
+
+Both are DATA-only (not gated) in the phase-7-closing-20 report. The
+phase-6 `noOpRate < 5%` gate is intentionally absent from `computePhase7Metrics`.
+
 ### 4d. Truncation rate (≥95% of `max_output_tokens`)
 
 The replay UI's TurnFeed renders this per turn. To get a cohort number ad-hoc, iterate `r.llm.raw.usage.output_tokens` per record and compare to `MAX_OUTPUT_TOKENS = 1200`.
+
+---
+
+## 4.5. Phase-7 closing driver and diagnostics CLI
+
+Phase 7 introduced two new harness tools plus a dashboard tab. All three
+read via `turns.byMatchSlim` — a slim per-match Convex query that strips
+heavy LLM text fields, keeping each response well under the 16 MB
+per-function read budget.
+
+### 4.5a. Closing driver (`harness/closing/phase7.ts`)
+
+Runs the full Phase-7 gate evaluation over a set of matches and persists
+a small computed payload via `reports/phase7:persistComputedPhase7Report`.
+This is the "Path 2" pipeline: fan out one `byMatchSlim` call per match,
+compute metrics locally, persist only the result.
+
+```bash
+# Close over the last 20 matches (auto-selects from Convex):
+npx tsx harness/closing/phase7.ts --last 20
+
+# Close over explicit match ids (prevents stale-row contamination):
+npx tsx harness/closing/phase7.ts --matchIds "id1,id2,..."
+
+# Overwrite an existing report for the same match set:
+npx tsx harness/closing/phase7.ts --matchIds "id1,id2,..." --overwrite
+```
+
+The persisted row has `reportType: "phase-7-closing-20"` and is
+queryable via `npx convex run reports:byId '{"id":"<reportId>"}'`.
+
+### 4.5b. Diagnostics CLI (`harness/diagnostics.ts`)
+
+Computes three metric families over the last N ≤ 20 matches, with no
+persisted aggregate rows (recompute on demand).
+
+```bash
+# Markdown summary to stdout:
+npx tsx harness/diagnostics.ts --last 20
+
+# JSON output:
+npx tsx harness/diagnostics.ts --last 20 --format json
+
+# Write to file:
+npx tsx harness/diagnostics.ts --last 20 --format json --out /tmp/diag.json
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--last N` | 20 | Number of recent matches (clamped to ≤ 20). |
+| `--format json\|markdown` | markdown | Output format. |
+| `--out <path>` | — | Write to file instead of stdout. |
+
+Three metric families:
+
+1. **Critical fails** — fallback rate by `failureReason`, retry recovery,
+   `output_tokens` proximity to cap, per-field validator-rejection
+   breakdown, persona × failure-reason cross-tab.
+2. **Game-mechanic sanity** — attack outcomes, overwatch fires split by
+   `triggeredByMovement`, counter retaliations, chest/corpse loot funnels,
+   consume waste, speech metrics, damage-feed delivery audit,
+   wall-blocked moves, declared-vs-actual move distance.
+3. **Behavioural distribution** — totals by persona × turn-phase,
+   contextual combos (`counter + attack`, `overwatch + loot`,
+   `move:dist=0 + action≠none`, etc.), cross-cuts by persona ×
+   turn-phase × visibility × equipment.
+
+### 4.5c. Diagnostics dashboard (`#/diagnostics`)
+
+The replay app (`npm run dev:replay`) has a top-level **Diagnostics** tab
+at `#/diagnostics?last=N`. It uses the same `byMatchSlim` fan-out and
+diagnostic computation as the CLI. Aggregate rows are clickable and
+deep-link to the existing replay turn-detail modal (no new modal) at the
+appropriate `#/match/<id>?turn=T&character=Persona` route.
 
 ---
 
@@ -191,7 +274,7 @@ npm run dev:replay
 # → http://localhost:5173
 ```
 
-The replay app reads from the live Convex deployment (same `.env`). Every turn-feed row shows:
+The replay app reads from the live Convex deployment (same `.env`). Two top-level tabs: **Matches** (per-match replay) and **Diagnostics** (cohort view — see §4.5c). Every turn-feed row shows:
 
 - The agent's decision in English (`decisionEnglish.ts` — iter-2 shape: use/position/action/say/scratchpad with overwatch/counter/move arms, compass+dist, toward/away targetId).
 - A 🧠 indicator when reasoning text is captured.
@@ -205,7 +288,7 @@ The replay app reads from the live Convex deployment (same `.env`). Every turn-f
 
 Vintage (pre-phase-6) matches are detected and gated with a notice rather than rendered through compatibility shims.
 
-This is the right tool for "I want to understand WHY this prompt failed on this turn." It's not for cohort-level metrics — use §2/§3/§4 for that.
+This is the right tool for "I want to understand WHY this prompt failed on this turn." For cohort-level metrics across multiple matches, use the Diagnostics tab (`#/diagnostics?last=N`) — see §4.5c — or the CLI (§4.5b).
 
 ---
 
@@ -254,21 +337,25 @@ report mirroring the D1 artifact's shape (cohorts table → metrics table
 
 ## 7. Compatibility matrix (TL;DR)
 
-| Surface | Phase 1 | Phase 3 | Phase 6 (current) |
-|---|---|---|---|
-| `harness/run.ts` | ✅ | ✅ | ✅ |
-| `harness/analyze-match.ts` | ✅ | ✅ | ✅ (updated to iter-2 fields) |
-| `harness/cluster-failures.ts` | ✅ | ✅ | ✅ |
-| `harness/inspect-attacks.ts` | ✅ | ✅ | ✅ |
-| `harness/inspect-http.ts` | ✅ | ✅ | ✅ |
-| `harness/inspect-equipped.ts` | ✅ | ❌ (digest format changed) | ❌ |
-| `closing-N` report (phase-1 metrics) | ✅ | ✅ | ✅ |
-| `computePhase3Report` action | — | ✅ | ✅ |
-| `phase-3-closing-10` persisted row | — | ✅ | ✅ |
-| `computePhase6Metrics` + persist | — | — | ✅ (local compute + Convex persist) |
-| `phase-6-closing-20` persisted row | — | — | ✅ |
-| no-op rate aggregator | — | — | ✅ (in `computePhase6Metrics`) |
-| Replay UI (`npm run dev:replay`) | — | ✅ | ✅ (iter-2 schema; vintage data gated) |
+| Surface | Phase 1 | Phase 3 | Phase 6 | Phase 7 (current) |
+|---|---|---|---|---|
+| `harness/run.ts` | ✅ | ✅ | ✅ | ✅ |
+| `harness/analyze-match.ts` | ✅ | ✅ | ✅ | ✅ |
+| `harness/cluster-failures.ts` | ✅ | ✅ | ✅ | ✅ |
+| `harness/inspect-attacks.ts` | ✅ | ✅ | ✅ | ✅ |
+| `harness/inspect-http.ts` | ✅ | ✅ | ✅ | ✅ |
+| `harness/inspect-equipped.ts` | ✅ | ❌ | ❌ | ❌ |
+| `harness/diagnostics.ts` | — | — | — | ✅ (3-family CLI, slim fan-out) |
+| `harness/closing/phase7.ts` | — | — | — | ✅ (Path 2 local compute + thin persist) |
+| `closing-N` report (phase-1 metrics) | ✅ | ✅ | ✅ | ✅ |
+| `computePhase3Report` action | — | ✅ | ✅ | ✅ |
+| `computePhase6Metrics` + persist | — | — | ✅ | ✅ |
+| `computePhase7Metrics` + persist | — | — | — | ✅ (local compute + Convex persist) |
+| `phase-7-closing-20` persisted row | — | — | — | ✅ |
+| `turns.byMatchSlim` query | — | — | — | ✅ (slim per-match trace projection) |
+| no-op rate aggregator | — | — | ✅ | superseded (→ armedStancePause / trueStationary) |
+| Replay UI — Matches tab | — | ✅ | ✅ | ✅ (iter-3 schema; vintage data gated) |
+| Replay UI — Diagnostics tab | — | — | — | ✅ (`#/diagnostics?last=N`) |
 
-Phase-6 data only lives in the current Convex deployment. Pre-phase-6
+Phase-7 data only lives in the current Convex deployment. Pre-phase-7
 match data was wiped per POC posture; old matchIds will not resolve.
