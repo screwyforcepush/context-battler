@@ -1,6 +1,6 @@
 # Convex Backend — Deployment, Auth, Smoke Test
 
-Operational reference for talking to the project's Convex deployment. **Verified working 2026-05-13 (phase-7 closure).**
+Operational reference for talking to the project's Convex deployment. **Verified working 2026-05-14 (phase-9 closure).**
 
 > Convex is the backend-as-a-service for state, queries, mutations, and scheduled functions. Auth is via a deploy key in `.env`; the CLI picks it up automatically.
 
@@ -17,11 +17,12 @@ CONVEX_DEPLOY_KEY=dev:calculating-meerkat-923|<token>
 - `dev:` prefix = **dev deployment key**. Allows deploy + invoke + read. For prod, the prefix is `prod:` and you'd typically use it only in CI.
 - `.env` is gitignored. Never commit these.
 
-## 2. Deployment state (as of 2026-05-13)
+## 2. Deployment state (as of 2026-05-14)
 
-- Project: **active** — full Convex schema (`convex/schema.ts`), functions deployed (`matches`, `runMatch`, `turns`, `turnsDerived`, `reports`, `reports/phase7`, `replay`, `spike`), active tables (`matches`, `characters`, `turns`, `worldState`, `runs`, `reports`).
-- Current data: 20 phase-7 closing matches + associated turns/characters/reports. Previous data was wiped per POC posture before the phase-7 closing run. Canonical report: `jd73vy815k7rdq6y7935hjagn186n9ga` (`phase-7-closing-20`). Supersedes original `jd7c6qjj5dmhxa97m2md7f533n86m9sk` (re-persisted after completion-review fix-up).
-- Notable query: `turns.byMatchSlim` — slim per-match trace projection that audits speech/loot/damage delivery against next-turn `composedUserMessage` before stripping heavy LLM text fields. Projects `selfHp` and `selfEquipment.consumable` for diagnostics. Used by the diagnostics CLI, dashboard, and phase-7 closing driver to stay under the 16 MB per-function read budget.
+- Project: **active** — full Convex schema (`convex/schema.ts`), functions deployed (`matches`, `runMatch`, `turns`, `turnsDerived`, `reports`, `reports/phase7`, `reports/phase9`, `replay`, `spike`), active tables (`matches`, `characters`, `turns`, `worldState`, `runs`, `reports`).
+- Current data: 20 phase-9 closing matches + associated turns/characters/reports. Previous data was wiped per POC posture before the phase-9 closing run. Canonical report: `jd764w578jwvxm41xjv6d1z07n86qkfc` (`phase-9-closing-20`).
+- Schema additions (phase 9): `worldState.coverClusters` (cluster rectangles alongside flat `coverTiles`), `turns.resolution.moves[].slide` (wall-slide trace), `reports.phase9Payload` (sibling pattern).
+- Notable query: `turns.byMatchSlim` — slim per-match trace projection that audits speech/loot/damage delivery against next-turn `composedUserMessage` before stripping heavy LLM text fields. Projects `selfHp`, `selfEquipment.consumable`, and slide evidence for diagnostics. Used by the diagnostics CLI, dashboard, and closing drivers to stay under the 16 MB per-function read budget.
 - `package.json` includes `convex` as a devDependency.
 
 ## 3. Smoke tests (no functions required)

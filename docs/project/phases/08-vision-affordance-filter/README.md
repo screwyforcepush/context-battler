@@ -43,6 +43,8 @@ substrate signal.
 > the agent does make.
 
 **North-star achieved:** smoke pass (5 matches, 250 turns, 1 737 records) shows `chest.empty=0`, `chest.sameTurnCollision=0`, `corpse.drainedRepeat=0`; headline mechanics (attacks 67, deaths 14, speech 241) within phase-7 envelope with no regression or crashes.
+>
+> Successor: [Phase 9 — Walls + Vision Rect-Grained Substrate](../09-walls-vision-rect-grained/README.md) (closed 2026-05-14)
 
 ## 2. Overview — what is being built
 

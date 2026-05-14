@@ -1,6 +1,7 @@
 # Phase 9 — Walls + Vision Rect-Grained Substrate
 
-> **Status:** planning, spec **v2** (2026-05-14 refinement). Substrate
+> **Status:** closed 2026-05-14. Closure record at
+> [PHASE-9-CLOSURE.md](./PHASE-9-CLOSURE.md). Substrate
 > slice dispatched per
 > [`mental-model.md` §17](../../spec/mental-model.md#17-walls--vision-rect-grained-substrate-dispatched-2026-05-14)
 > and refined pillar 8 in §6. Three independent threads (LOS uniform,
