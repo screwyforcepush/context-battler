@@ -676,6 +676,178 @@ when the underlying rect is 1×1, wall-hug slide trace events present
 of wall-on-wall LOS occlusion (a wall in Chebyshev-20 range that is
 occluded by another wall must NOT appear in Vision).
 
+### Phase-9 Closure Record
+
+Phase 9 closes substrate-complete and bar-met. Canonical persisted
+report id `jd764w578jwvxm41xjv6d1z07n86qkfc`; `reportType` is
+`"phase-9-closing-20"`; `metBar` is `true`; `failedMatches: 0`;
+`missingRunsForMatchIds: []`. Closure record at
+[`docs/project/phases/09-walls-vision-rect-grained/PHASE-9-CLOSURE.md`](../phases/09-walls-vision-rect-grained/PHASE-9-CLOSURE.md).
+Source commits: `1b9693b` (implementation) → `3316d8f` (closure docs).
+
+All 10 preserved phase-7 thresholds pass without regression
+(extraction 95%, kill 95%, equip 100%, speech 100%, persona spread
+50 pp, per-field rejection 0.112%, zero illegal `use:"consumable"`,
+zero `Player_N` literals, zero whole-turn validator zeroes, zero
+failed matches). Slice-specific evidence is unambiguous and broad:
+50,830 rect-keyed wall entries, 21,882 rect-keyed cover entries,
+2,311 rect-keyed evac entries, zero single-tile keys derived from
+multi-tile rects, 7,796 wall-on-wall LOS occlusions, 3,214 inside
+`bearing:"here"` entries, 450 evac entries beyond Chebyshev-20
+(range-uncap post-reveal working), 120 wall-slide outcomes
+distributed across all 8 personas (every archetype exercised the
+slide substrate at least once — Rat 2, Duelist 16, Trader 26,
+Opportunist 27, Paranoid 1, Camper 4, Sprinter 23, Vulture 21).
+
+Three workstreams landed in shape:
+- **A/B (engine substrate)** — Uniform wall+cover LOS via deletion
+  of the wall-emission carve-out; rect-grained emission for
+  wall/cover/evac with `shape` discriminator and `bearing:"here"`
+  inside-convention; diagonal wall-slide with X-axis-preferred
+  tie-break; rect-target dynamic resolution per substep; slide trace
+  `{wallRectId, axis, intent}` persisted end-to-end.
+- **C (LLM projection)** — Rect-keyed Vision JSON;
+  `renderSlideFragment` for `hugged Wall_*` outcome lines; rect-id
+  parser accepts both multi-tile and single-coord forms; evac
+  emitted by engine rather than manually appended in projection.
+- **D/E (scrub + closing)** — Mechanical persona scrub for dead
+  refs only (no behaviour tuning); `harness/closing/phase9.ts` and
+  `convex/reports/phase9.ts` mirroring the phase-7 Path-2
+  sibling-payload pattern.
+
+ADRs D1–D13 honoured. OCC replacement policy: no substitutions
+required. All 20 matches in the canonical set completed first-try
+with zero Convex optimistic-concurrency storage-layer transients.
+Phase-6/7 manual replacement precedent remains the fallback for
+future closing runs but was not invoked here.
+
+Completion review approved on first attempt. Three independent
+reviews (A/B/C) all APPROVE with line-specific decision attestation
+across D1–D12. Low/info items deferred to a future tidy slice (D17):
+rectGeometry DRY helper, observerPos null handling, legacy
+payload-field sparseness, stale `movement.ts` header comment,
+`expandMap` minor redundancy. Validation gates green at closure:
+lint, typecheck, build PASS; 670/2-skipped tests.
+
+Deferred to future slices: persona behaviour-tuning (diagnostics
+view exposes the surfaces — slide distribution by persona is now
+first-class metric data); replay UI changes (renderer is sufficient
+for the closing-20 user step-through); `convex/runStats.ts`
+per-persona kill attribution (phase-7 known issue, structurally
+zero since phase 6); harness auto-retry for Convex OCC transients
+(not invoked this run, but the manual replacement policy stands).
+
+## 18. Next-slice intent — jam-captured 2026-05-14 (not yet dispatched)
+
+> **Status:** intent capture from a post-phase-9 replay walkthrough. Two
+> threads land together as the next slice: (a) substrate — body-collision
+> damage (chars + walls) as an undocumented discoverable mechanic, and
+> (b) overseer v0 refinement — start-of-N replay semantics + a widened
+> TurnFeed that surfaces the agent's Status card alongside the decision
+> feed.
+
+### Body-collision damage (the "charge" mechanic)
+
+A discoverable substrate-only mechanic. **No tool-schema surface, no
+system-prompt teaching, no new `action.kind`.** Agents become aware
+of it the same way prompt-injection emerged in the design: by
+accidentally producing the behaviour and reading the outcome line.
+Pillar 5 (text is terrain — the outcome line *is* the discovery
+channel) and pillar 6 (substrate produces emergent strategy without
+engine-enforced rules) carry this.
+
+**Char-on-char (charge):**
+- A mover whose substep desired tile is occupied by a *living enemy*
+  takes 1 dmg, deals 1 dmg to the defender, and stays at their
+  start-of-substep tile (same blocking behaviour as today — no
+  displacement). Substep loop terminates for that mover.
+- Bilateral charge (A→B and B→A simultaneously): both take 1 dmg
+  from each other. Neither can counter the other — both committed to
+  `position:{kind:"move"}` this turn, and counter is a different
+  position kind. Counter and charge are mutually exclusive by the
+  five-field tool shape (§15).
+- A stationary counter-stance defender being charged DOES fire
+  counter on the charger — the charge damage event enters the same
+  pipeline as a regular attack. The defender's counter retaliation
+  follows the existing counter pass (`resolution.ts` §counter-fire),
+  so this falls out for free if the engine enqueues the charge as a
+  damage event in `attacks[]`.
+- Hidden charger is revealed by proximity (existing pillar — no new
+  reveal logic; charger ends adjacent to defender, proximity
+  reveal-in-cover applies).
+
+**Char-on-wall (wall-bump):**
+- A cardinal dead-stop into a wall costs the mover 1 dmg
+  (self-damage). A diagonal dead-stop where neither cardinal slide
+  is available is also a dead-stop — same 1 dmg.
+- A diagonal slide along a wall (one cardinal cleared) is *not* a
+  bump — the mover routed past, no damage. Slide is the success
+  case; dmg is reserved for the actual bonk.
+- The current trace gap matters here: a partial-distance move that
+  terminates mid-budget because of a wall (e.g. moved 2 of 3 east,
+  hit a wall on the third step) silently drops the wall-bump signal
+  today — emits only `"moved 2 E"` with no `blockedBy:"wall"`. The
+  fix for self-dmg has to close this trace gap too: any wall-bonk
+  ends the substep loop AND attaches the bump signal to the move
+  trace, regardless of whether other steps committed.
+- Boundary edge (off-grid attempt): treated as a wall for self-dmg
+  purposes. Walking into the edge of the map is a bonk.
+  *(Open clarifier — confirm before implementation.)*
+
+**Trace shape (engine-internal, NOT decision-surface):**
+The charge and wall-bump signals attach to the existing `moves[]`
+trace entry — not as a new `actions[]` kind. The damage events feed
+into the same `attacks[]` damage pipeline so counter, applyDamage,
+and the deaths phase all see them with zero new branching. The
+outcome-line render path (`renderMoveFragment` in `inputBuilder.ts`)
+gains the body-collision phrasing:
+
+- Aggressor's own outcome: `"You charged into Duelist (dmg 1, took 1)"`
+- Defender's damage feed: `"Duelist charged into you (dmg 1)"`
+- Wall self-bump: `"You tried to move and hit Wall_39_70 (took 1)"`
+
+Exact wording is a tuning detail; the grammar is that **the outcome
+line carries the truth about what happened** (pillar 1 — failures
+attributable to the prompt).
+
+**Frequency expectation:** low. This is a 1-dmg scratch — a gentle
+reminder that obstacles exist, not a damage-vector strategy. Trader
+and Vulture personas might stumble into it and scratchpad-note;
+Camper and Rat may never trigger it. That's the intended discovery
+curve — emergent, not balanced-around.
+
+### Overseer v0 refinement — start-of-N + widened TurnFeed
+
+The replay's grid currently renders **end-of-N** state — the
+position everyone ended up at after turn N's resolution. This is
+the natural read of `reconstruct(bundle, N)` walking turns 1..N
+inclusive. The user's actual loop is reading the agent's Status
+card, the Vision they had, and their reasoning **against** the map
+position — which is the *start-of-N* state (= end-of-N−1). The
+end-of-N rendering creates a constant temporal-mismatch tax on the
+overseer's job.
+
+Flip to **start-of-N semantics**: when the stepper shows "Turn N",
+the grid renders the state the agents *saw* when deciding turn N.
+The right-hand TurnFeed line for turn N then reads as "and here's
+what they did about it" — same temporal footing as the grid. The
+fix is a one-line shift (`reconstruct(bundle, currentTurn - 1)`),
+but ripples into HoverCard labels, URL `?turn=N` semantics, and
+TurnFeed expectations.
+
+**Widen the TurnFeed column.** The current ~40% feed column is
+narrow because the original layout assumed feed-only context. The
+overseer is widescreen; the feed should include the agent's full
+**Status card** (HP / weapon / armour / consumable / scratchpad /
+inside-evac flag — same fields as the per-turn input's `## Status`
+block) alongside the decision feed. Reading Status + reasoning +
+Vision + map position together is the diagnostic loop the user is
+actually running. Cap is "fill the widescreen", not "stay at 40%".
+
+Both threads are diagnostic-grade refinements to the v0 overseer
+(§11), not the consumer-renderer slice. They preserve the
+batch-fetch + step-don't-stream + ground-truth-always posture.
+
 ## 12. Open questions / live tensions
 
 Tracked here because they shape the why, not the how:

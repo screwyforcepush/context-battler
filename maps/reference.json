@@ -2,6 +2,10 @@
   "_comment": "WP3 reference map descriptor. 100x100 arena. Hand-authored per ADR §5. Coordinate system: (0,0) top-left, x→east, y→south. Walls + cover are axis-aligned rectangles {x,y,w,h}. Spawns are 8 perimeter points (avoiding corners). Evac centre is (48,48) — 3x3 zone occupies (47,47)..(49,49). Phase-1 invariant: same map every run; same rngSeed → same chest contents and persona-to-spawn permutation. Layout intent: four scattered room-clusters in the four interior quadrants, a central open arena around evac, cover clusters dense around evac to encourage camper signal. Every wall is small (≤6 in either dim) with significant gaps so no spawn is isolated and reachability to evac holds for all 8 spawns. WP15 may iterate; this is the first playable pass.",
   "size": { "w": 100, "h": 100 },
   "walls": [
+    { "x": 0,  "y": 0,  "w": 100, "h": 1 },
+    { "x": 0,  "y": 99, "w": 100, "h": 1 },
+    { "x": 0,  "y": 1,  "w": 1,   "h": 98 },
+    { "x": 99, "y": 1,  "w": 1,   "h": 98 },
     { "x": 18, "y": 18, "w": 6, "h": 1 },
     { "x": 24, "y": 18, "w": 1, "h": 6 },
     { "x": 76, "y": 18, "w": 6, "h": 1 },
