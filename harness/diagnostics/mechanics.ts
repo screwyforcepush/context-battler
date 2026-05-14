@@ -197,9 +197,7 @@ export function computeMechanicsDiagnostics(
       }
 
       for (const outcome of record.lootOutcomeFeed) {
-        const target = record.decision.action.kind === "loot"
-          ? record.decision.action.targetId
-          : "";
+        const target = outcome.target ?? "";
         if (isChestTarget(target)) {
           if (outcome.result === "opened") {
             chestOpened += 1;

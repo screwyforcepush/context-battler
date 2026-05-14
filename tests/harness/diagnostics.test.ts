@@ -293,7 +293,9 @@ describe("diagnostics mechanics", () => {
               corpses: 0,
               evacSeen: false,
             },
-            lootOutcomeFeed: [{ result: "opened", item: "speed" }],
+            lootOutcomeFeed: [
+              { result: "opened", item: "speed", target: "Chest_10_20" },
+            ],
           }),
           record({
             characterId: "c_vulture",
@@ -307,7 +309,9 @@ describe("diagnostics mechanics", () => {
               corpses: 1,
               evacSeen: false,
             },
-            lootOutcomeFeed: [{ result: "looted", item: "sword" }],
+            lootOutcomeFeed: [
+              { result: "looted", item: "sword", target: "Corpse_Duelist" },
+            ],
             damageFeedAudit: {
               incoming: 1,
               outgoing: 2,
@@ -353,6 +357,61 @@ describe("diagnostics mechanics", () => {
       characterId: "c_runner",
       declared: 5,
       actual: 2,
+    });
+  });
+
+  it("credits loot outcomes by outcome.target, independent of the current-turn decision", () => {
+    const rows = [
+      turn({
+        turn: 5,
+        agentRecords: [
+          // Looted last turn, moving on this turn (decision is not a loot).
+          // Previously this case was silently dropped because the counter
+          // keyed off decision.action.targetId instead of outcome.target.
+          record({
+            characterId: "c_chest_walker",
+            decision: moveDecision(2),
+            lootOutcomeFeed: [
+              { result: "opened", item: "sword", target: "Chest_30_40" },
+            ],
+          }),
+          // Drained a corpse last turn, attacking this turn.
+          record({
+            characterId: "c_corpse_attacker",
+            decision: moveDecision(0, { kind: "attack", targetId: "Rat" }),
+            lootOutcomeFeed: [
+              { result: "looted", item: "leather", target: "Corpse_Rat" },
+            ],
+          }),
+          // Opened a dud chest last turn (no item), idle now.
+          record({
+            characterId: "c_dud_chest",
+            decision: NONE_DECISION,
+            lootOutcomeFeed: [
+              { result: "opened", target: "Chest_70_70" },
+            ],
+          }),
+          // Hit an already-drained corpse last turn, idle now.
+          record({
+            characterId: "c_drained_corpse",
+            decision: NONE_DECISION,
+            lootOutcomeFeed: [
+              { result: "already_opened", target: "Corpse_Duelist" },
+            ],
+          }),
+        ],
+      }),
+    ];
+
+    const out = computeMechanicsDiagnostics(rows);
+
+    expect(out.loot.chest).toMatchObject({
+      opened: 2,
+      equipped: 1,
+    });
+    expect(out.loot.corpse).toMatchObject({
+      looted: 1,
+      drainedRepeat: 1,
     });
   });
 });

@@ -548,6 +548,35 @@ pause, true stationary, saw-enemy/no-op, equipment cross-cuts including
 consumable-present); harness auto-retry for Convex OCC transients;
 server-side fan-out or pagination if a future closing-50 needs it.
 
+**Diagnostic correctness addendum (2026-05-14).** Smoke-validating the
+pillar-8 vision filter surfaced two metric bugs in the observability layer
+that survived the phase-7 review's "diagnostics-trustworthy" approval:
+
+- **Fixed (2026-05-14):** `harness/diagnostics/mechanics.ts` was keying loot
+  outcomes off the current-turn `decision.action.targetId` instead of the
+  outcome's own `target` field — so successful chest/corpse opens were only
+  counted when the agent happened to loot two turns in a row. Under-reported
+  chest opens by ~10× (`opened 4` reported vs `opened 42` ground truth) and
+  corpse loots by ~3×. The diagnostic that should have validated the
+  pillar-8 substrate change was the one lying about it.
+
+- **Known issue (backlogged):** `convex/engine/runStats.ts` per-persona kill
+  attribution has been **structurally zero since phase 6**. The aggregator
+  does `deathSet.has(a.target)` where `a.target` is a persona name (post-iter-2
+  agent-id surface) and `deathSet` contains Convex character IDs — never
+  matches. Top-level `kills` (=`deaths.length`) works, so closing-report
+  kill-rate thresholds keep passing, but `perPersona[*].kills` is silently
+  always zero. The same data is consumed correctly by
+  `convex/turnsDerived.ts:auditDamageFeed` via `buildTargetIdLookup` — that
+  participant-translation pattern is the obvious fix to mirror. Bonus
+  footnote: counter-kills (`kind: "counter"`) are excluded from credit even
+  with the namespace fix; counter-fire that lands lethally goes
+  unattributed. Same contract-drift family as the WP-G / WP-H pattern
+  flagged in §16 phase-3 closure ("the third occurrence" — this is the
+  fourth). Carried as a known issue rather than fixed inline because the
+  fix touches `runStats.test.ts` test contract beyond a one-line tweak;
+  pick up as a small assignment before any persona-kill-driven tuning pass.
+
 **Substrate addendum (2026-05-13) — Vision is the affordance channel.**
 Stepping through post-iter-3 matches surfaced agents repeatedly looting
 empty chests despite the outcome line `looted nothing from empty
