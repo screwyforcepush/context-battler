@@ -76,7 +76,11 @@ export function summariseDecision(
     decision.scratchpad,
   );
 
-  const oneLineParts: string[] = [positionIntent];
+  const renderedPosition =
+    positionOutcome && isNotablePositionOutcome(positionOutcome)
+      ? `${positionIntent} — ${positionOutcome}`
+      : positionIntent;
+  const oneLineParts: string[] = [renderedPosition];
   if (actionIntent) {
     if (actionOutcome && !isOutcomeRedundantWithIntent(actionIntent, actionOutcome)) {
       oneLineParts.push(`${actionIntent} — ${actionOutcome}`);
@@ -196,7 +200,7 @@ function renderPositionOutcome(
   characterById: Map<Id<"characters">, Doc<"characters">>,
 ): string | null {
   if (decision.position.kind === "move") {
-    return renderMoveOutcome(resolution, me);
+    return renderMoveOutcome(resolution, me, characterById);
   }
 
   const entries = findReactiveActionEntries(resolution, me).filter(
@@ -216,12 +220,38 @@ function renderPositionOutcome(
 function renderMoveOutcome(
   resolution: TurnResolution,
   me: Id<"characters">,
+  characterById: Map<Id<"characters">, Doc<"characters">>,
 ): string | null {
   const entry = resolution.moves.find((m) => m.characterId === me);
   if (!entry) return null;
   const base = `(${entry.from.x},${entry.from.y}) → (${entry.to.x},${entry.to.y})`;
-  if (entry.blockedBy === "wall") return `${base} → hit wall`;
-  return base;
+  const fragments: string[] = [];
+  if (entry.slide) {
+    fragments.push(`hugged ${entry.slide.wallRectId} ${entry.slide.axis}`);
+  }
+  if (entry.bodyCollision?.kind === "character") {
+    fragments.push(
+      `charged into ${resolveCharacterName(
+        entry.bodyCollision.defenderId as Id<"characters">,
+        characterById,
+      )} (dmg 1, took 1)`,
+    );
+  } else if (entry.bodyCollision?.kind === "wall") {
+    fragments.push(`bumped into ${entry.bodyCollision.wallRectId} (took 1)`);
+  } else if (entry.blockedBy === "wall") {
+    fragments.push("hit wall");
+  }
+  if (fragments.length === 0) return base;
+  return `${base} → ${fragments.join("; ")}`;
+}
+
+function isNotablePositionOutcome(outcome: string): boolean {
+  return (
+    outcome.includes("charged into ") ||
+    outcome.includes("bumped into ") ||
+    outcome.includes("hugged ") ||
+    outcome.includes("hit wall")
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

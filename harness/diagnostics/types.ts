@@ -52,6 +52,15 @@ export type DamageFeedAudit = {
   missingOutgoing?: number;
   expectedDealtKills?: number;
   missingDealtKills?: number;
+  bodyCollisionIncoming?: number;
+  bodyCollisionExpectedIncoming?: number;
+  bodyCollisionMissingIncoming?: number;
+  bodyCollisionOutgoing?: number;
+  bodyCollisionExpectedOutgoing?: number;
+  bodyCollisionMissingOutgoing?: number;
+  chargeDamageFeedDelivered?: number;
+  chargeDamageFeedExpected?: number;
+  chargeDamageFeedMissing?: number;
 };
 
 export type LootOutcomeFeedEntry = {
@@ -121,6 +130,9 @@ export type ResolutionMove = {
     axis: "N" | "E" | "S" | "W";
     intent: string;
   };
+  bodyCollision?:
+    | { kind: "character"; defenderId: string }
+    | { kind: "wall"; wallRectId: string };
 };
 
 export type ResolutionAction = {

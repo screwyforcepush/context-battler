@@ -553,6 +553,34 @@ describe("phase-6 schema mirror", () => {
     );
   });
 
+  it("moves[].bodyCollision validator shape is mirrored at the write-time gate", () => {
+    const schemaMoves = arrayElement(
+      objectField(schemaValidators().resolution, "moves", "schema.resolution")
+        .fieldType,
+      "schema.resolution.moves",
+    );
+    const mirrorMoves = arrayElement(
+      objectField(mirrorValidators().resolution, "moves", "mirror.resolution")
+        .fieldType,
+      "mirror.resolution.moves",
+    );
+    const schemaBodyCollision = objectField(
+      schemaMoves,
+      "bodyCollision",
+      "schema.resolution.moves[]",
+    );
+    const mirrorBodyCollision = objectField(
+      mirrorMoves,
+      "bodyCollision",
+      "mirror.resolution.moves[]",
+    );
+
+    expect(schemaBodyCollision.optional).toBe(true);
+    expect(canonicalJson(mirrorBodyCollision)).toBe(
+      canonicalJson(schemaBodyCollision),
+    );
+  });
+
   it("decision top-level fields match both tool variants", () => {
     const fromSchema = fieldNames(
       decisionField(schemaValidators().agentRecord, "schema.agentRecord"),

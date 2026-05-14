@@ -7,7 +7,8 @@
 //     because completed matches are terminal (no subscription needed; ADR §3).
 //   - `<TurnStepper>` row at the top of the body — slider + Next button +
 //     URL `?turn=N` sync.
-//   - Two-column body: ~60% Grid + hover-listener wrapper, ~40% TurnFeed.
+//   - Two-column body: square Grid + hover-listener wrapper, TurnFeed takes
+//     the remaining widescreen width.
 //   - Hover-target dispatch via React event delegation on the Grid wrapper —
 //     reads `data-token-kind` / `data-character-id` / `data-chest-id` from
 //     Grid.tsx (WP-B) and constructs a HoverTarget for WP-D's HoverCard.
@@ -113,7 +114,7 @@ export function Replay(props: {
 
   const snapshot = useMemo(() => {
     if (!bundle || hasVintageAgentRecords) return null;
-    return reconstruct(bundle, currentTurn);
+    return reconstruct(bundle, gridSnapshotTurnForReplay(currentTurn));
   }, [bundle, currentTurn, hasVintageAgentRecords]);
 
   // ── Hover listener: delegated event handlers on the Grid wrapper. ───
@@ -283,6 +284,8 @@ export function Replay(props: {
 
   const totalTurns = bundle.match.turn;
   const extractedCount = bundle.match.outcome?.extracted?.length ?? 0;
+  const gridLabel =
+    currentTurn <= 0 ? "spawn positions" : `start of turn ${currentTurn}`;
 
   return (
     <main style={mainStyle}>
@@ -297,8 +300,8 @@ export function Replay(props: {
         <p style={metaStyle}>
           Total turns: <strong>{totalTurns}</strong>
           {" · "}Extracted: <strong>{extractedCount}</strong>
-          {" · "}Current turn:{" "}
-          <strong>{snapshot?.turn ?? currentTurn}</strong>
+          {" · "}Inspecting turn: <strong>{currentTurn}</strong>
+          {" · "}Grid: <strong>{gridLabel}</strong>
         </p>
       </header>
 
@@ -392,6 +395,10 @@ function normaliseDisplayName(name: string): string {
   return name.trim().toLowerCase();
 }
 
+export function gridSnapshotTurnForReplay(currentTurn: number): number {
+  return Math.max(0, currentTurn - 1);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Styles
 // ─────────────────────────────────────────────────────────────────────────────
@@ -399,7 +406,7 @@ function normaliseDisplayName(name: string): string {
 const mainStyle: React.CSSProperties = {
   fontFamily: "system-ui, -apple-system, sans-serif",
   padding: "1rem 1.5rem",
-  maxWidth: "1600px",
+  maxWidth: "1920px",
   margin: "0 auto",
   color: "#1a1a1a",
   display: "flex",
@@ -514,7 +521,9 @@ const bodyLayoutStyle: React.CSSProperties = {
 };
 
 const gridColStyle: React.CSSProperties = {
-  flex: "0 0 60%",
+  flex: "0 0 auto",
+  height: "100%",
+  aspectRatio: "1 / 1",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -529,6 +538,7 @@ const gridColStyle: React.CSSProperties = {
 // always fits within the remaining viewport (AC#4 — fit-to-viewport;
 // closure-readiness round-1 Med-1).
 const gridSquareStyle: React.CSSProperties = {
+  width: "100%",
   height: "100%",
   aspectRatio: "1 / 1",
   maxWidth: "100%",
@@ -536,7 +546,7 @@ const gridSquareStyle: React.CSSProperties = {
 };
 
 const feedColStyle: React.CSSProperties = {
-  flex: "1 1 40%",
+  flex: "1 1 auto",
   display: "flex",
   minWidth: 0,
   minHeight: 0,

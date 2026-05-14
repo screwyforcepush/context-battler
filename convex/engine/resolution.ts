@@ -109,6 +109,9 @@ export type ResolutionTrace = {
       axis: "N" | "E" | "S" | "W";
       intent: string;
     };
+    bodyCollision?:
+      | { kind: "character"; defenderId: string }
+      | { kind: "wall"; wallRectId: string };
   }>;
   // Phase 6 traces use explicit action kinds: offensive overwatch writes
   // kind="overwatch" with triggeredByMovement=true, while counter-fire writes
@@ -316,8 +319,43 @@ export function resolveTurn(
     attackerId: string;
     defenderId: string;
     dmg: number;
+    source?: "bodyCollision";
+    revealsAttacker?: boolean;
   };
   const attacks: AttackEvent[] = [];
+  const collidedPairs = new Set<string>();
+  for (const move of moveResult.moves) {
+    const collision = move.bodyCollision;
+    if (!collision) continue;
+    if (collision.kind === "character") {
+      const other = collision.defenderId;
+      const key = [move.characterId, other].sort().join("|");
+      if (collidedPairs.has(key)) continue;
+      collidedPairs.add(key);
+      attacks.push({
+        attackerId: move.characterId,
+        defenderId: other,
+        dmg: 1,
+        source: "bodyCollision",
+        revealsAttacker: false,
+      });
+      attacks.push({
+        attackerId: other,
+        defenderId: move.characterId,
+        dmg: 1,
+        source: "bodyCollision",
+        revealsAttacker: false,
+      });
+    } else {
+      attacks.push({
+        attackerId: move.characterId,
+        defenderId: move.characterId,
+        dmg: 1,
+        source: "bodyCollision",
+        revealsAttacker: false,
+      });
+    }
+  }
   // Collect interact / loot mutations to apply post-attacks (these don't
   // affect simultaneity with attacks; sequencing them after attack
   // collection is fine because they don't target characters).
@@ -625,8 +663,12 @@ export function resolveTurn(
       attackerId: string;
     };
     const pending: PendingCounter[] = [];
+    const pendingCounterKeys = new Set<string>();
     for (const atk of originalAttacks) {
       if (!counterActors.has(atk.defenderId)) continue;
+      const key = `${atk.defenderId}|${atk.attackerId}`;
+      if (pendingCounterKeys.has(key)) continue;
+      pendingCounterKeys.add(key);
       pending.push({
         overwatcherId: atk.defenderId,
         attackerId: atk.attackerId,
@@ -700,6 +742,7 @@ export function resolveTurn(
 
   // Reveal attackers (overwatch + stationary attack) AFTER damage applied.
   for (const atk of attacks) {
+    if (atk.revealsAttacker === false) continue;
     const attacker = working.characters.find(
       (c) => c.characterId === atk.attackerId,
     );

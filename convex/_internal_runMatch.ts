@@ -203,6 +203,18 @@ const resolutionValidator = v.object({
           intent: v.string(),
         }),
       ),
+      bodyCollision: v.optional(
+        v.union(
+          v.object({
+            kind: v.literal("character"),
+            defenderId: v.id("characters"),
+          }),
+          v.object({
+            kind: v.literal("wall"),
+            wallRectId: v.string(),
+          }),
+        ),
+      ),
     }),
   ),
   actions: v.array(

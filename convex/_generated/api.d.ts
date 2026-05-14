@@ -32,6 +32,7 @@ import type * as llm_systemPrompt from "../llm/systemPrompt.js";
 import type * as matches from "../matches.js";
 import type * as replay from "../replay.js";
 import type * as reports from "../reports.js";
+import type * as reports_phase10 from "../reports/phase10.js";
 import type * as reports_phase3 from "../reports/phase3.js";
 import type * as reports_phase6 from "../reports/phase6.js";
 import type * as reports_phase7 from "../reports/phase7.js";
@@ -74,6 +75,7 @@ declare const fullApi: ApiFromModules<{
   matches: typeof matches;
   replay: typeof replay;
   reports: typeof reports;
+  "reports/phase10": typeof reports_phase10;
   "reports/phase3": typeof reports_phase3;
   "reports/phase6": typeof reports_phase6;
   "reports/phase7": typeof reports_phase7;

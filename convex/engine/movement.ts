@@ -252,6 +252,9 @@ export type MoveTraceEntry = {
     axis: "N" | "E" | "S" | "W";
     intent: string;
   };
+  bodyCollision?:
+    | { kind: "character"; defenderId: string }
+    | { kind: "wall"; wallRectId: string };
 };
 
 export type SimulateOptions = {
@@ -262,6 +265,27 @@ export type SimulateOptions = {
 };
 
 type SlideTrace = NonNullable<MoveTraceEntry["slide"]>;
+type BodyCollisionTrace = NonNullable<MoveTraceEntry["bodyCollision"]>;
+type WallBumpTrace = Extract<BodyCollisionTrace, { kind: "wall" }>;
+type CharacterCollisionTrace = Extract<
+  BodyCollisionTrace,
+  { kind: "character" }
+>;
+
+function livingCharacterAtTile(
+  tile: Tile,
+  state: MatchState,
+  characterId: string,
+  pendingPositions: ReadonlyMap<string, Tile>,
+): string | null {
+  for (const [id, p] of pendingPositions.entries()) {
+    if (id === characterId) continue;
+    if (p.x !== tile.x || p.y !== tile.y) continue;
+    const c = state.characters.find((c) => c.characterId === id);
+    if (c && c.alive) return id;
+  }
+  return null;
+}
 
 function movementIntent(decision: ParsedDecision): string | null {
   if (decision.position.kind !== "move") return null;
@@ -377,6 +401,8 @@ export function simulateMovement(
     currentPos.set(ch.characterId, { x: ch.pos.x, y: ch.pos.y });
   }
   const slideByMover = new Map<string, SlideTrace>();
+  const bumpByMover = new Map<string, WallBumpTrace>();
+  const chargeByMover = new Map<string, CharacterCollisionTrace>();
 
   // Per substep:
   for (let step = 0; step < MAX_BUDGET; step++) {
@@ -420,9 +446,37 @@ export function simulateMovement(
         planned.push({ mover: d.mover, tile: d.tile });
         continue;
       }
-      if (!tileBlockedByWall(d.tile, snapshot.world.walls)) continue;
-      const slide = tryResolveSlide(d.tile, snapshot, d.mover, currentPos);
-      if (slide) planned.push({ mover: d.mover, ...slide });
+      const wall = wallForTile(d.tile, snapshot.world.walls);
+      if (wall) {
+        const slide = tryResolveSlide(d.tile, snapshot, d.mover, currentPos);
+        if (slide) {
+          planned.push({ mover: d.mover, ...slide });
+          continue;
+        }
+        if (!bumpByMover.has(d.mover.characterId)) {
+          bumpByMover.set(d.mover.characterId, {
+            kind: "wall",
+            wallRectId: formatWallRectId(wall),
+          });
+        }
+        d.mover.budget = 0;
+        continue;
+      }
+      const defenderId = livingCharacterAtTile(
+        d.tile,
+        snapshot,
+        d.mover.characterId,
+        currentPos,
+      );
+      if (defenderId) {
+        if (!chargeByMover.has(d.mover.characterId)) {
+          chargeByMover.set(d.mover.characterId, {
+            kind: "character",
+            defenderId,
+          });
+        }
+        d.mover.budget = 0;
+      }
     }
 
     const plannedTileCounts = new Map<string, number>();
@@ -462,17 +516,6 @@ export function simulateMovement(
   }
 
   // Build the new state and the moves trace.
-  //
-  // Phase-3 ADR §9 — wall-blocked move emit. When `start === end`
-  // (mover did not move) AND the agent's INTENDED next-step direction
-  // was a wall tile, push `{characterId, from===to, blockedBy: "wall"}`.
-  // Other start===end causes (no-move decision, character-blocked,
-  // off-grid) emit nothing — existing absence is correct (per ADR §9).
-  //
-  // The "intended next-step direction" is computed via `desiredNextTile`
-  // against the start-of-turn snapshot. We only emit `blockedBy: "wall"`
-  // when the desired tile is INSIDE a wall rectangle; if the desired
-  // tile is null, off-grid, or blocked by a character, emit nothing.
   const moves: MoveTraceEntry[] = [];
   const nextCharacters = state.characters.map((ch) => {
     const finalPos = currentPos.get(ch.characterId);
@@ -480,62 +523,32 @@ export function simulateMovement(
     if (finalPos.x === ch.pos.x && finalPos.y === ch.pos.y) return ch;
     return { ...ch, pos: finalPos };
   });
-  // Build a fresh start-of-turn snapshot to recompute the would-be
-  // desired tile for stuck movers (independent of the substep loop).
-  const startSnapshot: MatchState = {
-    ...state,
-    characters: state.characters.map((c) => {
-      const p = startPos.get(c.characterId);
-      return p ? { ...c, pos: p } : c;
-    }),
-  };
   for (const id of moverIds) {
     const start = startPos.get(id);
     const end = currentPos.get(id);
     if (!start || !end) continue;
-    if (start.x !== end.x || start.y !== end.y) {
-      const slide = slideByMover.get(id);
-      moves.push({
-        characterId: id,
-        from: start,
-        to: end,
-        ...(slide ? { slide } : {}),
-      });
+    const moved = start.x !== end.x || start.y !== end.y;
+    const slide = slideByMover.get(id);
+    const bump = bumpByMover.get(id);
+    const charge = chargeByMover.get(id);
+    if (!moved && !slide && !bump && !charge) {
       continue;
     }
-    // start === end. Determine if a wall blocked the intended step.
-    const mover = movers.find((m) => m.characterId === id);
-    if (!mover) continue;
-    if (mover.budget <= 0) continue; // non-move or dist:0
-    // Reset budget on the snapshot mover so desiredNextTile yields the
-    // start-of-turn step intent (the substep loop has decremented the
-    // real mover's budget; we want the original intent).
-    const snapshotMover: Mover = {
-      ...mover,
-      budget:
-        mover.decision.position.kind === "move"
-          ? Math.max(0, Math.min(DEFAULT_BUDGET, mover.decision.position.dist))
-          : 0,
+
+    const entry: MoveTraceEntry = {
+      characterId: id,
+      from: start,
+      to: end,
     };
-    const desired = desiredNextTile(startSnapshot, snapshotMover);
-    if (!desired) continue; // no-move intent → emit nothing
-    if (
-      desired.x < 0 ||
-      desired.y < 0 ||
-      desired.x >= state.world.size.w ||
-      desired.y >= state.world.size.h
-    ) {
-      continue; // off-grid → emit nothing per ADR §9
+    if (slide) entry.slide = slide;
+    if (bump) {
+      entry.bodyCollision = bump;
+      if (!moved) entry.blockedBy = "wall";
     }
-    if (tileBlockedByWall(desired, state.world.walls)) {
-      moves.push({
-        characterId: id,
-        from: start,
-        to: end,
-        blockedBy: "wall",
-      });
+    if (charge) {
+      entry.bodyCollision = charge;
     }
-    // else: blocked by character or conflict — emit nothing per ADR §9.
+    moves.push(entry);
   }
 
   return {

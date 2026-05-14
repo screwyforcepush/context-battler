@@ -7,8 +7,9 @@
 // resolves the DOM target → `HoverTarget`, and passes it here as a prop.
 //
 // Render contract (per `work-packages.md` WP-D + ADR §9 D-P2-11 / §10 D-P2-12):
-//   - agent (live): persona, displayName, position, alive/hidden flags, and
-//     the one-line decision summary for `currentTurn`. Equipment + HP rows
+//   - agent (live): persona, displayName, start-of-turn position,
+//     alive/hidden flags, and the one-line decision summary for `currentTurn`.
+//     Equipment + HP rows
 //     literally read "see expand panel" — substrate doesn't persist them
 //     per turn, the agent's own view lives in `agentRecord.input.visibleStateDigest`
 //     surfaced by ExpandModal.
@@ -182,7 +183,7 @@ function AgentHover(props: {
             <Row label="persona" value={character.personaId} />
             <Row label="status" value={`died turn ${snapEntry.diedAtTurn}`} />
             <Row
-              label="position"
+              label="start pos"
               value={`(${snapEntry.pos.x}, ${snapEntry.pos.y})`}
             />
           </>
@@ -221,7 +222,7 @@ function AgentHover(props: {
       body={
         <>
           <Row label="persona" value={character.personaId} />
-          <Row label="position" value={`(${pos.x}, ${pos.y})`} />
+          <Row label="start pos" value={`(${pos.x}, ${pos.y})`} />
           <Row label="alive" value={snapEntry?.alive ? "yes" : "no"} />
           <Row
             label="hidden"

@@ -457,16 +457,19 @@ export function adaptResolutionForSchema(
       axis: "N" | "E" | "S" | "W";
       intent: string;
     };
+    bodyCollision?:
+      | { kind: "character"; defenderId: Id<"characters"> }
+      | { kind: "wall"; wallRectId: string };
   }>;
-	  actions: Array<{
-	    characterId: Id<"characters">;
-	    kind: "attack" | "loot" | "overwatch" | "counter";
-	    target: string;
-	    result: string;
-	    triggeredByMovement?: boolean;
-	    weapon?: string;
-	    lootedItem?: string;
-	  }>;
+  actions: Array<{
+    characterId: Id<"characters">;
+    kind: "attack" | "loot" | "overwatch" | "counter";
+    target: string;
+    result: string;
+    triggeredByMovement?: boolean;
+    weapon?: string;
+    lootedItem?: string;
+  }>;
   deaths: Id<"characters">[];
   visibilityUpdates: Array<{
     characterId: Id<"characters">;
@@ -499,15 +502,27 @@ export function adaptResolutionForSchema(
       // schema validator is `v.optional(v.literal("wall"))`.
       ...(m.blockedBy !== undefined ? { blockedBy: m.blockedBy } : {}),
       ...(m.slide !== undefined ? { slide: m.slide } : {}),
+      ...(m.bodyCollision !== undefined
+        ? {
+            bodyCollision:
+              m.bodyCollision.kind === "character"
+                ? {
+                    kind: "character" as const,
+                    defenderId:
+                      m.bodyCollision.defenderId as Id<"characters">,
+                  }
+                : m.bodyCollision,
+          }
+        : {}),
     })),
-	    actions: trace.actions.map((a) => ({
-	      characterId: a.characterId as Id<"characters">,
-	      kind: a.kind,
-	      target: a.target,
-	      result: a.result,
-	      ...(a.triggeredByMovement !== undefined
-	        ? { triggeredByMovement: a.triggeredByMovement }
-	        : {}),
+    actions: trace.actions.map((a) => ({
+      characterId: a.characterId as Id<"characters">,
+      kind: a.kind,
+      target: a.target,
+      result: a.result,
+      ...(a.triggeredByMovement !== undefined
+        ? { triggeredByMovement: a.triggeredByMovement }
+        : {}),
       ...(a.weapon !== undefined ? { weapon: a.weapon } : {}),
       ...(a.lootedItem !== undefined ? { lootedItem: a.lootedItem } : {}),
     })),
@@ -526,6 +541,10 @@ type PersistedSlideTrace = {
   intent: string;
 };
 
+type PersistedBodyCollisionTrace =
+  | { kind: "character"; defenderId: string }
+  | { kind: "wall"; wallRectId: string };
+
 type PersistedPriorTurnRow = {
   resolution: {
     consumed: ReadonlyArray<{
@@ -543,6 +562,7 @@ type PersistedPriorTurnRow = {
       to: Tile;
       blockedBy?: "wall";
       slide?: PersistedSlideTrace;
+      bodyCollision?: PersistedBodyCollisionTrace;
     }>;
     actions: ReadonlyArray<{
       characterId: string;
@@ -587,6 +607,9 @@ export function adaptPriorTurnRowForBuilder(
         to: { x: m.to.x, y: m.to.y },
         ...(m.blockedBy ? { blockedBy: m.blockedBy } : {}),
         ...(m.slide !== undefined ? { slide: m.slide } : {}),
+        ...(m.bodyCollision !== undefined
+          ? { bodyCollision: m.bodyCollision }
+          : {}),
       })),
       actions: priorTurnRow.resolution.actions.map((a) => ({
         characterId: a.characterId as string,

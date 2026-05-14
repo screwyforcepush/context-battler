@@ -26,6 +26,15 @@ type DamageFeedAudit = {
   missingOutgoing: number;
   expectedDealtKills: number;
   missingDealtKills: number;
+  bodyCollisionIncoming?: number;
+  bodyCollisionExpectedIncoming?: number;
+  bodyCollisionMissingIncoming?: number;
+  bodyCollisionOutgoing?: number;
+  bodyCollisionExpectedOutgoing?: number;
+  bodyCollisionMissingOutgoing?: number;
+  chargeDamageFeedDelivered?: number;
+  chargeDamageFeedExpected?: number;
+  chargeDamageFeedMissing?: number;
 };
 
 type AgentInputLike = {
@@ -89,6 +98,9 @@ type ResolutionMoveLike = {
     axis: "N" | "E" | "S" | "W";
     intent: string;
   };
+  bodyCollision?:
+    | { kind: "character"; defenderId: string }
+    | { kind: "wall"; wallRectId: string };
 };
 
 type ResolutionLike = {
@@ -363,6 +375,22 @@ function emptyDamageFeedAudit(): DamageFeedAudit {
   };
 }
 
+function incrementDamageAudit(
+  audit: DamageFeedAudit,
+  key: keyof DamageFeedAudit,
+): void {
+  audit[key] = (audit[key] ?? 0) + 1;
+}
+
+function ensureDamageAuditKeys(
+  audit: DamageFeedAudit,
+  keys: readonly (keyof DamageFeedAudit)[],
+): void {
+  for (const key of keys) {
+    audit[key] = audit[key] ?? 0;
+  }
+}
+
 // Same-turn damage involvement helper; projectSlimTurnRows uses cross-turn
 // composed-message evidence for the delivery-facing damageFeedAudit field.
 export function auditDamageFeed(
@@ -623,6 +651,84 @@ function buildDeliverySignals(
         attackerSignals.damageFeedAudit.dealtKills += 1;
       } else {
         attackerSignals.damageFeedAudit.missingDealtKills += 1;
+      }
+    }
+  }
+
+  for (const move of previousRow.resolution.moves) {
+    const bodyCollision = move.bodyCollision;
+    if (bodyCollision?.kind !== "character") continue;
+
+    const chargerName = displayNameForParticipant(
+      move.characterId,
+      participants,
+    );
+    const expectedDamageLine = `${chargerName} charged into you (dmg 1)`;
+    const defenderRecord = currentRecords.get(bodyCollision.defenderId);
+    const defenderSignals = signalsByCharacter.get(bodyCollision.defenderId);
+    const chargerSignals = signalsByCharacter.get(move.characterId);
+    if (!defenderRecord || !defenderSignals) continue;
+
+    const delivered =
+      defenderRecord.input.composedUserMessage?.includes(expectedDamageLine) ===
+      true;
+
+    ensureDamageAuditKeys(defenderSignals.damageFeedAudit, [
+      "bodyCollisionIncoming",
+      "bodyCollisionExpectedIncoming",
+      "bodyCollisionMissingIncoming",
+      "chargeDamageFeedDelivered",
+      "chargeDamageFeedExpected",
+      "chargeDamageFeedMissing",
+    ]);
+    incrementDamageAudit(
+      defenderSignals.damageFeedAudit,
+      "bodyCollisionExpectedIncoming",
+    );
+    incrementDamageAudit(
+      defenderSignals.damageFeedAudit,
+      "chargeDamageFeedExpected",
+    );
+    if (delivered) {
+      incrementDamageAudit(
+        defenderSignals.damageFeedAudit,
+        "bodyCollisionIncoming",
+      );
+      incrementDamageAudit(
+        defenderSignals.damageFeedAudit,
+        "chargeDamageFeedDelivered",
+      );
+    } else {
+      incrementDamageAudit(
+        defenderSignals.damageFeedAudit,
+        "bodyCollisionMissingIncoming",
+      );
+      incrementDamageAudit(
+        defenderSignals.damageFeedAudit,
+        "chargeDamageFeedMissing",
+      );
+    }
+
+    if (chargerSignals) {
+      ensureDamageAuditKeys(chargerSignals.damageFeedAudit, [
+        "bodyCollisionOutgoing",
+        "bodyCollisionExpectedOutgoing",
+        "bodyCollisionMissingOutgoing",
+      ]);
+      incrementDamageAudit(
+        chargerSignals.damageFeedAudit,
+        "bodyCollisionExpectedOutgoing",
+      );
+      if (delivered) {
+        incrementDamageAudit(
+          chargerSignals.damageFeedAudit,
+          "bodyCollisionOutgoing",
+        );
+      } else {
+        incrementDamageAudit(
+          chargerSignals.damageFeedAudit,
+          "bodyCollisionMissingOutgoing",
+        );
       }
     }
   }

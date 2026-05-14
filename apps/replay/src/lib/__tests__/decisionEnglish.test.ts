@@ -175,6 +175,128 @@ describe("summariseDecision — Phase 6 position vocabulary", () => {
     expect(out.oneLine).toContain("Moved NE up to 3");
     expect(out.bullets).toContain("Position: Moved NE up to 3 — (1,4) → (4,1)");
   });
+
+  it("renders character body-collision outcomes in summaries and intent-vs-outcome", () => {
+    const me = makeChar("c1", "Camper");
+    const defender = makeChar("c2", "Duelist");
+    const ar = makeAgentRecord(me._id, {
+      position: {
+        kind: "move",
+        direction: { kind: "E" },
+        dist: 1,
+      },
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      moves: [
+        {
+          characterId: me._id,
+          from: { x: 1, y: 1 },
+          to: { x: 1, y: 1 },
+          bodyCollision: { kind: "character", defenderId: defender._id },
+        },
+      ],
+    };
+
+    const out = summariseDecision(ar, res, characterMap(me, defender));
+
+    expect(out.oneLine).toContain("charged into Duelist");
+    expect(out.bullets).toContain(
+      "Position: Moved E up to 1 — (1,1) → (1,1) → charged into Duelist (dmg 1, took 1)",
+    );
+    expect(out.intentVsOutcome[0]?.outcome).toContain(
+      "charged into Duelist",
+    );
+  });
+
+  it("renders wall body-collision outcomes in summaries and intent-vs-outcome", () => {
+    const me = makeChar("c1", "Camper");
+    const ar = makeAgentRecord(me._id, {
+      position: {
+        kind: "move",
+        direction: { kind: "E" },
+        dist: 1,
+      },
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      moves: [
+        {
+          characterId: me._id,
+          from: { x: 1, y: 1 },
+          to: { x: 1, y: 1 },
+          blockedBy: "wall",
+          bodyCollision: { kind: "wall", wallRectId: "Wall_2_1" },
+        },
+      ],
+    };
+
+    const out = summariseDecision(ar, res, characterMap(me));
+
+    expect(out.oneLine).toContain("bumped into Wall_2_1");
+    expect(out.bullets).toContain(
+      "Position: Moved E up to 1 — (1,1) → (1,1) → bumped into Wall_2_1 (took 1)",
+    );
+    expect(out.intentVsOutcome[0]?.outcome).toContain("bumped into Wall_2_1");
+  });
+
+  it("renders slide plus body-collision while preserving slide-only summaries", () => {
+    const me = makeChar("c1", "Camper");
+    const ar = makeAgentRecord(me._id, {
+      position: {
+        kind: "move",
+        direction: { kind: "NE" },
+        dist: 3,
+      },
+    });
+    const slideOnly: TurnResolution = {
+      ...emptyResolution(),
+      moves: [
+        {
+          characterId: me._id,
+          from: { x: 1, y: 4 },
+          to: { x: 2, y: 4 },
+          slide: {
+            wallRectId: "Wall_2_3",
+            axis: "E",
+            intent: "NE",
+          },
+        },
+      ],
+    };
+    const slideThenBump: TurnResolution = {
+      ...emptyResolution(),
+      moves: [
+        {
+          characterId: me._id,
+          from: { x: 1, y: 4 },
+          to: { x: 3, y: 4 },
+          slide: {
+            wallRectId: "Wall_2_3",
+            axis: "E",
+            intent: "NE",
+          },
+          bodyCollision: { kind: "wall", wallRectId: "Wall_4_4" },
+        },
+      ],
+    };
+
+    const slideOnlyOut = summariseDecision(ar, slideOnly, characterMap(me));
+    const bumpOut = summariseDecision(ar, slideThenBump, characterMap(me));
+
+    expect(slideOnlyOut.intentVsOutcome[0]?.outcome).toContain(
+      "hugged Wall_2_3 E",
+    );
+    expect(slideOnlyOut.intentVsOutcome[0]?.outcome).not.toContain(
+      "bumped into",
+    );
+    expect(bumpOut.intentVsOutcome[0]?.outcome).toContain(
+      "hugged Wall_2_3 E",
+    );
+    expect(bumpOut.intentVsOutcome[0]?.outcome).toContain(
+      "bumped into Wall_4_4",
+    );
+  });
 });
 
 describe("summariseDecision — Phase 6 action and reactive outcomes", () => {

@@ -44,6 +44,9 @@ export type PrevTurnRow = {
         axis: "N" | "E" | "S" | "W";
         intent: string;
       };
+      bodyCollision?:
+        | { kind: "character"; defenderId: string }
+        | { kind: "wall"; wallRectId: string };
     }>;
     actions: ReadonlyArray<{
       characterId: string;
@@ -185,6 +188,35 @@ function renderSlideFragment(
   return prefix;
 }
 
+function renderBodyCollisionFragment(
+  state: MatchState,
+  bodyCollision: NonNullable<
+    PrevTurnRow["resolution"]["moves"][number]["bodyCollision"]
+  >,
+): string {
+  if (bodyCollision.kind === "character") {
+    return `charged into ${renderCharacterTypedId(
+      state,
+      bodyCollision.defenderId,
+    )} (dmg 1, took 1)`;
+  }
+  return `tried to move and hit ${bodyCollision.wallRectId} (took 1)`;
+}
+
+function joinMoveFragments(
+  fragments: Array<{ kind: "movement" | "slide" | "collision"; text: string }>,
+): string {
+  let rendered = fragments[0]?.text ?? "";
+  for (let i = 1; i < fragments.length; i += 1) {
+    const prev = fragments[i - 1]!;
+    const current = fragments[i]!;
+    const separator =
+      prev.kind === "slide" && current.kind === "collision" ? "; " : ", ";
+    rendered += `${separator}${current.text}`;
+  }
+  return rendered;
+}
+
 function renderMoveFragment(
   state: MatchState,
   prev: PrevTurnRow,
@@ -192,12 +224,30 @@ function renderMoveFragment(
 ): string | null {
   const entry = prev.resolution.moves.find((m) => m.characterId === characterId);
   if (!entry) return null;
-  if (entry.slide) return renderSlideFragment(state, entry.slide);
-  if (entry.blockedBy === "wall") return "tried to move and hit wall";
   const dist = chebyshev(entry.from, entry.to);
-  if (dist === 0) return null;
-  const dir = compassDirection(entry.from, entry.to);
-  return dir ? `moved ${dist} ${dir}` : `moved ${dist}`;
+  const fragments: Array<{
+    kind: "movement" | "slide" | "collision";
+    text: string;
+  }> = [];
+  if (dist > 0 && (!entry.slide || entry.bodyCollision)) {
+    const dir = compassDirection(entry.from, entry.to);
+    fragments.push({
+      kind: "movement",
+      text: dir ? `moved ${dist} ${dir}` : `moved ${dist}`,
+    });
+  }
+  if (entry.slide) {
+    fragments.push({ kind: "slide", text: renderSlideFragment(state, entry.slide) });
+  }
+  if (entry.bodyCollision) {
+    fragments.push({
+      kind: "collision",
+      text: renderBodyCollisionFragment(state, entry.bodyCollision),
+    });
+  }
+  if (fragments.length > 0) return joinMoveFragments(fragments);
+  if (entry.blockedBy === "wall") return "tried to move and hit wall";
+  return null;
 }
 
 function renderActionFragment(prev: PrevTurnRow, characterId: string): string | null {
@@ -299,6 +349,13 @@ export function renderDamageEventLines(
       action.weapon && action.weapon.trim() !== "" ? action.weapon : "bare hands";
     lines.push(`${attacker} attacked you with ${weapon} (dmg ${damage})`);
   }
+  for (const move of prev.resolution.moves) {
+    const bodyCollision = move.bodyCollision;
+    if (bodyCollision?.kind !== "character") continue;
+    if (bodyCollision.defenderId !== observer.characterId) continue;
+    const charger = renderCharacterTypedId(state, move.characterId);
+    lines.push(`${charger} charged into you (dmg 1)`);
+  }
   return lines;
 }
 
@@ -339,6 +396,19 @@ export function buildKillFeedLines(
     const weapon =
       action.weapon && action.weapon.trim() !== "" ? action.weapon : "bare hands";
     lines.push(`${killer} killed ${victim.displayName} with ${weapon}`);
+  }
+
+  for (const move of prev.resolution.moves) {
+    const bodyCollision = move.bodyCollision;
+    if (bodyCollision?.kind !== "character") continue;
+    const victim = state.characters.find(
+      (c) => c.characterId === bodyCollision.defenderId,
+    );
+    if (!victim || !deathIds.has(victim.characterId)) continue;
+    if (emittedVictims.has(victim.characterId)) continue;
+    emittedVictims.add(victim.characterId);
+    const killer = renderCharacterTypedId(state, move.characterId);
+    lines.push(`${killer} killed ${victim.displayName} with bare hands`);
   }
 
   return lines;

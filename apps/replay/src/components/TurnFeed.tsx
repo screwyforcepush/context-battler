@@ -57,6 +57,11 @@ const SCRATCHPAD_AFTER_BUDGET = 500;
 const SCRATCHPAD_PREVIEW_BUDGET = 100;
 const DEFAULT_MAX_OUTPUT_TOKENS = 1200;
 
+export type ReplayStatusBlock = {
+  available: boolean;
+  lines: string[];
+};
+
 export function TurnFeed(props: TurnFeedProps): React.ReactElement {
   const { bundle, currentTurn, onOpenModal } = props;
 
@@ -232,6 +237,9 @@ function FeedRow(props: {
   const scratchpadChanged =
     agentRecord.decision.scratchpad !== null &&
     agentRecord.decision.scratchpad !== agentRecord.input.scratchpadBefore;
+  const statusBlock = parseStatusBlockForReplay(
+    agentRecord.input.composedUserMessage,
+  );
   // Phase-3 ADR §2 — reasoning indicator. Lights up when reasoning text
   // is present so the user knows the raw-pane modal has substrate-mind
   // content to surface.
@@ -303,6 +311,7 @@ function FeedRow(props: {
             …
           </button>
         </div>
+        <StatusCard status={statusBlock} currentTurn={currentTurn} />
         <div style={oneLineStyle}>{summary.oneLine}</div>
         {validatorFieldSummary || failureReason ? (
           <div style={diagnosticReasonStyle}>
@@ -374,6 +383,65 @@ function FeedRow(props: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers + presentational primitives
 // ─────────────────────────────────────────────────────────────────────────────
+
+const STATUS_LINE_PATTERNS = [
+  /^📍\(-?\d+,-?\d+\) (Inside Evac|Outside Evac)$/,
+  /^❤️HP: \d+\/\d+ HP$/,
+  /^⚔️weapon: .+$/,
+  /^🛡️armour: .+$/,
+  /^🧪consumable: .+$/,
+  /^🗒️scratchpad: .*$/,
+] as const;
+
+export function parseStatusBlockForReplay(
+  composedUserMessage: string | null | undefined,
+): ReplayStatusBlock {
+  if (typeof composedUserMessage !== "string" || composedUserMessage.length === 0) {
+    return { available: false, lines: [] };
+  }
+
+  const lines = composedUserMessage.split(/\r?\n/);
+  const statusIndex = lines.findIndex((line) => line === "## Status");
+  if (statusIndex < 0) return { available: false, lines: [] };
+
+  const statusLines = lines.slice(statusIndex + 1, statusIndex + 1 + 6);
+  if (statusLines.length !== STATUS_LINE_PATTERNS.length) {
+    return { available: false, lines: [] };
+  }
+
+  const matchesContract = STATUS_LINE_PATTERNS.every((pattern, index) =>
+    pattern.test(statusLines[index] ?? ""),
+  );
+  if (!matchesContract) return { available: false, lines: [] };
+
+  return { available: true, lines: statusLines };
+}
+
+function StatusCard(props: {
+  status: ReplayStatusBlock;
+  currentTurn: number;
+}): React.ReactElement {
+  return (
+    <div style={statusCardStyle}>
+      <div style={statusCardTitleStyle}>
+        Status (start of turn {props.currentTurn})
+      </div>
+      {props.status.available ? (
+        <div style={statusCardLinesStyle}>
+          {props.status.lines.map((line, index) => (
+            <div key={`status-${index}`} style={statusLineStyle} title={line}>
+              {line}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={statusUnavailableStyle}>
+          (status unavailable — vintage record)
+        </div>
+      )}
+    </div>
+  );
+}
 
 function truncateToBudget(s: string, budget: number): string {
   if (s.length <= budget) return s;
@@ -587,6 +655,53 @@ const oneLineStyle: React.CSSProperties = {
   fontSize: "0.8125rem",
   color: "#1a1a1a",
   lineHeight: 1.4,
+};
+
+const statusCardStyle: React.CSSProperties = {
+  marginTop: "0.125rem",
+  marginBottom: "0.125rem",
+  padding: "0.375rem 0.5rem",
+  border: "1px solid #e2e6ea",
+  borderRadius: 4,
+  background: "#fbfcfd",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.25rem",
+  minWidth: 0,
+};
+
+const statusCardTitleStyle: React.CSSProperties = {
+  fontSize: "0.6875rem",
+  color: "#666",
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+  fontFamily:
+    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace',
+};
+
+const statusCardLinesStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(16rem, 1fr))",
+  columnGap: "0.75rem",
+  rowGap: "0.125rem",
+  minWidth: 0,
+};
+
+const statusLineStyle: React.CSSProperties = {
+  fontSize: "0.75rem",
+  color: "#333",
+  fontFamily:
+    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace',
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  minWidth: 0,
+};
+
+const statusUnavailableStyle: React.CSSProperties = {
+  fontSize: "0.75rem",
+  color: "#888",
+  fontStyle: "italic",
 };
 
 const diagnosticReasonStyle: React.CSSProperties = {

@@ -575,6 +575,126 @@ describe("Phase 6 input builder — event helpers", () => {
     expect(built.composedUserMessage).not.toContain("Rat said");
   });
 
+  it("renders body-collision charge outcome and defender damage feed lines", () => {
+    const charger = makeCharacter({
+      id: "c_camper",
+      personaId: "camper",
+      displayName: "Camper",
+      pos: { x: 10, y: 10 },
+    });
+    const defender = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 11, y: 10 },
+    });
+    const state = makeState({ characters: [charger, defender], turn: 9 });
+    const prev = makePrevTurn({
+      moves: [
+        {
+          characterId: "c_camper",
+          from: { x: 10, y: 10 },
+          to: { x: 10, y: 10 },
+          bodyCollision: { kind: "character", defenderId: "c_duelist" },
+        },
+      ],
+    });
+
+    expect(buildOwnOutcomeLine(state, "c_camper", prev)).toBe(
+      "You charged into Duelist (dmg 1, took 1)",
+    );
+    expect(renderDamageEventLines(prev, state, defender)).toEqual([
+      "Camper charged into you (dmg 1)",
+    ]);
+    expect(renderDamageEventLines(prev, state, charger)).toEqual([]);
+    expect(
+      buildAgentInput(state, "c_duelist", "Win direct fights.", prev, 2)
+        .composedUserMessage,
+    ).toContain("Camper charged into you (dmg 1)");
+  });
+
+  it("renders partial movement plus wall bump in one outcome line", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 7, y: 5 },
+    });
+    const state = makeState({ characters: [me] });
+    const prev = makePrevTurn({
+      moves: [
+        {
+          characterId: "c_duelist",
+          from: { x: 5, y: 5 },
+          to: { x: 7, y: 5 },
+          bodyCollision: { kind: "wall", wallRectId: "Wall_8_5" },
+        },
+      ],
+    });
+
+    expect(buildOwnOutcomeLine(state, "c_duelist", prev)).toBe(
+      "You moved 2 E, tried to move and hit Wall_8_5 (took 1)",
+    );
+  });
+
+  it("renders slide plus wall bump without dropping either fragment", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 7, y: 5 },
+    });
+    const state = makeState({ characters: [me] });
+    const prev = makePrevTurn({
+      moves: [
+        {
+          characterId: "c_duelist",
+          from: { x: 5, y: 5 },
+          to: { x: 7, y: 5 },
+          slide: {
+            wallRectId: "Wall_6_4",
+            axis: "E",
+            intent: "NE",
+          },
+          bodyCollision: { kind: "wall", wallRectId: "Wall_8_5" },
+        },
+      ],
+    });
+
+    expect(buildOwnOutcomeLine(state, "c_duelist", prev)).toBe(
+      "You moved 2 E, hugged Wall_6_4 E; tried to move and hit Wall_8_5 (took 1)",
+    );
+  });
+
+  it("keeps successful slide-only outcomes free of bump damage text", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 6, y: 5 },
+    });
+    const state = makeState({ characters: [me] });
+    const prev = makePrevTurn({
+      moves: [
+        {
+          characterId: "c_duelist",
+          from: { x: 5, y: 5 },
+          to: { x: 6, y: 5 },
+          slide: {
+            wallRectId: "Wall_18_18_to_23_18",
+            axis: "E",
+            intent: "NE",
+          },
+        },
+      ],
+    });
+
+    const outcome = buildOwnOutcomeLine(state, "c_duelist", prev);
+    expect(outcome).toBe("You hugged Wall_18_18_to_23_18 E");
+    expect(outcome).not.toContain("took 1");
+    expect(outcome).not.toContain("hit Wall_");
+  });
+
   it("renders loot outcomes with item names and empty markers", () => {
     const me = makeCharacter({
       id: "c_duelist",
@@ -791,6 +911,87 @@ describe("Phase 6 input builder — event helpers", () => {
 
     expect(buildKillFeedLines(prev, state)).toEqual([
       "Vulture killed Rat with greatsword",
+    ]);
+  });
+
+  it("uses action kill-feed attribution before lethal charge fallback", () => {
+    const rat = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 10, y: 10 },
+      hp: 0,
+      alive: false,
+    });
+    const vulture = makeCharacter({
+      id: "c_vulture",
+      personaId: "vulture",
+      displayName: "Vulture",
+      pos: { x: 11, y: 10 },
+    });
+    const camper = makeCharacter({
+      id: "c_camper",
+      personaId: "camper",
+      displayName: "Camper",
+      pos: { x: 9, y: 10 },
+    });
+    const state = makeState({ characters: [rat, vulture, camper] });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "c_vulture",
+          kind: "attack",
+          target: "Rat",
+          result: "dmg 50",
+          weapon: "greatsword",
+        },
+      ],
+      moves: [
+        {
+          characterId: "c_camper",
+          from: { x: 9, y: 10 },
+          to: { x: 9, y: 10 },
+          bodyCollision: { kind: "character", defenderId: "c_rat" },
+        },
+      ],
+      deaths: ["c_rat"],
+    });
+
+    expect(buildKillFeedLines(prev, state)).toEqual([
+      "Vulture killed Rat with greatsword",
+    ]);
+  });
+
+  it("falls back to bare-hands kill feed for lethal body-collision charges", () => {
+    const rat = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 10, y: 10 },
+      hp: 0,
+      alive: false,
+    });
+    const camper = makeCharacter({
+      id: "c_camper",
+      personaId: "camper",
+      displayName: "Camper",
+      pos: { x: 9, y: 10 },
+    });
+    const state = makeState({ characters: [rat, camper] });
+    const prev = makePrevTurn({
+      moves: [
+        {
+          characterId: "c_camper",
+          from: { x: 9, y: 10 },
+          to: { x: 9, y: 10 },
+          bodyCollision: { kind: "character", defenderId: "c_rat" },
+        },
+      ],
+      deaths: ["c_rat"],
+    });
+
+    expect(buildKillFeedLines(prev, state)).toEqual([
+      "Camper killed Rat with bare hands",
     ]);
   });
 });

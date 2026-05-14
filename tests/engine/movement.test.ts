@@ -861,6 +861,7 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
       from: { x: 5, y: 5 },
       to: { x: 5, y: 5 },
       blockedBy: "wall",
+      bodyCollision: { kind: "wall", wallRectId: "Wall_6_5" },
     });
   });
 
@@ -931,7 +932,7 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
     expect(moves).toHaveLength(0);
   });
 
-  it("character-blocked (no wall) → emits NOTHING (no blockedBy entry)", () => {
+  it("character-blocked (no wall) → emits a bodyCollision.character marker", () => {
     const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     const b = makeCharacter({ id: "B", pos: { x: 6, y: 5 } });
     const state = makeState({ characters: [a, b] });
@@ -940,9 +941,12 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
       ["B", noMoveDecision()],
     ]);
     const { moves } = simulateMovement(state, decisions);
-    // A could not enter (6,5) because B occupies it. Per ADR §9, NO entry
-    // is pushed for character-blocked moves (existing absence is correct).
-    expect(moves.find((m) => m.characterId === "A")).toBeUndefined();
+    expect(onlyMove(moves)).toEqual({
+      characterId: "A",
+      from: { x: 5, y: 5 },
+      to: { x: 5, y: 5 },
+      bodyCollision: { kind: "character", defenderId: "B" },
+    });
   });
 
   it("off-grid block (boundary) → emits NOTHING (no blockedBy entry)", () => {
@@ -956,7 +960,7 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
     expect(moves.find((m) => m.characterId === "A")).toBeUndefined();
   });
 
-  it("partial-progress move (one step succeeds, then blocked by wall) → emits the actual movement WITHOUT blockedBy", () => {
+  it("partial-progress move (one step succeeds, then blocked by wall) → emits movement plus bodyCollision.wall", () => {
     // A moves dx=5, but a wall at (8,5) — dx=3 succeeds, then blocked by
     // wall on substep 4. Final pos: (8,5)? No — A starts at (5,5), wants
     // dx=5 → wants (10,5). Wall at (8,5) blocks substep 4. A ends at
@@ -974,6 +978,10 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
     expect(move?.from).toEqual({ x: 5, y: 5 });
     expect(move?.to).toEqual({ x: 7, y: 5 });
     expect(move?.blockedBy).toBeUndefined();
+    expect(move?.bodyCollision).toEqual({
+      kind: "wall",
+      wallRectId: "Wall_8_5",
+    });
   });
 });
 
@@ -1098,6 +1106,7 @@ describe("Phase 9 WP-B wall-slide movement substrate", () => {
       from: { x: 5, y: 5 },
       to: { x: 5, y: 5 },
       blockedBy: "wall",
+      bodyCollision: { kind: "wall", wallRectId: "Wall_6_5" },
     });
   });
 
@@ -1122,6 +1131,7 @@ describe("Phase 9 WP-B wall-slide movement substrate", () => {
       from: { x: 5, y: 5 },
       to: { x: 5, y: 5 },
       blockedBy: "wall",
+      bodyCollision: { kind: "wall", wallRectId: "Wall_6_4" },
     });
   });
 
@@ -1160,6 +1170,101 @@ describe("Phase 9 WP-B wall-slide movement substrate", () => {
       to: { x: 9, y: 2 },
       slide: { wallRectId: "Wall_6_4", axis: "E", intent: "NE" },
     });
+  });
+
+  it("successful diagonal slide emits no bodyCollision marker", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const wall: Wall = { x: 6, y: 4, w: 1, h: 1 };
+    const state = makeState({ characters: [a], world: { walls: [wall] } });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "NE" }, 1)],
+    ]);
+
+    const { state: next, moves } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 6, y: 5 });
+    const move = onlyMove(moves);
+    expect(move.slide).toEqual({
+      wallRectId: "Wall_6_4",
+      axis: "E",
+      intent: "NE",
+    });
+    expect(move.bodyCollision).toBeUndefined();
+  });
+
+  it("partial-distance wall bump after a previous slide keeps both trace fragments", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const walls: Wall[] = [
+      { x: 6, y: 4, w: 1, h: 1 },
+      { x: 8, y: 3, w: 1, h: 1 },
+      { x: 8, y: 4, w: 1, h: 1 },
+      { x: 7, y: 3, w: 1, h: 1 },
+    ];
+    const state = makeState({ characters: [a], world: { walls } });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "NE" }, 3)],
+    ]);
+
+    const { state: next, moves } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 7, y: 4 });
+    expect(onlyMove(moves)).toEqual({
+      characterId: "A",
+      from: { x: 5, y: 5 },
+      to: { x: 7, y: 4 },
+      slide: { wallRectId: "Wall_6_4", axis: "E", intent: "NE" },
+      bodyCollision: { kind: "wall", wallRectId: "Wall_8_3" },
+    });
+  });
+
+  it("partial-distance charge keeps committed movement and terminates before entering the defender tile", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const b = makeCharacter({ id: "B", pos: { x: 8, y: 5 } });
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "E" }, 5)],
+      ["B", noMoveDecision()],
+    ]);
+
+    const { state: next, moves } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 7, y: 5 });
+    expect(findChar(next, "B").pos).toEqual({ x: 8, y: 5 });
+    expect(onlyMove(moves)).toEqual({
+      characterId: "A",
+      from: { x: 5, y: 5 },
+      to: { x: 7, y: 5 },
+      bodyCollision: { kind: "character", defenderId: "B" },
+    });
+  });
+
+  it("bilateral adjacent charge records one marker per mover and neither displaces", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const b = makeCharacter({ id: "B", pos: { x: 6, y: 5 } });
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "E" }, 1)],
+      ["B", moveDecision({ kind: "W" }, 1)],
+    ]);
+
+    const { state: next, moves } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 5, y: 5 });
+    expect(findChar(next, "B").pos).toEqual({ x: 6, y: 5 });
+    expect(moves).toEqual([
+      {
+        characterId: "A",
+        from: { x: 5, y: 5 },
+        to: { x: 5, y: 5 },
+        bodyCollision: { kind: "character", defenderId: "B" },
+      },
+      {
+        characterId: "B",
+        from: { x: 6, y: 5 },
+        to: { x: 6, y: 5 },
+        bodyCollision: { kind: "character", defenderId: "A" },
+      },
+    ]);
   });
 
   it("toward rect target recomputes the nearest tile from resolvedTarget.rect", () => {

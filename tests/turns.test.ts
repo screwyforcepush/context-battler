@@ -456,6 +456,177 @@ describe("turns.byMatchSlim projection contract", () => {
     expect(turnTwoTrader.damageFeedAudit.incoming).toBe(0);
     expect(turnTwoTrader.lootOutcomeFeed).toEqual([]);
   });
+
+  it("audits cross-turn body-collision charge feed without changing action counters", () => {
+    const baseStatus = [
+      "# Agent",
+      "## Status",
+      "❤️HP: 40/40 HP",
+      "⚔️weapon: unarmed [dmg 5]",
+      "🛡️armour: none",
+      "🧪consumable: none",
+      "",
+      "# Current Game State",
+      "Turn 1, 3/8 players alive",
+      "",
+      "Vision:",
+      "{}",
+    ].join("\n");
+    const turnOne = {
+      _id: "turn_1",
+      matchId: "match_1",
+      turn: 1,
+      resolution: {
+        consumed: [],
+        speech: [],
+        moves: [
+          {
+            characterId: "char_camper",
+            from: { x: 10, y: 10 },
+            to: { x: 10, y: 10 },
+            bodyCollision: {
+              kind: "character" as const,
+              defenderId: "char_duelist",
+            },
+          },
+          {
+            characterId: "char_duelist",
+            from: { x: 11, y: 10 },
+            to: { x: 11, y: 10 },
+            bodyCollision: {
+              kind: "character" as const,
+              defenderId: "char_trader",
+            },
+          },
+        ],
+        actions: [],
+        deaths: [],
+        visibilityUpdates: [],
+      },
+      agentRecords: [
+        makeAgentRecord({
+          characterId: "char_camper",
+          personaId: "camper",
+          composedUserMessage: baseStatus.replace("# Agent", "# Camper"),
+        }),
+        makeAgentRecord({
+          characterId: "char_duelist",
+          personaId: "duelist",
+          composedUserMessage: baseStatus.replace("# Agent", "# Duelist"),
+        }),
+        makeAgentRecord({
+          characterId: "char_trader",
+          personaId: "trader",
+          composedUserMessage: baseStatus.replace("# Agent", "# Trader"),
+        }),
+      ],
+    };
+    const turnTwo = {
+      ...turnOne,
+      _id: "turn_2",
+      turn: 2,
+      resolution: {
+        consumed: [],
+        speech: [],
+        moves: [],
+        actions: [],
+        deaths: [],
+        visibilityUpdates: [],
+      },
+      agentRecords: [
+        makeAgentRecord({
+          characterId: "char_camper",
+          personaId: "camper",
+          composedUserMessage: [
+            "# Camper",
+            "## Status",
+            "❤️HP: 39/40 HP",
+            "",
+            "# Current Game State",
+            "Turn 2, 3/8 players alive",
+            "",
+            "Vision:",
+            "{}",
+          ].join("\n"),
+        }),
+        makeAgentRecord({
+          characterId: "char_duelist",
+          personaId: "duelist",
+          composedUserMessage: [
+            "# Duelist",
+            "## Status",
+            "❤️HP: 39/40 HP",
+            "",
+            "# Current Game State",
+            "Turn 2, 3/8 players alive",
+            "Camper charged into you (dmg 1)",
+            "",
+            "Vision:",
+            "{}",
+          ].join("\n"),
+        }),
+        makeAgentRecord({
+          characterId: "char_trader",
+          personaId: "trader",
+          composedUserMessage: [
+            "# Trader",
+            "## Status",
+            "❤️HP: 39/40 HP",
+            "",
+            "# Current Game State",
+            "Turn 2, 3/8 players alive",
+            "",
+            "Vision:",
+            "{}",
+          ].join("\n"),
+        }),
+      ],
+    };
+
+    const slim = projectSlimTurnRows([turnOne, turnTwo]);
+    const turnTwoCamper = slim[1]!.agentRecords.find(
+      (record) => record.characterId === "char_camper",
+    )!;
+    const turnTwoDuelist = slim[1]!.agentRecords.find(
+      (record) => record.characterId === "char_duelist",
+    )!;
+    const turnTwoTrader = slim[1]!.agentRecords.find(
+      (record) => record.characterId === "char_trader",
+    )!;
+
+    expect(turnTwoDuelist.damageFeedAudit).toMatchObject({
+      incoming: 0,
+      expectedIncoming: 0,
+      missingIncoming: 0,
+      bodyCollisionIncoming: 1,
+      bodyCollisionExpectedIncoming: 1,
+      bodyCollisionMissingIncoming: 0,
+      chargeDamageFeedDelivered: 1,
+      chargeDamageFeedExpected: 1,
+      chargeDamageFeedMissing: 0,
+    });
+    expect(turnTwoCamper.damageFeedAudit).toMatchObject({
+      outgoing: 0,
+      expectedOutgoing: 0,
+      missingOutgoing: 0,
+      bodyCollisionOutgoing: 1,
+      bodyCollisionExpectedOutgoing: 1,
+      bodyCollisionMissingOutgoing: 0,
+    });
+    expect(turnTwoDuelist.damageFeedAudit).toMatchObject({
+      bodyCollisionOutgoing: 0,
+      bodyCollisionExpectedOutgoing: 1,
+      bodyCollisionMissingOutgoing: 1,
+    });
+    expect(turnTwoTrader.damageFeedAudit).toMatchObject({
+      bodyCollisionIncoming: 0,
+      bodyCollisionExpectedIncoming: 1,
+      bodyCollisionMissingIncoming: 1,
+      chargeDamageFeedDelivered: 0,
+      chargeDamageFeedExpected: 1,
+      chargeDamageFeedMissing: 1,
+    });
+  });
 });
 
 describe("turns derived helper functions", () => {

@@ -2075,6 +2075,356 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
   });
 });
 
+// ─── Phase 10 WP-A — body-collision attacks + counter integration ────────
+
+describe("Phase 10 WP-A body-collision damage routing", () => {
+  it("charge into a living defender deals 1 damage to both and keeps mover out of defender tile", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 4, y: 5 }, hp: 100 });
+    const b = makeCharacter({ id: "B", pos: { x: 5, y: 5 }, hp: 100 });
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "E" }, dist: 1 },
+        }),
+      ],
+      ["B", nullDecision()],
+    ]);
+
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 4, y: 5 });
+    expect(findChar(next, "B").pos).toEqual({ x: 5, y: 5 });
+    expect(findChar(next, "A").hp).toBe(99);
+    expect(findChar(next, "B").hp).toBe(99);
+    expect(trace.moves).toContainEqual({
+      characterId: "A",
+      from: { x: 4, y: 5 },
+      to: { x: 4, y: 5 },
+      bodyCollision: { kind: "character", defenderId: "B" },
+    });
+    expect(trace.actions.filter((a) => a.kind === "counter")).toHaveLength(0);
+  });
+
+  it("counter defender retaliates against a charger in the same damage batch", () => {
+    const charger = makeCharacter({ id: "A", pos: { x: 4, y: 5 }, hp: 100 });
+    const defender = makeCharacter({
+      id: "B",
+      pos: { x: 5, y: 5 },
+      hp: 100,
+      weapon: { category: "weapon", name: "axe" },
+    });
+    const state = makeState({ characters: [charger, defender] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "E" }, dist: 1 },
+        }),
+      ],
+      ["B", nullDecision({ position: { kind: "counter" } })],
+    ]);
+
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "B").hp).toBe(99);
+    // Body recoil (1) plus axe counter-fire (20).
+    expect(findChar(next, "A").hp).toBe(79);
+    expect(trace.actions).toContainEqual({
+      characterId: "B",
+      kind: "counter",
+      target: "A",
+      result: "dmg 20",
+      weapon: "axe",
+    });
+  });
+
+  it("bilateral charge dedupes damage and cannot trigger counters", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 4, y: 5 }, hp: 100 });
+    const b = makeCharacter({ id: "B", pos: { x: 5, y: 5 }, hp: 100 });
+    const state = makeState({ characters: [a, b] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "E" }, dist: 1 },
+        }),
+      ],
+      [
+        "B",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "W" }, dist: 1 },
+        }),
+      ],
+    ]);
+
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "A").hp).toBe(99);
+    expect(findChar(next, "B").hp).toBe(99);
+    expect(trace.moves).toEqual([
+      {
+        characterId: "A",
+        from: { x: 4, y: 5 },
+        to: { x: 4, y: 5 },
+        bodyCollision: { kind: "character", defenderId: "B" },
+      },
+      {
+        characterId: "B",
+        from: { x: 5, y: 5 },
+        to: { x: 5, y: 5 },
+        bodyCollision: { kind: "character", defenderId: "A" },
+      },
+    ]);
+    expect(trace.actions.filter((a) => a.kind === "counter")).toHaveLength(0);
+  });
+
+  it("cardinal wall bump self-damages and keeps the legacy blockedBy marker", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 }, hp: 100 });
+    const state = makeState({
+      characters: [a],
+      world: { walls: [{ x: 6, y: 5, w: 1, h: 1 }] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "E" }, dist: 1 },
+        }),
+      ],
+    ]);
+
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "A").hp).toBe(99);
+    expect(trace.moves).toEqual([
+      {
+        characterId: "A",
+        from: { x: 5, y: 5 },
+        to: { x: 5, y: 5 },
+        blockedBy: "wall",
+        bodyCollision: { kind: "wall", wallRectId: "Wall_6_5" },
+      },
+    ]);
+    expect(trace.actions.filter((a) => a.kind === "counter")).toHaveLength(0);
+  });
+
+  it("cornered diagonal wall bump self-damages while successful slide does not", () => {
+    const cornered = makeCharacter({ id: "A", pos: { x: 5, y: 5 }, hp: 100 });
+    const corneredState = makeState({
+      characters: [cornered],
+      world: {
+        walls: [
+          { x: 6, y: 4, w: 1, h: 1 },
+          { x: 6, y: 5, w: 1, h: 1 },
+          { x: 5, y: 4, w: 1, h: 1 },
+        ],
+      },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "NE" }, dist: 1 },
+        }),
+      ],
+    ]);
+
+    const corneredResult = resolveTurn(corneredState, decisions);
+
+    expect(findChar(corneredResult.state, "A").hp).toBe(99);
+    expect(corneredResult.trace.moves).toEqual([
+      {
+        characterId: "A",
+        from: { x: 5, y: 5 },
+        to: { x: 5, y: 5 },
+        blockedBy: "wall",
+        bodyCollision: { kind: "wall", wallRectId: "Wall_6_4" },
+      },
+    ]);
+
+    const slider = makeCharacter({ id: "A", pos: { x: 5, y: 5 }, hp: 100 });
+    const slideState = makeState({
+      characters: [slider],
+      world: { walls: [{ x: 6, y: 4, w: 1, h: 1 }] },
+    });
+
+    const slideResult = resolveTurn(slideState, decisions);
+
+    expect(findChar(slideResult.state, "A").hp).toBe(100);
+    expect(slideResult.trace.moves[0]?.slide).toEqual({
+      wallRectId: "Wall_6_4",
+      axis: "E",
+      intent: "NE",
+    });
+    expect(slideResult.trace.moves[0]?.bodyCollision).toBeUndefined();
+  });
+
+  it("partial-distance wall bump emits movement trace and self-damage without blockedBy", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 }, hp: 100 });
+    const state = makeState({
+      characters: [a],
+      world: { walls: [{ x: 8, y: 5, w: 1, h: 1 }] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "E" }, dist: 5 },
+        }),
+      ],
+    ]);
+
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 7, y: 5 });
+    expect(findChar(next, "A").hp).toBe(99);
+    expect(trace.moves).toEqual([
+      {
+        characterId: "A",
+        from: { x: 5, y: 5 },
+        to: { x: 7, y: 5 },
+        bodyCollision: { kind: "wall", wallRectId: "Wall_8_5" },
+      },
+    ]);
+  });
+
+  it("bodyCollision-sourced attacks do not reveal hidden charger or hidden defender", () => {
+    const charger = makeCharacter({
+      id: "A",
+      pos: { x: 4, y: 5 },
+      hp: 100,
+      hidden: true,
+    });
+    const defender = makeCharacter({
+      id: "B",
+      pos: { x: 5, y: 5 },
+      hp: 100,
+      hidden: true,
+    });
+    const state = makeState({ characters: [charger, defender] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "E" }, dist: 1 },
+        }),
+      ],
+      ["B", nullDecision()],
+    ]);
+
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "A").hidden).toBe(true);
+    expect(findChar(next, "B").hidden).toBe(true);
+    expect(
+      trace.visibilityUpdates.some((u) => u.revealedBy === "attack"),
+    ).toBe(false);
+  });
+
+  it("counter retaliation generated by a bodyCollision still reveals normally", () => {
+    const charger = makeCharacter({ id: "A", pos: { x: 4, y: 5 }, hp: 100 });
+    const defender = makeCharacter({
+      id: "B",
+      pos: { x: 5, y: 5 },
+      hp: 100,
+      hidden: true,
+      weapon: { category: "weapon", name: "sword" },
+    });
+    const state = makeState({ characters: [charger, defender] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "E" }, dist: 1 },
+        }),
+      ],
+      ["B", nullDecision({ position: { kind: "counter" } })],
+    ]);
+
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "B").hidden).toBe(false);
+    expect(trace.visibilityUpdates).toContainEqual({
+      characterId: "B",
+      hidden: false,
+      revealedBy: "attack",
+    });
+  });
+
+  it("same attacker charge plus weapon attack triggers one counter only", () => {
+    const charger = makeCharacter({
+      id: "A",
+      pos: { x: 4, y: 5 },
+      hp: 100,
+      weapon: { category: "weapon", name: "sword" },
+    });
+    const defender = makeCharacter({
+      id: "B",
+      pos: { x: 5, y: 5 },
+      hp: 100,
+      weapon: { category: "weapon", name: "axe" },
+    });
+    const state = makeState({ characters: [charger, defender] });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "E" }, dist: 1 },
+          action: { kind: "attack", targetId: "B" },
+        }),
+      ],
+      ["B", nullDecision({ position: { kind: "counter" } })],
+    ]);
+
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "B").hp).toBe(84);
+    expect(findChar(next, "A").hp).toBe(79);
+    const counters = trace.actions.filter(
+      (a) => a.characterId === "B" && a.kind === "counter",
+    );
+    expect(counters).toHaveLength(1);
+    expect(counters[0]?.target).toBe("A");
+  });
+
+  it("lethal charge creates a corpse through the existing deaths phase", () => {
+    const charger = makeCharacter({ id: "A", pos: { x: 4, y: 5 }, hp: 100 });
+    const defender = makeCharacter({
+      id: "B",
+      pos: { x: 5, y: 5 },
+      hp: 1,
+      weapon: { category: "weapon", name: "greatsword" },
+    });
+    const state = makeState({ characters: [charger, defender], turn: 7 });
+    const decisions = new Map<string, ParsedDecision>([
+      [
+        "A",
+        nullDecision({
+          position: { kind: "move", direction: { kind: "E" }, dist: 1 },
+        }),
+      ],
+      ["B", nullDecision()],
+    ]);
+
+    const { state: next, trace } = resolveTurn(state, decisions);
+
+    expect(findChar(next, "B").alive).toBe(false);
+    expect(findChar(next, "B").diedAtTurn).toBe(7);
+    expect(trace.deaths).toEqual(["B"]);
+    expect(next.world.corpses).toContainEqual({
+      characterId: "B",
+      pos: { x: 5, y: 5 },
+      contents: {
+        weapon: { category: "weapon", name: "greatsword" },
+        armour: undefined,
+        consumable: undefined,
+      },
+    });
+  });
+});
+
 // ─── WP-B.5 Movement-triggered overwatch trace tagging ───────────────────
 
 describe("WP-B.5 offensive overwatch — movement-trigger trace tagging", () => {

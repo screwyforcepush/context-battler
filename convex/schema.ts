@@ -322,6 +322,18 @@ const resolutionValidator = v.object({
           intent: v.string(),
         }),
       ),
+      bodyCollision: v.optional(
+        v.union(
+          v.object({
+            kind: v.literal("character"),
+            defenderId: v.id("characters"),
+          }),
+          v.object({
+            kind: v.literal("wall"),
+            wallRectId: v.string(),
+          }),
+        ),
+      ),
     }),
   ),
   actions: v.array(
@@ -678,6 +690,11 @@ const phase9SlidePerPersonaValidator = v.object({
   count: v.number(),
 });
 
+const phase10ChargePerPersonaValidator = v.object({
+  personaId: personaIdValidator,
+  count: v.number(),
+});
+
 const phase9PayloadValidator = v.object({
   reportType: v.literal("phase-9-closing-20"),
   runCount: v.number(),
@@ -740,6 +757,63 @@ const phase9PayloadValidator = v.object({
   meetsWallOnWallOcclusionThreshold: v.boolean(),
   meetsEvacOutOfChebyshev20Threshold: v.boolean(),
   meetsInsideBearingHereThreshold: v.boolean(),
+  meetsAllThresholds: v.boolean(),
+});
+
+const phase10PayloadValidator = v.object({
+  reportType: v.literal("phase-10-closing-20"),
+  runCount: v.number(),
+  matchIds: v.array(v.string()),
+  failedMatches: v.number(),
+
+  runsWithExtraction: v.number(),
+  runsWithKill: v.number(),
+  runsWithEquip: v.number(),
+  runsWithSpeech: v.number(),
+  extractionRate: v.number(),
+  killRate: v.number(),
+  equipRate: v.number(),
+  speechRate: v.number(),
+  personaSpread: v.number(),
+  totalAgentRecords: v.number(),
+  nullOnlyUseViolations: v.number(),
+  zeroCrashes: v.boolean(),
+  zeroIllegalConsumableUse: v.boolean(),
+  zeroPlayerNLiterals: v.boolean(),
+  zeroWholeTurnValidatorZeroes: v.boolean(),
+  validatorRecords: v.number(),
+  validatorFieldErrors: v.number(),
+  perFieldRejectionRate: v.number(),
+  wholeTurnZeroedValidatorRecords: v.number(),
+  playerNLiteralCount: v.number(),
+
+  chargeEventCount: v.number(),
+  chargeEventPerPersona: v.array(phase10ChargePerPersonaValidator),
+  bilateralChargeCount: v.number(),
+  chargeCounterFireCount: v.number(),
+  wallBumpSelfDamageCount: v.number(),
+  partialDistanceWallBumpCount: v.number(),
+  partialDistanceChargeCount: v.number(),
+  chargeDamageFeedDelivered: v.number(),
+  chargeDamageFeedExpected: v.number(),
+  chargeDamageFeedMissing: v.number(),
+  lethalChargeCount: v.number(),
+
+  meetsExtractionThreshold: v.boolean(),
+  meetsKillThreshold: v.boolean(),
+  meetsEquipThreshold: v.boolean(),
+  meetsSpeechThreshold: v.boolean(),
+  meetsPersonaSpreadThreshold: v.boolean(),
+  meetsZeroCrashThreshold: v.boolean(),
+  meetsZeroIllegalConsumableThreshold: v.boolean(),
+  meetsZeroPlayerNLiteralThreshold: v.boolean(),
+  meetsZeroWholeTurnValidatorThreshold: v.boolean(),
+  meetsPerFieldRejectionThreshold: v.boolean(),
+  meetsChargeEventThreshold: v.boolean(),
+  meetsChargeCounterFireThreshold: v.boolean(),
+  meetsWallBumpSelfDamageThreshold: v.boolean(),
+  meetsPartialDistanceWallBumpThreshold: v.boolean(),
+  meetsChargeFeedDeliveryThreshold: v.boolean(),
   meetsAllThresholds: v.boolean(),
 });
 
@@ -952,6 +1026,7 @@ export default defineSchema({
     phase6Payload: v.optional(phase6PayloadValidator),
     phase7Payload: v.optional(phase7PayloadValidator),
     phase9Payload: v.optional(phase9PayloadValidator),
+    phase10Payload: v.optional(phase10PayloadValidator),
   })
     .index("by_generatedAt", ["generatedAt"])
     // WP14 idempotency index: `reports.create` reads by this tuple before

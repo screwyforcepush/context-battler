@@ -133,6 +133,70 @@ describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", (
     expect(prev?.resolution.moves[0]?.slide).toEqual(slide);
   });
 
+  it("propagates moves[].bodyCollision through schema and prior-turn builder adapters", () => {
+    const characterCollision = {
+      kind: "character" as const,
+      defenderId: "char_defender",
+    };
+    const wallCollision = {
+      kind: "wall" as const,
+      wallRectId: "Wall_8_5",
+    };
+    const trace = makeTrace({
+      moves: [
+        {
+          characterId: "char_charger",
+          from: { x: 4, y: 5 },
+          to: { x: 4, y: 5 },
+          bodyCollision: characterCollision,
+        },
+        {
+          characterId: "char_wall_bumper",
+          from: { x: 5, y: 5 },
+          to: { x: 7, y: 5 },
+          bodyCollision: wallCollision,
+        },
+      ],
+    });
+
+    const adapted = adaptResolutionForSchema(trace);
+
+    expect(adapted.moves).toHaveLength(2);
+    expect(adapted.moves[0]!.bodyCollision).toEqual(characterCollision);
+    expect(adapted.moves[1]!.bodyCollision).toEqual(wallCollision);
+
+    const prev = adaptPriorTurnRowForBuilder({
+      resolution: {
+        consumed: [],
+        speech: [],
+        moves: adapted.moves,
+        actions: [],
+        deaths: [],
+        visibilityUpdates: [],
+      },
+      agentRecords: [
+        {
+          characterId: "char_charger",
+          decision: {
+            position: { kind: "move", direction: { kind: "E" }, dist: 1 },
+          },
+        },
+        {
+          characterId: "char_wall_bumper",
+          decision: {
+            position: { kind: "move", direction: { kind: "E" }, dist: 5 },
+          },
+        },
+      ],
+    });
+
+    const prevMoves = prev?.resolution.moves as
+      | Array<{ bodyCollision?: typeof characterCollision | typeof wallCollision }>
+      | undefined;
+    expect(prevMoves?.[0]?.bodyCollision).toEqual(characterCollision);
+    expect(prevMoves?.[1]?.bodyCollision).toEqual(wallCollision);
+  });
+
   it("propagates actions[].triggeredByMovement=true on movement-triggered overwatch", () => {
     const trace = makeTrace({
       actions: [
