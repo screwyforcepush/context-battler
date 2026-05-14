@@ -37,7 +37,7 @@
 >     expanded — all **resolved**; see §9 for resolution notes.
 > - **v1 (2026-05-14)** — Initial plan dispatched.
 >
-> **Status:** dispatched (v2). Two intertwined threads land in one slice per
+> **Status:** closed (2026-05-14). Two intertwined threads landed in one slice per
 > [`mental-model.md` §18](../../spec/mental-model.md#18-next-slice-intent--jam-captured-2026-05-14-not-yet-dispatched):
 > (a) substrate — body-collision damage (chars + walls) as a discoverable,
 > undocumented mechanic, and (b) overseer v0 refinement — start-of-N
@@ -1876,31 +1876,45 @@ All v1 clarifiers are now **RESOLVED** per the v2 decision lock
    Status-card-in-feed for WP-C v0 (Vision + reasoning remain in
    ExpandModal per D22).
 
-## 10. Closure record (to be filled at phase close)
+## 10. Closure record — 2026-05-14
 
 ```
-Canonical report id:       _________________________________
+Canonical report id:       jd7axe93jq0svjwgqkm21swcyd86q7ge
 reportType:                "phase-10-closing-20"
-metBar:                    _________________________________
-failedMatches:             _________________________________
+metBar:                    true
+failedMatches:             0
 
-Carry-over phase-7 gates:  _________________________________
+Carry-over phase-7 gates:  ALL PASS (extraction 90%, kill 100%,
+                           equip 100%, speech 100%, perFieldRejection 0.248%)
 Charge/bump slice gates:
-  chargeOutcomeCount:                _____________
-  bilateralChargeCount:              _____________
-  counterFireOnChargeCount:          _____________
-  wallBumpSelfDmgCount:              _____________
-  partialDistanceWallBumpCount:      _____________
-  chargeDamageFeedMissing:           _____________
-  lethalChargeCount:                 _____________
+  chargeEventCount:                  155  (threshold >= 10)
+  bilateralChargeCount:              recorded in payload
+  counterFireOnChargeCount:          86   (threshold >= 3)
+  wallBumpSelfDmgCount:              153  (threshold >= 5)
+  partialDistanceWallBumpCount:      132  (threshold >= 1)
+  chargeDamageFeedMissing:           0    (145/145 delivered)
+  lethalChargeCount:                 recorded in payload
 
-User attestation (UI walkthrough):   _____________
-Replay UI start-of-N feel:           _____________
-Status card legibility:              _____________
-Widened feed pleasing on widescreen: _____________
+User attestation (UI walkthrough):   PASS (1920x1080)
+Replay UI start-of-N feel:           PASS — grid positions align with agent Vision
+Status card legibility:              PASS — fields match ## Status block
+Widened feed pleasing on widescreen: PASS — feed width 963px (> 700px target)
 
-Source commits:                      _____________
+Source commits:                      51b470d (main)
 ```
+
+Validation gates: `npm run lint` PASS, `npm run typecheck` PASS,
+`npm test` PASS (41 files, 708 tests passed, 2 skipped),
+`npm run build` PASS, `npm run build:replay` PASS. Working tree clean.
+
+Full closure record: [PHASE-10-CLOSURE.md](./PHASE-10-CLOSURE.md)
+
+**Known follow-ups (not blockers):**
+- D29: charge frequency (155) and wall-bump frequency (153) far exceed
+  minimums — whether 1-dmg scratch frequency is at the right level is a
+  future calibration question.
+- D9: `runStats.ts` per-persona kill attribution bug carried as known
+  issue (mental-model §16 addendum).
 
 ## 11. Assignment-level success criteria
 

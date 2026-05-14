@@ -2,9 +2,10 @@
 
 > Practical recipe: tweak a prompt / value / config → 10 runs → metric +
 > verbose-failure report. Reflects the actual state of harness + Convex
-> aggregators as of phase 9 (rect-grained vision, wall-slide substrate,
-> slim per-match query, behavioural diagnostics CLI + dashboard). Keep
-> this current; future shifts in the report contract belong here.
+> aggregators as of phase 10 (body-collision substrate, start-of-N
+> overseer, rect-grained vision, wall-slide substrate, slim per-match
+> query, behavioural diagnostics CLI + dashboard). Keep this current;
+> future shifts in the report contract belong here.
 
 ---
 
@@ -282,7 +283,28 @@ npx tsx harness/closing/phase9.ts --matchIds "id1,id2,..." --overwrite
 The persisted row has `reportType: "phase-9-closing-20"` and is
 queryable via `npx convex run reports:byId '{"id":"<reportId>"}'`.
 
-### 4.5d. Diagnostics dashboard (`#/diagnostics`)
+### 4.5e. Phase-10 closing driver (`harness/closing/phase10.ts`)
+
+Runs the Phase-10 gate evaluation (preserved phase-7 thresholds plus
+slice-specific counters: charge events, counter-fires on charge,
+wall-bump self-damage, partial-distance wall-bumps, charge damage-feed
+delivery audit). Same Path-2 architecture as phases 7/9.
+
+```bash
+# Close over explicit match ids:
+npx tsx harness/closing/phase10.ts --matchIds "id1,id2,..."
+
+# Close over the last 20 matches:
+npx tsx harness/closing/phase10.ts --last 20
+
+# Overwrite an existing report:
+npx tsx harness/closing/phase10.ts --matchIds "id1,id2,..." --overwrite
+```
+
+The persisted row has `reportType: "phase-10-closing-20"` and is
+queryable via `npx convex run reports:byId '{"id":"<reportId>"}'`.
+
+### 4.5g. Diagnostics dashboard (`#/diagnostics`)
 
 The replay app (`npm run dev:replay`) has a top-level **Diagnostics** tab
 at `#/diagnostics?last=N`. It uses the same `byMatchSlim` fan-out and
@@ -299,9 +321,10 @@ npm run dev:replay
 # → http://localhost:5173
 ```
 
-The replay app reads from the live Convex deployment (same `.env`). Two top-level tabs: **Matches** (per-match replay) and **Diagnostics** (cohort view — see §4.5c). Every turn-feed row shows:
+The replay app reads from the live Convex deployment (same `.env`). Two top-level tabs: **Matches** (per-match replay) and **Diagnostics** (cohort view — see §4.5g). Every turn-feed row shows:
 
-- The agent's decision in English (`decisionEnglish.ts` — iter-2 shape: use/position/action/say/scratchpad with overwatch/counter/move arms, compass+dist, toward/away targetId).
+- A **Status card** per agent per turn: position, HP, weapon with stats, armour, consumable, scratchpad, Inside/Outside Evac flag (phase 10).
+- The agent's decision in English (`decisionEnglish.ts` — use/position/action/say/scratchpad with overwatch/counter/move arms, compass+dist, toward/away targetId, bodyCollision fragments).
 - A 🧠 indicator when reasoning text is captured.
 - Per-field `validatorFieldErrors` badges (field name + reason text) when individual fields were zeroed.
 - A usage-tokens bar with a truncation badge at ≥ 95% of cap.
@@ -310,6 +333,11 @@ The replay app reads from the live Convex deployment (same `.env`). Two top-leve
   - Reasoning text (separate pane).
   - Tool call (`rawArguments` vs `decision`, matched/diverged indicator).
   - Per-turn tool schema variant (shows the actual schema shipped for that agent+turn, including `use` field narrowing).
+
+The replay grid uses **start-of-N semantics** (phase 10): when the
+stepper is at turn N, the grid shows the positions agents saw when
+deciding turn N (= end-of-turn-(N-1)). The feed shows turn-N decisions
+and outcomes. `?turn=N` deep-links are temporally consistent.
 
 Vintage (pre-phase-6) matches are detected and gated with a notice rather than rendered through compatibility shims.
 
@@ -362,28 +390,31 @@ report mirroring the D1 artifact's shape (cohorts table → metrics table
 
 ## 7. Compatibility matrix (TL;DR)
 
-| Surface | Phase 1 | Phase 3 | Phase 6 | Phase 7 | Phase 9 (current) |
-|---|---|---|---|---|---|
-| `harness/run.ts` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/analyze-match.ts` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/cluster-failures.ts` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/inspect-attacks.ts` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/inspect-http.ts` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/inspect-equipped.ts` | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `harness/diagnostics.ts` | — | — | — | ✅ | ✅ (3-family CLI, slim fan-out) |
-| `harness/closing/phase7.ts` | — | — | — | ✅ | ✅ (Path 2 local compute + thin persist) |
-| `harness/closing/phase9.ts` | — | — | — | — | ✅ (Path 2; rect/slide/occlusion counters) |
-| `closing-N` report (phase-1 metrics) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `computePhase3Report` action | — | ✅ | ✅ | ✅ | ✅ |
-| `computePhase6Metrics` + persist | — | — | ✅ | ✅ | ✅ |
-| `computePhase7Metrics` + persist | — | — | — | ✅ | ✅ |
-| `computePhase9Metrics` + persist | — | — | — | — | ✅ (local compute + Convex persist) |
-| `phase-7-closing-20` persisted row | — | — | — | ✅ | wiped (POC posture) |
-| `phase-9-closing-20` persisted row | — | — | — | — | ✅ |
-| `turns.byMatchSlim` query | — | — | — | ✅ | ✅ (extended with slide evidence) |
-| no-op rate aggregator | — | — | ✅ | superseded | superseded (→ armedStancePause / trueStationary) |
-| Replay UI — Matches tab | — | ✅ | ✅ | ✅ | ✅ (rect-keyed Vision; vintage data gated) |
-| Replay UI — Diagnostics tab | — | — | — | ✅ | ✅ (`#/diagnostics?last=N`) |
+| Surface | Phase 1 | Phase 3 | Phase 6 | Phase 7 | Phase 9 | Phase 10 (current) |
+|---|---|---|---|---|---|---|
+| `harness/run.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/analyze-match.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/cluster-failures.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/inspect-attacks.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/inspect-http.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/inspect-equipped.ts` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `harness/diagnostics.ts` | — | — | — | ✅ | ✅ | ✅ (3-family CLI, slim fan-out) |
+| `harness/closing/phase7.ts` | — | — | — | ✅ | ✅ | ✅ (Path 2 local compute + thin persist) |
+| `harness/closing/phase9.ts` | — | — | — | — | ✅ | ✅ (Path 2; rect/slide/occlusion counters) |
+| `harness/closing/phase10.ts` | — | — | — | — | — | ✅ (Path 2; charge/bump/counter/feed counters) |
+| `closing-N` report (phase-1 metrics) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `computePhase3Report` action | — | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `computePhase6Metrics` + persist | — | — | ✅ | ✅ | ✅ | ✅ |
+| `computePhase7Metrics` + persist | — | — | — | ✅ | ✅ | ✅ |
+| `computePhase9Metrics` + persist | — | — | — | — | ✅ | ✅ (local compute + Convex persist) |
+| `computePhase10Metrics` + persist | — | — | — | — | — | ✅ (local compute + Convex persist) |
+| `phase-7-closing-20` persisted row | — | — | — | ✅ | wiped | wiped (POC posture) |
+| `phase-9-closing-20` persisted row | — | — | — | — | ✅ | wiped (POC posture) |
+| `phase-10-closing-20` persisted row | — | — | — | — | — | ✅ |
+| `turns.byMatchSlim` query | — | — | — | ✅ | ✅ | ✅ (extended with bodyCollision evidence) |
+| no-op rate aggregator | — | — | ✅ | superseded | superseded | superseded (→ armedStancePause / trueStationary) |
+| Replay UI — Matches tab | — | ✅ | ✅ | ✅ | ✅ | ✅ (start-of-N grid; Status card; bodyCollision summaries) |
+| Replay UI — Diagnostics tab | — | — | — | ✅ | ✅ | ✅ (`#/diagnostics?last=N`) |
 
-Phase-9 data only lives in the current Convex deployment. Pre-phase-9
+Phase-10 data only lives in the current Convex deployment. Pre-phase-10
 match data was wiped per POC posture; old matchIds will not resolve.
