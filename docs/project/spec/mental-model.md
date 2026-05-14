@@ -85,7 +85,7 @@ Non-negotiable framings. Mechanics serve them, not the other way around.
 5. **Text is terrain.** Speech, item names, inscriptions, corpse notes, signs — all can influence agents. Prompt injection is *part of the game*, not a vulnerability.
 6. **Build the substrate; let the strategy emerge.** The engine provides affordances. Players' prompts produce strategy. Diplomacy, lying, and betrayal are not engine features — they are emergent consequences of speech + scratchpad + prompt authorship.
 7. **State is the contract; runtime is swappable.** Convex holds the canonical game state and turn ledger. The engine and the renderer meet only at this data — neither knows about the other. Any slice can be rewritten in another language without touching the others. See `architecture.md`.
-8. **Vision is the affordance channel.** The agent's Vision contains only points of interest intended to impact gameplay or behaviour. Inert scenery filters out — we wouldn't show sand tiles unless some are quicksand and we wanted the agent to weigh the risk. Empty chests, drained corpses, and other spent affordances fall out of Vision the turn they become inert. Contents and intel (what was inside, who has what, who looted whom) live in outcome lines, scratchpad, speech, and the kill feed — the text-as-terrain layer (pillar 5). The substrate signals "this affordance exists / no longer exists" through entity presence and absence; the agent never has to scratchpad-track *whether* something is spent. If the answer to *what behaviour does this entry change* is *none*, it doesn't belong in Vision. The replay-render modality is orthogonal — looted chests can remain visible scenery for the human watcher without appearing in the LLM context.
+8. **Vision is the affordance channel.** The agent's Vision contains only points of interest intended to impact gameplay or behaviour. Inert scenery filters out — we wouldn't show sand tiles unless some are quicksand and we wanted the agent to weigh the risk. Empty chests, drained corpses, and other spent affordances fall out of Vision the turn they become inert. Contents and intel (what was inside, who has what, who looted whom) live in outcome lines, scratchpad, speech, and the kill feed — the text-as-terrain layer (pillar 5). The substrate signals "this affordance exists / no longer exists" through entity presence and absence; the agent never has to scratchpad-track *whether* something is spent. If the answer to *what behaviour does this entry change* is *none*, it doesn't belong in Vision. Vision also emits the substrate's *natural structure*, not a tile enumeration of it: walls, cover patches, and the evac zone surface as the rectangles the engine actually stores them as, with a `shape` discriminator. Tile-by-tile dumps were a leak of the storage representation into the agent's perception — and a tax on attention. Inside-state for any enterable terrain (cover patch the agent stands on, evac zone they're inside, future buff/teleport tiles) shares one convention regardless of type, so the model learns one inside-encoding rather than one per terrain. LOS gating applies uniformly to every entity type — characters, chests, corpses, cover, *and walls themselves* (a wall behind another wall isn't visible); the only non-LOS-gated entry is Evac post-reveal, which is intentionally match-meta (minimap-style), not spatial. The replay-render modality is orthogonal — looted chests and a fully-mapped wall layout can remain visible scenery for the human watcher without appearing in the LLM context.
 
 ## 7. North star (decision filter)
 
@@ -596,6 +596,85 @@ channel"). Pillar 4 stays load-bearing for *intel/contents* tracking
 (what was inside, who has what) — affordance-spent is a substrate
 signal, not a memory test. Implementation is a follow-up substrate
 slice, not in scope for phase 7's closure.
+
+## 17. Walls + Vision rect-grained substrate (dispatched 2026-05-14)
+
+> **Status:** dispatched 2026-05-14. Jam-surfaced substrate slice. The
+> trigger was reviewing post-iter-3 replays: walls were the only entity
+> type bypassing LOS (walls visible through walls), the engine offered
+> no path-correction on collision so prompts wasted turns dead-stopping
+> into single-tile walls they could trivially have stepped around, and
+> Vision dumped wall and cover *tiles* rather than the rectangles the
+> substrate actually stores them as — burning tokens on tile enumeration
+> while leaving wall-hug, cover-camp, and evac-rush as arithmetic
+> puzzles for the prompt rather than first-class substrate verbs.
+
+Three threads land in one slice:
+
+1. **LOS uniformly applies, including wall-on-wall.** The
+   `vision.ts` wall-emission loop's "walls are the LOS blockers, so
+   they're always visible" carve-out doesn't survive scrutiny: a wall
+   behind another wall still isn't visible. Walls now route through
+   `hasLineOfSight` like every other entity (characters, chests,
+   corpses, cover). The only non-LOS-gated entry is Evac post-reveal,
+   which is intentionally match-meta (minimap-style), not spatial.
+
+2. **Wall-slide as substrate affordance.** When a `toward` / `away`
+   move or a *diagonal* compass move (NE/SE/SW/NW) is blocked by a
+   wall on the diagonal step, the engine slides on the unblocked
+   cardinal axis instead of dead-stopping. Cardinal-direct hits
+   (move E into a wall directly E) still stop — the agent said "go E"
+   and we don't override that with "go N". Outcome line:
+   `hugged Wall_39_70_to_35_70 SE toward Duelist` for the slide case;
+   the dead-stop case keeps existing wording. Pillar-aligned: pillar 6
+   ("build the substrate") says the engine should do the
+   path-arithmetic so prompts don't have to; pillar 1 ("failures
+   attributable to the prompt") stays intact because the outcome line
+   tells the truth about what the engine actually did.
+
+3. **Vision emits rect-grained structures with shape taxonomy.**
+   Walls, cover patches, and the evac zone surface as the rectangles
+   the substrate already stores them as. Keys are coordinate-encoded:
+   `Wall_39_70_to_35_70`, `Cover_46_73_to_48_75`,
+   `Evac_45_47_to_47_49`. Single-tile entries keep the existing
+   single-coord form (`Wall_30_60`, `Cover_65_65`). Each entry carries
+   `dist`, `bearing`, and a `shape` discriminator
+   (`single` / `E-W line` / `N-S line` / `patch`). `dist` and `bearing`
+   compute against the *nearest* tile of the rect, not the centroid —
+   tactical decisions want nearest. Inside-state (cover the agent is
+   standing on, evac the agent is inside) is encoded uniformly as
+   `dist: 0, bearing: "here"` so the model learns one inside-convention
+   regardless of terrain type. Evac stays range-uncapped once revealed.
+
+Targeting an aggregated entity (`toward Wall_39_70_to_35_70`)
+resolves to the nearest tile of the rect, combined with the existing
+`stopAtRange` lookup. Wall-hug becomes "get adjacent to any part of
+this structure" rather than "step toward tile (39,70)" — richer, not
+narrower. Wall-on-LOS-rect rule: a wall rect is visible if at least
+*one* of its tiles has LOS to the observer (don't fragment a partially
+occluded wall into multiple keys).
+
+Chests, corpses, and characters keep their existing per-entity point
+keying — only rect-shaped terrain aggregates.
+
+**Authority for execution:**
+- Convex dev DB wipe authorised; no migration shims (POC posture).
+- Azure `.env` endpoint free reign for the closing-20 run.
+- No persona behaviour-tuning in scope.
+- Backend-only — no replay-app UAT required for closure (the user
+  steps through the closing-20 in the existing replay UI).
+
+**Done bar:** 20-run closing report stepped through in the existing
+replay UI. Phase-7 thresholds preserved where comparable
+(extraction ≥ 30%, kill ≥ 80%, equip ≥ 80%, speech ≥ 50%, persona
+spread ≥ 15 pp, zero crashes, zero illegal `use:"consumable"`
+emissions, zero `Player_N` literals, zero whole-turn validator zeroes,
+per-field rejection ≤ 10%). Slice-specific evidence: rect-keyed
+walls/cover/evac present in Vision payloads, single-tile keys only
+when the underlying rect is 1×1, wall-hug slide trace events present
+(`hugged Wall_*` in outcome lines), and at least one observable case
+of wall-on-wall LOS occlusion (a wall in Chebyshev-20 range that is
+occluded by another wall must NOT appear in Vision).
 
 ## 12. Open questions / live tensions
 
