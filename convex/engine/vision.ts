@@ -14,7 +14,7 @@
 // in `world.walls`, LOS is blocked. The Bresenham loop terminates early
 // on the first wall-tile match.
 //
-// Visible-entity caps: cover tiles are capped at 12 closest to the observer
+// Visible-entity caps: cover rects are capped at 12 closest to the observer
 // to keep the digest small (WP8 also caps at 8 visible-entities total, so
 // the engine's pre-cap here is a safety net, not the primary control).
 
@@ -22,6 +22,7 @@ import { chebyshev } from "./distance.js";
 import type {
   CharacterState,
   MatchState,
+  RectShape,
   Tile,
   VisibleEntity,
   Wall,
@@ -31,10 +32,10 @@ import type {
 /** Vision range in tiles, per concept-spec §4. */
 const VISION_RANGE = 20;
 
-/** Cover-tile cap for the visible list. WP8's digest caps total entities
+/** Cover-rect cap for the visible list. WP8's digest caps total entities
  *  at 8; this is a pre-cap so the visible list doesn't blow up before WP8
  *  applies its own cap. Documented in the vision module head-note. */
-const COVER_TILE_CAP = 12;
+const COVER_RECT_CAP = 12;
 
 // ─── Wall-rectangle helpers ────────────────────────────────────────────────
 
@@ -52,6 +53,55 @@ function tileInAnyWall(x: number, y: number, walls: readonly Wall[]): boolean {
     if (tileInWall(x, y, w)) return true;
   }
   return false;
+}
+
+function rectToTiles(rect: Wall): Tile[] {
+  const tiles: Tile[] = [];
+  for (let dx = 0; dx < rect.w; dx++) {
+    for (let dy = 0; dy < rect.h; dy++) {
+      tiles.push({ x: rect.x + dx, y: rect.y + dy });
+    }
+  }
+  return tiles;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+export function nearestTileOfRect(observer: Tile, rect: Wall): Tile {
+  return {
+    x: clamp(observer.x, rect.x, rect.x + rect.w - 1),
+    y: clamp(observer.y, rect.y, rect.y + rect.h - 1),
+  };
+}
+
+export function rectMinChebyshev(observer: Tile, rect: Wall): number {
+  return chebyshev(observer, nearestTileOfRect(observer, rect));
+}
+
+export function shapeOfRect(rect: Wall): RectShape {
+  if (rect.w === 1 && rect.h === 1) return "single";
+  if (rect.h === 1) return "E-W line";
+  if (rect.w === 1) return "N-S line";
+  return "patch";
+}
+
+function evacRect(world: WorldState): Wall {
+  return {
+    x: world.evac.centre.x - 1,
+    y: world.evac.centre.y - 1,
+    w: 3,
+    h: 3,
+  };
+}
+
+function rectHasAnyTileWithLos(
+  world: WorldState,
+  observer: Tile,
+  rect: Wall,
+): boolean {
+  return rectToTiles(rect).some((tile) => hasLineOfSight(world, observer, tile));
 }
 
 // ─── Bresenham line tracer ─────────────────────────────────────────────────
@@ -145,14 +195,10 @@ function hpBucket(hp: number, maxHp: number): "low" | "mid" | "high" {
  *  - Other living, non-hidden characters within Chebyshev 20 with LOS.
  *  - Chests within Chebyshev 20 with LOS.
  *  - Corpses within Chebyshev 20 with LOS.
- *  - Cover tiles within Chebyshev 20 with LOS, capped at 12 closest.
- *  - Wall tiles within Chebyshev 20 (no LOS check — Phase-3 ADR §5: walls
- *    themselves ARE the LOS blockers; emit unconditionally within range).
- *
- * Wall emission is uncapped at the engine layer; `inputBuilder.ts` (WP-C)
- * applies a per-turn safety ceiling of 12 walls in the rendered digest
- * (per ADR §5). The reference map's wall density never approaches this
- * ceiling within any 20-tile vision sphere.
+ *  - Cover rects within Chebyshev 20 with LOS, capped at 12 closest.
+ *  - Wall rects within Chebyshev 20 with LOS. Walls do not bypass LOS:
+ *    a wall behind another wall is not visible.
+ *  - Revealed evac rect regardless of Chebyshev range or LOS.
  */
 export function computeVisibleEntities(
   state: MatchState,
@@ -200,32 +246,28 @@ export function computeVisibleEntities(
     });
   }
 
-  // Cover tiles, capped at COVER_TILE_CAP closest.
-  const candidateCovers = state.world.coverTiles
-    .filter((t) => chebyshev(observer.pos, t) <= VISION_RANGE)
-    .filter((t) => hasLineOfSight(state.world, observer.pos, t))
-    .map((t) => ({ t, d: chebyshev(observer.pos, t) }))
+  // Cover rects, capped at COVER_RECT_CAP closest.
+  const candidateCovers = state.world.coverClusters
+    .filter((rect) => rectMinChebyshev(observer.pos, rect) <= VISION_RANGE)
+    .filter((rect) => rectHasAnyTileWithLos(state.world, observer.pos, rect))
+    .map((rect) => ({ rect, d: rectMinChebyshev(observer.pos, rect) }))
     .sort((a, b) => a.d - b.d)
-    .slice(0, COVER_TILE_CAP);
-  for (const { t } of candidateCovers) {
-    visible.push({ kind: "cover", pos: t });
+    .slice(0, COVER_RECT_CAP);
+  for (const { rect } of candidateCovers) {
+    visible.push({ kind: "cover_rect", rect, shape: shapeOfRect(rect) });
   }
 
-  // Wall tiles — Phase-3 ADR §5. Iterate every wall rectangle, emit each
-  // contained tile that falls within Chebyshev 20 of the observer. NO LOS
-  // check (walls block LOS for OTHER entities; a wall tile itself is
-  // "visible" by being within range — so an agent next to a wall sees it
-  // even if the wall is at the edge of their vision sphere).
-  // Engine emits uncapped; inputBuilder.ts (WP-C) applies the 12-wall
-  // safety ceiling at render time.
-  for (const w of state.world.walls) {
-    for (let dx = 0; dx < w.w; dx++) {
-      for (let dy = 0; dy < w.h; dy++) {
-        const tile: Tile = { x: w.x + dx, y: w.y + dy };
-        if (chebyshev(observer.pos, tile) > VISION_RANGE) continue;
-        visible.push({ kind: "wall", pos: tile });
-      }
-    }
+  // Wall rects use the same LOS gate as every other spatial entity. A rect
+  // emits as one entity when at least one of its tiles has LOS.
+  for (const rect of state.world.walls) {
+    if (rectMinChebyshev(observer.pos, rect) > VISION_RANGE) continue;
+    if (!rectHasAnyTileWithLos(state.world, observer.pos, rect)) continue;
+    visible.push({ kind: "wall_rect", rect, shape: shapeOfRect(rect) });
+  }
+
+  if (state.world.evac.revealedAtTurn !== null) {
+    const rect = evacRect(state.world);
+    visible.push({ kind: "evac_rect", rect, shape: shapeOfRect(rect) });
   }
 
   return { visible };

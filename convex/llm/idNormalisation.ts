@@ -1,5 +1,8 @@
-import type { MatchState, Tile } from "../engine/types.js";
-import { computeVisibleEntities } from "../engine/vision.js";
+import type { MatchState, Tile, Wall } from "../engine/types.js";
+import {
+  computeVisibleEntities,
+  nearestTileOfRect,
+} from "../engine/vision.js";
 
 // Phase-6 — character target id normalisation at the validator boundary.
 //
@@ -94,11 +97,17 @@ export type ResolvedEntity = {
   kind: "character" | "chest" | "corpse" | "cover" | "wall" | "evac";
   tile: Tile;
   stopAtRange: number;
+  rect?: Wall;
   engineRef?: { characterId?: string; chestId?: string };
 };
 
 function copyTile(tile: Tile): Tile {
   return { x: tile.x, y: tile.y };
+}
+
+function observerPos(state: MatchState, observerId: string): Tile {
+  const observer = state.characters.find((c) => c.characterId === observerId);
+  return observer ? copyTile(observer.pos) : { x: 0, y: 0 };
 }
 
 function isChestId(targetId: string): boolean {
@@ -109,7 +118,70 @@ function findChestByTargetId(state: MatchState, targetId: string) {
   return state.world.chests.find((chest) => chest.id === targetId);
 }
 
-function visibleTargetIds(state: MatchState, observerId: string): Set<string> {
+function formatRectId(prefix: "Cover" | "Wall" | "Evac", rect: Wall): string {
+  const x2 = rect.x + rect.w - 1;
+  const y2 = rect.y + rect.h - 1;
+  if (rect.w === 1 && rect.h === 1) return `${prefix}_${rect.x}_${rect.y}`;
+  return `${prefix}_${rect.x}_${rect.y}_to_${x2}_${y2}`;
+}
+
+function evacRect(state: MatchState): Wall {
+  return {
+    x: state.world.evac.centre.x - 1,
+    y: state.world.evac.centre.y - 1,
+    w: 3,
+    h: 3,
+  };
+}
+
+function sameRect(a: Wall, b: Wall): boolean {
+  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+}
+
+function rectFromBounds(x1: number, y1: number, x2: number, y2: number): Wall | null {
+  if (x2 < x1 || y2 < y1) return null;
+  return { x: x1, y: y1, w: x2 - x1 + 1, h: y2 - y1 + 1 };
+}
+
+export type ParsedPositionId =
+  | { kind: "single"; tile: Tile; rect: Wall }
+  | { kind: "rect"; rect: Wall };
+
+export function parsePositionId(
+  targetId: string,
+  prefix: "Cover" | "Wall" | "Evac",
+): ParsedPositionId | null {
+  const single = new RegExp(`^${prefix}_(-?\\d+)_(-?\\d+)$`).exec(targetId);
+  if (single) {
+    const tile = { x: Number(single[1]), y: Number(single[2]) };
+    return { kind: "single", tile, rect: { ...tile, w: 1, h: 1 } };
+  }
+
+  const rect = new RegExp(
+    `^${prefix}_(-?\\d+)_(-?\\d+)_to_(-?\\d+)_(-?\\d+)$`,
+  ).exec(targetId);
+  if (!rect) return null;
+  const parsed = rectFromBounds(
+    Number(rect[1]),
+    Number(rect[2]),
+    Number(rect[3]),
+    Number(rect[4]),
+  );
+  if (!parsed) return null;
+  if (parsed.w === 1 && parsed.h === 1) {
+    return {
+      kind: "single",
+      tile: { x: parsed.x, y: parsed.y },
+      rect: parsed,
+    };
+  }
+  return { kind: "rect", rect: parsed };
+}
+
+export function visibleTargetIds(
+  state: MatchState,
+  observerId: string,
+): Set<string> {
   const ids = new Set<string>();
   const { visible } = computeVisibleEntities(state, observerId);
 
@@ -138,16 +210,18 @@ function visibleTargetIds(state: MatchState, observerId: string): Set<string> {
         }
         break;
       }
-      case "cover":
-        ids.add(`Cover_${entity.pos.x}_${entity.pos.y}`);
+      case "cover_rect":
+        ids.add(formatRectId("Cover", entity.rect));
         break;
-      case "wall":
-        ids.add(`Wall_${entity.pos.x}_${entity.pos.y}`);
+      case "wall_rect":
+        ids.add(formatRectId("Wall", entity.rect));
+        break;
+      case "evac_rect":
+        ids.add(formatRectId("Evac", entity.rect));
         break;
     }
   }
 
-  if (state.world.evac.revealedAtTurn !== null) ids.add("Evac");
   return ids;
 }
 
@@ -159,29 +233,11 @@ function hasLineOfSightVisibleTarget(
   return visibleTargetIds(state, observerId).has(targetId);
 }
 
-function parsePositionId(
-  targetId: string,
-  prefix: "Cover" | "Wall",
-): Tile | null {
-  const match = new RegExp(`^${prefix}_(-?\\d+)_(-?\\d+)$`).exec(targetId);
-  if (!match) return null;
-  return { x: Number(match[1]), y: Number(match[2]) };
-}
-
 export function resolveTypedEntity(
   state: MatchState,
   observerId: string,
   targetId: string,
 ): ResolvedEntity | null {
-  if (targetId === "Evac") {
-    if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
-    return {
-      kind: "evac",
-      tile: copyTile(state.world.evac.centre),
-      stopAtRange: 0,
-    };
-  }
-
   if (targetId.startsWith("Corpse_")) {
     if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
     const characterId = normaliseCorpseTargetId(targetId, state.characters);
@@ -209,17 +265,55 @@ export function resolveTypedEntity(
   }
 
   if (targetId.startsWith("Cover_")) {
-    if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
-    const tile = parsePositionId(targetId, "Cover");
-    if (!tile) return null;
-    return { kind: "cover", tile, stopAtRange: 0 };
+    const parsed = parsePositionId(targetId, "Cover");
+    if (!parsed) return null;
+    const rect = state.world.coverClusters.find((candidate) =>
+      sameRect(candidate, parsed.rect),
+    );
+    if (!rect) return null;
+    if (!hasLineOfSightVisibleTarget(state, observerId, formatRectId("Cover", rect))) {
+      return null;
+    }
+    return {
+      kind: "cover",
+      tile: nearestTileOfRect(observerPos(state, observerId), rect),
+      stopAtRange: 0,
+      rect,
+    };
   }
 
   if (targetId.startsWith("Wall_")) {
-    if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
-    const tile = parsePositionId(targetId, "Wall");
-    if (!tile) return null;
-    return { kind: "wall", tile, stopAtRange: 1 };
+    const parsed = parsePositionId(targetId, "Wall");
+    if (!parsed) return null;
+    const rect = state.world.walls.find((candidate) =>
+      sameRect(candidate, parsed.rect),
+    );
+    if (!rect) return null;
+    if (!hasLineOfSightVisibleTarget(state, observerId, formatRectId("Wall", rect))) {
+      return null;
+    }
+    return {
+      kind: "wall",
+      tile: nearestTileOfRect(observerPos(state, observerId), rect),
+      stopAtRange: 1,
+      rect,
+    };
+  }
+
+  if (targetId.startsWith("Evac_")) {
+    const parsed = parsePositionId(targetId, "Evac");
+    if (!parsed) return null;
+    const rect = evacRect(state);
+    if (!sameRect(rect, parsed.rect)) return null;
+    if (!hasLineOfSightVisibleTarget(state, observerId, formatRectId("Evac", rect))) {
+      return null;
+    }
+    return {
+      kind: "evac",
+      tile: nearestTileOfRect(observerPos(state, observerId), rect),
+      stopAtRange: 0,
+      rect,
+    };
   }
 
   const characterId = normaliseCharacterTargetId(targetId, state.characters);

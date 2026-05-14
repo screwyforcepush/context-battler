@@ -26,15 +26,25 @@ import {
 // ─── Fixture builders ──────────────────────────────────────────────────────
 
 function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
-  return {
+  const world: WorldState = {
     size: { w: 100, h: 100 },
     walls: [],
+    coverClusters: [],
     coverTiles: [],
     chests: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
   };
+  if (world.coverClusters.length === 0 && world.coverTiles.length > 0) {
+    world.coverClusters = world.coverTiles.map((tile) => ({
+      x: tile.x,
+      y: tile.y,
+      w: 1,
+      h: 1,
+    }));
+  }
+  return world;
 }
 
 function makeCharacter(opts: {
@@ -218,7 +228,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       "Corpse_Camper",
       "Cover_54_42",
       "Wall_64_30",
-      "Evac",
+      "Evac_51_51_to_53_53",
     ])("move.toward targetId='%s' visible → valid", (targetId) => {
       const state = makeVisibleMoveTargetState();
       const decision: ParsedDecision = {
@@ -238,7 +248,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       "Corpse_Camper",
       "Cover_54_42",
       "Wall_64_30",
-      "Evac",
+      "Evac_51_51_to_53_53",
     ])("move.away targetId='%s' visible → valid", (targetId) => {
       const state = makeVisibleMoveTargetState();
       const decision: ParsedDecision = {
@@ -259,7 +269,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       ["Cover_80_50", "out-of-vision cover"],
       ["Wall_80_51", "out-of-vision wall"],
       ["Trader", "dead player"],
-      ["Evac", "unrevealed evac"],
+      ["Evac_51_51_to_53_53", "unrevealed evac"],
       ["UnknownPersona", "unknown player"],
       ["Random_42", "unknown namespace"],
       ["Cover_foo_bar", "malformed cover id"],
@@ -288,7 +298,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       "Cover_80_50",
       "Wall_80_51",
       "Trader",
-      "Evac",
+      "Evac_51_51_to_53_53",
       "UnknownPersona",
       "Random_42",
       "Cover_foo_bar",

@@ -121,6 +121,18 @@ describe("WP3 — expandMap returns a valid 100x100 WorldState", () => {
     expect(world.size.h).toBe(100);
   });
 
+  it("Phase 9 WP-A: preserves descriptor coverClusters alongside coverTiles", () => {
+    const descriptor = loadReferenceMap();
+    const world = expandMap(descriptor, "seed1");
+
+    expect(world.coverClusters).toEqual(descriptor.coverClusters);
+    const expandedTileCount = descriptor.coverClusters.reduce(
+      (sum, cluster) => sum + cluster.w * cluster.h,
+      0,
+    );
+    expect(world.coverTiles).toHaveLength(expandedTileCount);
+  });
+
   it("Test 2: exactly 8 spawn points, all on walkable floor (not in wall rectangles)", () => {
     const descriptor = loadReferenceMap();
     expect(descriptor.spawns.length).toBe(8);

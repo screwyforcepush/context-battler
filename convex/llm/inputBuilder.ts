@@ -1,5 +1,8 @@
 import { chebyshev } from "../engine/distance.js";
-import { computeVisibleEntities } from "../engine/vision.js";
+import {
+  computeVisibleEntities,
+  nearestTileOfRect,
+} from "../engine/vision.js";
 import {
   ARMOUR,
   CONSUMABLES,
@@ -13,10 +16,12 @@ import {
   type Position,
   type Tile,
   type VisibleEntity,
+  type Wall,
 } from "../engine/types.js";
 import { buildSystemPrompt } from "./systemPrompt.js";
 
 const VISIBLE_ENTITY_CAP = 8;
+const COVER_CAP = 12;
 const WALL_CAP = 12;
 const EVAC_HALF_SIZE = 1;
 
@@ -34,6 +39,11 @@ export type PrevTurnRow = {
       from: Tile;
       to: Tile;
       blockedBy?: "wall";
+      slide?: {
+        wallRectId: string;
+        axis: "N" | "E" | "S" | "W";
+        intent: string;
+      };
     }>;
     actions: ReadonlyArray<{
       characterId: string;
@@ -71,6 +81,11 @@ function compassDirection(from: Tile, to: Tile): string {
   const compass = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"] as const;
   const sector = Math.floor((normalised + 22.5) / 45) % 8;
   return compass[sector] ?? "";
+}
+
+function bearingOrHere(from: Tile, to: Tile): string {
+  const bearing = compassDirection(from, to);
+  return bearing === "" ? "here" : bearing;
 }
 
 function resolveDisplayName(state: MatchState, characterId: string): string {
@@ -135,9 +150,49 @@ function renderConsumableSlot(actor: CharacterState): string {
   return `${consumable.name} [${label}]`;
 }
 
-function renderMoveFragment(prev: PrevTurnRow, characterId: string): string | null {
+function renderSlideTarget(state: MatchState, rawTargetId: string): string {
+  if (rawTargetId.startsWith("Corpse_")) {
+    const ownerId = rawTargetId.slice("Corpse_".length);
+    return `Corpse_${renderCharacterTypedId(state, ownerId)}`;
+  }
+  if (
+    rawTargetId.startsWith("Wall_") ||
+    rawTargetId.startsWith("Cover_") ||
+    rawTargetId.startsWith("Evac_") ||
+    rawTargetId.startsWith("Chest_")
+  ) {
+    return rawTargetId;
+  }
+  return renderCharacterTypedId(state, rawTargetId);
+}
+
+function renderSlideFragment(
+  state: MatchState,
+  slide: NonNullable<PrevTurnRow["resolution"]["moves"][number]["slide"]>,
+): string {
+  const prefix = `hugged ${slide.wallRectId} ${slide.axis}`;
+  if (slide.intent === "NE" || slide.intent === "SE" || slide.intent === "SW" || slide.intent === "NW") {
+    return prefix;
+  }
+  if (slide.intent.startsWith("toward ")) {
+    const targetId = slide.intent.slice("toward ".length);
+    return `${prefix} toward ${renderSlideTarget(state, targetId)}`;
+  }
+  if (slide.intent.startsWith("away ")) {
+    const targetId = slide.intent.slice("away ".length);
+    return `${prefix} away from ${renderSlideTarget(state, targetId)}`;
+  }
+  return prefix;
+}
+
+function renderMoveFragment(
+  state: MatchState,
+  prev: PrevTurnRow,
+  characterId: string,
+): string | null {
   const entry = prev.resolution.moves.find((m) => m.characterId === characterId);
   if (!entry) return null;
+  if (entry.slide) return renderSlideFragment(state, entry.slide);
   if (entry.blockedBy === "wall") return "tried to move and hit wall";
   const dist = chebyshev(entry.from, entry.to);
   if (dist === 0) return null;
@@ -199,13 +254,13 @@ export function buildInboundSpeechLines(
 }
 
 export function buildOwnOutcomeLine(
-  _state: MatchState,
+  state: MatchState,
   characterId: string,
   prev: PrevTurnRow | null,
 ): string | null {
   if (!prev) return null;
   const fragments: string[] = [];
-  const move = renderMoveFragment(prev, characterId);
+  const move = renderMoveFragment(state, prev, characterId);
   if (move) fragments.push(move);
   const action = renderActionFragment(prev, characterId);
   if (action) fragments.push(action);
@@ -311,6 +366,22 @@ function baseVisibleValue(observer: CharacterState, pos: Tile) {
   };
 }
 
+function rectKey(prefix: "Wall" | "Cover" | "Evac", rect: Wall): string {
+  const x2 = rect.x + rect.w - 1;
+  const y2 = rect.y + rect.h - 1;
+  if (rect.w === 1 && rect.h === 1) return `${prefix}_${rect.x}_${rect.y}`;
+  return `${prefix}_${rect.x}_${rect.y}_to_${x2}_${y2}`;
+}
+
+function rectVisibleValue(observer: CharacterState, rect: Wall, shape: string) {
+  const nearest = nearestTileOfRect(observer.pos, rect);
+  return {
+    dist: chebyshev(observer.pos, nearest),
+    bearing: bearingOrHere(observer.pos, nearest),
+    shape,
+  };
+}
+
 function visibleEntryFor(
   entity: VisibleEntity,
   state: MatchState,
@@ -352,22 +423,34 @@ function visibleEntryFor(
         value: baseVisibleValue(observer, entity.pos),
       };
     }
-    case "cover": {
-      const key = `Cover_${entity.pos.x}_${entity.pos.y}`;
+    case "cover_rect": {
+      const nearest = nearestTileOfRect(observer.pos, entity.rect);
+      const key = rectKey("Cover", entity.rect);
       return {
         tier: 3,
-        dist: chebyshev(observer.pos, entity.pos),
+        dist: chebyshev(observer.pos, nearest),
         key,
-        value: baseVisibleValue(observer, entity.pos),
+        value: rectVisibleValue(observer, entity.rect, entity.shape),
       };
     }
-    case "wall": {
-      const key = `Wall_${entity.pos.x}_${entity.pos.y}`;
+    case "wall_rect": {
+      const nearest = nearestTileOfRect(observer.pos, entity.rect);
+      const key = rectKey("Wall", entity.rect);
       return {
         tier: 4,
-        dist: chebyshev(observer.pos, entity.pos),
+        dist: chebyshev(observer.pos, nearest),
         key,
-        value: baseVisibleValue(observer, entity.pos),
+        value: rectVisibleValue(observer, entity.rect, entity.shape),
+      };
+    }
+    case "evac_rect": {
+      const nearest = nearestTileOfRect(observer.pos, entity.rect);
+      const key = rectKey("Evac", entity.rect);
+      return {
+        tier: 5,
+        dist: chebyshev(observer.pos, nearest),
+        key,
+        value: rectVisibleValue(observer, entity.rect, entity.shape),
       };
     }
   }
@@ -390,6 +473,7 @@ function buildVisibleObject(
   const charAndLoot: VisibleEntry[] = [];
   const cover: VisibleEntry[] = [];
   const walls: VisibleEntry[] = [];
+  const evac: VisibleEntry[] = [];
 
   for (const entity of visible) {
     if (entity.kind === "chest" && chestSpentById(state, entity.objectId)) {
@@ -401,24 +485,16 @@ function buildVisibleObject(
     const entry = visibleEntryFor(entity, state, observer);
     if (entry.tier <= 2) charAndLoot.push(entry);
     else if (entry.tier === 3) cover.push(entry);
-    else walls.push(entry);
+    else if (entry.tier === 4) walls.push(entry);
+    else evac.push(entry);
   }
 
   const entries = [
     ...charAndLoot.sort(visibleComparator).slice(0, VISIBLE_ENTITY_CAP),
-    ...cover.sort(visibleComparator),
+    ...cover.sort(visibleComparator).slice(0, COVER_CAP),
     ...walls.sort(visibleComparator).slice(0, WALL_CAP),
+    ...evac.sort(visibleComparator),
   ];
-
-  const inEvacZone = observerInEvacZone(state, observer);
-  if (state.world.evac.revealedAtTurn !== null && !inEvacZone) {
-    entries.push({
-      tier: 5,
-      dist: chebyshev(observer.pos, state.world.evac.centre),
-      key: "Evac",
-      value: baseVisibleValue(observer, state.world.evac.centre),
-    });
-  }
 
   const out: Record<string, VisibleJsonValue> = {};
   for (const entry of entries.sort(visibleComparator)) {

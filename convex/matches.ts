@@ -127,6 +127,7 @@ function expandMapInline(
   return {
     size: descriptor.size,
     walls: descriptor.walls,
+    coverClusters: descriptor.coverClusters,
     coverTiles,
     chests,
     corpses: [],
@@ -224,6 +225,7 @@ export const start = mutation({
     await ctx.db.insert("worldState", {
       matchId,
       walls: world.walls,
+      coverClusters: world.coverClusters,
       coverTiles: world.coverTiles,
       chests: world.chests.map((c) => ({
         id: c.id,

@@ -12,6 +12,7 @@ import {
   desiredNextTile,
   simulateMovement,
   type Mover,
+  type MoveTraceEntry,
 } from "../../convex/engine/movement.js";
 import type {
   CharacterState,
@@ -27,15 +28,25 @@ import type {
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
-  return {
+  const world: WorldState = {
     size: { w: 100, h: 100 },
     walls: [],
+    coverClusters: [],
     coverTiles: [],
     chests: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
   };
+  if (world.coverClusters.length === 0 && world.coverTiles.length > 0) {
+    world.coverClusters = world.coverTiles.map((tile) => ({
+      x: tile.x,
+      y: tile.y,
+      w: 1,
+      h: 1,
+    }));
+  }
+  return world;
 }
 
 function makeCharacter(opts: {
@@ -118,6 +129,11 @@ function tileIsInWall(tile: Tile, wall: Wall): boolean {
     tile.y >= wall.y &&
     tile.y < wall.y + wall.h
   );
+}
+
+function onlyMove(moves: MoveTraceEntry[]): MoveTraceEntry {
+  expect(moves).toHaveLength(1);
+  return moves[0]!;
 }
 
 // ─── §10 target movement tracks current position ─────────────────────────
@@ -266,7 +282,7 @@ describe("WP7 movement — concept-spec §10", () => {
       world: { evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 } },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward", targetId: "Evac" })],
+      ["A", moveDecision({ kind: "toward", targetId: "Evac_49_49_to_51_51" })],
     ]);
     const { state: next } = simulateMovement(state, decisions);
     expect(findChar(next, "A").pos).toEqual({ x: 8, y: 8 });
@@ -389,7 +405,10 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
     const cover = { x: 54, y: 42 };
     const state = makeState({
       characters: [actor],
-      world: { coverTiles: [cover] },
+      world: {
+        coverClusters: [{ x: 54, y: 42, w: 1, h: 1 }],
+        coverTiles: [cover],
+      },
     });
     const decisions = new Map<string, ParsedDecision>([
       ["A", moveDecision({ kind: "toward", targetId: "Cover_54_42" })],
@@ -453,7 +472,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
     expect(walls.some((wall) => tileIsInWall(final, wall))).toBe(false);
   });
 
-  it("toward Evac walks onto evac.centre when revealed and within budget", () => {
+  it("toward Evac walks into the revealed evac rect when within budget", () => {
     const actor = makeCharacter({
       id: "A",
       displayName: "Rat",
@@ -464,12 +483,12 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
       world: { evac: { centre: { x: 54, y: 54 }, revealedAtTurn: 30 } },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward", targetId: "Evac" })],
+      ["A", moveDecision({ kind: "toward", targetId: "Evac_53_53_to_55_55" })],
     ]);
 
     const { state: next } = simulateMovement(state, decisions);
 
-    expect(findChar(next, "A").pos).toEqual({ x: 54, y: 54 });
+    expect(findChar(next, "A").pos).toEqual({ x: 53, y: 53 });
   });
 
   it("away Opportunist preserves the deterministic +x tie-break when actor is on the target tile", () => {
@@ -573,7 +592,10 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
     });
     const state = makeState({
       characters: [actor],
-      world: { coverTiles: [{ x: 50, y: 50 }] },
+      world: {
+        coverClusters: [{ x: 50, y: 50, w: 1, h: 1 }],
+        coverTiles: [{ x: 50, y: 50 }],
+      },
     });
     const decisions = new Map<string, ParsedDecision>([
       ["A", moveDecision({ kind: "away", targetId: "Cover_50_50" })],
@@ -614,7 +636,7 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
       world: { evac: { centre: { x: 48, y: 50 }, revealedAtTurn: 30 } },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "away", targetId: "Evac" })],
+      ["A", moveDecision({ kind: "away", targetId: "Evac_47_49_to_49_51" })],
     ]);
 
     const { state: next } = simulateMovement(state, decisions);
@@ -882,7 +904,7 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
     // East already covered above.
   });
 
-  it("wall at NE diagonal blocks dx=1,dy=-1 diagonal step → emits blockedBy='wall'", () => {
+  it("wall at NE diagonal with both fallback axes clear slides on X-axis", () => {
     const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
     // Wall directly NE at (6,4).
     const wall: Wall = { x: 6, y: 4, w: 1, h: 1 };
@@ -891,8 +913,12 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
       ["A", moveDecision({ kind: "NE" }, 1)],
     ]);
     const { moves } = simulateMovement(state, decisions);
-    expect(moves).toHaveLength(1);
-    expect(moves[0]?.blockedBy).toBe("wall");
+    expect(onlyMove(moves)).toEqual({
+      characterId: "A",
+      from: { x: 5, y: 5 },
+      to: { x: 6, y: 5 },
+      slide: { wallRectId: "Wall_6_4", axis: "E", intent: "NE" },
+    });
   });
 
   it("stationary decision emits NOTHING (no blockedBy entry)", () => {
@@ -948,6 +974,243 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
     expect(move?.from).toEqual({ x: 5, y: 5 });
     expect(move?.to).toEqual({ x: 7, y: 5 });
     expect(move?.blockedBy).toBeUndefined();
+  });
+});
+
+// ─── Phase 9 WP-B — diagonal wall-slide substrate ────────────────────────
+
+describe("Phase 9 WP-B wall-slide movement substrate", () => {
+  it("diagonal compass wall-hit slides on X-axis when only X fallback is clear", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const diagonalWall: Wall = { x: 6, y: 4, w: 1, h: 1 };
+    const yFallbackWall: Wall = { x: 5, y: 4, w: 1, h: 1 };
+    const state = makeState({
+      characters: [a],
+      world: { walls: [diagonalWall, yFallbackWall] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "NE" }, 1)],
+    ]);
+
+    const { state: next, moves } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 6, y: 5 });
+    expect(onlyMove(moves)).toEqual({
+      characterId: "A",
+      from: { x: 5, y: 5 },
+      to: { x: 6, y: 5 },
+      slide: { wallRectId: "Wall_6_4", axis: "E", intent: "NE" },
+    });
+  });
+
+  it("diagonal compass wall-hit slides on Y-axis when only Y fallback is clear", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const blocker = makeCharacter({ id: "B", pos: { x: 6, y: 5 } });
+    const diagonalWall: Wall = { x: 6, y: 4, w: 1, h: 1 };
+    const state = makeState({
+      characters: [a, blocker],
+      world: { walls: [diagonalWall] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "NE" }, 1)],
+      ["B", noMoveDecision()],
+    ]);
+
+    const { state: next, moves } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 5, y: 4 });
+    expect(onlyMove(moves)).toEqual({
+      characterId: "A",
+      from: { x: 5, y: 5 },
+      to: { x: 5, y: 4 },
+      slide: { wallRectId: "Wall_6_4", axis: "N", intent: "NE" },
+    });
+  });
+
+  it("toward-target diagonal wall-hit slides and carries the verbatim target intent", () => {
+    const a = makeCharacter({ id: "A", displayName: "Rat", pos: { x: 5, y: 5 } });
+    const target = makeCharacter({
+      id: "opaque_duelist",
+      displayName: "Duelist",
+      pos: { x: 10, y: 3 },
+    });
+    const diagonalWall: Wall = { x: 6, y: 4, w: 1, h: 1 };
+    const yFallbackWall: Wall = { x: 5, y: 4, w: 1, h: 1 };
+    const state = makeState({
+      characters: [a, target],
+      world: { walls: [diagonalWall, yFallbackWall] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "toward", targetId: "Duelist" }, 1)],
+      ["opaque_duelist", noMoveDecision()],
+    ]);
+
+    const { moves } = simulateMovement(state, decisions);
+
+    expect(onlyMove(moves).slide).toEqual({
+      wallRectId: "Wall_6_4",
+      axis: "E",
+      intent: "toward Duelist",
+    });
+  });
+
+  it("away-target diagonal wall-hit slides and carries the verbatim target intent", () => {
+    const a = makeCharacter({ id: "A", displayName: "Rat", pos: { x: 5, y: 5 } });
+    const target = makeCharacter({
+      id: "opaque_camper",
+      displayName: "Camper",
+      pos: { x: 0, y: 10 },
+    });
+    const blocker = makeCharacter({ id: "B", pos: { x: 6, y: 5 } });
+    const diagonalWall: Wall = { x: 6, y: 4, w: 1, h: 1 };
+    const state = makeState({
+      characters: [a, target, blocker],
+      world: { walls: [diagonalWall] },
+    });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "away", targetId: "Camper" }, 1)],
+      ["opaque_camper", noMoveDecision()],
+      ["B", noMoveDecision()],
+    ]);
+
+    const { moves } = simulateMovement(state, decisions);
+
+    expect(onlyMove(moves).slide).toEqual({
+      wallRectId: "Wall_6_4",
+      axis: "N",
+      intent: "away Camper",
+    });
+  });
+
+  it("cardinal direct wall-hit dead-stops with existing blockedBy='wall' trace", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const wall: Wall = { x: 6, y: 5, w: 1, h: 1 };
+    const state = makeState({ characters: [a], world: { walls: [wall] } });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "E" }, 1)],
+    ]);
+
+    const { state: next, moves } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 5, y: 5 });
+    expect(onlyMove(moves)).toEqual({
+      characterId: "A",
+      from: { x: 5, y: 5 },
+      to: { x: 5, y: 5 },
+      blockedBy: "wall",
+    });
+  });
+
+  it("both cardinal fallbacks blocked dead-stops with existing blockedBy='wall' trace", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const blocker = makeCharacter({ id: "B", pos: { x: 6, y: 5 } });
+    const walls: Wall[] = [
+      { x: 6, y: 4, w: 1, h: 1 },
+      { x: 5, y: 4, w: 1, h: 1 },
+    ];
+    const state = makeState({ characters: [a, blocker], world: { walls } });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "NE" }, 1)],
+      ["B", noMoveDecision()],
+    ]);
+
+    const { state: next, moves } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 5, y: 5 });
+    expect(onlyMove(moves)).toEqual({
+      characterId: "A",
+      from: { x: 5, y: 5 },
+      to: { x: 5, y: 5 },
+      blockedBy: "wall",
+    });
+  });
+
+  it("both cardinal fallbacks clear uses the X-axis tie-break", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const wall: Wall = { x: 6, y: 4, w: 1, h: 1 };
+    const state = makeState({ characters: [a], world: { walls: [wall] } });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "NE" }, 1)],
+    ]);
+
+    const { state: next, moves } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 6, y: 5 });
+    expect(onlyMove(moves).slide).toEqual({
+      wallRectId: "Wall_6_4",
+      axis: "E",
+      intent: "NE",
+    });
+  });
+
+  it("multi-substep slide records the first slide and then continues movement", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
+    const wall: Wall = { x: 6, y: 4, w: 1, h: 1 };
+    const state = makeState({ characters: [a], world: { walls: [wall] } });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "NE" }, 4)],
+    ]);
+
+    const { state: next, moves } = simulateMovement(state, decisions);
+
+    expect(findChar(next, "A").pos).toEqual({ x: 9, y: 2 });
+    expect(onlyMove(moves)).toEqual({
+      characterId: "A",
+      from: { x: 5, y: 5 },
+      to: { x: 9, y: 2 },
+      slide: { wallRectId: "Wall_6_4", axis: "E", intent: "NE" },
+    });
+  });
+
+  it("toward rect target recomputes the nearest tile from resolvedTarget.rect", () => {
+    const wallRect: Wall = { x: 10, y: 10, w: 5, h: 1 };
+    const actor = makeCharacter({ id: "A", pos: { x: 9, y: 10 } });
+    const state = makeState({ characters: [actor], world: { walls: [wallRect] } });
+    const mover: Mover = {
+      characterId: "A",
+      budget: 8,
+      decision: moveDecision({
+        kind: "toward",
+        targetId: "Wall_10_10_to_14_10",
+      }),
+      resolvedTarget: {
+        kind: "wall",
+        tile: { x: 14, y: 10 },
+        stopAtRange: 1,
+        rect: wallRect,
+      },
+    };
+
+    expect(desiredNextTile(state, mover)).toBeNull();
+
+    const fartherState = makeState({
+      characters: [makeCharacter({ id: "A", pos: { x: 8, y: 10 } })],
+      world: { walls: [wallRect] },
+    });
+    expect(desiredNextTile(fartherState, mover)).toEqual({ x: 9, y: 10 });
+  });
+
+  it("away rect target moves away from the dynamically nearest rect tile", () => {
+    const wallRect: Wall = { x: 10, y: 10, w: 5, h: 1 };
+    const actor = makeCharacter({ id: "A", pos: { x: 9, y: 9 } });
+    const state = makeState({ characters: [actor], world: { walls: [wallRect] } });
+    const mover: Mover = {
+      characterId: "A",
+      budget: 8,
+      decision: moveDecision({
+        kind: "away",
+        targetId: "Wall_10_10_to_14_10",
+      }),
+      resolvedTarget: {
+        kind: "wall",
+        // Deliberately stale/wrong: the rect nearest tile is (10,10).
+        tile: { x: 6, y: 10 },
+        stopAtRange: 1,
+        rect: wallRect,
+      },
+    };
+
+    expect(desiredNextTile(state, mover)).toEqual({ x: 8, y: 8 });
   });
 });
 

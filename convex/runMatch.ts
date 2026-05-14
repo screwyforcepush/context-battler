@@ -63,6 +63,7 @@ import {
   type MatchState,
   type ParsedDecision,
   type PersonaId,
+  type Position,
   type Tile,
   type UseVariant,
   type WeaponName,
@@ -224,6 +225,12 @@ export function buildMatchState(
   const world: WorldState = {
     size: descriptorSize,
     walls: worldRow.walls.map((w) => ({ x: w.x, y: w.y, w: w.w, h: w.h })),
+    coverClusters: worldRow.coverClusters.map((w) => ({
+      x: w.x,
+      y: w.y,
+      w: w.w,
+      h: w.h,
+    })),
     coverTiles: worldRow.coverTiles.map((t) => ({ x: t.x, y: t.y })),
     // ChestState in the engine carries `lootTable`; the row shape doesn't
     // (it's bookkeeping only, used by WP3 expansion). Re-inject a stub
@@ -445,6 +452,11 @@ export function adaptResolutionForSchema(
     from: Tile;
     to: Tile;
     blockedBy?: "wall";
+    slide?: {
+      wallRectId: string;
+      axis: "N" | "E" | "S" | "W";
+      intent: string;
+    };
   }>;
 	  actions: Array<{
 	    characterId: Id<"characters">;
@@ -486,6 +498,7 @@ export function adaptResolutionForSchema(
       // engine omits the field on every non-blocked move entry, and the
       // schema validator is `v.optional(v.literal("wall"))`.
       ...(m.blockedBy !== undefined ? { blockedBy: m.blockedBy } : {}),
+      ...(m.slide !== undefined ? { slide: m.slide } : {}),
     })),
 	    actions: trace.actions.map((a) => ({
 	      characterId: a.characterId as Id<"characters">,
@@ -504,6 +517,101 @@ export function adaptResolutionForSchema(
       hidden: u.hidden,
       revealedBy: u.revealedBy,
     })),
+  };
+}
+
+type PersistedSlideTrace = {
+  wallRectId: string;
+  axis: "N" | "E" | "S" | "W";
+  intent: string;
+};
+
+type PersistedPriorTurnRow = {
+  resolution: {
+    consumed: ReadonlyArray<{
+      characterId: string;
+      item: { name: ConsumableName };
+    }>;
+    speech: ReadonlyArray<{
+      characterId: string;
+      text: string;
+      heardBy: ReadonlyArray<string>;
+    }>;
+    moves: ReadonlyArray<{
+      characterId: string;
+      from: Tile;
+      to: Tile;
+      blockedBy?: "wall";
+      slide?: PersistedSlideTrace;
+    }>;
+    actions: ReadonlyArray<{
+      characterId: string;
+      kind: string;
+      target: string;
+      result: string;
+      triggeredByMovement?: boolean;
+      weapon?: string;
+      lootedItem?: string;
+    }>;
+    deaths: ReadonlyArray<string>;
+    visibilityUpdates: ReadonlyArray<{
+      characterId: string;
+      hidden: boolean;
+      revealedBy?: string;
+    }>;
+  };
+  agentRecords: ReadonlyArray<{
+    characterId: string;
+    decision: { position: Position };
+  }>;
+};
+
+export function adaptPriorTurnRowForBuilder(
+  priorTurnRow: PersistedPriorTurnRow | null,
+): PrevTurnRow | null {
+  if (!priorTurnRow) return null;
+  return {
+    resolution: {
+      consumed: priorTurnRow.resolution.consumed.map((c) => ({
+        characterId: c.characterId as string,
+        item: c.item.name,
+      })),
+      speech: priorTurnRow.resolution.speech.map((s) => ({
+        characterId: s.characterId as string,
+        text: s.text,
+        heardBy: s.heardBy.map((h) => h as string),
+      })),
+      moves: priorTurnRow.resolution.moves.map((m) => ({
+        characterId: m.characterId as string,
+        from: { x: m.from.x, y: m.from.y },
+        to: { x: m.to.x, y: m.to.y },
+        ...(m.blockedBy ? { blockedBy: m.blockedBy } : {}),
+        ...(m.slide !== undefined ? { slide: m.slide } : {}),
+      })),
+      actions: priorTurnRow.resolution.actions.map((a) => ({
+        characterId: a.characterId as string,
+        kind: a.kind,
+        target: a.target,
+        result: a.result,
+        ...(a.triggeredByMovement !== undefined
+          ? { triggeredByMovement: a.triggeredByMovement }
+          : {}),
+        ...(a.weapon !== undefined ? { weapon: a.weapon } : {}),
+        ...(a.lootedItem !== undefined ? { lootedItem: a.lootedItem } : {}),
+      })),
+      deaths: priorTurnRow.resolution.deaths.map((d) => d as string),
+      visibilityUpdates: priorTurnRow.resolution.visibilityUpdates.map((u) => ({
+        characterId: u.characterId as string,
+        hidden: u.hidden,
+        ...(u.revealedBy !== undefined ? { revealedBy: u.revealedBy } : {}),
+      })),
+    },
+    priorPositionByActor: Object.fromEntries(
+      priorTurnRow.agentRecords.map((r) => [
+        r.characterId as string,
+        r.decision.position,
+      ]),
+    ),
   };
 }
 
@@ -576,56 +684,7 @@ export const advanceTurn = action({
       // Adapt the persisted row's resolution to the engine string-id shape
       // the inputBuilder consumes. The Convex Id values ARE strings at
       // runtime; we cast via `as string` at the boundary.
-      const prevTurnRowForBuilder: PrevTurnRow | null = priorTurnRow
-        ? {
-            resolution: {
-              consumed: priorTurnRow.resolution.consumed.map((c) => ({
-                characterId: c.characterId as string,
-                item: c.item.name,
-              })),
-              speech: priorTurnRow.resolution.speech.map((s) => ({
-                characterId: s.characterId as string,
-                text: s.text,
-                heardBy: s.heardBy.map((h) => h as string),
-              })),
-              moves: priorTurnRow.resolution.moves.map((m) => ({
-                characterId: m.characterId as string,
-                from: { x: m.from.x, y: m.from.y },
-                to: { x: m.to.x, y: m.to.y },
-                ...(m.blockedBy ? { blockedBy: m.blockedBy } : {}),
-              })),
-	              actions: priorTurnRow.resolution.actions.map((a) => ({
-	                characterId: a.characterId as string,
-	                kind: a.kind,
-	                target: a.target,
-                result: a.result,
-                ...(a.triggeredByMovement !== undefined
-                  ? { triggeredByMovement: a.triggeredByMovement }
-                  : {}),
-                ...(a.weapon !== undefined ? { weapon: a.weapon } : {}),
-                ...(a.lootedItem !== undefined
-                  ? { lootedItem: a.lootedItem }
-                  : {}),
-              })),
-              deaths: priorTurnRow.resolution.deaths.map((d) => d as string),
-              visibilityUpdates: priorTurnRow.resolution.visibilityUpdates.map(
-                (u) => ({
-                  characterId: u.characterId as string,
-                  hidden: u.hidden,
-                  ...(u.revealedBy !== undefined
-                    ? { revealedBy: u.revealedBy }
-                    : {}),
-                }),
-              ),
-            },
-            priorPositionByActor: Object.fromEntries(
-              priorTurnRow.agentRecords.map((r) => [
-                r.characterId as string,
-                r.decision.position,
-              ]),
-            ),
-          }
-        : null;
+      const prevTurnRowForBuilder = adaptPriorTurnRowForBuilder(priorTurnRow);
 
       // Phase-1 helper kept alive for any internal speech-audience consumer
       // that still wants a HeardSpeech[] view; the digest no longer renders

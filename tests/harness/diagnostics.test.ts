@@ -52,6 +52,9 @@ function record(
       corpses: 0,
       evacSeen: false,
     },
+    visibleRectKeys: overrides.visibleRectKeys ?? [],
+    insideBearingHere: overrides.insideBearingHere ?? false,
+    observerPos: overrides.observerPos ?? { x: 0, y: 0 },
     selfEquipment: overrides.selfEquipment ?? {
       weapon: null,
       armour: null,

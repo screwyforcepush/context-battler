@@ -27,9 +27,10 @@ loadDotenv();
 const SHOULD_RUN = !!process.env.VITEST_LLM;
 
 function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
-  return {
+  const world: WorldState = {
     size: { w: 100, h: 100 },
     walls: [],
+    coverClusters: [],
     coverTiles: [
       { x: 11, y: 10 },
       { x: 10, y: 11 },
@@ -47,6 +48,15 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
   };
+  if (world.coverClusters.length === 0 && world.coverTiles.length > 0) {
+    world.coverClusters = world.coverTiles.map((tile) => ({
+      x: tile.x,
+      y: tile.y,
+      w: 1,
+      h: 1,
+    }));
+  }
+  return world;
 }
 
 function makeCharacter(opts: {

@@ -3,6 +3,7 @@ import {
   buildAgentInput,
   buildInboundSpeechLines,
   buildKillFeedLines,
+  buildOwnOutcomeLine,
   buildOwnSpeechLine,
   buildVisibleStateDigest,
   renderDamageEventLines,
@@ -26,15 +27,25 @@ import {
 type VisibleObject = Record<string, Record<string, unknown>>;
 
 function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
-  return {
+  const world: WorldState = {
     size: { w: 100, h: 100 },
     walls: [],
+    coverClusters: [],
     coverTiles: [],
     chests: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
   };
+  if (world.coverClusters.length === 0 && world.coverTiles.length > 0) {
+    world.coverClusters = world.coverTiles.map((tile) => ({
+      x: tile.x,
+      y: tile.y,
+      w: 1,
+      h: 1,
+    }));
+  }
+  return world;
 }
 
 function makeCharacter(opts: {
@@ -312,6 +323,104 @@ describe("Phase 6 input builder — composed user message", () => {
 });
 
 describe("Phase 6 input builder — event helpers", () => {
+  it.each([
+    {
+      name: "compass slide",
+      from: { x: 5, y: 5 },
+      to: { x: 6, y: 5 },
+      slide: {
+        wallRectId: "Wall_18_18_to_23_18",
+        axis: "E" as const,
+        intent: "NE",
+      },
+      expected: "You hugged Wall_18_18_to_23_18 E",
+    },
+    {
+      name: "character target projection",
+      from: { x: 5, y: 5 },
+      to: { x: 6, y: 5 },
+      slide: {
+        wallRectId: "Wall_18_18_to_23_18",
+        axis: "E" as const,
+        intent: "toward opaque_character_camper",
+      },
+      expected: "You hugged Wall_18_18_to_23_18 E toward Camper",
+    },
+    {
+      name: "corpse target projection",
+      from: { x: 5, y: 5 },
+      to: { x: 6, y: 5 },
+      slide: {
+        wallRectId: "Wall_18_18_to_23_18",
+        axis: "E" as const,
+        intent: "toward Corpse_opaque_character_camper",
+      },
+      expected: "You hugged Wall_18_18_to_23_18 E toward Corpse_Camper",
+    },
+    {
+      name: "rect target pass-through",
+      from: { x: 5, y: 5 },
+      to: { x: 6, y: 5 },
+      slide: {
+        wallRectId: "Wall_18_18_to_23_18",
+        axis: "E" as const,
+        intent: "toward Wall_30_60_to_34_60",
+      },
+      expected:
+        "You hugged Wall_18_18_to_23_18 E toward Wall_30_60_to_34_60",
+    },
+    {
+      name: "away target projection",
+      from: { x: 5, y: 5 },
+      to: { x: 4, y: 5 },
+      slide: {
+        wallRectId: "Wall_18_18_to_23_18",
+        axis: "W" as const,
+        intent: "away opaque_character_camper",
+      },
+      expected: "You hugged Wall_18_18_to_23_18 W away from Camper",
+    },
+    {
+      name: "aggregate delta divergence",
+      from: { x: 5, y: 5 },
+      to: { x: 7, y: 4 },
+      slide: {
+        wallRectId: "Wall_18_18_to_23_18",
+        axis: "E" as const,
+        intent: "NE",
+      },
+      expected: "You hugged Wall_18_18_to_23_18 E",
+    },
+  ])("renders slide outcome lines using slide.axis: $name", (row) => {
+    const me = makeCharacter({
+      id: "opaque_character_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: row.to,
+    });
+    const camper = makeCharacter({
+      id: "opaque_character_camper",
+      personaId: "camper",
+      displayName: "Camper",
+      pos: { x: 10, y: 10 },
+    });
+    const state = makeState({ characters: [me, camper] });
+    const prev = makePrevTurn({
+      moves: [
+        {
+          characterId: "opaque_character_duelist",
+          from: row.from,
+          to: row.to,
+          slide: row.slide,
+        },
+      ],
+    });
+
+    expect(buildOwnOutcomeLine(state, "opaque_character_duelist", prev)).toBe(
+      row.expected,
+    );
+  });
+
   it("orders own outcome, damage, own speech, inbound speech, then kill feed", () => {
     const me = makeCharacter({
       id: "c_duelist",
@@ -687,6 +796,175 @@ describe("Phase 6 input builder — event helpers", () => {
 });
 
 describe("Phase 6 input builder — visible object", () => {
+  it("serializes multi-tile terrain and evac as rect keys with nearest-tile bearings", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 50, y: 50 },
+    });
+    const ewWall: Wall = { x: 44, y: 50, w: 4, h: 1 };
+    const nsWall: Wall = { x: 54, y: 52, w: 1, h: 4 };
+    const coverPatch: Wall = { x: 48, y: 47, w: 2, h: 2 };
+    const state = makeState({
+      characters: [me],
+      world: {
+        walls: [ewWall, nsWall],
+        coverClusters: [coverPatch],
+        coverTiles: [
+          { x: 48, y: 47 },
+          { x: 49, y: 47 },
+          { x: 48, y: 48 },
+          { x: 49, y: 48 },
+        ],
+        evac: { centre: { x: 80, y: 80 }, revealedAtTurn: 30 },
+      },
+      turn: 35,
+    });
+
+    const visible = parseVisible(state, "c_duelist");
+
+    expect(visible.Wall_44_50_to_47_50).toEqual({
+      dist: 3,
+      bearing: "W",
+      shape: "E-W line",
+    });
+    expect(visible.Wall_54_52_to_54_55).toEqual({
+      dist: 4,
+      bearing: "SE",
+      shape: "N-S line",
+    });
+    expect(visible.Cover_48_47_to_49_48).toEqual({
+      dist: 2,
+      bearing: "NW",
+      shape: "patch",
+    });
+    expect(visible.Evac_79_79_to_81_81).toEqual({
+      dist: 29,
+      bearing: "SE",
+      shape: "patch",
+    });
+  });
+
+  it("uses bearing here when the observer is inside a cover patch", () => {
+    const me = makeCharacter({
+      id: "c_camper",
+      personaId: "camper",
+      displayName: "Camper",
+      pos: { x: 43, y: 43 },
+    });
+    const coverPatch: Wall = { x: 42, y: 42, w: 3, h: 3 };
+    const state = makeState({
+      characters: [me],
+      world: {
+        coverClusters: [coverPatch],
+        coverTiles: [
+          { x: 42, y: 42 },
+          { x: 43, y: 42 },
+          { x: 44, y: 42 },
+          { x: 42, y: 43 },
+          { x: 43, y: 43 },
+          { x: 44, y: 43 },
+          { x: 42, y: 44 },
+          { x: 43, y: 44 },
+          { x: 44, y: 44 },
+        ],
+      },
+    });
+
+    const visible = parseVisible(state, "c_camper");
+
+    expect(visible.Cover_42_42_to_44_44).toEqual({
+      dist: 0,
+      bearing: "here",
+      shape: "patch",
+    });
+  });
+
+  it("preserves point-keying for characters, chests, and corpses", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 50, y: 50 },
+    });
+    const camper = makeCharacter({
+      id: "c_camper",
+      personaId: "camper",
+      displayName: "Camper",
+      pos: { x: 52, y: 50 },
+    });
+    const rat = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 53, y: 50 },
+      alive: false,
+    });
+    const state = makeState({
+      characters: [me, camper, rat],
+      world: {
+        chests: [makeChest("Chest_51_50", { x: 51, y: 50 })],
+        corpses: [
+          makeCorpse("c_rat", { x: 53, y: 50 }, {
+            weapon: { category: "weapon", name: "sword" },
+          }),
+        ],
+      },
+    });
+
+    const visible = parseVisible(state, "c_duelist");
+
+    expect(visible.Camper).toMatchObject({ dist: 2, bearing: "E" });
+    expect(visible.Chest_51_50).toMatchObject({ dist: 1, bearing: "E" });
+    expect(visible.Corpse_Rat).toMatchObject({ dist: 3, bearing: "E" });
+    expect(Object.keys(visible).filter((key) => key.includes("_to_"))).toEqual(
+      [],
+    );
+  });
+
+  it("keeps non-wall entities out of Vision when LOS is fully blocked", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 10, y: 10 },
+    });
+    const rat = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 14, y: 11 },
+      alive: false,
+    });
+    const state = makeState({
+      characters: [me, rat],
+      world: {
+        walls: [{ x: 12, y: 8, w: 1, h: 5 }],
+        chests: [makeChest("Chest_14_10", { x: 14, y: 10 })],
+        corpses: [
+          makeCorpse("c_rat", { x: 14, y: 11 }, {
+            weapon: { category: "weapon", name: "sword" },
+          }),
+        ],
+        coverClusters: [{ x: 14, y: 8, w: 1, h: 5 }],
+        coverTiles: [
+          { x: 14, y: 8 },
+          { x: 14, y: 9 },
+          { x: 14, y: 10 },
+          { x: 14, y: 11 },
+          { x: 14, y: 12 },
+        ],
+      },
+    });
+
+    const visible = parseVisible(state, "c_duelist");
+
+    expect(visible.Chest_14_10).toBeUndefined();
+    expect(visible.Corpse_Rat).toBeUndefined();
+    expect(visible.Cover_14_8_to_14_12).toBeUndefined();
+  });
+
   it("renders slim Vision entries for characters, lootables, cover, walls, and outside evac", () => {
     const me = makeCharacter({
       id: "c_duelist",
@@ -775,27 +1053,36 @@ describe("Phase 6 input builder — visible object", () => {
     expect(visible.Cover_52_52).toMatchObject({
       dist: 2,
       bearing: "SE",
+      shape: "single",
     });
     expect(visibleKeys(visible.Cover_52_52)).toEqual([
       "bearing",
       "dist",
+      "shape",
     ]);
     expect(visible.Wall_49_51).toMatchObject({
       dist: 1,
       bearing: "SW",
+      shape: "single",
     });
     expect(visibleKeys(visible.Wall_49_51)).toEqual([
       "bearing",
       "dist",
+      "shape",
     ]);
-    expect(visible.Evac).toMatchObject({
-      dist: 3,
+    expect(visible.Evac_46_49_to_48_51).toMatchObject({
+      dist: 2,
       bearing: "W",
+      shape: "patch",
     });
-    expect(visibleKeys(visible.Evac)).toEqual(["bearing", "dist"]);
+    expect(visibleKeys(visible.Evac_46_49_to_48_51)).toEqual([
+      "bearing",
+      "dist",
+      "shape",
+    ]);
   });
 
-  it("shows unarmed baseline damage and suppresses Evac from Vision inside the zone", () => {
+  it("shows unarmed baseline damage and emits here-bearing Evac inside the zone", () => {
     const me = makeCharacter({
       id: "c_rat",
       personaId: "rat",
@@ -812,7 +1099,11 @@ describe("Phase 6 input builder — visible object", () => {
     expect(built.composedUserMessage).toContain("📍(49,50) Inside Evac");
     expect(built.composedUserMessage).toContain("⚔️weapon: unarmed [dmg 5]");
     const visible = parseVisible(state, "c_rat");
-    expect(visible.Evac).toBeUndefined();
+    expect(visible.Evac_49_49_to_51_51).toEqual({
+      dist: 0,
+      bearing: "here",
+      shape: "patch",
+    });
   });
 
   it("renders Outside Evac before reveal and omits Evac from Vision", () => {

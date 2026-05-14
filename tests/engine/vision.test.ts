@@ -27,6 +27,7 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
   return {
     size: { w: 100, h: 100 },
     walls: [],
+    coverClusters: [],
     coverTiles: [],
     chests: [],
     corpses: [],
@@ -238,8 +239,9 @@ describe("WP5 — computeVisibleEntities (concept-spec §7)", () => {
     expect(buckets["H"]).toBe("high");
   });
 
-  it("§7 — chests, corpses, and cover tiles within range with LOS appear", () => {
+  it("Phase 9 WP-A — chests, corpses, characters stay point-keyed; cover emits as a rect", () => {
     const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const target = makeCharacter({ id: "B", pos: { x: 2, y: 0 } });
     const chest = {
       id: "Chest_4_0",
       pos: { x: 4, y: 0 },
@@ -252,20 +254,76 @@ describe("WP5 — computeVisibleEntities (concept-spec §7)", () => {
       pos: { x: 6, y: 0 },
       contents: {},
     };
-    const coverTile: Tile = { x: 8, y: 0 };
+    const coverCluster: Wall = { x: 8, y: 0, w: 2, h: 2 };
     const state = makeState({
-      characters: [observer],
+      characters: [observer, target],
       world: {
         chests: [chest],
         corpses: [corpse],
-        coverTiles: [coverTile],
+        coverClusters: [coverCluster],
+        coverTiles: [
+          { x: 8, y: 0 },
+          { x: 8, y: 1 },
+          { x: 9, y: 0 },
+          { x: 9, y: 1 },
+        ],
       },
     });
     const { visible } = computeVisibleEntities(state, "A");
-    const kinds = visible.map((v) => v.kind);
-    expect(kinds).toContain("chest");
-    expect(kinds).toContain("corpse");
-    expect(kinds).toContain("cover");
+    expect(visible).toContainEqual(
+      expect.objectContaining({ kind: "character", characterId: "B" }),
+    );
+    expect(visible).toContainEqual(
+      expect.objectContaining({ kind: "chest", objectId: "Chest_4_0" }),
+    );
+    expect(visible).toContainEqual(
+      expect.objectContaining({ kind: "corpse", objectId: "X" }),
+    );
+    expect(visible).toContainEqual({
+      kind: "cover_rect",
+      rect: coverCluster,
+      shape: "patch",
+    });
+    expect(visible.map((v) => v.kind)).not.toContain("cover");
+  });
+
+  it("Phase 9 WP-A — chest, corpse, character, and cover are still LOS-gated by walls", () => {
+    const observer = makeCharacter({ id: "A", pos: { x: 10, y: 10 } });
+    const occluded = makeCharacter({ id: "B", pos: { x: 3, y: 10 } });
+    const blocker: Wall = { x: 5, y: 8, w: 1, h: 5 };
+    const coverCluster: Wall = { x: 3, y: 8, w: 1, h: 5 };
+    const state = makeState({
+      characters: [observer, occluded],
+      world: {
+        walls: [blocker],
+        chests: [
+          {
+            id: "Chest_3_10",
+            pos: { x: 3, y: 10 },
+            contents: null,
+            opened: false,
+            lootTable: "starter",
+          },
+        ],
+        corpses: [{ characterId: "X", pos: { x: 3, y: 11 }, contents: {} }],
+        coverClusters: [coverCluster],
+        coverTiles: [
+          { x: 3, y: 8 },
+          { x: 3, y: 9 },
+          { x: 3, y: 10 },
+          { x: 3, y: 11 },
+          { x: 3, y: 12 },
+        ],
+      },
+    });
+
+    const { visible } = computeVisibleEntities(state, "A");
+    expect(
+      visible.some((v) => v.kind === "character" && v.characterId === "B"),
+    ).toBe(false);
+    expect(visible.some((v) => v.kind === "chest")).toBe(false);
+    expect(visible.some((v) => v.kind === "corpse")).toBe(false);
+    expect(visible.some((v) => v.kind === "cover_rect")).toBe(false);
   });
 
   it("§7 — does not include the observer itself in visible characters", () => {
@@ -294,16 +352,10 @@ describe("WP5 — computeVisibleEntities (concept-spec §7)", () => {
   });
 });
 
-// ─── WP-B.1 / Phase-3 ADR §5 — wall emission ─────────────────────────────
-//
-// Vision emits `{ kind: "wall", pos }` entries for every wall TILE within
-// Chebyshev 20 of the observer, with NO LOS check on walls themselves
-// (walls block LOS for OTHER entities; a wall tile is "visible" by being
-// within range — see ADR §5). The engine emits without cap; downstream
-// `inputBuilder.ts` (WP-C) caps at 12 per turn.
+// ─── Phase 9 WP-A — rect-grained walls / cover / evac ─────────────────────
 
-describe("WP-B.1 vision walls — Phase-3 ADR §5", () => {
-  it("emits wall entries for every wall tile within Chebyshev 20", () => {
+describe("Phase 9 WP-A — rect-grained vision substrate", () => {
+  it("emits one wall_rect for a single-tile wall within LOS", () => {
     const observer = makeCharacter({ id: "A", pos: { x: 10, y: 10 } });
     // 1×1 wall at (12, 10) — distance 2 from observer.
     const wall: Wall = { x: 12, y: 10, w: 1, h: 1 };
@@ -312,12 +364,17 @@ describe("WP-B.1 vision walls — Phase-3 ADR §5", () => {
       world: { walls: [wall] },
     });
     const { visible } = computeVisibleEntities(state, "A");
-    const walls = visible.filter((v) => v.kind === "wall");
+    const walls = visible.filter((v) => v.kind === "wall_rect");
     expect(walls).toHaveLength(1);
-    expect(walls[0]).toEqual({ kind: "wall", pos: { x: 12, y: 10 } });
+    expect(walls[0]).toEqual({
+      kind: "wall_rect",
+      rect: wall,
+      shape: "single",
+    });
+    expect(visible.map((v) => v.kind)).not.toContain("wall");
   });
 
-  it("emits one entry per tile in a multi-tile wall rectangle", () => {
+  it("emits one rect entry, not one entry per tile, for a multi-tile wall", () => {
     const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     // 3-wide × 2-tall wall starting at (5,5) — covers tiles
     // (5,5) (6,5) (7,5) (5,6) (6,6) (7,6) → 6 tiles.
@@ -327,17 +384,11 @@ describe("WP-B.1 vision walls — Phase-3 ADR §5", () => {
       world: { walls: [wall] },
     });
     const { visible } = computeVisibleEntities(state, "A");
-    const walls = visible.filter((v) => v.kind === "wall");
-    expect(walls).toHaveLength(6);
-    const positions = walls
-      .map((w) => (w.kind === "wall" ? `${w.pos.x},${w.pos.y}` : ""))
-      .sort();
-    expect(positions).toEqual(
-      ["5,5", "5,6", "6,5", "6,6", "7,5", "7,6"].sort(),
-    );
+    const walls = visible.filter((v) => v.kind === "wall_rect");
+    expect(walls).toEqual([{ kind: "wall_rect", rect: wall, shape: "patch" }]);
   });
 
-  it("excludes wall tiles outside Chebyshev 20", () => {
+  it("applies the Chebyshev 20 cap to wall rects by nearest tile", () => {
     const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     // In-range wall at (20, 0) — Chebyshev 20.
     const inRange: Wall = { x: 20, y: 0, w: 1, h: 1 };
@@ -348,65 +399,198 @@ describe("WP-B.1 vision walls — Phase-3 ADR §5", () => {
       world: { walls: [inRange, outOfRange] },
     });
     const { visible } = computeVisibleEntities(state, "A");
-    const walls = visible.filter((v) => v.kind === "wall");
+    const walls = visible.filter((v) => v.kind === "wall_rect");
     expect(walls).toHaveLength(1);
-    expect(walls[0]).toEqual({ kind: "wall", pos: { x: 20, y: 0 } });
+    expect(walls[0]).toEqual({
+      kind: "wall_rect",
+      rect: inRange,
+      shape: "single",
+    });
   });
 
-  it("emits walls regardless of LOS (a wall behind another wall is still visible)", () => {
-    // Per ADR §5: LOS on walls is not checked — walls within vision range
-    // are visible regardless of LOS (they ARE the LOS blockers).
+  it("does not emit a wall hidden behind another wall", () => {
+    const observer = makeCharacter({ id: "A", pos: { x: 10, y: 10 } });
+    const visibleWall: Wall = { x: 5, y: 10, w: 1, h: 1 };
+    const occludedWall: Wall = { x: 3, y: 10, w: 1, h: 1 };
+    const state = makeState({
+      characters: [observer],
+      world: { walls: [visibleWall, occludedWall] },
+    });
+    const { visible } = computeVisibleEntities(state, "A");
+    expect(visible).toContainEqual({
+      kind: "wall_rect",
+      rect: visibleWall,
+      shape: "single",
+    });
+    expect(visible).not.toContainEqual({
+      kind: "wall_rect",
+      rect: occludedWall,
+      shape: "single",
+    });
+  });
+
+  it("does not emit a fully occluded multi-tile wall rect", () => {
+    const observer = makeCharacter({ id: "A", pos: { x: 10, y: 10 } });
+    const visibleWall: Wall = { x: 5, y: 8, w: 1, h: 5 };
+    const occludedWall: Wall = { x: 3, y: 8, w: 1, h: 5 };
+    const state = makeState({
+      characters: [observer],
+      world: { walls: [visibleWall, occludedWall] },
+    });
+
+    const { visible } = computeVisibleEntities(state, "A");
+    expect(visible).toContainEqual({
+      kind: "wall_rect",
+      rect: visibleWall,
+      shape: "N-S line",
+    });
+    expect(visible).not.toContainEqual({
+      kind: "wall_rect",
+      rect: occludedWall,
+      shape: "N-S line",
+    });
+  });
+
+  it("emits the whole wall rect when at least one tile has LOS", () => {
     const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
-    // Two walls in a line: (5,0) and (10,0). LOS to (10,0) goes through
-    // (5,0) which is itself a wall. Both must still be emitted.
-    const w1: Wall = { x: 5, y: 0, w: 1, h: 1 };
-    const w2: Wall = { x: 10, y: 0, w: 1, h: 1 };
+    const blocker: Wall = { x: 2, y: 0, w: 1, h: 1 };
+    const partiallyVisibleWall: Wall = { x: 4, y: 0, w: 2, h: 3 };
     const state = makeState({
       characters: [observer],
-      world: { walls: [w1, w2] },
+      world: { walls: [blocker, partiallyVisibleWall] },
     });
+
+    expect(hasLineOfSight(state.world, observer.pos, { x: 4, y: 0 })).toBe(
+      false,
+    );
+    expect(hasLineOfSight(state.world, observer.pos, { x: 4, y: 2 })).toBe(
+      true,
+    );
     const { visible } = computeVisibleEntities(state, "A");
-    const walls = visible.filter((v) => v.kind === "wall");
-    const positions = walls
-      .map((w) => (w.kind === "wall" ? `${w.pos.x},${w.pos.y}` : ""))
-      .sort();
-    expect(positions).toEqual(["10,0", "5,0"]);
+    expect(visible).toContainEqual({
+      kind: "wall_rect",
+      rect: blocker,
+      shape: "single",
+    });
+    expect(visible).toContainEqual({
+      kind: "wall_rect",
+      rect: partiallyVisibleWall,
+      shape: "patch",
+    });
   });
 
-  it("12-wall safety ceiling — observer in wall-densest map corner emits all walls within Chebyshev 20 (no engine-side cap)", () => {
-    // Reference-map wall-densest area is the centre arena around evac
-    // (48,48). Observer at (48,48) sees the full ring of inner walls at
-    // (44,40), (52,40), (40,44), (56,44), (40,52), (56,52), (44,56),
-    // (52,56) PLUS the outer ring at (12,48), (84,48 - out of range),
-    // (48,12), (48,84 - out of range). Within Chebyshev 20: many of the
-    // inner+evac-perimeter walls. The engine MUST emit all of them — the
-    // 12 cap is applied later at the inputBuilder layer (WP-C).
-    const observer = makeCharacter({ id: "A", pos: { x: 48, y: 48 } });
-    // Synthetic high-density wall fixture: 14 individual 1×1 wall tiles
-    // ringed within Chebyshev 20 of (48,48). The engine must emit all 14;
-    // a 12-cap at engine level would silently truncate (the bug we test).
-    const wallTiles: Wall[] = [];
-    for (let i = 0; i < 14; i++) {
-      // Tiles at distance ~i from observer, all within Chebyshev 20.
-      // i=0 collides with observer pos so start at i=1; ensure distinct tiles.
-      wallTiles.push({ x: 48 + i + 1, y: 48, w: 1, h: 1 });
-    }
+  it("self-LOS regression: an adjacent multi-tile wall emits once as a whole rect", () => {
+    const observer = makeCharacter({ id: "A", pos: { x: 4, y: 10 } });
+    const wall: Wall = { x: 5, y: 8, w: 1, h: 5 };
     const state = makeState({
       characters: [observer],
-      world: { walls: wallTiles },
+      world: { walls: [wall] },
     });
+
     const { visible } = computeVisibleEntities(state, "A");
-    const walls = visible.filter((v) => v.kind === "wall");
-    // All 14 walls within Chebyshev 20 must be emitted (engine has no
-    // 12-cap; WP-C inputBuilder caps at 12 in the digest, not here).
-    expect(walls).toHaveLength(14);
+    expect(visible.filter((v) => v.kind === "wall_rect")).toEqual([
+      { kind: "wall_rect", rect: wall, shape: "N-S line" },
+    ]);
   });
 
-  it("no walls in the world → no wall entries in visible", () => {
+  it("emits the whole cover rect when any cluster tile has LOS", () => {
+    const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const blocker: Wall = { x: 2, y: 0, w: 1, h: 1 };
+    const coverCluster: Wall = { x: 4, y: 0, w: 2, h: 3 };
+    const state = makeState({
+      characters: [observer],
+      world: {
+        walls: [blocker],
+        coverClusters: [coverCluster],
+        coverTiles: [
+          { x: 4, y: 0 },
+          { x: 4, y: 1 },
+          { x: 4, y: 2 },
+          { x: 5, y: 0 },
+          { x: 5, y: 1 },
+          { x: 5, y: 2 },
+        ],
+      },
+    });
+
+    expect(hasLineOfSight(state.world, observer.pos, { x: 4, y: 0 })).toBe(
+      false,
+    );
+    expect(hasLineOfSight(state.world, observer.pos, { x: 4, y: 2 })).toBe(
+      true,
+    );
+    const { visible } = computeVisibleEntities(state, "A");
+    expect(visible).toContainEqual({
+      kind: "cover_rect",
+      rect: coverCluster,
+      shape: "patch",
+    });
+  });
+
+  it("still emits the cover rect when the observer is inside the cover cluster", () => {
+    const observer = makeCharacter({ id: "A", pos: { x: 4, y: 4 } });
+    const coverCluster: Wall = { x: 3, y: 3, w: 3, h: 3 };
+    const state = makeState({
+      characters: [observer],
+      world: {
+        coverClusters: [coverCluster],
+        coverTiles: [
+          { x: 3, y: 3 },
+          { x: 3, y: 4 },
+          { x: 3, y: 5 },
+          { x: 4, y: 3 },
+          { x: 4, y: 4 },
+          { x: 4, y: 5 },
+          { x: 5, y: 3 },
+          { x: 5, y: 4 },
+          { x: 5, y: 5 },
+        ],
+      },
+    });
+
+    const { visible } = computeVisibleEntities(state, "A");
+    expect(visible).toContainEqual({
+      kind: "cover_rect",
+      rect: coverCluster,
+      shape: "patch",
+    });
+  });
+
+  it("emits revealed evac_rect regardless of range and LOS", () => {
+    const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const blockingWall: Wall = { x: 1, y: 0, w: 1, h: 100 };
+    const state = makeState({
+      characters: [observer],
+      world: {
+        walls: [blockingWall],
+        evac: { centre: { x: 80, y: 80 }, revealedAtTurn: 30 },
+      },
+    });
+
+    const { visible } = computeVisibleEntities(state, "A");
+    expect(visible).toContainEqual({
+      kind: "evac_rect",
+      rect: { x: 79, y: 79, w: 3, h: 3 },
+      shape: "patch",
+    });
+  });
+
+  it("does not emit evac_rect before reveal", () => {
+    const observer = makeCharacter({ id: "A", pos: { x: 50, y: 50 } });
+    const state = makeState({
+      characters: [observer],
+      world: { evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null } },
+    });
+
+    const { visible } = computeVisibleEntities(state, "A");
+    expect(visible.some((v) => v.kind === "evac_rect")).toBe(false);
+  });
+
+  it("no walls in the world → no wall_rect entries in visible", () => {
     const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({ characters: [observer] });
     const { visible } = computeVisibleEntities(state, "A");
-    const walls = visible.filter((v) => v.kind === "wall");
+    const walls = visible.filter((v) => v.kind === "wall_rect");
     expect(walls).toHaveLength(0);
   });
 });

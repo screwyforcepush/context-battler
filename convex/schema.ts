@@ -310,6 +310,18 @@ const resolutionValidator = v.object({
       // blocked-move-rate metric reads this directly (single source of
       // truth — no aggregator-side derivation).
       blockedBy: v.optional(v.literal("wall")),
+      slide: v.optional(
+        v.object({
+          wallRectId: v.string(),
+          axis: v.union(
+            v.literal("N"),
+            v.literal("E"),
+            v.literal("S"),
+            v.literal("W"),
+          ),
+          intent: v.string(),
+        }),
+      ),
     }),
   ),
   actions: v.array(
@@ -661,6 +673,76 @@ const phase7PayloadValidator = v.object({
   meetsAllThresholds: v.boolean(),
 });
 
+const phase9SlidePerPersonaValidator = v.object({
+  personaId: personaIdValidator,
+  count: v.number(),
+});
+
+const phase9PayloadValidator = v.object({
+  reportType: v.literal("phase-9-closing-20"),
+  runCount: v.number(),
+  matchIds: v.array(v.string()),
+  failedMatches: v.number(),
+
+  runsWithExtraction: v.number(),
+  runsWithKill: v.number(),
+  runsWithEquip: v.number(),
+  runsWithSpeech: v.number(),
+  extractionRate: v.number(),
+  killRate: v.number(),
+  equipRate: v.number(),
+  speechRate: v.number(),
+  personaSpread: v.number(),
+  totalAgentRecords: v.number(),
+  nullOnlyUseViolations: v.number(),
+  zeroCrashes: v.boolean(),
+  zeroIllegalConsumableUse: v.boolean(),
+  zeroPlayerNLiterals: v.boolean(),
+  zeroWholeTurnValidatorZeroes: v.boolean(),
+  compassBearings: v.array(v.string()),
+  allEightCompassBearingsExercised: v.boolean(),
+  targetRelativeKinds: v.array(v.string()),
+  targetRelativeTowardExercised: v.boolean(),
+  targetRelativeAwayExercised: v.boolean(),
+  validatorRecords: v.number(),
+  validatorFieldErrors: v.number(),
+  perFieldRejectionRate: v.number(),
+  wholeTurnZeroedValidatorRecords: v.number(),
+  playerNLiteralCount: v.number(),
+
+  wallRectKeyCount: v.number(),
+  coverRectKeyCount: v.number(),
+  evacRectKeyCount: v.number(),
+  singleTileKeyForMultiTileRectCount: v.number(),
+  slideOutcomeCount: v.number(),
+  slideOutcomePerPersona: v.array(phase9SlidePerPersonaValidator),
+  wallOnWallOcclusionCount: v.number(),
+  evacOutOfChebyshev20Count: v.number(),
+  insideBearingHereCount: v.number(),
+
+  meetsExtractionThreshold: v.boolean(),
+  meetsKillThreshold: v.boolean(),
+  meetsEquipThreshold: v.boolean(),
+  meetsSpeechThreshold: v.boolean(),
+  meetsPersonaSpreadThreshold: v.boolean(),
+  meetsZeroCrashThreshold: v.boolean(),
+  meetsZeroIllegalConsumableThreshold: v.boolean(),
+  meetsZeroPlayerNLiteralThreshold: v.boolean(),
+  meetsZeroWholeTurnValidatorThreshold: v.boolean(),
+  meetsPerFieldRejectionThreshold: v.boolean(),
+  meetsCompassBearingsThreshold: v.boolean(),
+  meetsTargetRelativeThreshold: v.boolean(),
+  meetsWallRectKeyThreshold: v.boolean(),
+  meetsCoverRectKeyThreshold: v.boolean(),
+  meetsEvacRectKeyThreshold: v.boolean(),
+  meetsSingleTileKeyDisciplineThreshold: v.boolean(),
+  meetsSlideOutcomeThreshold: v.boolean(),
+  meetsWallOnWallOcclusionThreshold: v.boolean(),
+  meetsEvacOutOfChebyshev20Threshold: v.boolean(),
+  meetsInsideBearingHereThreshold: v.boolean(),
+  meetsAllThresholds: v.boolean(),
+});
+
 /**
  * `reports.payload` validator — the §10 done-bar payload Stage-3 emits.
  * Mirrors `ReportPayload` from `convex/engine/reportStats.ts` exactly.
@@ -770,6 +852,7 @@ export default defineSchema({
   worldState: defineTable({
     matchId: v.id("matches"),
     walls: v.array(wallValidator),
+    coverClusters: v.array(wallValidator),
     coverTiles: v.array(tileValidator),
     chests: v.array(chestValidator),
     corpses: v.array(corpseValidator),
@@ -868,6 +951,7 @@ export default defineSchema({
     phase3Payload: v.optional(phase3PayloadValidator),
     phase6Payload: v.optional(phase6PayloadValidator),
     phase7Payload: v.optional(phase7PayloadValidator),
+    phase9Payload: v.optional(phase9PayloadValidator),
   })
     .index("by_generatedAt", ["generatedAt"])
     // WP14 idempotency index: `reports.create` reads by this tuple before

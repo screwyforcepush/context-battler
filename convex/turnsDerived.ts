@@ -79,9 +79,22 @@ type ResolutionSpeechLike = {
   heardBy: readonly string[];
 };
 
+type ResolutionMoveLike = {
+  characterId: string;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  blockedBy?: "wall";
+  slide?: {
+    wallRectId: string;
+    axis: "N" | "E" | "S" | "W";
+    intent: string;
+  };
+};
+
 type ResolutionLike = {
   actions: readonly ResolutionActionLike[];
   speech: readonly ResolutionSpeechLike[];
+  moves: readonly ResolutionMoveLike[];
   deaths: readonly string[];
 };
 
@@ -152,7 +165,11 @@ function isCorpseEntry(key: string, value: unknown): boolean {
 }
 
 function isEvacEntry(key: string, value: unknown): boolean {
-  return key === "Evac" || (isRecord(value) && value.kind === "evac");
+  return (
+    key === "Evac" ||
+    key.startsWith("Evac_") ||
+    (isRecord(value) && value.kind === "evac")
+  );
 }
 
 function isTerrainEntry(key: string, value: unknown): boolean {
@@ -178,6 +195,33 @@ function isEnemyEntry(key: string, value: unknown): boolean {
       "armed" in value ||
       "equipped" in value)
   );
+}
+
+function visibleRectKeys(source: string): string[] {
+  const visible = parseVisibleObject(source);
+  if (!visible) return [];
+  return Object.keys(visible)
+    .filter((key) => /^(Wall|Cover|Evac)_/.test(key));
+}
+
+function insideBearingHere(source: string): boolean {
+  const visible = parseVisibleObject(source);
+  if (!visible) return false;
+  return Object.values(visible).some(
+    (value) => isRecord(value) && value.dist === 0 && value.bearing === "here",
+  );
+}
+
+function extractObserverPos(source: string): { x: number; y: number } | null {
+  for (const line of source.split(/\r?\n/)) {
+    const match = line.match(/📍\((-?\d+),(-?\d+)\)/);
+    if (!match) continue;
+    const x = Number.parseInt(match[1]!, 10);
+    const y = Number.parseInt(match[2]!, 10);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x, y };
+  }
+  return null;
 }
 
 export function summariseVisible(visibleStateDigest: string): VisibleSummary {
@@ -625,7 +669,10 @@ export function projectSlimTurnRow<Row extends TurnRowLike>(
     resolution: row.resolution,
     agentRecords: row.agentRecords.map((record) => {
       const source = record.input.composedUserMessage ?? "";
+      const visibleSource =
+        source.length > 0 ? source : record.input.visibleStateDigest;
       const selfHp = extractSelfHp(source);
+      const observerPos = extractObserverPos(source) ?? { x: 0, y: 0 };
       const signals =
         fallbackSignals.get(record.characterId) ?? emptyDeliverySignals();
       const clonedSignals = cloneDeliverySignals(signals);
@@ -638,6 +685,9 @@ export function projectSlimTurnRow<Row extends TurnRowLike>(
         scratchpadChanged:
           record.input.scratchpadBefore !== record.scratchpadAfter,
         visibleSummary: summariseVisible(record.input.visibleStateDigest),
+        visibleRectKeys: visibleRectKeys(visibleSource),
+        insideBearingHere: insideBearingHere(visibleSource),
+        observerPos,
         selfEquipment: extractSelfEquipment(source),
         ...(selfHp !== null ? { selfHp } : {}),
         ...clonedSignals,

@@ -443,6 +443,7 @@ describe("Gate-2.5 Path A — CHARACTER_MAX_HP shared-source-of-truth invariant"
       _creationTime: 0,
       matchId: matchRow._id,
       walls: [],
+      coverClusters: [],
       coverTiles: [],
       chests: [],
       corpses: [],

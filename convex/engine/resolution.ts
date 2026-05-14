@@ -104,6 +104,11 @@ export type ResolutionTrace = {
     from: Tile;
     to: Tile;
     blockedBy?: "wall";
+    slide?: {
+      wallRectId: string;
+      axis: "N" | "E" | "S" | "W";
+      intent: string;
+    };
   }>;
   // Phase 6 traces use explicit action kinds: offensive overwatch writes
   // kind="overwatch" with triggeredByMovement=true, while counter-fire writes

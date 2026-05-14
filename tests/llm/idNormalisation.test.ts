@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   normaliseCharacterTargetId,
   normaliseCorpseTargetId,
+  parsePositionId,
   resolveTypedEntity,
+  visibleTargetIds,
 } from "../../convex/llm/idNormalisation.js";
 import type {
   CharacterState,
@@ -11,19 +13,30 @@ import type {
   MatchState,
   PersonaId,
   Tile,
+  Wall,
   WorldState,
 } from "../../convex/engine/types.js";
 
 function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
-  return {
+  const world: WorldState = {
     size: { w: 120, h: 120 },
     walls: [],
+    coverClusters: [],
     coverTiles: [],
     chests: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
   };
+  if (world.coverClusters.length === 0 && world.coverTiles.length > 0) {
+    world.coverClusters = world.coverTiles.map((tile) => ({
+      x: tile.x,
+      y: tile.y,
+      w: 1,
+      h: 1,
+    }));
+  }
+  return world;
 }
 
 function makeCharacter(opts: {
@@ -71,6 +84,16 @@ function makeState(opts: {
   };
 }
 
+function tilesForRect(rect: Wall): Tile[] {
+  const tiles: Tile[] = [];
+  for (let x = rect.x; x < rect.x + rect.w; x++) {
+    for (let y = rect.y; y < rect.y + rect.h; y++) {
+      tiles.push({ x, y });
+    }
+  }
+  return tiles;
+}
+
 function makeVisibleFixture(): MatchState {
   const observer = makeCharacter({
     id: "opaque_observer_id",
@@ -97,12 +120,41 @@ function makeVisibleFixture(): MatchState {
     world: {
       chests: [makeChest("Chest_56_50", { x: 56, y: 50 })],
       corpses: [makeCorpse("opaque_character_vulture", { x: 58, y: 50 })],
+      coverClusters: [{ x: 54, y: 42, w: 1, h: 1 }],
       coverTiles: [{ x: 54, y: 42 }],
       walls: [{ x: 64, y: 30, w: 1, h: 1 }],
       evac: { centre: { x: 52, y: 52 }, revealedAtTurn: 30 },
     },
   });
 }
+
+describe("parsePositionId", () => {
+  it("parses multi-tile rect keys and single-tile keys", () => {
+    expect(parsePositionId("Wall_18_18_to_23_18", "Wall")).toEqual({
+      kind: "rect",
+      rect: { x: 18, y: 18, w: 6, h: 1 },
+    });
+    expect(parsePositionId("Cover_42_42_to_43_43", "Cover")).toEqual({
+      kind: "rect",
+      rect: { x: 42, y: 42, w: 2, h: 2 },
+    });
+    expect(parsePositionId("Evac_47_47_to_49_49", "Evac")).toEqual({
+      kind: "rect",
+      rect: { x: 47, y: 47, w: 3, h: 3 },
+    });
+    expect(parsePositionId("Wall_30_60", "Wall")).toEqual({
+      kind: "single",
+      tile: { x: 30, y: 60 },
+      rect: { x: 30, y: 60, w: 1, h: 1 },
+    });
+  });
+
+  it("rejects malformed and inverted rect ids", () => {
+    expect(parsePositionId("Wall_18_18_to_17_18", "Wall")).toBeNull();
+    expect(parsePositionId("Wall_18_x_to_23_18", "Wall")).toBeNull();
+    expect(parsePositionId("Cover_18_18_to_23_18", "Wall")).toBeNull();
+  });
+});
 
 describe("resolveTypedEntity", () => {
   it("resolves every visible typed target namespace with tile and stop range", () => {
@@ -131,16 +183,19 @@ describe("resolveTypedEntity", () => {
       kind: "cover",
       tile: { x: 54, y: 42 },
       stopAtRange: 0,
+      rect: { x: 54, y: 42, w: 1, h: 1 },
     });
     expect(resolveTypedEntity(state, observerId, "Wall_64_30")).toEqual({
       kind: "wall",
       tile: { x: 64, y: 30 },
       stopAtRange: 1,
+      rect: { x: 64, y: 30, w: 1, h: 1 },
     });
-    expect(resolveTypedEntity(state, observerId, "Evac")).toEqual({
+    expect(resolveTypedEntity(state, observerId, "Evac_51_51_to_53_53")).toEqual({
       kind: "evac",
-      tile: { x: 52, y: 52 },
+      tile: { x: 51, y: 51 },
       stopAtRange: 0,
+      rect: { x: 51, y: 51, w: 3, h: 3 },
     });
   });
 
@@ -238,5 +293,142 @@ describe("resolveTypedEntity", () => {
       tile: { x: 58, y: 50 },
       stopAtRange: 2,
     });
+  });
+
+  it("resolves rect ids to nearest tiles and includes the canonical rect for wall, cover, and evac", () => {
+    const observer = makeCharacter({
+      id: "opaque_observer_id",
+      displayName: "Rat",
+      pos: { x: 50, y: 50 },
+      personaId: "rat",
+    });
+    const wall: Wall = { x: 55, y: 48, w: 6, h: 1 };
+    const cover: Wall = { x: 47, y: 54, w: 3, h: 3 };
+    const state = makeState({
+      characters: [observer],
+      world: {
+        walls: [wall],
+        coverClusters: [cover],
+        coverTiles: tilesForRect(cover),
+        evac: { centre: { x: 80, y: 80 }, revealedAtTurn: 30 },
+      },
+    });
+
+    expect(
+      resolveTypedEntity(state, "opaque_observer_id", "Wall_55_48_to_60_48"),
+    ).toEqual({
+      kind: "wall",
+      tile: { x: 55, y: 48 },
+      stopAtRange: 1,
+      rect: wall,
+    });
+    expect(
+      resolveTypedEntity(state, "opaque_observer_id", "Cover_47_54_to_49_56"),
+    ).toEqual({
+      kind: "cover",
+      tile: { x: 49, y: 54 },
+      stopAtRange: 0,
+      rect: cover,
+    });
+    expect(
+      resolveTypedEntity(state, "opaque_observer_id", "Evac_79_79_to_81_81"),
+    ).toEqual({
+      kind: "evac",
+      tile: { x: 79, y: 79 },
+      stopAtRange: 0,
+      rect: { x: 79, y: 79, w: 3, h: 3 },
+    });
+  });
+
+  it("accepts single-tile rect ids only when the world has a matching 1x1 rect", () => {
+    const observer = makeCharacter({
+      id: "opaque_observer_id",
+      displayName: "Rat",
+      pos: { x: 30, y: 59 },
+      personaId: "rat",
+    });
+    const single = makeState({
+      characters: [observer],
+      world: { walls: [{ x: 30, y: 60, w: 1, h: 1 }] },
+    });
+    const multi = makeState({
+      characters: [observer],
+      world: { walls: [{ x: 30, y: 60, w: 2, h: 1 }] },
+    });
+
+    expect(resolveTypedEntity(single, "opaque_observer_id", "Wall_30_60")).toEqual({
+      kind: "wall",
+      tile: { x: 30, y: 60 },
+      stopAtRange: 1,
+      rect: { x: 30, y: 60, w: 1, h: 1 },
+    });
+    expect(resolveTypedEntity(multi, "opaque_observer_id", "Wall_30_60")).toBeNull();
+    expect(
+      resolveTypedEntity(multi, "opaque_observer_id", "Wall_30_60_to_31_60"),
+    ).toEqual({
+      kind: "wall",
+      tile: { x: 30, y: 60 },
+      stopAtRange: 1,
+      rect: { x: 30, y: 60, w: 2, h: 1 },
+    });
+  });
+
+  it("rejects hallucinated rect ids that do not match a visible world rect", () => {
+    const observer = makeCharacter({
+      id: "opaque_observer_id",
+      displayName: "Rat",
+      pos: { x: 50, y: 50 },
+      personaId: "rat",
+    });
+    const state = makeState({
+      characters: [observer],
+      world: {
+        walls: [{ x: 55, y: 48, w: 6, h: 1 }],
+        coverClusters: [{ x: 47, y: 54, w: 3, h: 3 }],
+        coverTiles: tilesForRect({ x: 47, y: 54, w: 3, h: 3 }),
+        evac: { centre: { x: 80, y: 80 }, revealedAtTurn: 30 },
+      },
+    });
+
+    expect(
+      resolveTypedEntity(state, "opaque_observer_id", "Wall_56_48_to_60_48"),
+    ).toBeNull();
+    expect(
+      resolveTypedEntity(state, "opaque_observer_id", "Cover_47_54_to_49_55"),
+    ).toBeNull();
+    expect(
+      resolveTypedEntity(state, "opaque_observer_id", "Evac_78_79_to_80_81"),
+    ).toBeNull();
+  });
+
+  it("emits canonical rect target ids for visible walls, cover, and evac without per-tile or bare Evac ids", () => {
+    const observer = makeCharacter({
+      id: "opaque_observer_id",
+      displayName: "Rat",
+      pos: { x: 50, y: 50 },
+      personaId: "rat",
+    });
+    const cover: Wall = { x: 47, y: 50, w: 2, h: 2 };
+    const state = makeState({
+      characters: [observer],
+      world: {
+        walls: [{ x: 55, y: 50, w: 3, h: 1 }],
+        coverClusters: [cover],
+        coverTiles: tilesForRect(cover),
+        evac: { centre: { x: 80, y: 80 }, revealedAtTurn: 30 },
+      },
+    });
+
+    const ids = visibleTargetIds(state, "opaque_observer_id");
+
+    expect(ids.has("Wall_55_50_to_57_50")).toBe(true);
+    expect(ids.has("Cover_47_50_to_48_51")).toBe(true);
+    expect(ids.has("Evac_79_79_to_81_81")).toBe(true);
+    expect(ids.has("Wall_55_50")).toBe(false);
+    expect(ids.has("Wall_56_50")).toBe(false);
+    expect(ids.has("Wall_57_50")).toBe(false);
+    expect(ids.has("Cover_47_50")).toBe(false);
+    expect(ids.has("Cover_48_51")).toBe(false);
+    expect(ids.has("Evac")).toBe(false);
   });
 });

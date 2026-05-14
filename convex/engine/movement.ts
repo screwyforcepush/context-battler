@@ -76,6 +76,31 @@ function tileBlockedByWall(t: Tile, walls: readonly Wall[]): boolean {
   return false;
 }
 
+function wallForTile(t: Tile, walls: readonly Wall[]): Wall | null {
+  for (const w of walls) {
+    if (tileInWall(t, w)) return w;
+  }
+  return null;
+}
+
+function formatWallRectId(rect: Wall): string {
+  const x2 = rect.x + rect.w - 1;
+  const y2 = rect.y + rect.h - 1;
+  if (rect.w === 1 && rect.h === 1) return `Wall_${rect.x}_${rect.y}`;
+  return `Wall_${rect.x}_${rect.y}_to_${x2}_${y2}`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function nearestTileOfRect(observer: Tile, rect: Wall): Tile {
+  return {
+    x: clamp(observer.x, rect.x, rect.x + rect.w - 1),
+    y: clamp(observer.y, rect.y, rect.y + rect.h - 1),
+  };
+}
+
 // ─── Per-character mover state ───────────────────────────────────────────
 
 /**
@@ -93,6 +118,11 @@ type Mover = {
 function targetTileForMover(state: MatchState, mover: Mover): Tile | null {
   const target = mover.resolvedTarget;
   if (!target) return null;
+  if (target.rect) {
+    const me = state.characters.find((c) => c.characterId === mover.characterId);
+    if (!me || !me.alive) return null;
+    return nearestTileOfRect(me.pos, target.rect);
+  }
   const characterId = target.engineRef?.characterId;
   if (target.kind === "character" && characterId) {
     const character = state.characters.find(
@@ -176,7 +206,7 @@ function isBlocked(
   tile: Tile,
   state: MatchState,
   characterId: string,
-  pendingPositions: Map<string, Tile>,
+  pendingPositions: ReadonlyMap<string, Tile>,
 ): boolean {
   if (tile.x < 0 || tile.y < 0) return true;
   if (tile.x >= state.world.size.w || tile.y >= state.world.size.h) return true;
@@ -217,6 +247,11 @@ export type MoveTraceEntry = {
    * absence is correct).
    */
   blockedBy?: "wall";
+  slide?: {
+    wallRectId: string;
+    axis: "N" | "E" | "S" | "W";
+    intent: string;
+  };
 };
 
 export type SimulateOptions = {
@@ -225,6 +260,67 @@ export type SimulateOptions = {
    *  consumer. */
   speedActiveIds?: ReadonlySet<string>;
 };
+
+type SlideTrace = NonNullable<MoveTraceEntry["slide"]>;
+
+function movementIntent(decision: ParsedDecision): string | null {
+  if (decision.position.kind !== "move") return null;
+  const direction = decision.position.direction;
+  if (direction.kind === "toward" || direction.kind === "away") {
+    return `${direction.kind} ${direction.targetId}`;
+  }
+  return direction.kind;
+}
+
+function slideAxisForDelta(dx: number, dy: number, chosen: "x" | "y") {
+  if (chosen === "x") return dx > 0 ? "E" : "W";
+  return dy > 0 ? "S" : "N";
+}
+
+function tryResolveSlide(
+  desiredTile: Tile,
+  snapshot: MatchState,
+  mover: Mover,
+  currentPos: ReadonlyMap<string, Tile>,
+): { tile: Tile; slide: SlideTrace } | null {
+  const me = snapshot.characters.find((c) => c.characterId === mover.characterId);
+  if (!me || !me.alive) return null;
+  const dx = Math.sign(desiredTile.x - me.pos.x);
+  const dy = Math.sign(desiredTile.y - me.pos.y);
+  if (dx === 0 || dy === 0) return null;
+  const wall = wallForTile(desiredTile, snapshot.world.walls);
+  if (!wall) return null;
+
+  const xFallback: Tile = { x: me.pos.x + dx, y: me.pos.y };
+  const yFallback: Tile = { x: me.pos.x, y: me.pos.y + dy };
+  const xClear = !isBlocked(
+    xFallback,
+    snapshot,
+    mover.characterId,
+    currentPos,
+  );
+  const yClear = !isBlocked(
+    yFallback,
+    snapshot,
+    mover.characterId,
+    currentPos,
+  );
+  if (!xClear && !yClear) return null;
+
+  // Deterministic load-bearing tie-break: X-axis wins when both cardinals clear.
+  const chosen = xClear ? "x" : "y";
+  const tile = chosen === "x" ? xFallback : yFallback;
+  const intent = movementIntent(mover.decision);
+  if (!intent) return null;
+  return {
+    tile,
+    slide: {
+      wallRectId: formatWallRectId(wall),
+      axis: slideAxisForDelta(dx, dy, chosen),
+      intent,
+    },
+  };
+}
 
 export function simulateMovement(
   state: MatchState,
@@ -280,6 +376,7 @@ export function simulateMovement(
   for (const ch of state.characters) {
     currentPos.set(ch.characterId, { x: ch.pos.x, y: ch.pos.y });
   }
+  const slideByMover = new Map<string, SlideTrace>();
 
   // Per substep:
   for (let step = 0; step < MAX_BUDGET; step++) {
@@ -306,27 +403,50 @@ export function simulateMovement(
 
     if (desires.length === 0) break;
 
-    // Conflict detection: count desired-tile collisions across movers.
-    const tileCounts = new Map<string, number>();
+    // Conflict detection: count raw desired-tile collisions across movers.
+    // If two movers want the same diagonal wall tile, both fail before slide.
+    const rawTileCounts = new Map<string, number>();
     for (const d of desires) {
       const k = `${d.tile.x},${d.tile.y}`;
-      tileCounts.set(k, (tileCounts.get(k) ?? 0) + 1);
+      rawTileCounts.set(k, (rawTileCounts.get(k) ?? 0) + 1);
     }
 
-    // Commit each desire that:
-    //   (a) has a unique desired tile (no other mover wants it), AND
+    type PlannedStep = { mover: Mover; tile: Tile; slide?: SlideTrace };
+    const planned: PlannedStep[] = [];
+    for (const d of desires) {
+      const rawKey = `${d.tile.x},${d.tile.y}`;
+      if ((rawTileCounts.get(rawKey) ?? 0) > 1) continue;
+      if (!isBlocked(d.tile, snapshot, d.mover.characterId, currentPos)) {
+        planned.push({ mover: d.mover, tile: d.tile });
+        continue;
+      }
+      if (!tileBlockedByWall(d.tile, snapshot.world.walls)) continue;
+      const slide = tryResolveSlide(d.tile, snapshot, d.mover, currentPos);
+      if (slide) planned.push({ mover: d.mover, ...slide });
+    }
+
+    const plannedTileCounts = new Map<string, number>();
+    for (const p of planned) {
+      const k = `${p.tile.x},${p.tile.y}`;
+      plannedTileCounts.set(k, (plannedTileCounts.get(k) ?? 0) + 1);
+    }
+
+    // Commit each planned step that:
+    //   (a) has a unique planned tile, AND
     //   (b) is not blocked by walls / out-of-bounds / non-moving living characters.
     let anyCommitted = false;
     const newPositions = new Map<string, Tile>(currentPos);
-    for (const d of desires) {
-      const k = `${d.tile.x},${d.tile.y}`;
-      if ((tileCounts.get(k) ?? 0) > 1) continue; // conflict — skip
-      if (isBlocked(d.tile, snapshot, d.mover.characterId, currentPos)) {
-        continue;
-      }
+    const firstSlideByMover = new Map<string, SlideTrace>();
+    for (const p of planned) {
+      const k = `${p.tile.x},${p.tile.y}`;
+      if ((plannedTileCounts.get(k) ?? 0) > 1) continue; // conflict — skip
+      if (isBlocked(p.tile, snapshot, p.mover.characterId, currentPos)) continue;
       // Commit this mover's step.
-      newPositions.set(d.mover.characterId, d.tile);
-      d.mover.budget -= 1;
+      newPositions.set(p.mover.characterId, p.tile);
+      p.mover.budget -= 1;
+      if (p.slide && !firstSlideByMover.has(p.mover.characterId)) {
+        firstSlideByMover.set(p.mover.characterId, p.slide);
+      }
 
       anyCommitted = true;
     }
@@ -335,6 +455,9 @@ export function simulateMovement(
 
     for (const [id, p] of newPositions.entries()) {
       currentPos.set(id, p);
+    }
+    for (const [id, slide] of firstSlideByMover.entries()) {
+      if (!slideByMover.has(id)) slideByMover.set(id, slide);
     }
   }
 
@@ -371,7 +494,13 @@ export function simulateMovement(
     const end = currentPos.get(id);
     if (!start || !end) continue;
     if (start.x !== end.x || start.y !== end.y) {
-      moves.push({ characterId: id, from: start, to: end });
+      const slide = slideByMover.get(id);
+      moves.push({
+        characterId: id,
+        from: start,
+        to: end,
+        ...(slide ? { slide } : {}),
+      });
       continue;
     }
     // start === end. Determine if a wall blocked the intended step.

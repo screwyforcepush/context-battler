@@ -133,6 +133,8 @@ export type Tile = { x: number; y: number };
  *  entries on `coverTiles[]`). */
 export type Wall = { x: number; y: number; w: number; h: number };
 
+export type RectShape = "single" | "E-W line" | "N-S line" | "patch";
+
 /** Per-chest state. `contents` is `null` until the chest is opened — WP7
  *  flips `opened` and consumes `contents` to `null` on equip per concept-
  *  spec §13. `lootTable` references a key in `LOOT_TABLES` (WP3 loot.ts). */
@@ -160,6 +162,7 @@ export type EvacZone = { centre: Tile; revealedAtTurn: number | null };
 export type WorldState = {
   size: { w: number; h: number };
   walls: Wall[];
+  coverClusters: Wall[];
   coverTiles: Tile[];
   chests: ChestState[];
   corpses: CorpseState[];
@@ -333,8 +336,9 @@ export type VisibleEntity =
     }
   | { kind: "chest"; objectId: string; pos: Tile; opened: boolean }
   | { kind: "corpse"; objectId: string; pos: Tile; contents: EquippedSlots }
-  | { kind: "cover"; pos: Tile }
-  | { kind: "wall"; pos: Tile };
+  | { kind: "cover_rect"; rect: Wall; shape: RectShape }
+  | { kind: "wall_rect"; rect: Wall; shape: RectShape }
+  | { kind: "evac_rect"; rect: Wall; shape: RectShape };
 
 /** Heard speech entry — a single `say` message broadcast in the previous
  *  turn (concept-spec §16). WP8's digest renders these in the `Heard:`

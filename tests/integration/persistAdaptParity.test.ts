@@ -28,7 +28,10 @@
 import { describe, expect, it } from "vitest";
 import { convexToJson, jsonToConvex, type Value } from "convex/values";
 
-import { adaptResolutionForSchema } from "../../convex/runMatch.js";
+import {
+  adaptPriorTurnRowForBuilder,
+  adaptResolutionForSchema,
+} from "../../convex/runMatch.js";
 import type { ResolutionTrace } from "../../convex/engine/resolution.js";
 
 // ─── Fixture helpers ───────────────────────────────────────────────────
@@ -83,6 +86,51 @@ describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", (
     // Successful move: blockedBy MUST be absent (not undefined-as-value).
     // Convex `v.optional(...)` accepts absent OR present, never `undefined`.
     expect("blockedBy" in adapted.moves[1]!).toBe(false);
+  });
+
+  it("propagates moves[].slide through schema and prior-turn builder adapters", () => {
+    const slide = {
+      wallRectId: "Wall_6_4",
+      axis: "E" as const,
+      intent: "toward Duelist",
+    };
+    const trace = makeTrace({
+      moves: [
+        {
+          characterId: "char_slider",
+          from: { x: 5, y: 5 },
+          to: { x: 6, y: 5 },
+          slide,
+        },
+      ],
+    });
+
+    const adapted = adaptResolutionForSchema(trace);
+
+    expect(adapted.moves).toHaveLength(1);
+    expect(adapted.moves[0]!.slide).toEqual(slide);
+
+    const prev = adaptPriorTurnRowForBuilder({
+      resolution: {
+        consumed: [],
+        speech: [],
+        moves: adapted.moves,
+        actions: [],
+        deaths: [],
+        visibilityUpdates: [],
+      },
+      agentRecords: [
+        {
+          characterId: "char_slider",
+          decision: {
+            position: { kind: "move", direction: { kind: "NE" }, dist: 1 },
+          },
+        },
+      ],
+    });
+
+    expect(prev?.resolution.moves).toHaveLength(1);
+    expect(prev?.resolution.moves[0]?.slide).toEqual(slide);
   });
 
   it("propagates actions[].triggeredByMovement=true on movement-triggered overwatch", () => {

@@ -111,8 +111,8 @@ describe("WP5 — updateLastKnown (concept-spec §7 + ADR §6 cap-3)", () => {
     const seed: LastKnownEntry[] = [];
     const visible: VisibleEntity[] = [
       { kind: "chest", objectId: "Chest_1_1", pos: { x: 1, y: 1 }, opened: false },
-      { kind: "cover", pos: { x: 2, y: 2 } },
-      { kind: "wall", pos: { x: 3, y: 3 } },
+      { kind: "cover_rect", rect: { x: 2, y: 2, w: 1, h: 1 }, shape: "single" },
+      { kind: "wall_rect", rect: { x: 3, y: 3, w: 1, h: 1 }, shape: "single" },
     ];
     const next = updateLastKnown(seed, visible, 10);
     expect(next).toEqual([]);

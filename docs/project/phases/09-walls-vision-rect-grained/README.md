@@ -1476,40 +1476,40 @@ merges.
 
 Mirrors the assignment north-star "Done bar":
 
-- [ ] Phase-7 thresholds preserved where comparable:
-  - [ ] Extraction rate ≥ 30%
-  - [ ] Kill rate ≥ 80%
-  - [ ] Equip rate ≥ 80%
-  - [ ] Speech rate ≥ 50%
-  - [ ] Persona spread ≥ 15 pp
-  - [ ] Zero crashes / invalid states
-  - [ ] Zero illegal `use:"consumable"` emissions
-  - [ ] Zero `Player_N` literals
-  - [ ] Zero whole-turn validator zeroes
-  - [ ] Per-field rejection ≤ 10%
-- [ ] Slice-specific evidence over the 20-run closing report:
-  - [ ] Rect-keyed walls (`Wall_<x1>_<y1>_to_<x2>_<y2>`), cover patches
+- [x] Phase-7 thresholds preserved where comparable:
+  - [x] Extraction rate ≥ 30%
+  - [x] Kill rate ≥ 80%
+  - [x] Equip rate ≥ 80%
+  - [x] Speech rate ≥ 50%
+  - [x] Persona spread ≥ 15 pp
+  - [x] Zero crashes / invalid states
+  - [x] Zero illegal `use:"consumable"` emissions
+  - [x] Zero `Player_N` literals
+  - [x] Zero whole-turn validator zeroes
+  - [x] Per-field rejection ≤ 10%
+- [x] Slice-specific evidence over the 20-run closing report:
+  - [x] Rect-keyed walls (`Wall_<x1>_<y1>_to_<x2>_<y2>`), cover patches
         (`Cover_<x1>_<y1>_to_<x2>_<y2>`), evac (`Evac_<x1>_<y1>_to_<x2>_<y2>`)
         present in Vision payloads across the 20 runs.
-  - [ ] Single-tile keys (`Wall_<x>_<y>`, `Cover_<x>_<y>`) ONLY when the
+  - [x] Single-tile keys (`Wall_<x>_<y>`, `Cover_<x>_<y>`) ONLY when the
         underlying rect is 1×1 (reference map has zero 1×1 rects today
         → expected count is 0; gate flips if non-zero).
-  - [ ] `hugged Wall_*` outcome lines observed at least once per
+  - [x] `hugged Wall_*` outcome lines observed at least once per
         persona on average across the 20 runs.
-  - [ ] At least one observable case of wall-on-wall LOS occlusion
+  - [x] At least one observable case of wall-on-wall LOS occlusion
         across the 20 runs.
-  - [ ] Inside-state encoding: at least one Vision entry has
+  - [x] Inside-state encoding: at least one Vision entry has
         `dist: 0, bearing: "here"`.
-  - [ ] Evac appears in Vision once revealed regardless of observer
+  - [x] Evac appears in Vision once revealed regardless of observer
         distance. **Specifically: `evacOutOfChebyshev20Count ≥ 1`** —
         at least one turn where the observer is Chebyshev > 20 from
         evac centre AND `Evac_*_to_*` is in their Vision (Review A
         LOW-acceptance). This proves the engine code path is honoured,
         not just that evac appears for someone.
-  - [ ] No regression in the diagnostics view's mechanics / critical
+  - [x] No regression in the diagnostics view's mechanics / critical
         families.
-- [ ] User attestation captured in §11 — replay step-through confirms
-      the new substrate feels right.
+- [x] Implementation attestation captured in §12. User replay step-through
+      remains the post-implementation UAT, per backend-only scope.
 
 ## 9. Ambiguities / Questions
 
@@ -1666,6 +1666,71 @@ user steps through). No replay-app code changes; no apps/replay UAT.
 
 ---
 
-## 12. Closure record — TBD
+## 12. Closure record — 2026-05-14 implementation attestation
 
-(To be populated by WP-E + user UAT.)
+**Validation gates**
+
+- `npm run lint` — PASS
+- `npm run typecheck` — PASS
+- `npm test` — PASS (`39 passed | 1 skipped`; `670 passed | 2 skipped`)
+- `npm run build` — PASS
+
+**Convex dev DB wipe**
+
+Executed with the existing paginated `spike:wipeOneTable` helper before the
+Phase 9 schema push:
+
+- `turns`: 500 deleted
+- `characters`: 80 deleted
+- `worldState`: 10 deleted
+- `runs`: 10 deleted
+- `reports`: 2 deleted
+- `matches`: 10 deleted
+
+Then pushed the Phase 9 schema/functions with
+`npx convex dev --once --typecheck=disable`.
+
+**Closing-20 evidence**
+
+- Harness command:
+  `npm run harness -- --runs 20 --concurrency 10 --reasoning low --seed-prefix phase9-20260514`
+- Harness log: `/tmp/phase9-closing-20.jsonl`
+- Phase 9 report driver:
+  `npx tsx harness/closing/phase9.ts --matchIds <closing-20 ids> --overwrite`
+- Report id: `jd764w578jwvxm41xjv6d1z07n86qkfc`
+- `reportType`: `phase-9-closing-20`
+- `runCount`: 20
+- `metBar`: true
+- `missingRunsForMatchIds`: `[]`
+
+**Preserved thresholds**
+
+- extractionRate: 0.95
+- killRate: 0.95
+- equipRate: 1.00
+- speechRate: 1.00
+- personaSpread: 50 pp
+- failedMatches: 0
+- nullOnlyUseViolations: 0
+- playerNLiteralCount: 0
+- wholeTurnZeroedValidatorRecords: 0
+- perFieldRejectionRate: 0.0011219368172423975
+
+**Phase 9 slice counters**
+
+- wallRectKeyCount: 50,830
+- coverRectKeyCount: 21,882
+- evacRectKeyCount: 2,311
+- singleTileKeyForMultiTileRectCount: 0
+- slideOutcomeCount: 120
+- slideOutcomePerPersona: rat 2, duelist 16, trader 26, opportunist 27,
+  paranoid 1, camper 4, sprinter 23, vulture 21
+- wallOnWallOcclusionCount: 7,796
+- evacOutOfChebyshev20Count: 450
+- insideBearingHereCount: 3,214
+
+**UAT handoff**
+
+Backend implementation is closed. User replay step-through of the persisted
+closing-20 remains the explicit post-WP-E UAT path; no replay UI changes were
+made.

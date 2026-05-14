@@ -191,6 +191,18 @@ const resolutionValidator = v.object({
       to: tileValidator,
       // Phase-3 ADR §9 mirror — wall-blocked move marker (optional).
       blockedBy: v.optional(v.literal("wall")),
+      slide: v.optional(
+        v.object({
+          wallRectId: v.string(),
+          axis: v.union(
+            v.literal("N"),
+            v.literal("E"),
+            v.literal("S"),
+            v.literal("W"),
+          ),
+          intent: v.string(),
+        }),
+      ),
     }),
   ),
   actions: v.array(

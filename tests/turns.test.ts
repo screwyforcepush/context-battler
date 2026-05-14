@@ -97,7 +97,18 @@ describe("turns.byMatchSlim projection contract", () => {
             heardBy: ["char_trader"],
           },
         ],
-        moves: [],
+        moves: [
+          {
+            characterId: "char_duelist",
+            from: { x: 5, y: 5 },
+            to: { x: 6, y: 5 },
+            slide: {
+              wallRectId: "Wall_6_4",
+              axis: "E",
+              intent: "NE",
+            },
+          },
+        ] as const,
         actions: [
           {
             characterId: "char_camper",
@@ -135,6 +146,40 @@ describe("turns.byMatchSlim projection contract", () => {
           characterId: "char_duelist",
           personaId: "duelist",
           visibleStateDigest,
+          composedUserMessage: [
+            "# Duelist",
+            "## Status",
+            "📍(7,9) Outside Evac",
+            "❤️HP: 25/40 HP",
+            "⚔️weapon: sword [dmg 20]",
+            "🛡️armour: leather [-3 dmg]",
+            "",
+            "# Current Game State",
+            "Turn 7, 2/8 players alive",
+            "",
+            "Vision:",
+            JSON.stringify(
+              {
+                Wall_10_10_to_12_10: {
+                  dist: 1,
+                  bearing: "E",
+                  shape: "E-W line",
+                },
+                Cover_20_20_to_22_22: {
+                  dist: 0,
+                  bearing: "here",
+                  shape: "patch",
+                },
+                Evac_29_29_to_31_31: {
+                  dist: 22,
+                  bearing: "SE",
+                  shape: "patch",
+                },
+              },
+              null,
+              2,
+            ),
+          ].join("\n"),
           retried: true,
         }),
         makeAgentRecord({
@@ -148,6 +193,19 @@ describe("turns.byMatchSlim projection contract", () => {
 
     const slim = projectSlimTurnRow(row);
     const record = slim.agentRecords[0]!;
+
+    expect(slim.resolution.moves).toEqual([
+      {
+        characterId: "char_duelist",
+        from: { x: 5, y: 5 },
+        to: { x: 6, y: 5 },
+        slide: {
+          wallRectId: "Wall_6_4",
+          axis: "E",
+          intent: "NE",
+        },
+      },
+    ]);
 
     expect(record.input).toEqual({
       systemPromptHash: "system-hash",
@@ -182,6 +240,13 @@ describe("turns.byMatchSlim projection contract", () => {
       corpses: 1,
       evacSeen: true,
     });
+    expect(record.visibleRectKeys).toEqual([
+      "Wall_10_10_to_12_10",
+      "Cover_20_20_to_22_22",
+      "Evac_29_29_to_31_31",
+    ]);
+    expect(record.insideBearingHere).toBe(true);
+    expect(record.observerPos).toEqual({ x: 7, y: 9 });
     expect(Object.keys(record.visibleSummary).sort()).toEqual([
       "chests",
       "corpses",

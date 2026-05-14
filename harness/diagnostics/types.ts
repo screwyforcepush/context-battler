@@ -68,6 +68,9 @@ export type SlimAgentRecord = {
   scratchpadAfter: string;
   scratchpadChanged: boolean;
   visibleSummary: VisibleSummary;
+  visibleRectKeys: string[];
+  insideBearingHere: boolean;
+  observerPos: Tile;
   selfEquipment: SelfEquipment;
   selfHp?: SelfHp;
   damageFeedAudit: DamageFeedAudit;
@@ -113,6 +116,11 @@ export type ResolutionMove = {
   from: Tile;
   to: Tile;
   blockedBy?: "wall";
+  slide?: {
+    wallRectId: string;
+    axis: "N" | "E" | "S" | "W";
+    intent: string;
+  };
 };
 
 export type ResolutionAction = {

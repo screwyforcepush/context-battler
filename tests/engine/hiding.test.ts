@@ -29,6 +29,7 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
   return {
     size: { w: 100, h: 100 },
     walls: [],
+    coverClusters: [],
     coverTiles: [],
     chests: [],
     corpses: [],

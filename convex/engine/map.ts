@@ -145,6 +145,7 @@ export function expandMap(
   return {
     size: descriptor.size,
     walls: descriptor.walls,
+    coverClusters: descriptor.coverClusters,
     coverTiles,
     chests,
     corpses: [],
