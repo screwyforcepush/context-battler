@@ -1,12 +1,14 @@
 # Phase 11 — DB Bandwidth Substrate Refinement
 
-> **Status:** v1 dispatched 2026-05-15. High-ROI bandwidth slice. Three
-> independent moves bundled: (A) prompt-text dedup, (B) drop
-> `composedUserMessage` from the persisted shape, (C) split static
-> terrain out of the per-turn `worldByMatch` read path. POC posture
-> applies — Convex dev DB wipe authorised, no migration shims, single
-> forward shape. Validation bar is a 10-run smoke (NOT a closing
-> report); standard gates (lint, ts:check, build, test) must pass.
+> **Status:** v2 dispatched 2026-05-15. Revised 2026-05-15 — review v1
+> conditions folded. High-ROI bandwidth slice. Two work packages bundled
+> in WP-A (prompt-text dedup AND the `composedUserMessage` drop — the
+> drop is a fall-out of the dedup, not an independent move) plus WP-B
+> (split static terrain out of the per-turn `worldByMatch` read path)
+> plus WP-C (smoke + closure). POC posture applies — Convex dev DB
+> wipe authorised, no migration shims, single forward shape.
+> Validation bar is a 10-run smoke (NOT a closing report); standard
+> gates (lint, ts:check, build, test) must pass.
 >
 > Canonical anchors:
 > - [`mental-model.md` §6 pillar 7](../../spec/mental-model.md#6-design-pillars) — "state is the contract; runtime is swappable"
@@ -21,11 +23,14 @@ The two Convex functions on the per-turn hot path are slamming bandwidth
 with structurally-redundant data:
 
 - **`_internal_runMatch.persistTurn`** re-writes `systemPromptText`
-  (~3–5 KB, IDENTICAL across all 8 agents × 50 turns), `personaPromptText`
-  (~1 KB, identical per persona × 50 turns), and `composedUserMessage`
-  (the rolled-up prompt — purely derived from already-persisted fields)
-  on every agentRecord. Back-of-envelope: ~4–6 MB per match of pure
-  write redundancy.
+  (~3–5 KB, identical across all 8 agents per turn but turn-bound —
+  countdown line changes each turn; cf. `convex/llm/systemPrompt.ts:5-20`
+  and Phase 7 closure record), `personaPromptText` (~1 KB, identical
+  per persona × 50 turns), and `composedUserMessage` (the rolled-up
+  prompt — purely derived from already-persisted fields) on every
+  agentRecord. Back-of-envelope: ~4–6 MB per match of pure write
+  redundancy. Cardinality is **per-distinct-hash**, not "1 system +
+  8 persona" (see §5 WP-A success criteria for corrected math).
 - **`_internal_runMatch.worldByMatch`** ships immutable `walls[]` +
   `coverClusters[]` + `coverTiles[]` on every per-turn read despite
   terrain never changing post-spawn. ~250–500 KB read redundancy per
@@ -46,7 +51,9 @@ that constrains the next move.
 
 ## 2. Overview — what is being built
 
-Three independent moves land in one slice:
+Three architectural moves land in one slice, bundled into two work
+packages (WP-A combines moves 2.1 + 2.2 — see D6 in §7; 2.2 is a
+structural fall-out of 2.1, not an independent move):
 
 ### 2.1 Prompt-text dedup — new `prompts` table
 
@@ -59,15 +66,26 @@ hash; `agentRecord.input` carries only hashes.
 - Write path: idempotent `getOrCreatePrompt({ hash, kind, text })`
   read-then-insert inside the same Convex mutation that writes the
   turn row (so a `persistTurn` transaction never lands an
-  agentRecord with an unresolved hash).
+  agentRecord with an unresolved hash). **Collision-guarded**: if a
+  row with `(hash, kind)` exists but `row.text !== text`, throw a
+  fatal `DataIntegrityError` (D9 — cross-match scope amplifies the
+  blast radius of any silent collision; override signal: user says
+  "use crypto" → switch to SHA-256).
 - Read path: `prompts.byHash({ hash, kind })` point-lookup; diagnostics
-  CLI and replay UI join hash → text at read time.
+  CLI and replay UI join hash → text at read time. Missing-hash on
+  any persisted agentRecord is **fatal** (D12 — forward-only POC; a
+  missing row is data corruption, not graceful legacy).
 - Cross-match dedup (hash-keyed, NOT scoped by match) — same prompt
-  text across matches resolves to the same row.
+  text across matches resolves to the same row. Because
+  `buildSystemPrompt(turn)` is turn-bound, the per-match system-prompt
+  cardinality is up to ~50 distinct hashes (one per turn); cross-match
+  steady state on the same map+timing is also ~50, plus ≤8 persona
+  rows. See §5 WP-A for the full math.
 - Hash function: keep the existing `hashHex` (DJB2-32) from
   `convex/runMatch.ts:hashHex`. Collision risk for a project
-  with <100 distinct prompts is ~1e-6 — acceptable for POC. Upgrade
-  to SHA-256 is out of scope (no overfit).
+  with <100 distinct prompts is acceptable for POC. The collision
+  guard above makes a silent corruption structurally impossible.
+  Upgrade to SHA-256 is out of scope (no overfit).
 
 ### 2.2 Drop `composedUserMessage` from the persisted shape
 
@@ -89,18 +107,32 @@ recomposition** instead:
   start-of-turn-N state which isn't otherwise persisted on agentRecord.
 - `agentRecord.input.narrativeLines` — **new**. The `string[]` of
   event lines (own-outcome, damage-feed, own-speech, inbound-speech,
-  kill-feed) that the builder composed for this turn. Persisting the
-  rendered lines (not the raw events) avoids re-walking prev.resolution
-  + state at every diagnostics read; the text the model saw is
-  precisely the text persisted.
+  kill-feed) that the builder composed for this turn — POST-FILTER
+  (the array the builder ultimately appended, not raw event outputs
+  with possible `null` slots). Rationale (reviewer-reframed):
+  this is an **intentional exact-text snapshot** with a measured
+  byte budget (~500–800 B per agentRecord). The load-bearing value
+  is byte-equal user-role reconstruction at read time with no
+  recompute-time race-condition risk (pillar 1 — failures
+  attributable to the prompt). The earlier "avoid a server-side
+  history walk" rationale was wrong — `turns.byMatchSlim` already
+  walks adjacent rows in memory. Each array element MUST be a
+  complete rendered line; delivery-line scans use
+  `narrativeLines.some(line => line.includes(...))`, never
+  `narrativeLines.join().includes(...)` (test contract — see §5).
 - `agentRecord.input.aliveCount` — **new**. The `M/8 players alive`
   number at decision time. Tiny scalar.
 
-A new pure helper `recomposeUserMessage(input, promptsLookup)` in
-`convex/llm/inputBuilder.ts` joins these into the exact composedUserMessage
-the model saw. Round-trip invariant: for every persisted agentRecord,
-`recomposeUserMessage(persisted, lookup) === buildAgentInput(...).composedUserMessage`
-that was sent at decision time.
+A new pure helper `recomposeUserMessage({ input, turn, displayName,
+prompts })` in `convex/llm/inputBuilder.ts` joins these into the exact
+composedUserMessage the model saw. **`turn` is mandatory** (D11):
+`buildAgentInput` renders `Turn ${state.turn}, ${aliveCount}/8 players
+alive` (`convex/llm/inputBuilder.ts:632-644`); without `turn` from the
+parent turn row, byte-equality fails. Round-trip invariant: for every
+persisted agentRecord,
+`recomposeUserMessage({ input, turn, displayName, lookup }) === buildAgentInput(...).composedUserMessage`
+byte-for-byte (including blank lines and section order). Missing-hash
+lookup throws (D12) — no `null`/sentinel return.
 
 ### 2.3 Slim `worldByMatch` — split static terrain into its own table
 
@@ -189,11 +221,19 @@ from phase 3 onward). Schema-mirror parity test
 `persistTurn`'s mutation handler does, in one Convex transaction:
 
 1. For each unique `(hash, kind)` pair across `args.agentRecords`,
-   call the in-handler helper `upsertPrompt(ctx, hash, kind, text)` —
-   read-then-insert via `prompts.byHashKind` index. Idempotent across
-   concurrent mutations (Convex single-mutation serialisability —
-   confirmed in §5 perplexity research). System prompt text resolves
-   once (1 hash); persona text resolves up to 8 times (8 personas).
+   call the in-handler helper `getOrCreatePrompt(ctx, hash, kind, text)`:
+   - Query `(hash, kind)` via the `by_hash_kind` index.
+   - If no row → insert.
+   - If row exists AND `row.text === text` → reuse silently.
+   - If row exists AND `row.text !== text` → throw fatal
+     `DataIntegrityError` (D9). A forced-collision unit test pins
+     this branch — see §5 WP-A scope.
+
+   Idempotent across concurrent writers via Convex single-mutation
+   serialisability (the standard read-then-insert pattern; no race).
+   Per-turn cardinality: all 8 agents share one system-prompt hash,
+   so the system-prompt upsert resolves once per `persistTurn` call;
+   persona text resolves up to 8 times (one per persona).
 2. Insert the `turns` row with slimmed `agentRecords[]` (no
    `*PromptText`, no `composedUserMessage`; instead `status`,
    `narrativeLines`, `aliveCount`).
@@ -220,18 +260,21 @@ New pure helper:
 
 ```ts
 export type PromptsLookup = {
-  systemText(hash: string): string | null;
-  personaText(hash: string): string | null;
+  systemText(hash: string): string;   // throws on missing (D12)
+  personaText(hash: string): string;  // throws on missing (D12)
 };
 
-export function recomposeUserMessage(
-  input: AgentInputPersisted,
-  displayName: string,
-  prompts: PromptsLookup,
-): string {
-  // Joins persona text + status (re-rendered from input.status)
-  // + narrativeLines + visibleStateDigest into the canonical
-  // composedUserMessage text. Returns null/sentinel on missing hash.
+export function recomposeUserMessage(args: {
+  input: AgentInputPersisted;
+  turn: number;          // MANDATORY (D11) — `Turn N, M/8 players alive` line
+  displayName: string;
+  prompts: PromptsLookup;
+}): string {
+  // Joins persona text + status (re-rendered from input.status via
+  // shared `renderStatusBlock`) + Turn-N line (from `args.turn` +
+  // `input.aliveCount`) + narrativeLines + visibleStateDigest into
+  // the canonical composedUserMessage text. Throws fatal
+  // `MissingPromptHashError` on missing lookup (D12 — no sentinel).
 }
 ```
 
@@ -248,27 +291,61 @@ for WP-A.
 
 ### 3.4 Diagnostics + replay read paths
 
-- **`convex/turnsDerived.ts:projectSlimTurnRows`** — currently scans
-  `composedUserMessage` for delivery-audit signals (damage feed,
-  speech feed, loot outcome — L572-740). Forward shape: scan
-  `narrativeLines` directly instead. The audit contract preserves;
-  the substring searches just look in a `string[]` instead of a `string`.
+#### 3.4.1 `convex/turnsDerived.ts:projectSlimTurnRows` — forward sources by field (D16)
+
+`projectSlimTurnRows` derives a wide slim shape from full agentRecord
+input; today it parses `composedUserMessage` for several distinct
+field families. The forward shape replaces those parsers with
+field-specific sources (NOT a single "scan narrativeLines" sweep):
+
+| Slim field family | Today (pre-WP-A) | Forward source (post-WP-A) |
+|---|---|---|
+| Delivery-line audits (damage feed, speech, loot, body-collision; `:543-737`) | `composedUserMessage.includes(expectedLine)` against cross-turn evidence | `narrativeLines.some(line => line.includes(expectedLine))` — preserves the **cross-turn evidence semantics**; do NOT replace with same-turn resolution counters; do NOT use `narrativeLines.join().includes(...)` (single-line atomicity is load-bearing) |
+| `visibleRectKeys`, `insideBearingHere` (`:777-798`) | parsed from `visibleStateDigest` substring matches inside `composedUserMessage` | parsed directly from `input.visibleStateDigest` (already persisted; existing parser logic carries over verbatim — the digest line set is unchanged) |
+| `selfHp`, `selfEquipment`, `observerPos` (`convex/turnsDerived.ts:227-289`) | regex parsed from `composedUserMessage` Status block | read directly from `input.status` (`hp`, `equipped`, `pos`); regex parsers (`extractSelfHp` / `extractSelfEquipment` / `extractObserverPos`) deleted |
+
+Consumers downstream of `projectSlimTurnRows` (notably
+`harness/diagnostics/mechanics.ts:156-163`) MUST continue to receive
+identical counters across all three field families — not just the
+delivery lines. WP-A test scope adds focused tests on
+`projectSlimTurnRows` covering every derived family, with at least one
+test asserting that a single rendered event spans exactly one
+`narrativeLines` entry (no cross-element splits).
+
+#### 3.4.2 Replay app reads
+
 - **`apps/replay/src/lib/rawPane.ts:composeUserRole`** — currently
   reads `input.composedUserMessage`. Forward shape: call
-  `recomposeUserMessage(input, displayName, lookup)`. The Convex
-  replay bundle (`convex/replay.ts:getReplayBundle`) extends to
-  return a `promptsLookup` map (system + 8 persona texts for that
-  match) so the renderer has the join material in one round-trip.
-- **`apps/replay/src/components/TurnFeed.tsx`** — the Status card
-  currently parses `composedUserMessage` via regex (`rawPane`
-  helpers `extractSelfHp` / `extractSelfEquipment` / `extractObserverPos`).
-  Forward shape: read `input.status` directly. Cleaner — eliminates
-  the parser entirely; the structured field is the source of truth.
-- **`harness/diagnostics/*`** + **`convex/reports/phase*.ts`** —
-  audit each for `systemPromptText` / `personaPromptText` /
-  `composedUserMessage` reads. Where present, swap to the recompose
-  helper or read `narrativeLines` directly. Engineer enumerates
-  during WP-A.
+  `recomposeUserMessage({ input, turn, displayName, prompts })`. The
+  Convex replay bundle (`convex/replay.ts:getReplayBundle`) extends
+  to return a `promptsLookup` map (every distinct system + persona
+  hash referenced by the match's turns) so the renderer has the join
+  material in one round-trip. Missing-hash on lookup must surface as
+  a visible error state in the UI (D12 — not silent fallback).
+- **`apps/replay/src/components/TurnFeed.tsx:240-242` + `:396-418`** —
+  the Status card has its own `parseStatusBlockForReplay` parser
+  (separate from `rawPane`'s extractors but the same teardown
+  target). Forward shape: read `input.status` directly. Cleaner —
+  eliminates the parser entirely; the structured field is the source
+  of truth.
+
+#### 3.4.3 Server-side report aggregators
+
+- **`convex/reports/phase6.ts:118-124, :204-207, :397-407, :800-809`** —
+  directly reads `composedUserMessage` and `personaPromptText`.
+  Engineer decides during WP-A whether the phase6 reports are still
+  active and worth porting to recompose+JOIN; if not, delete the
+  reads. Flag as an open Q if unclear.
+- **`harness/closing/phase9.ts:126-130, :355-400`** — directly reads
+  `worldState:byMatchId` and adapts `row.walls` / `row.coverClusters`.
+  Switch to the joined `worldStatic` read (paired query). This
+  belongs to WP-B; called out here for read-side completeness.
+- **`convex/reports/phase9.ts:236-296`** — consumes `world.walls` /
+  `world.coverClusters` for rect/LOS evidence; switch to joined
+  `worldStatic` (WP-B).
+- **Comment-only stale reference** — `convex/llm/personas.ts` mentions
+  per-turn `personaPromptText`; clean up the stale comment alongside
+  WP-A.
 
 ### 3.5 worldStatic split — write + read wiring
 
@@ -287,12 +364,17 @@ for WP-A.
   merge static + dynamic into `MatchState.world`. Engine code that
   consumes `state.world.walls` / `.coverClusters` / `.coverTiles`
   stays untouched — the merge is invisible to the engine.
-- `convex/replay.ts:getReplayBundle` — read worldStatic too; return
-  it as a sibling field (or merge into `worldState` for the
-  renderer's existing shape — engineer choice; the renderer just
-  needs terrain accessible somewhere on the bundle).
-- `convex/reports/phase9.ts` (or any other report aggregator that
-  reads `worldRow.walls`) — switch to the joined `worldStatic` read.
+- `convex/replay.ts:getReplayBundle` — read worldStatic too AND
+  return ONE merged `worldState` field with `{ ...worldStaticRow,
+  ...worldStateRow }` shape (D10 lock). Rationale:
+  `apps/replay/src/components/Grid.tsx:77,94` reads `worldState?.walls`
+  / `?.coverTiles` directly off the bundle; a sibling-field shape
+  would silently render an empty map until somebody patches Grid.
+  Sibling-field has no benefit and pays a Grid update cost. Engineer
+  MUST merge.
+- `convex/reports/phase9.ts:236-296` (or any other report aggregator
+  that reads `worldRow.walls`) — switch to the joined `worldStatic`
+  read. `harness/closing/phase9.ts:126-130, :355-400` likewise.
 
 ## 4. Dependency Map — parallelization
 
@@ -332,13 +414,28 @@ for WP-A.
           └──────────────────────────────┘
 ```
 
-WP-A and WP-B are **fully independent** — they touch disjoint files
-on the schema side (agentInputValidator vs worldState / worldStatic)
-and disjoint files on the call-site side (write path differs;
-read path differs). Two engineers can ship them in parallel.
+WP-A and WP-B are **parallelisable with an integration owner** (D15).
+They touch disjoint files on the schema side (agentInputValidator vs
+worldState / worldStatic — `convex/schema.ts` merge is mechanical, no
+logic conflict). They also touch disjoint write/read code paths.
+
+**BUT** `convex/runMatch.ts` is a shared integration hotspot:
+- WP-A touches `:392-409` (agentInput build), `:734-850`
+  (`buildAgentInputRecord` + per-agent slim wiring), `:897-1025`
+  (`persistTurn` call-site shape).
+- WP-B touches `:198-234`, `:676-696` (`worldByMatch` read + state
+  build).
+
+Assign **ONE engineer as final-merge owner for `convex/runMatch.ts`**.
+Both WPs ship their respective tests against their own changes; the
+integration owner adds an end-to-end test that builds state, calls
+the LLM wrapper input, persists the new shape, recomposes round-trip,
+and asserts byte-equality — a single assertion covering both WPs at
+the integration surface (see §5 WP-A/WP-C test scope).
 
 WP-C strictly depends on both — smoke can't run until both are
-landed in the dev DB.
+landed in the dev DB and the integration owner has reconciled
+`convex/runMatch.ts`.
 
 ## 5. Work Package Breakdown
 
@@ -359,60 +456,123 @@ decision time.
 2. `convex/_internal_runMatch.ts:persistTurn`:
    - Accept `agentRecords[].input` with the new shape.
    - Accept extra arg `promptTexts: { systemText, personaTexts: Record<personaId, text> }`.
-   - Upsert prompts via `getOrCreatePrompt` helper (read-then-insert
-     via `by_hash_kind` index) — once per unique `(hash, kind)`.
+   - Upsert prompts via `getOrCreatePrompt(ctx, hash, kind, text)` —
+     read-then-insert via `by_hash_kind` index, **with collision
+     guard** (D9): existing row text must equal the candidate text or
+     throw `DataIntegrityError`. Once per unique `(hash, kind)`.
    - Insert turn row with slim agentRecords.
-   - Single Convex transaction.
+   - Single Convex transaction (idempotent + race-free under
+     Convex single-mutation serialisability).
 3. `convex/llm/inputBuilder.ts`:
    - Refactor `renderStatusBlock` to take a plain status object (not
      `CharacterState` + `MatchState`).
    - `buildAgentInput` returns `{ systemPrompt, visibleStateDigest,
      status, narrativeLines, aliveCount, composedUserMessage }` —
      the rolled-up string remains for the runtime LLM call; the
-     structured fields are what gets persisted.
-   - New pure `recomposeUserMessage(input, displayName, prompts)`
-     helper.
-   - Round-trip test: every persisted-shape replay recomposes to the
-     exact original composedUserMessage.
+     structured fields are what gets persisted. `narrativeLines`
+     is the **post-filter** array (matches what the builder
+     appended; no `null` slots).
+   - New pure
+     `recomposeUserMessage({ input, turn, displayName, prompts })`
+     helper (D11 signature — `turn` mandatory). Throws on missing
+     hash lookup (D12).
+   - Round-trip test: every persisted-shape replay recomposes
+     byte-equal to the original `composedUserMessage`, **including
+     the `Turn N, M/8` line** (the failure mode if `turn` is
+     omitted). Test covers blank-line preservation and section
+     ordering.
 4. `convex/runMatch.ts:advanceTurn`:
    - Stop persisting `systemPromptText` / `personaPromptText` /
      `composedUserMessage` on `buildAgentInputRecord`.
    - Persist `status` + `narrativeLines` + `aliveCount` instead.
    - Pass `promptTexts` separately to `persistTurn`.
-5. Read-side updates (audit-by-codebase-grep):
-   - `convex/turnsDerived.ts:buildDeliverySignals` — switch
-     substring searches from `composedUserMessage` to `narrativeLines`
-     (the lines array preserves all the substrings the delivery audit
-     currently scans for).
+5. Read-side updates (per-field forward sources from §3.4):
+   - `convex/turnsDerived.ts:543-737` (delivery audits) — switch
+     substring searches from `composedUserMessage` to
+     `narrativeLines.some(line => line.includes(...))`. Atomic
+     per-line semantics — no `join().includes()`.
+   - `convex/turnsDerived.ts:227-289` (status extractors —
+     `extractSelfHp` / `extractSelfEquipment` / `extractObserverPos`)
+     — read from `input.status` directly; delete regex parsers.
+   - `convex/turnsDerived.ts:777-798` (`visibleRectKeys`,
+     `insideBearingHere`) — derive from `input.visibleStateDigest`
+     (no change to digest parser shape).
    - `apps/replay/src/lib/rawPane.ts:composeUserRole` — call
-     `recomposeUserMessage`.
-   - `apps/replay/src/lib/rawPane.ts:readPlayerName` /
-     `extractSelfHp` / `extractSelfEquipment` /
-     `extractObserverPos` — read `input.status` + character displayName
-     directly; remove regex parsing.
-   - `apps/replay/src/components/TurnFeed.tsx` — Status card reads
-     `input.status`, not parsed composedUserMessage.
+     `recomposeUserMessage({ input, turn, displayName, prompts })`.
+     `turn` available from the parent turn row.
+   - `apps/replay/src/components/TurnFeed.tsx:240-242, :396-418`
+     (`parseStatusBlockForReplay`) — read `input.status` directly;
+     delete the parser.
    - `convex/replay.ts:getReplayBundle` — return a `promptsLookup`
-     map alongside the existing fields.
-   - Diagnostics CLI (`harness/diagnostics/*`) — engineer enumerates
-     the call sites; update consistently.
+     map alongside the existing fields (every distinct system +
+     persona hash referenced by the match's turns); UI surfaces
+     missing-hash as a visible error state.
+   - `convex/reports/phase6.ts:118-124, :204-207, :397-407, :800-809`
+     — port to recompose+JOIN OR delete the reads if phase6 reports
+     are no longer active (engineer decides during WP-A; flag as
+     open Q if unclear).
+   - Comment-only stale cleanup: `convex/llm/personas.ts` per-turn
+     `personaPromptText` reference.
+   - First-class test update scope:
+     `tests/integration/persistAdaptParity.test.ts`,
+     `tests/turns.test.ts`, `tests/llm/inputBuilder.test.ts`,
+     `tests/llm/systemPrompt.test.ts`, `tests/llm/azure.test.ts`
+     (runtime-side `composedUserMessage` is unchanged; persisted-side
+     shape is new), `tests/llm/useVariantContract.test.ts`,
+     `tests/runMatch.test.ts`, `tests/reports/phase6.test.ts`
+     (port-or-delete in lockstep with above),
+     `apps/replay/src/lib/__tests__/rawPane.test.ts`,
+     `apps/replay/src/components/__tests__/TurnFeed.test.tsx`,
+     `apps/replay/src/lib/__tests__/vintageReplay.test.tsx`.
 
 **Success criteria**:
 - `agentRecord.input` shape matches new validator; no `systemPromptText`
   / `personaPromptText` / `composedUserMessage` fields persisted.
-- `prompts` table contains exactly 1 system row + ≤ 8 persona rows
-  after any single-match smoke run (cross-match dedup means a 10-run
-  smoke also caps at 1 + 8 rows iff prompts are stable across runs).
-- Round-trip test passes: `recomposeUserMessage(persisted, lookup)`
-  byte-equal to `buildAgentInput(...).composedUserMessage` for every
-  (matchId, turn, characterId) tuple in the smoke cohort.
+- `prompts` table cardinality (corrected per D13 — system prompt is
+  turn-bound; cf. `convex/llm/systemPrompt.ts:5-20`,
+  `tests/llm/systemPrompt.test.ts:53-68`, Phase 7 closure record):
+  - Per-match: up to **~50 distinct system-prompt rows** (one per
+    turn while the evac/extraction countdown changes) + **≤8
+    persona rows**.
+  - Cross-match steady state on same map+timing: ~58 rows total
+    (50 system + ≤8 persona — turn-N system prompt is identical
+    across matches).
+  - Per-match write savings: ~88% (240 KB → ~30 KB on first match
+    of the cohort).
+  - Cohort (10-run smoke) savings: ~98% (~2.4 MB → ~30 KB system
+    prompt writes; persona writes similar shape).
+  - Do NOT propose stabilising the system prompt to improve dedup
+    — that would be prompt-behaviour scope creep.
+- **Collision-guard test**: a forced-collision unit test asserts
+  `getOrCreatePrompt` throws `DataIntegrityError` when an existing
+  `(hash, kind)` row has different text. Required (D9).
+- **Round-trip test** (D11 signature): `recomposeUserMessage({ input,
+  turn, displayName, lookup })` is byte-equal to the original
+  `buildAgentInput(...).composedUserMessage` for every
+  (matchId, turn, characterId) tuple in the smoke cohort, including
+  the `Turn N, M/8 players alive` line, blank lines, and section
+  order. Test fails if `turn` is omitted from the helper signature.
+- **Missing-hash fatal test** (D12): forcing a hash to be missing
+  from the lookup throws on the server-side recompose path;
+  replay UI surfaces a visible error state (NOT silent fallback).
+- **`projectSlimTurnRows` field-preservation tests**: covering all
+  three derived field families (delivery counters,
+  `visibleRectKeys`/`insideBearingHere`, status extractors).
+  Includes a regression test asserting each `narrativeLines`
+  element is a complete rendered line (not split across array
+  entries) — delivery scans depend on per-line atomicity.
+- **Integration test** (shared with `convex/runMatch.ts` owner —
+  D15): builds state, calls LLM wrapper input, persists new shape
+  on a real `persistTurn` call, recomposes round-trip; single
+  end-to-end byte-equality assertion.
 - Replay raw-pane "Full LLM Input" continues to render the same text
   it rendered pre-slice (manually verified on one replay).
 - TurnFeed Status card renders identically pre/post-slice.
 - Diagnostics CLI `harness/diagnostics.ts` runs to completion with
   no per-record errors and emits the three families (Critical /
   Mechanics / Behaviour) with non-zero counters where they were
-  non-zero pre-slice.
+  non-zero pre-slice — specifically `mechanics.ts:156-163`
+  consumers continue to receive identical counters.
 
 ### WP-B — worldStatic split
 
@@ -437,26 +597,37 @@ fields only; engine and renderer continue to see complete terrain.
    - `buildMatchState` extended to accept `worldStaticRow` and merge
      static + dynamic into the complete `MatchState.world`.
 5. Read-side updates:
-   - `convex/replay.ts:getReplayBundle` — join `worldStatic`; merge
-     into `worldState` on the return shape OR return as a sibling
-     field. Engineer's call; renderer's terrain access must work.
-   - `convex/worldState.ts:byMatchId` (if used) — same treatment.
-   - `convex/reports/phase9.ts` — if it reads worldRow walls/cover,
-     update to read `worldStatic`.
-   - `convex/reports/phase3.ts` — same audit.
+   - `convex/replay.ts:getReplayBundle` — join `worldStatic` and
+     return ONE merged `worldState` field (D10 lock —
+     `{ ...worldStaticRow, ...worldStateRow }`). Sibling-field is
+     explicitly NOT acceptable; `Grid.tsx:77,94` reads
+     `worldState?.walls` / `?.coverTiles` directly.
+   - `convex/worldState.ts:byMatchId` (used by closing scripts) —
+     same treatment; return merged.
+   - `convex/reports/phase9.ts:236-296` — `world.walls` /
+     `world.coverClusters` switch to joined `worldStatic` read.
+   - `harness/closing/phase9.ts:126-130, :355-400` — directly reads
+     `worldState:byMatchId` and adapts `row.walls` /
+     `row.coverClusters`; switch to joined `worldStatic`.
+   - `convex/reports/phase3.ts` — audit; update if it reads static
+     fields.
    - Replay grid (`apps/replay/src/components/Grid.tsx` +
-     `apps/replay/src/lib/reconstruct.ts`) — works against whatever
-     `getReplayBundle` returns; engineer keeps the existing field
-     access pattern.
+     `apps/replay/src/lib/reconstruct.ts:46-49, :130, :168-175`) —
+     no change required if the bundle returns merged `worldState`
+     (D10). Coordinate type changes if engineer overrides D10
+     (NOT recommended).
 
 **Success criteria**:
 - `worldState` rows do NOT contain `walls` / `coverClusters` /
   `coverTiles` after a smoke run.
 - `worldStatic` rows DO contain those fields, written once at
-  match-start.
+  match-start (`convex/matches.ts:225-229` rewires to insert both
+  tables).
 - `runMatch.advanceTurn` reads `worldStaticByMatch` once per turn
-  invocation (verifiable in Convex function logs or via a unit test
-  asserting the call count).
+  invocation alongside the slim `worldByMatch` (D5 / D14 — per-turn
+  double-read; Convex action chain is stateless across
+  `scheduler.runAfter`, so true once-per-chain requires a chain
+  refactor — explicitly deferred, see §9).
 - `MatchState.world` shape consumed by the engine is byte-equivalent
   to pre-slice — same `walls` / `coverClusters` / `coverTiles` /
   `chests` / `corpses` / `evac` fields populated. No engine
@@ -474,24 +645,54 @@ regression, close the slice.
 
 1. Convex dev DB wipe (POC posture). Push the new schema with
    `npx convex dev --once`.
-2. Bandwidth bench:
-   - Pick ONE pre-wipe sample match (or use a typed fixture); record
-     `persistTurn` payload size (sum of stringified `agentRecords[]`
-     bytes) and `worldByMatch` payload size.
-   - Run ONE post-wipe match; record same metrics.
-   - Document the before/after numbers in the closure record. The
-     claim to validate: persistTurn shape drops ≥ 60% on persisted-per-
-     turn bytes; worldByMatch shape drops ≥ 80%.
+2. Bandwidth bench (reframed per D14 + reviewer condition 8):
+   - Pick ONE pre-wipe sample match (or use a typed fixture); record:
+     - `persistTurn` payload size (sum of stringified
+       `agentRecords[]` bytes — the persisted-row shape).
+     - **Combined per-turn world-read payload**: stringified
+       `worldByMatch` + stringified `worldStaticByMatch` byte sum.
+       (NOT slim `worldByMatch` alone — that would overstate the
+       win because `worldStaticByMatch` still ships per scheduled
+       turn under the action chain.)
+   - Run ONE post-wipe match; record the same metrics on the new
+     shape (post-wipe has 0 `worldStaticByMatch` because pre-wipe
+     used the unified table — so the comparison is pre-wipe full
+     `worldByMatch` vs post-wipe `(worldByMatch + worldStaticByMatch)`).
+   - **Per-match prompt-write bench** (cross-match dedup): on the
+     10-run smoke, record (a) cumulative `prompts` table rows, (b)
+     total `persistTurn` bytes across all matches. Compare against
+     the pre-wipe baseline cohort to validate the ~98% cohort
+     savings claim.
+   - Document before/after numbers in the closure record. Claims to
+     validate (re-stated per D13/D14):
+     - `persistTurn` per-row shape drops ≥ 60% on persisted bytes
+       (driven by `composedUserMessage` + `*PromptText` removal).
+     - **Combined** per-turn `worldByMatch + worldStaticByMatch`
+       payload drops ≥ 80% versus the pre-wipe single-read
+       `worldByMatch` payload.
+     - Cohort prompt-write bandwidth drops ~98% across 10 runs on
+       the same map+timing.
 3. 10-run smoke at `--reasoning low --maxOutputTokens 1200` (phase-9
    baseline). Inspect via the diagnostics CLI:
-   - Zero engine crashes (`failedMatches: 0`).
-   - Zero whole-turn validator zeroes.
-   - Extraction > 0, kill > 0, equip > 0, speech > 0 across the
-     cohort (behaviour-directionally-intact — NOT held to
-     phase-9 closing thresholds).
-   - All 8 personas active (per-persona turn-records > 0).
-   - No `Player_N` literal regressions in any persisted surface.
-   - No `Chest_NNN` literal regressions in any persisted surface.
+   - **Pass/fail bars (gating)**:
+     - Zero engine crashes (`failedMatches: 0`).
+     - Zero whole-turn validator zeroes.
+     - Extraction > 0, kill > 0, equip > 0, speech > 0 across the
+       cohort (behaviour-directionally-intact — NOT held to
+       phase-9 closing thresholds).
+     - All 8 personas active (per-persona turn-records > 0).
+     - No `Player_N` literal regressions in any persisted surface.
+     - No `Chest_NNN` literal regressions in any persisted surface.
+   - **Data-only drift metrics (NOT gated)** — record alongside the
+     pass/fail bars so a severe regression is visible even without
+     a hard gate. User can override before closure if drift looks
+     pathological:
+     - Extraction-rate per match.
+     - Kill-rate per match.
+     - Equip-rate per match.
+     - Speech-rate per match.
+     - Alive-at-T-25 distribution.
+     - Comparable Phase 7/9 values noted alongside for context.
 4. Validation gates: `npm run lint`, `npm run ts:check` (or
    `npm run typecheck` per `repo.md`), `npm run build`, `npm test`
    — all green.
@@ -534,8 +735,14 @@ regression, close the slice.
 6. **10-run smoke passes the light bars** (see §5 WP-C).
 7. **Validation gates green** — lint, ts:check, build, test.
 8. **Bandwidth claim validated quantitatively** — bench numbers in
-   the closure record show ≥ 60% drop on `persistTurn` payload and
-   ≥ 80% drop on `worldByMatch` payload.
+   the closure record show:
+   - ≥ 60% drop on `persistTurn` per-row persisted bytes.
+   - ≥ 80% drop on **combined** per-turn world-read payload
+     (`worldByMatch` + `worldStaticByMatch`, NOT slim-`worldByMatch`
+     alone — D14).
+   - ~98% drop on cumulative prompt-write bandwidth across the
+     10-run cohort (cross-match dedup; matches Reviewer 2 corrected
+     math under D13).
 9. **POC posture honoured** — no migration shims, no
    `if-legacy-row-shape` branches, single forward shape.
 
@@ -556,15 +763,22 @@ the decision, treat the **Lock** as the operating answer.
 2. **Persist Status snapshot vs reconstruct from history.**
    - Lock: persist `agentRecord.input.status` (~100 bytes per
      agentRecord — negligible).
-   - Rationale: avoids server-side history-walk at every diagnostics
-     read; the structured field replaces the
-     `extractSelfHp`/`extractSelfEquipment`/`extractObserverPos`
-     regex parsers in `rawPane.ts` (a code-debt removal, not
-     addition).
+   - Rationale (reframed per reviewer pass): the structured field
+     captures the EXACT rendered status block at decision time, and
+     replaces the regex parsers at
+     `convex/turnsDerived.ts:227-289` (`extractSelfHp` /
+     `extractSelfEquipment` / `extractObserverPos`) AND the separate
+     `parseStatusBlockForReplay` in
+     `apps/replay/src/components/TurnFeed.tsx:396-418`. The earlier
+     "avoid server-side history walk" framing was wrong — both
+     parsers operate on the persisted `composedUserMessage` blob,
+     not on history. The real value is **eliminating the parsers**
+     (code-debt removal) and **byte-equal user-role reconstruction
+     without a state-walk race risk** (pillar 1).
    - Override signal: user prefers "pure derive at read time" —
      engineer drops the `status` field and the replay UI / CLI walk
-     character history. Trade-off: slower diagnostics, no schema
-     additions.
+     character history. Trade-off: re-introduces regex parsers,
+     no schema additions.
 
 3. **Persist `narrativeLines: string[]` vs re-derive from prev
    resolution at read time.**
@@ -601,36 +815,132 @@ the decision, treat the **Lock** as the operating answer.
      principled separation.
 
 6. **Per-turn double-read (static + dynamic) vs once-per-chain.**
-   - Lock: per-turn double-read.
+   - Lock: per-turn double-read. **Honest framing** (reviewer-
+     reframed): this is NOT once-per-chain — `worldStaticByMatch`
+     still runs per scheduled `advanceTurn` invocation. The remaining
+     static-read cost is real and must be documented in the WP-C
+     bench as combined `worldByMatch + worldStaticByMatch` payload
+     (D14).
    - Rationale: Convex action chains are stateless across
-     reschedules; "once per chain" requires either passing terrain
-     through the schedule message (bandwidth hit on every reschedule)
-     or storing in-memory state outside the action (not supported).
-     Two slim reads per turn is the pragmatic floor.
+     `scheduler.runAfter` reschedules. True once-per-chain requires
+     a chain refactor (load terrain into an in-action turn loop
+     that eliminates `scheduler.runAfter` between turns) — explicitly
+     deferred (§9).
    - Override signal: user wants a real once-per-chain — engineer
-     restructures the chain to load terrain into an in-action loop
-     (eliminate `scheduler.runAfter` between turns; loop inside one
-     action). Bigger refactor; explicitly out of scope here unless
-     user lifts the cap.
+     scopes a separate slice for the chain refactor (not this slice;
+     out of scope unless user lifts the cap).
+
+7. **WP-A bundles A+B from the cucumber (D6 — locked).** The
+   `composedUserMessage` drop is a structural fall-out of prompt
+   dedup (the rolled-up string adds nothing once its constituents
+   are persisted). Bundling A+B in WP-A keeps the persisted-shape
+   change atomic — engineers don't ship a transitional state where
+   prompts are deduped but `composedUserMessage` still ships.
+   Override signal: none expected.
+
+8. **WP-A + WP-B parallelism with integration owner (D15).** See §4
+   dependency map and §8 sequence. The disjoint-files claim was
+   incorrect; both WPs touch `convex/runMatch.ts` at non-overlapping
+   line ranges but the same file. Final-merge owner reconciles the
+   shared file and ships an end-to-end integration test.
+
+9. **Collision-guarded `getOrCreatePrompt` (D9).** Cross-match scope
+   (D3) amplifies the blast radius of any silent hash collision. The
+   `getOrCreatePrompt` helper MUST verify `existing.text === text`
+   when an existing `(hash, kind)` row is found, throwing
+   `DataIntegrityError` on mismatch. A forced-collision unit test
+   pins the branch.
+   - Override signal: user prefers SHA-256 — engineer swaps to
+     `node:crypto` SHA-256 hex; collision guard remains as
+     belt-and-braces (cheap; preserves the integrity invariant).
+
+10. **Merged `worldState` bundle from `getReplayBundle` (D10).** The
+    replay bundle returns one merged `{ ...worldStaticRow,
+    ...worldStateRow }` `worldState` field. Sibling-field is NOT
+    acceptable — `apps/replay/src/components/Grid.tsx:77,94` reads
+    `worldState?.walls` / `?.coverTiles` directly; a sibling-field
+    shape would silently render an empty map. Locked, not engineer
+    choice.
+
+11. **`recomposeUserMessage` requires `turn` (D11).** The helper
+    signature is `recomposeUserMessage({ input, turn, displayName,
+    prompts })`. Reason: `buildAgentInput` renders
+    `Turn ${state.turn}, ${aliveCount}/8 players alive`
+    (`convex/llm/inputBuilder.ts:632-644`); without `turn` from the
+    parent turn row, byte-equality round-trip tests fail. Engineers
+    sourcing `turn` from the parent `turns` row at every call site.
+
+12. **Missing-prompt-hash is FATAL (D12).** Forward-only POC posture
+    (no migration shims) means an unresolved hash on any persisted
+    agentRecord is data corruption, not graceful legacy. Server-side
+    recompose throws; replay UI surfaces a visible error state. NO
+    silent fallback, NO sentinel return.
+
+13. **System-prompt cardinality is per-distinct-hash, NOT 1+8
+    (D13).** `buildSystemPrompt(turn)` is turn-bound (countdown line
+    changes each turn). True cardinality: ~50 distinct system rows
+    per match (one per turn while countdown ticks), ~58 cross-match
+    steady state. Per-match write savings ~88%; cohort savings ~98%.
+    Bench math reframed accordingly (see §5 WP-C). Do NOT propose
+    stabilising the system prompt — prompt-behaviour scope creep.
+
+14. **WP-B bench measures COMBINED world payload (D14).** The
+    bandwidth bench compares pre-wipe single-read `worldByMatch`
+    against post-wipe `worldByMatch + worldStaticByMatch` per turn.
+    Slim-`worldByMatch`-alone would overstate the win. True
+    once-per-chain savings are deferred to a separate slice (§9).
+
+15. **`convex/runMatch.ts` integration owner (D15).** WPs touch
+    non-overlapping line ranges in the same file (WP-A: `:392-409`,
+    `:734-850`, `:897-1025`; WP-B: `:198-234`, `:676-696`). ONE
+    engineer takes final merge responsibility and ships the
+    end-to-end integration test. See §4 and §8.
+
+16. **`projectSlimTurnRows` forward sources by field family (D16).**
+    Not a single "scan narrativeLines" sweep — three distinct
+    forward sources per the table in §3.4.1: delivery audits →
+    `narrativeLines.some(...)`; visible-rect/inside-bearing →
+    `visibleStateDigest`; status extractors (`selfHp`,
+    `selfEquipment`, `observerPos`) → `input.status`. Focused tests
+    cover all three families.
 
 ## 8. Recommended Job Sequence
 
-1. **PM records this spec as the canonical artifact** for phase 11.
-2. **Engineer dispatches WP-A and WP-B in parallel** (separate
-   worktrees recommended — they touch disjoint files but both
-   modify `convex/schema.ts`, so a final rebase is needed before
-   smoke). Each WP follows TDD inside its scope: write tests first
-   (schema-mirror parity, recompose round-trip for WP-A; matchState
-   merge correctness for WP-B), then implementation, then green.
-3. **Rebase WP-A + WP-B onto a single branch.** Resolve the
-   `convex/schema.ts` merge (both add new tables and modify shared
-   validators — the merge is mechanical; no logic conflict).
-4. **WP-C runs after** the rebase: dev DB wipe, smoke, bench,
-   gates, closure record.
-5. **No completion review required** for this slice. POC posture
+1. **PM records this spec v2 as the canonical artifact** for phase 11
+   (replaces v1; review v1 conditions folded in).
+2. **PM nominates `convex/runMatch.ts` integration owner (D15)**
+   BEFORE dispatching WPs. The owner is one of the WP engineers
+   (recommended: WP-A engineer, since the persistTurn call-site
+   reshape is the larger surface) and holds final-merge
+   responsibility for `convex/runMatch.ts` plus the end-to-end
+   integration test.
+3. **Engineer dispatches WP-A and WP-B in parallel** (separate
+   worktrees recommended). WPs touch disjoint files on the schema
+   and write-path sides; `convex/schema.ts` and `convex/runMatch.ts`
+   are the two shared surfaces and merge mechanically (schema:
+   additive tables + disjoint validator field-sets;
+   `runMatch.ts`: non-overlapping line ranges per §4). Each WP
+   follows TDD inside its scope:
+   - WP-A first tests: schema-mirror parity, collision-guard unit
+     (D9), recompose round-trip including `Turn N` line (D11),
+     missing-hash fatal (D12), `projectSlimTurnRows` field
+     preservation (D16).
+   - WP-B first tests: matchState merge correctness, bundle-merge
+     shape for `getReplayBundle` (D10), terrain-byte-equivalence.
+4. **Integration owner rebases WP-A + WP-B** onto a single branch.
+   Resolves `convex/schema.ts` and `convex/runMatch.ts` mechanical
+   merges; runs the end-to-end integration test (state build →
+   LLM input → persist → recompose round-trip → byte-equality
+   assertion).
+5. **WP-C runs after** the rebase: dev DB wipe, smoke (with
+   data-only drift metrics per §5 WP-C), combined-payload bandwidth
+   bench (D14), gates, closure record.
+6. **No completion review required** for this slice. POC posture
    + small scope + 10-run smoke is the agreed bar. A user
-   step-through of one replay match is the manual UAT.
-6. **`/ultrareview` is optional** at the user's discretion — flag
+   step-through of one replay match is the manual UAT. Data-only
+   drift metrics surface to the user; user can override before
+   closure if drift looks pathological.
+7. **`/ultrareview` is optional** at the user's discretion — flag
    it only if the user wants a multi-reviewer pre-close pass.
    Default: skip.
 
@@ -649,8 +959,13 @@ Explicit user-locked scope caps (do NOT pick these up opportunistically):
 - Persona behaviour tuning (always out of scope on substrate slices).
 - Replay UI redesign (preserve existing surfaces; only swap data-fetch
   path).
-- Once-per-chain world-static read (see §7.6 — requires chain-model
-  refactor; deferred until a slice scopes that explicitly).
+- Once-per-chain world-static read (see §7.6 + §7.14 D14 — Convex
+  action chain is stateless across `scheduler.runAfter`; true
+  once-per-chain requires a chain refactor that loads terrain into
+  an in-action turn loop. Explicitly deferred until a separate
+  slice scopes that explicitly. The combined `worldByMatch +
+  worldStaticByMatch` per-turn double-read is the floor for this
+  slice).
 - SHA-256 hash upgrade for the prompts table (see §7.1 — DJB2-32 is
   POC-acceptable).
 - Any scope creep onto phase-10's body-collision + overseer-v0-
@@ -660,6 +975,11 @@ Explicit user-locked scope caps (do NOT pick these up opportunistically):
 
 - North Star: planning brief in this conversation; canonical user
   intent capture.
+- v1 plan review: [`REVIEW-v1.md`](./REVIEW-v1.md) — three-reviewer
+  consolidated pass (2× APPROVE-WITH-CONDITIONS + 1× REQUEST-REVISION).
+  This v2 folds all 10 binding conditions plus reviewer 2 supplemental
+  notes (file-ref corrections, Lock-D10 merged-bundle, per-line
+  round-trip trace).
 - Predecessor: [Phase 10 closure](../10-body-collision-overseer/PHASE-10-CLOSURE.md)
   — substrate posture this slice is grafted onto.
 - Read-side precedent: [Phase 7 closure](../07-context-payload-iter-3/PHASE-7-CLOSURE.md)
