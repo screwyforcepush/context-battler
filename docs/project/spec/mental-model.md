@@ -848,6 +848,79 @@ Both threads are diagnostic-grade refinements to the v0 overseer
 (§11), not the consumer-renderer slice. They preserve the
 batch-fetch + step-don't-stream + ground-truth-always posture.
 
+## 19. DB bandwidth substrate refinement (dispatched 2026-05-15)
+
+> **Status:** dispatched 2026-05-15. Jam-surfaced substrate slice,
+> orthogonal to phase-10's body-collision + overseer-v0 work. The
+> trigger was the user flagging `_internal_runMatch.persistTurn` and
+> `_internal_runMatch.worldByMatch` as the two Convex functions
+> slamming DB bandwidth. Structural redundancy review confirmed: the
+> persist write re-ships ~4–6 MB per match of denormalised prompt
+> text and rolled-up user-message; the world read ships ~250–500 KB
+> per match of immutable terrain. A closing-20 burns ~80 MB on pure
+> dead weight.
+
+Three independent moves land in one slice, all explicitly capped at
+high-ROI only — the user's framing was *"not the final state we
+will be making changes, so dont overfit and back us into a corner"*:
+
+1. **Prompt-text dedup (A).** `systemPromptText` and
+   `personaPromptText` move off the per-turn agentRecord into a
+   dedup'd table keyed by hash. The schema already has the
+   `systemPromptHash` / `personaPromptHash` plumbing — this slice
+   completes the half-built normalisation. ~80% of write-bandwidth
+   redundancy retires.
+
+2. **`composedUserMessage` drop (B).** Purely derived from
+   already-persisted constituents (system + persona + scratchpad +
+   visibleStateDigest + narrative). Removed from the persisted
+   shape; recomposed at read time via the existing input builder.
+   Falls out of A; the replay raw-pane keeps showing the *exact*
+   text the model saw, just rebuilt rather than re-stored.
+
+3. **Slim `worldByMatch` (C).** Walls / coverClusters / coverTiles
+   are immutable post-spawn but shipped on every per-turn read.
+   Static terrain splits off (separate `worldStatic` table read
+   once per chain, or strip-and-sibling-query); the action merges
+   static + dynamic to build `MatchState.world` with zero engine
+   behaviour change.
+
+**Explicitly out of scope** (carried as labels, not deferred TODOs):
+partial chest/corpse array patches, `characters.lastKnown[]`
+bounding, sidecar tables for `llm.reasoning` / `rawArguments` /
+`httpBodyExcerpt`, `visibleStateDigest` dedup, paginated reads,
+materialised rollups, persona behaviour-tuning, replay UI redesign.
+These are smaller-payoff *or* schema-hardening moves that would bite
+the next substrate iteration; the cap is deliberate.
+
+**Authority for execution:**
+- Convex dev DB wipe authorised; NO migration shims, NO
+  backward-compat branches, NO `if-legacy-row-shape` paths. Single
+  forward shape (POC posture `project_poc_schema_wipe_acceptable`).
+- Schema break to `agentInputValidator` and `worldState` table
+  acceptable in lockstep.
+
+**Done bar — light, not a closing report.** This is a
+*smoke* validation, not a metric-perfect closing pass:
+- 10-run smoke completes with zero engine crashes and zero
+  validator-zero explosions.
+- Behaviour directionally intact vs phase-9: extraction > 0,
+  kill > 0, equip > 0, speech > 0, all 8 personas active, no
+  `Player_N` literal regressions, no `Chest_NNN` literal
+  regressions. Closing thresholds are the *floor* the engine
+  should still be near, not the gate this slice must hit.
+- Standard validation gates green (lint, ts:check, build, test).
+- Closure record carries a quantitative WRITE-size before/after
+  measurement to prove the bandwidth claim.
+
+**Why this is pillar-aligned:**
+Pillar 7 ("state is the contract; runtime is swappable") is the
+direct frame — the contract should hold *what mutates*, not
+re-publish what's static. Phase-7's `turns.byMatchSlim` already
+applied this principle to the *read* side for heavy text; this
+slice is the write-side counterpart, plus the static-terrain
+mirror on the world read.
+
 ## 12. Open questions / live tensions
 
 Tracked here because they shape the why, not the how:
