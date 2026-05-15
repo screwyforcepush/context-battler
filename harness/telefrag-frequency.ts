@@ -34,12 +34,12 @@ type CohortRunOutcome =
       environmentalDeaths: number;
     }
   | { kind: "failed"; matchId: MatchId; turn: number; reason: string }
-  | { kind: "timeout"; matchId: MatchId };
+  | { kind: "timeout"; matchId: MatchId; turn: number; reason: string };
 
 type TerminalRunOutcome =
   | { kind: "completed"; matchId: MatchId; turn: number }
   | { kind: "failed"; matchId: MatchId; turn: number; reason: string }
-  | { kind: "timeout"; matchId: MatchId };
+  | { kind: "timeout"; matchId: MatchId; turn: number; reason: string };
 
 type CohortSummary = {
   telegraphedStopAtRange: TelegraphedCrateStopAtRange;
@@ -62,6 +62,14 @@ export type TelefragFrequencyArgs = {
 type TelefragClient = {
   query: (ref: unknown, args: unknown) => Promise<unknown>;
   mutation: (ref: unknown, args: unknown) => Promise<unknown>;
+  action?: (ref: unknown, args: unknown) => Promise<unknown>;
+};
+
+type PollTuning = {
+  intervalMs: number;
+  matchWallClockCapMs: number;
+  staleTurnAdvanceAfterMs: number;
+  maxStaleAdvanceAttempts: number;
 };
 
 type TelefragFrequencyDeps = {
@@ -70,6 +78,7 @@ type TelefragFrequencyDeps = {
   writeStderr: (line: string) => void;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
+  poll?: Partial<PollTuning>;
   configureTelegraphedStopAtRange?: (
     value: TelegraphedCrateStopAtRange,
   ) => Promise<void>;
@@ -107,6 +116,16 @@ type TelefragFrequencyEvent =
       turn: number;
     }
   | {
+      event: "stale_match_advance";
+      telegraphedStopAtRange: TelegraphedCrateStopAtRange;
+      matchId: MatchId;
+      status: MatchStatus;
+      turn: number;
+      stagnantMs: number;
+      attempt: number;
+      maxAttempts: number;
+    }
+  | {
       event: "run_end";
       telegraphedStopAtRange: TelegraphedCrateStopAtRange;
       matchId: MatchId;
@@ -128,6 +147,8 @@ const REASONING_LEVELS = ["low", "medium", "high"] as const;
 const DEFAULT_COHORTS: TelegraphedCrateStopAtRange[] = [0, 2];
 const POLL_INTERVAL_MS = 2_000;
 const MATCH_WALL_CLOCK_CAP_MS = 10 * 60 * 1_000;
+const STALE_TURN_ADVANCE_AFTER_MS = 90_000;
+const MAX_STALE_ADVANCE_ATTEMPTS = 3;
 const execFileAsync = promisify(execFile);
 
 const matchesStart = makeFunctionReference<
@@ -147,6 +168,12 @@ const turnsByMatchSlim = makeFunctionReference<
   { matchId: MatchId },
   TurnWithOptionalEnvironmentalDeaths[]
 >("turns:byMatchSlim");
+
+const runMatchAdvanceTurn = makeFunctionReference<
+  "action",
+  { matchId: MatchId },
+  null
+>("runMatch:advanceTurn");
 
 export function countEnvironmentalDeaths(
   turns: readonly TurnWithOptionalEnvironmentalDeaths[],
@@ -331,9 +358,8 @@ async function runOneMatch(
       telegraphedStopAtRange,
       matchId: outcome.matchId,
       status: outcome.kind,
-      ...(outcome.kind === "failed"
-        ? { turn: outcome.turn, reason: outcome.reason }
-        : {}),
+      turn: outcome.turn,
+      reason: outcome.reason,
     });
     return outcome;
   }
@@ -363,8 +389,18 @@ async function pollUntilTerminal(
   telegraphedStopAtRange: TelegraphedCrateStopAtRange,
   deps: TelefragFrequencyDeps,
 ): Promise<TerminalRunOutcome> {
+  const tuning = pollTuning(deps);
   const startedAt = deps.now();
-  while (deps.now() - startedAt < MATCH_WALL_CLOCK_CAP_MS) {
+  let lastProgressAt = startedAt;
+  let lastObserved:
+    | {
+        status: MatchStatus;
+        turn: number;
+      }
+    | null = null;
+  let staleAdvanceAttempts = 0;
+
+  while (deps.now() - startedAt < tuning.matchWallClockCapMs) {
     const status = (await deps.client.query(matchesStatus, { id: matchId })) as
       | MatchStatusRow
       | null;
@@ -396,9 +432,128 @@ async function pollUntilTerminal(
         reason: status.failure?.reason ?? "unknown",
       };
     }
-    await deps.sleep(POLL_INTERVAL_MS);
+
+    const progressed =
+      lastObserved === null ||
+      lastObserved.status !== status.status ||
+      lastObserved.turn !== status.turn;
+    if (progressed) {
+      lastObserved = { status: status.status, turn: status.turn };
+      lastProgressAt = deps.now();
+      staleAdvanceAttempts = 0;
+    }
+
+    const stagnantMs = deps.now() - lastProgressAt;
+    if (stagnantMs >= tuning.staleTurnAdvanceAfterMs) {
+      if (staleAdvanceAttempts >= tuning.maxStaleAdvanceAttempts) {
+        const reason =
+          `match stayed ${status.status} at turn ${status.turn} for ` +
+          `${stagnantMs}ms after ${staleAdvanceAttempts} stale advance attempt(s)`;
+        writeFatal(deps, {
+          reason: "stale_match_advance_exhausted",
+          matchId,
+          turn: status.turn,
+          message: reason,
+        });
+        return { kind: "failed", matchId, turn: status.turn, reason };
+      }
+
+      staleAdvanceAttempts += 1;
+      deps.emitEvent({
+        event: "stale_match_advance",
+        telegraphedStopAtRange,
+        matchId,
+        status: status.status,
+        turn: status.turn,
+        stagnantMs,
+        attempt: staleAdvanceAttempts,
+        maxAttempts: tuning.maxStaleAdvanceAttempts,
+      });
+
+      const advance = await advanceStaleMatch(matchId, deps);
+      if (!advance.ok) {
+        writeFatal(deps, {
+          reason: advance.diagnosticReason,
+          matchId,
+          turn: status.turn,
+          message: advance.reason,
+        });
+        return {
+          kind: "failed",
+          matchId,
+          turn: status.turn,
+          reason: advance.reason,
+        };
+      }
+      lastProgressAt = deps.now();
+    }
+
+    await deps.sleep(tuning.intervalMs);
   }
-  return { kind: "timeout", matchId };
+  const last = lastObserved ?? { status: "pending" as MatchStatus, turn: 0 };
+  return {
+    kind: "timeout",
+    matchId,
+    turn: last.turn,
+    reason:
+      `match timed out after ${tuning.matchWallClockCapMs}ms with ` +
+      `last observed status=${last.status} turn=${last.turn}`,
+  };
+}
+
+function pollTuning(deps: TelefragFrequencyDeps): PollTuning {
+  return {
+    intervalMs: deps.poll?.intervalMs ?? POLL_INTERVAL_MS,
+    matchWallClockCapMs:
+      deps.poll?.matchWallClockCapMs ?? MATCH_WALL_CLOCK_CAP_MS,
+    staleTurnAdvanceAfterMs:
+      deps.poll?.staleTurnAdvanceAfterMs ?? STALE_TURN_ADVANCE_AFTER_MS,
+    maxStaleAdvanceAttempts:
+      deps.poll?.maxStaleAdvanceAttempts ?? MAX_STALE_ADVANCE_ATTEMPTS,
+  };
+}
+
+async function advanceStaleMatch(
+  matchId: MatchId,
+  deps: TelefragFrequencyDeps,
+): Promise<
+  | { ok: true }
+  | { ok: false; diagnosticReason: string; reason: string }
+> {
+  if (typeof deps.client.action !== "function") {
+    return {
+      ok: false,
+      diagnosticReason: "stale_match_unadvanceable",
+      reason:
+        "stale match requires runMatch:advanceTurn but the client has no action method",
+    };
+  }
+
+  try {
+    await deps.client.action(runMatchAdvanceTurn, { matchId });
+    return { ok: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      diagnosticReason: "stale_match_advance_failed",
+      reason: `runMatch:advanceTurn failed for stale match: ${message}`,
+    };
+  }
+}
+
+function writeFatal(
+  deps: TelefragFrequencyDeps,
+  payload: {
+    reason: string;
+    matchId: MatchId;
+    turn: number;
+    message: string;
+  },
+): void {
+  deps.writeStderr(
+    `${JSON.stringify({ event: "fatal", ...payload })}\n`,
+  );
 }
 
 async function withTelegraphedStopAtRange<T>(

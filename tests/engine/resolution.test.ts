@@ -16,6 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 import { resolveTurn } from "../../convex/engine/resolution.js";
+import { buildKillFeedLines } from "../../convex/llm/inputBuilder.js";
 import type {
   AirdropState,
   CharacterState,
@@ -1037,7 +1038,9 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
 
   it("WP-D — telefrags an agent that moves onto the spawn tile before the airdrop lands", () => {
     const sprinter = makeCharacter({ id: "A", pos: { x: 49, y: 50 } });
+    sprinter.displayName = "Sprinter";
     const observer = makeCharacter({ id: "B", pos: { x: 45, y: 50 } });
+    observer.displayName = "Duelist";
     const state = makeState({
       characters: [sprinter, observer],
       turn: 10,
@@ -1070,6 +1073,12 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       pos: { x: 50, y: 50 },
     });
     expect(next.world.corpses).toEqual([]);
+    expect(buildKillFeedLines({ resolution: trace }, next)).toEqual([
+      "Sprinter got telefragged by crate spawn",
+    ]);
+    expect(next.characters.filter((c) => c.alive).map((c) => c.displayName)).toEqual([
+      "Duelist",
+    ]);
   });
 
   it("WP-D — telefrag wins over same-turn lethal attack and leaves no death trace or corpse", () => {
