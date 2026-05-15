@@ -1,18 +1,18 @@
 // Phase 02 / WP-B — SVG bird's-eye grid renderer.
 //
 // 100×100 viewBox; one `<g>` group per layer (z-order bottom→top):
-//   walls → cover tiles → evac zone → chests → corpses → agents.
+//   walls → cover tiles → evac zone → crates → corpses → agents.
 //
-// Per ADR §1: SVG over canvas for v0. ~28 walls + ~60 cover tiles + 12 chests
+// Per ADR §1: SVG over canvas for v0. ~28 walls + ~60 cover tiles + 12 crates
 // + ≤8 corpses + 8 agents = ~120 nodes — well within DOM-event hover-test
 // performance. Persona colours are 8 distinct high-contrast hex values
 // (d3 category10 inlined; no library).
 //
-// `data-token-kind` and `data-character-id` / `data-chest-id` attributes
+// `data-token-kind` and `data-character-id` / `data-crate-id` attributes
 // are wired so WP-D's HoverCard can attach a delegated mouseenter listener
 // on the SVG root and identify the hovered token without per-node refs.
 //
-// Per D-P2-11/D-P2-12: equipped/HP and chest contents render as null in the
+// Per D-P2-11/D-P2-12: equipped/HP and crate contents render as null in the
 // snapshot. The hover card (WP-D) handles the "see expand panel" / "contents
 // not persisted" copy.
 
@@ -118,10 +118,10 @@ export function Grid({ snapshot, worldState }: GridProps): React.ReactElement {
         />
       </g>
 
-      {/* ── Layer 4: chests (closed=brown filled, open=lighter w/ X). ── */}
-      <g data-layer="chests">
-        {snapshot.chests.map((c) => (
-          <g key={`chest-${c.id}`} data-token-kind="chest" data-chest-id={c.id}>
+      {/* ── Layer 4: crates (closed=brown filled, open=lighter w/ X). ── */}
+      <g data-layer="crates">
+        {snapshot.crates.map((c) => (
+          <g key={`crate-${c.id}`} data-token-kind="crate" data-crate-id={c.id}>
             <rect
               x={c.pos.x + 0.1}
               y={c.pos.y + 0.1}
@@ -133,7 +133,7 @@ export function Grid({ snapshot, worldState }: GridProps): React.ReactElement {
             />
             {c.opened ? (
               <>
-                {/* Faint X marks an opened chest. */}
+                {/* Faint X marks an opened crate. */}
                 <line
                   x1={c.pos.x + 0.2}
                   y1={c.pos.y + 0.2}
@@ -153,7 +153,7 @@ export function Grid({ snapshot, worldState }: GridProps): React.ReactElement {
               </>
             ) : null}
             <title>
-              {c.opened ? "Chest (opened)" : "Chest (closed)"} — {c.id}
+              {c.opened ? "Crate (opened)" : "Crate (closed)"} — {c.id}
             </title>
           </g>
         ))}

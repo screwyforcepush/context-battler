@@ -2,7 +2,7 @@
 //
 // THE EXPLAINABILITY DEEP-DIVE (substrate-refinement variant). When the
 // user spots something interesting in the side-panel feed (a counter-fire,
-// a wall-blocked move, a chest finally opened), this modal surfaces the
+// a wall-blocked move, a crate finally opened), this modal surfaces the
 // FULL LLM input + the model's reasoning + the parsed tool-call decision
 // for one (turn, agent) tuple — the three sections that let the user
 // reason about *why* the model made the call it did.

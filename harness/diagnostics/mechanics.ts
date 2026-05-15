@@ -2,7 +2,7 @@ import type { CountMap, DrilldownExample, SlimTurnRow } from "./types.js";
 import {
   actualMoveDistance,
   increment,
-  isChestTarget,
+  isCrateTarget,
   isCorpseTarget,
   isDamageResult,
   isHealAtFullHp,
@@ -22,7 +22,7 @@ export type MechanicsDiagnostics = {
     primedWithoutIncomingAttack: number;
   };
   loot: {
-    chest: {
+    crate: {
       seen: number;
       lootActions: number;
       opened: number;
@@ -81,12 +81,12 @@ export function computeMechanicsDiagnostics(
   let overwatchDefensive = 0;
   let counterFired = 0;
   let counterPrimedWithoutIncomingAttack = 0;
-  let chestSeen = 0;
-  let chestLootActions = 0;
-  let chestOpened = 0;
-  let chestEquipped = 0;
-  let chestEmpty = 0;
-  let chestSameTurnCollision = 0;
+  let crateSeen = 0;
+  let crateLootActions = 0;
+  let crateOpened = 0;
+  let crateEquipped = 0;
+  let crateEmpty = 0;
+  let crateSameTurnCollision = 0;
   let corpseSeen = 0;
   let corpseLootActions = 0;
   let corpseLooted = 0;
@@ -154,7 +154,7 @@ export function computeMechanicsDiagnostics(
     }
 
     for (const record of turn.agentRecords) {
-      chestSeen += record.visibleSummary.chests;
+      crateSeen += record.visibleSummary.crates;
       corpseSeen += record.visibleSummary.corpses;
       inboundDelivered += record.inboundSpeechCount;
       incomingDamageFeed += record.damageFeedAudit.incoming;
@@ -192,19 +192,19 @@ export function computeMechanicsDiagnostics(
 
       if (record.decision.action.kind === "loot") {
         const target = record.decision.action.targetId;
-        if (isChestTarget(target)) chestLootActions += 1;
+        if (isCrateTarget(target)) crateLootActions += 1;
         else if (isCorpseTarget(target)) corpseLootActions += 1;
       }
 
       for (const outcome of record.lootOutcomeFeed) {
         const target = outcome.target ?? "";
-        if (isChestTarget(target)) {
+        if (isCrateTarget(target)) {
           if (outcome.result === "opened") {
-            chestOpened += 1;
-            if (outcome.item !== undefined) chestEquipped += 1;
-          } else if (outcome.result === "empty") chestEmpty += 1;
+            crateOpened += 1;
+            if (outcome.item !== undefined) crateEquipped += 1;
+          } else if (outcome.result === "empty") crateEmpty += 1;
           else if (outcome.result === "already_opened") {
-            chestSameTurnCollision += 1;
+            crateSameTurnCollision += 1;
           }
         } else if (isCorpseTarget(target)) {
           if (outcome.result === "looted") corpseLooted += 1;
@@ -232,13 +232,13 @@ export function computeMechanicsDiagnostics(
       primedWithoutIncomingAttack: counterPrimedWithoutIncomingAttack,
     },
     loot: {
-      chest: {
-        seen: chestSeen,
-        lootActions: chestLootActions,
-        opened: chestOpened,
-        equipped: chestEquipped,
-        empty: chestEmpty,
-        sameTurnCollision: chestSameTurnCollision,
+      crate: {
+        seen: crateSeen,
+        lootActions: crateLootActions,
+        opened: crateOpened,
+        equipped: crateEquipped,
+        empty: crateEmpty,
+        sameTurnCollision: crateSameTurnCollision,
       },
       corpse: {
         seen: corpseSeen,

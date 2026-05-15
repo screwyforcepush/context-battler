@@ -273,7 +273,7 @@ function renderActionIntent(
       )}`;
     case "loot": {
       const targetId = action.targetId;
-      if (isChestId(targetId)) return `Opened ${targetId}`;
+      if (isCrateId(targetId)) return `Opened ${targetId}`;
       if (/^corpse_/i.test(targetId)) return `Looted from ${targetId}`;
       const name = resolveCharacterName(
         targetId as Id<"characters">,
@@ -337,7 +337,7 @@ function renderActionOutcome(
   if (kind === "loot") {
     if (result === "opened") return "opened";
     if (result === "already_opened") return "already opened";
-    if (result === "no_chest") return "chest not found";
+    if (result === "no_crate") return "crate not found";
     if (result === "looted") return "looted";
     if (result === "no_corpse") return "corpse not found";
     if (result === "empty") return "corpse already drained";
@@ -437,13 +437,13 @@ function resolveCharacterName(
     if (candidate.displayName === raw) return candidate.displayName;
   }
 
-  if (isChestId(raw) || /^corpse_/i.test(raw)) return raw;
+  if (isCrateId(raw) || /^corpse_/i.test(raw)) return raw;
   if (raw.length <= 16) return raw;
   return raw.slice(0, 8);
 }
 
-function isChestId(id: string): boolean {
-  return /^Chest_-?\d+_-?\d+$/.test(id);
+function isCrateId(id: string): boolean {
+  return /^Crate_-?\d+_-?\d+$/.test(id);
 }
 
 function resolveCharacterIdForTarget(

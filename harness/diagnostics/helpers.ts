@@ -65,8 +65,8 @@ export function isDamageResult(result: string): boolean {
   return /^dmg \d+$/.test(result);
 }
 
-export function isChestTarget(target: string): boolean {
-  return /^Chest_-?\d+_-?\d+$/.test(target) || /^chest_\d+$/.test(target);
+export function isCrateTarget(target: string): boolean {
+  return /^Crate_-?\d+_-?\d+$/.test(target);
 }
 
 export function isCorpseTarget(target: string): boolean {

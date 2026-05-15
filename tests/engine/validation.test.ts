@@ -13,8 +13,9 @@ import { describe, expect, it } from "vitest";
 import { validateDecision } from "../../convex/engine/validation.js";
 import {
   SAFE_DEFAULT_DECISION,
+  type AirdropState,
   type CharacterState,
-  type ChestState,
+  type CrateState,
   type CorpseState,
   type MatchState,
   type ParsedDecision,
@@ -31,7 +32,8 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
     walls: [],
     coverClusters: [],
     coverTiles: [],
-    chests: [],
+    crates: [],
+    airdrops: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
@@ -77,8 +79,22 @@ function makeCharacter(opts: {
   };
 }
 
-function makeChest(id: string, pos: Tile, opened = false): ChestState {
-  return { id, pos, contents: null, opened, lootTable: "starter" };
+function makeCrate(id: string, pos: Tile, opened = false): CrateState {
+  return { id, pos, contents: null, opened };
+}
+
+function makeAirdrop(
+  landsAtTurn: number,
+  pos: Tile = { x: 50, y: 50 },
+  looted = false,
+): AirdropState {
+  return {
+    id: `Crate_${pos.x}_${pos.y}`,
+    pos,
+    landsAtTurn,
+    contents: { category: "weapon", name: "axe" },
+    looted,
+  };
 }
 
 function makeCorpse(id: string, pos: Tile): CorpseState {
@@ -126,7 +142,7 @@ function makeVisibleMoveTargetState(): MatchState {
   return makeState({
     characters: [actor, duelist, deadCamper],
     world: {
-      chests: [makeChest("Chest_56_50", { x: 56, y: 50 })],
+      crates: [makeCrate("Crate_56_50", { x: 56, y: 50 })],
       corpses: [makeCorpse("Camper", { x: 58, y: 50 })],
       coverTiles: [{ x: 54, y: 42 }],
       walls: [{ x: 64, y: 30, w: 1, h: 1 }],
@@ -158,7 +174,7 @@ function makeMoveRejectionState(): MatchState {
   return makeState({
     characters: [actor, outOfVisionDuelist, deadTrader, corpseOwner],
     world: {
-      chests: [makeChest("Chest_80_50", { x: 80, y: 50 })],
+      crates: [makeCrate("Crate_80_50", { x: 80, y: 50 })],
       corpses: [makeCorpse("Camper", { x: 80, y: 50 })],
       coverTiles: [{ x: 80, y: 50 }],
       walls: [{ x: 80, y: 51, w: 1, h: 1 }],
@@ -205,26 +221,26 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     expect(result.decision.position).toEqual(decision.position);
   });
 
-  it("§13 — loot chest out of range 2 → action field default", () => {
+  it("§13 — loot crate out of range 2 → action field default", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-    const chest = makeChest("Chest_50_50", { x: 50, y: 50 });
+    const crate = makeCrate("Crate_50_50", { x: 50, y: 50 });
     const state = makeState({
       characters: [me],
-      world: { chests: [chest] },
+      world: { crates: [crate] },
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      action: { kind: "loot", targetId: "Chest_50_50" },
+      action: { kind: "loot", targetId: "Crate_50_50" },
     };
     const result = validateDecision(state, "A", decision);
-    expect(result.fieldErrors.action).toMatch(/range|chest/i);
+    expect(result.fieldErrors.action).toMatch(/range|crate/i);
     expect(result.decision.action).toEqual({ kind: "none" });
   });
 
   describe("Phase 05 WP-B — move target visibility gate", () => {
     it.each([
       "Duelist",
-      "Chest_56_50",
+      "Crate_56_50",
       "Corpse_Camper",
       "Cover_54_42",
       "Wall_64_30",
@@ -244,7 +260,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
 
     it.each([
       "Duelist",
-      "Chest_56_50",
+      "Crate_56_50",
       "Corpse_Camper",
       "Cover_54_42",
       "Wall_64_30",
@@ -264,7 +280,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
 
     it.each([
       ["Duelist", "out-of-vision player"],
-      ["Chest_80_50", "out-of-vision chest"],
+      ["Crate_80_50", "out-of-vision crate"],
       ["Corpse_Camper", "out-of-vision corpse"],
       ["Cover_80_50", "out-of-vision cover"],
       ["Wall_80_51", "out-of-vision wall"],
@@ -293,7 +309,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
 
     it.each([
       "Duelist",
-      "Chest_80_50",
+      "Crate_80_50",
       "Corpse_Camper",
       "Cover_80_50",
       "Wall_80_51",
@@ -372,16 +388,16 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     expect(result.decision).toEqual(decision);
   });
 
-  it("§13 — interact on chest in range → valid", () => {
+  it("§13 — interact on crate in range → valid", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-    const chest = makeChest("Chest_6_6", { x: 6, y: 6 });
+    const crate = makeCrate("Crate_6_6", { x: 6, y: 6 });
     const state = makeState({
       characters: [me],
-      world: { chests: [chest] },
+      world: { crates: [crate] },
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      action: { kind: "loot", targetId: "Chest_6_6" },
+      action: { kind: "loot", targetId: "Crate_6_6" },
     };
     const result = validateDecision(state, "A", decision);
     expect(result.fieldErrors).toEqual({});
@@ -465,23 +481,23 @@ describe("WP5 — validateDecision (ADR §4)", () => {
   // result:"out_of_range" when needed). The validator must NOT pre-reject
   // a move+action pair on pre-move position alone.
 
-  it("§9 line 447 — position move toward + action loot same chest at distance 8 → valid (resolver gates post-move)", () => {
+  it("§9 line 447 — position move toward + action loot same crate at distance 8 → valid (resolver gates post-move)", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-    // Chest at (13, 5) — Chebyshev 8 from actor (out of INTERACT_RANGE=2,
+    // Crate at (13, 5) — Chebyshev 8 from actor (out of INTERACT_RANGE=2,
     // but reachable in one move turn at speed 8).
-    const chest = makeChest("Chest_13_5", { x: 13, y: 5 });
+    const crate = makeCrate("Crate_13_5", { x: 13, y: 5 });
     const state = makeState({
       characters: [me],
-      world: { chests: [chest] },
+      world: { crates: [crate] },
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
       position: {
         kind: "move",
-        direction: { kind: "toward", targetId: "Chest_13_5" },
+        direction: { kind: "toward", targetId: "Crate_13_5" },
         dist: 8,
       },
-      action: { kind: "loot", targetId: "Chest_13_5" },
+      action: { kind: "loot", targetId: "Crate_13_5" },
     };
     const result = validateDecision(state, "A", decision);
     expect(result.fieldErrors).toEqual({});
@@ -529,16 +545,16 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     expect(result.decision.action).toEqual({ kind: "none" });
   });
 
-  it("regression — stationary position + loot chest at distance 5 → action field default", () => {
+  it("regression — stationary position + loot crate at distance 5 → action field default", () => {
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-    const chest = makeChest("Chest_10_5", { x: 10, y: 5 });
+    const crate = makeCrate("Crate_10_5", { x: 10, y: 5 });
     const state = makeState({
       characters: [me],
-      world: { chests: [chest] },
+      world: { crates: [crate] },
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
-      action: { kind: "loot", targetId: "Chest_10_5" },
+      action: { kind: "loot", targetId: "Crate_10_5" },
     };
     const result = validateDecision(state, "A", decision);
     expect(result.fieldErrors.action).toMatch(/range/i);
@@ -581,7 +597,7 @@ describe("WP5 — validateDecision (ADR §4)", () => {
   });
 
   describe("WP-B.8 loot.targetId namespace validity — ADR §1", () => {
-    it("loot.targetId with bogus prefix (neither Chest_x_y nor persona name) → safe-default", () => {
+    it("loot.targetId with bogus prefix (neither Crate_x_y nor persona name) → safe-default", () => {
       const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
       const state = makeState({ characters: [me] });
       const decision: ParsedDecision = {
@@ -593,16 +609,16 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       expect(result.decision.action).toEqual({ kind: "none" });
     });
 
-    it("loot.targetId Chest_6_5 (in range, exists, not opened) → valid", () => {
+    it("loot.targetId Crate_6_5 (in range, exists, not opened) → valid", () => {
       const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-      const chest = makeChest("Chest_6_5", { x: 6, y: 5 });
+      const crate = makeCrate("Crate_6_5", { x: 6, y: 5 });
       const state = makeState({
         characters: [me],
-        world: { chests: [chest] },
+        world: { crates: [crate] },
       });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        action: { kind: "loot", targetId: "Chest_6_5" },
+        action: { kind: "loot", targetId: "Crate_6_5" },
       };
       const result = validateDecision(state, "A", decision);
       expect(result.fieldErrors).toEqual({});
@@ -625,38 +641,103 @@ describe("WP5 — validateDecision (ADR §4)", () => {
       expect(result.decision).toEqual(decision);
     });
 
-    it("loot.targetId legacy lowercase chest namespace → safe-default", () => {
+    it("loot.targetId legacy lowercase crate namespace → safe-default", () => {
       const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-      const chest = makeChest("Chest_6_5", { x: 6, y: 5 });
+      const crate = makeCrate("Crate_6_5", { x: 6, y: 5 });
       const state = makeState({
         characters: [me],
-        world: { chests: [chest] },
+        world: { crates: [crate] },
       });
       const decision: ParsedDecision = {
         ...defaultDecision(),
-        action: { kind: "loot", targetId: "chest_legacy" },
+        action: { kind: "loot", targetId: "crate_legacy" },
       };
       const result = validateDecision(state, "A", decision);
-      expect(result.fieldErrors.action).toMatch(/visible chest or corpse/i);
+      expect(result.fieldErrors.action).toMatch(/visible crate or corpse/i);
       expect(result.decision.action).toEqual({ kind: "none" });
     });
 
-    it("move.toward Chest_13_5 (coord id from digest) → valid", () => {
+    it("move.toward Crate_13_5 (coord id from digest) → valid", () => {
       const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-      const chest = makeChest("Chest_13_5", { x: 13, y: 5 });
+      const crate = makeCrate("Crate_13_5", { x: 13, y: 5 });
       const state = makeState({
         characters: [me],
-        world: { chests: [chest] },
+        world: { crates: [crate] },
       });
       const decision: ParsedDecision = {
         ...defaultDecision(),
         position: {
           kind: "move",
-          direction: { kind: "toward", targetId: "Chest_13_5" },
+          direction: { kind: "toward", targetId: "Crate_13_5" },
           dist: 8,
         },
       };
       const result = validateDecision(state, "A", decision);
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
+    });
+
+    it("WP-C — move.toward telegraphed non-LOS airdrop is valid", () => {
+      const actor = makeCharacter({ id: "Rat", pos: { x: 1, y: 1 } });
+      const state = makeState({
+        characters: [actor],
+        turn: 7,
+        world: {
+          walls: [{ x: 2, y: 2, w: 70, h: 1 }],
+          airdrops: [makeAirdrop(10, { x: 50, y: 50 })],
+        },
+      });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        position: {
+          kind: "move",
+          direction: { kind: "toward", targetId: "Crate_50_50" },
+          dist: 8,
+        },
+      };
+
+      const result = validateDecision(state, "Rat", decision);
+
+      expect(result.fieldErrors).toEqual({});
+      expect(result.decision).toEqual(decision);
+    });
+
+    it("WP-C — telegraphed airdrop is visible for movement but not lootable", () => {
+      const actor = makeCharacter({ id: "Rat", pos: { x: 49, y: 50 } });
+      const state = makeState({
+        characters: [actor],
+        turn: 10,
+        world: {
+          airdrops: [makeAirdrop(10, { x: 50, y: 50 })],
+        },
+      });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        action: { kind: "loot", targetId: "Crate_50_50" },
+      };
+
+      const result = validateDecision(state, "Rat", decision);
+
+      expect(result.fieldErrors.action).toMatch(/not a known crate|not lootable/i);
+      expect(result.decision.action).toEqual({ kind: "none" });
+    });
+
+    it("WP-C — landed visible airdrop is valid loot at range 2", () => {
+      const actor = makeCharacter({ id: "Rat", pos: { x: 48, y: 50 } });
+      const state = makeState({
+        characters: [actor],
+        turn: 11,
+        world: {
+          airdrops: [makeAirdrop(10, { x: 50, y: 50 })],
+        },
+      });
+      const decision: ParsedDecision = {
+        ...defaultDecision(),
+        action: { kind: "loot", targetId: "Crate_50_50" },
+      };
+
+      const result = validateDecision(state, "Rat", decision);
+
       expect(result.fieldErrors).toEqual({});
       expect(result.decision).toEqual(decision);
     });
@@ -853,29 +934,29 @@ describe("WP5 — validateDecision (ADR §4)", () => {
     });
   });
 
-  it("§9 line 447 — position move toward chestA + loot out-of-vision chestB → action field default", () => {
+  it("§9 line 447 — position move toward crateA + loot out-of-vision crateB → action field default", () => {
     // Validation may defer post-move range checks to the resolver, but the
     // action target still has to be visible because the model is instructed
     // to copy targetId values from Visible.
     const me = makeCharacter({ id: "A", pos: { x: 5, y: 5 } });
-    const chestA = makeChest("Chest_13_5", { x: 13, y: 5 });
-    const chestB = makeChest("Chest_90_90", { x: 90, y: 90 });
+    const crateA = makeCrate("Crate_13_5", { x: 13, y: 5 });
+    const crateB = makeCrate("Crate_90_90", { x: 90, y: 90 });
     const state = makeState({
       characters: [me],
-      world: { chests: [chestA, chestB] },
+      world: { crates: [crateA, crateB] },
     });
     const decision: ParsedDecision = {
       ...defaultDecision(),
       position: {
         kind: "move",
-        direction: { kind: "toward", targetId: "Chest_13_5" },
+        direction: { kind: "toward", targetId: "Crate_13_5" },
         dist: 8,
       },
-      action: { kind: "loot", targetId: "Chest_90_90" },
+      action: { kind: "loot", targetId: "Crate_90_90" },
     };
     const result = validateDecision(state, "A", decision);
     expect(result.fieldErrors.action).toBe(
-      "loot target 'Chest_90_90' is not a visible chest or corpse",
+      "loot target 'Crate_90_90' is not a visible crate or corpse",
     );
     expect(result.decision.action).toEqual({ kind: "none" });
     expect(result.decision.position).toEqual(decision.position);
@@ -887,13 +968,13 @@ describe("WP5 — validateDecision (ADR §4)", () => {
   // verbatim" instruction, the agent emits corpse loot/toward targets
   // as the digest's typed id `Corpse_Camper` (rendered by
   // `convex/llm/inputBuilder.ts:516`). The validator/engine historically
-  // only accepted untyped chest/persona namespaces, rejecting all
+  // only accepted untyped crate/persona namespaces, rejecting all
   // `Corpse_<Persona>` loot attempts as "invalid namespace prefix"
   // (reviewer-B completion-review-2 HIGH-1).
   //
   // PM-lock D38: fix at the validator/engine boundary by extending
   // normalisation; do NOT change the digest rendering. Mirrors WP-F.2's
-  // approach for persona names and the WP-B.10 fix for typed chest ids.
+  // approach for persona names and the WP-B.10 fix for typed crate ids.
   describe("WP-G.1 Corpse_<Persona> corpse-target normalisation — D38", () => {
     it("loot.targetId 'Corpse_Camper' (typed-id from digest) → valid (resolves to corpse via displayName lookup)", () => {
       const me: CharacterState = {

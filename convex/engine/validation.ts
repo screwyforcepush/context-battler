@@ -1,4 +1,5 @@
 import { chebyshev } from "./distance.js";
+import { findCrateById } from "./airdrops.js";
 import { computeVisibleEntities } from "./vision.js";
 import {
   normaliseCharacterTargetId,
@@ -151,22 +152,22 @@ export function validateDecision(
     case "loot": {
       const rawTargetId = decision.action.targetId;
       const entity = resolveTypedEntity(state, characterId, rawTargetId);
-      if (!entity || (entity.kind !== "chest" && entity.kind !== "corpse")) {
-        fieldErrors.action = `loot target '${rawTargetId}' is not a visible chest or corpse`;
+      if (!entity || (entity.kind !== "crate" && entity.kind !== "corpse")) {
+        fieldErrors.action = `loot target '${rawTargetId}' is not a visible crate or corpse`;
         next.action = { kind: "none" };
         break;
       }
 
-      if (entity.kind === "chest") {
-        const chest = state.world.chests.find((c) => c.id === rawTargetId);
-        if (!chest) {
-          fieldErrors.action = `loot target '${rawTargetId}' is not a known chest`;
+      if (entity.kind === "crate") {
+        const crate = findCrateById(state.world, rawTargetId, state.turn);
+        if (!crate) {
+          fieldErrors.action = `loot target '${rawTargetId}' is not lootable as a crate`;
           next.action = { kind: "none" };
           break;
         }
         if (
           !canMovementChangeActionRange(next.position) &&
-          chebyshev(actor.pos, chest.pos) > INTERACT_RANGE
+          chebyshev(actor.pos, crate.pos) > INTERACT_RANGE
         ) {
           fieldErrors.action = `loot target '${rawTargetId}' is beyond interact range ${INTERACT_RANGE}`;
           next.action = { kind: "none" };

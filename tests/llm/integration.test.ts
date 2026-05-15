@@ -35,15 +35,15 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
       { x: 11, y: 10 },
       { x: 10, y: 11 },
     ],
-    chests: [
+    crates: [
       {
-        id: "Chest_14_10",
+        id: "Crate_14_10",
         pos: { x: 14, y: 10 },
         contents: { category: "weapon", name: "sword" },
         opened: false,
-        lootTable: "starter",
       },
     ],
+    airdrops: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
@@ -99,7 +99,7 @@ function makeIntegrationInput(useVariant: UseVariant) {
     weapon: "rusty_blade",
     armour: "leather",
     consumable: useVariant === "consumable_or_null" ? "speed" : undefined,
-    scratchpad: "Turn 9. Camper is east. Chest_14_10 is reachable.",
+    scratchpad: "Turn 9. Camper is east. Crate_14_10 is reachable.",
   });
   const enemy = makeCharacter({
     id: "c_camper",

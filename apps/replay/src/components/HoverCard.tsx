@@ -3,7 +3,7 @@
 // Renders a position-pinned card near the cursor with per-kind details for
 // the currently-hovered token on the grid. The dispatcher in Replay.tsx
 // (WP-C territory) reads `data-token-kind` / `data-character-id` /
-// `data-chest-id` from the SVG (emitted by Grid.tsx — WP-B territory),
+// `data-crate-id` from the SVG (emitted by Grid.tsx — WP-B territory),
 // resolves the DOM target → `HoverTarget`, and passes it here as a prop.
 //
 // Render contract (per `work-packages.md` WP-D + ADR §9 D-P2-11 / §10 D-P2-12):
@@ -15,10 +15,10 @@
 //     surfaced by ExpandModal.
 //   - agent (dead/extracted): grey-out marker with "died turn N" /
 //     "extracted turn N".
-//   - chest (closed): id, position, "closed".
-//   - chest (opened): id, position, "opened (turn N)" + literal
+//   - crate (closed): id, position, "closed".
+//   - crate (opened): id, position, "opened (turn N)" + literal
 //     "contents not persisted" line — engine clears
-//     `worldState.chests[i].contents` on open (`resolution.ts:537`).
+//     `worldState.crates[i].contents` on open (`resolution.ts:537`).
 //   - corpse: deceased displayName + persona + death turn + remaining loot
 //     from `worldState.corpses[]` (engine-authored truth — only ledger-free
 //     fallback per ADR §4).
@@ -127,10 +127,10 @@ function renderHoverBody(
           currentTurn={currentTurn}
         />
       );
-    case "chest":
+    case "crate":
       return (
-        <ChestHover
-          chestId={target.chestId}
+        <CrateHover
+          crateId={target.crateId}
           pos={target.pos}
           bundle={bundle}
           snapshot={snapshot}
@@ -263,24 +263,24 @@ function lookupOneLineSummary(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chest body. Closed → id + pos + "closed". Opened → id + pos + "opened
+// Crate body. Closed → id + pos + "closed". Opened → id + pos + "opened
 // (turn N)" + literal "contents not persisted" (D-P2-12).
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ChestHover(props: {
-  chestId: string;
+function CrateHover(props: {
+  crateId: string;
   pos: { x: number; y: number };
   bundle: ReplayBundle;
   snapshot: EntitySnapshot;
 }): React.ReactElement {
-  const { chestId, pos, bundle, snapshot } = props;
-  const snapChest = snapshot.chests.find((c) => c.id === chestId);
-  const opened = snapChest?.opened ?? false;
-  const openedAtTurn = opened ? findChestOpenTurn(bundle, chestId) : null;
+  const { crateId, pos, bundle, snapshot } = props;
+  const snapCrate = snapshot.crates.find((c) => c.id === crateId);
+  const opened = snapCrate?.opened ?? false;
+  const openedAtTurn = opened ? findCrateOpenTurn(bundle, crateId) : null;
 
   return (
     <Block
-      title={`Chest ${chestId}`}
+      title={`Crate ${crateId}`}
       body={
         <>
           <Row label="position" value={`(${pos.x}, ${pos.y})`} />
@@ -306,28 +306,28 @@ function ChestHover(props: {
 }
 
 /**
- * Walk `bundle.turns` for the action that opened this chest. Returns the
+ * Walk `bundle.turns` for the action that opened this crate. Returns the
  * turn-number, or null if not found (e.g. inconsistent terminal state).
  * Per D-P2-13, lookup is by `row.turn` not array index.
  *
- * Phase-3 ADR §1 / PM lock D7 — chest opens emit
- * `kind: "loot"`, `result: "opened"`, with the chest id (`Chest_<x>_<y>`) as the
- * target. The id-namespace gate (`isChestId(target)`) prevents
+ * Phase-3 ADR §1 / PM lock D7 — crate opens emit
+ * `kind: "loot"`, `result: "opened"`, with the crate id (`Crate_<x>_<y>`) as the
+ * target. The id-namespace gate (`isCrateId(target)`) prevents
  * a corpse loot of the same `result: "opened"` from being misread as a
- * chest open, even though the engine's chest-open path always writes
- * coord-encoded chest ids and the corpse path writes the character id.
+ * crate open, even though the engine's crate-open path always writes
+ * coord-encoded crate ids and the corpse path writes the character id.
  */
-function findChestOpenTurn(
+function findCrateOpenTurn(
   bundle: ReplayBundle,
-  chestId: string,
+  crateId: string,
 ): number | null {
   for (const row of bundle.turns) {
     for (const a of row.resolution.actions) {
       if (
         a.kind === "loot" &&
         a.result === "opened" &&
-        isChestId(a.target) &&
-        a.target === chestId
+        isCrateId(a.target) &&
+        a.target === crateId
       ) {
         return row.turn;
       }
@@ -336,8 +336,8 @@ function findChestOpenTurn(
   return null;
 }
 
-function isChestId(id: string): boolean {
-  return /^Chest_-?\d+_-?\d+$/.test(id);
+function isCrateId(id: string): boolean {
+  return /^Crate_-?\d+_-?\d+$/.test(id);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

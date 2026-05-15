@@ -70,7 +70,7 @@ generalised here.
 - Attack outcomes: landed / missed / out-of-range / blocked-by-cover.
 - Overwatch fires: offensive (`triggeredByMovement:true`) vs defensive (else).
 - Counter retaliations: fired vs primed-but-no-attack-incoming.
-- Chest funnel: chest-seen → loot-action → opened → equipped.
+- Crate funnel: crate-seen → loot-action → opened → equipped.
 - Corpse funnel: corpse-seen → loot-action → looted vs drained-repeat.
 - Consume events: `heal` / `speed` counts, plus wasted-consume (heal at full
   HP; speed without same-turn movement).
@@ -105,7 +105,7 @@ spot curious plays.
 | `move + loot` | Same — did endpoint reach loot range? |
 | `overwatch + attack` | Phase-6 first-class combo. Deliberate attack lands AND overwatch arms. |
 | `counter + attack` | Curious — why retaliate-if-attacked instead of fire-on-movement after committing to an attack? |
-| `overwatch + loot` | Crouching at chest while primed-on-movement. |
+| `overwatch + loot` | Crouching at crate while primed-on-movement. |
 | `counter + loot` | Same flavour. |
 | `move:dist=0 + action≠none` | Declared move with zero distance — schema gap or fallback artifact? |
 | `overwatch/counter + say` | Talking while primed. |

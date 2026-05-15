@@ -1077,7 +1077,7 @@ describe("Gate-2.5 — httpBodyExcerpt sanitisation hardening", () => {
       // helper, and truncates to ≤ 4 KB. Persisted as `null` on every
       // non-captured path (failure rows, responses without reasoning items).
       const reasoningText =
-        "**Deciding movement strategy**\n\nMove cautiously toward the chest.";
+        "**Deciding movement strategy**\n\nMove cautiously toward the crate.";
       const fetchImpl = vi.fn(async () =>
         jsonResponse({
           id: "resp_with_reasoning",

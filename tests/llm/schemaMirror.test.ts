@@ -443,6 +443,65 @@ function mirrorValidators(): {
   };
 }
 
+function worldStateCrateContentsValidator(): ValidatorJson {
+  const worldStateRow = schema.tables.worldState
+    .validator as unknown as ValidatorWithJson;
+  const fields = worldStateRow.fields;
+  if (!fields?.crates?.element) {
+    throw new Error("worldState validator crates field missing");
+  }
+  const crateEntry = fields.crates.element.json;
+  return objectField(crateEntry, "contents", "schema.worldState.crates[]")
+    .fieldType;
+}
+
+function mirrorWorldPatchCrateContentsValidator(): ValidatorJson {
+  const persistTurn = runMatchInternals.persistTurn as unknown as ConvexFunction;
+  const argsJson = JSON.parse(persistTurn.exportArgs()) as ConvexArgsJson;
+  const worldPatchField = argsJson.value.worldPatch;
+  if (!worldPatchField) {
+    throw new Error("persistTurn args missing worldPatch");
+  }
+  const crates = objectField(
+    worldPatchField.fieldType,
+    "crates",
+    "persistTurn.worldPatch",
+  ).fieldType;
+  const crateEntry = arrayElement(crates, "persistTurn.worldPatch.crates");
+  return objectField(
+    crateEntry,
+    "contents",
+    "persistTurn.worldPatch.crates[]",
+  ).fieldType;
+}
+
+function itemNamesForCategory(
+  itemRefJson: ValidatorJson,
+  category: "weapon" | "armour" | "consumable",
+  ownerPath: string,
+): string[] {
+  const names = new Set<string>();
+
+  function visit(node: ValidatorJson, path: string): void {
+    if (isUnionJson(node)) {
+      node.value.forEach((arm, index) => visit(arm, `${path}[${index}]`));
+      return;
+    }
+    if (!isObjectJson(node)) return;
+    const categoryField = node.value.category;
+    const nameField = node.value.name;
+    if (!categoryField || !nameField) return;
+    const categories = literalStrings(categoryField.fieldType, `${path}.category`);
+    if (!categories.includes(category)) return;
+    for (const name of literalStrings(nameField.fieldType, `${path}.name`)) {
+      names.add(name);
+    }
+  }
+
+  visit(itemRefJson, ownerPath);
+  return [...names].sort();
+}
+
 function decisionField(agentRecord: ValidatorJson, ownerPath: string) {
   return objectField(agentRecord, "decision", ownerPath).fieldType;
 }
@@ -647,12 +706,12 @@ describe("phase-6 schema mirror", () => {
           use: null,
           position: {
             kind: "move",
-            direction: { kind: "toward", targetId: "Chest_53_54" },
+            direction: { kind: "toward", targetId: "Crate_53_54" },
             dist: 8,
           },
-          action: { kind: "loot", targetId: "Chest_53_54" },
+          action: { kind: "loot", targetId: "Crate_53_54" },
           say: null,
-          scratchpad: "Move toward the chest and loot if in range.",
+          scratchpad: "Move toward the crate and loot if in range.",
         },
         {
           use: null,
@@ -814,6 +873,38 @@ describe("phase-6 schema mirror", () => {
     );
     expect(triggered.optional).toBe(true);
     expect(triggered.fieldType).toEqual({ type: "boolean" });
+  });
+
+  it("WP-B itemRef validators include the deterministic equipment catalog tiers", () => {
+    const expectedWeapons = [
+      "axe",
+      "dagger",
+      "greatsword",
+      "rusty_blade",
+      "sword",
+      "warhammer",
+    ];
+    const expectedArmour = ["chain", "cloth", "leather", "plate", "riot_plate"];
+    const expectedConsumables = ["heal", "speed"];
+
+    for (const [label, contentsValidator] of [
+      ["schema", worldStateCrateContentsValidator()],
+      ["persistTurn mirror", mirrorWorldPatchCrateContentsValidator()],
+    ] as const) {
+      expect(
+        itemNamesForCategory(contentsValidator, "weapon", `${label}.contents`),
+      ).toEqual(expectedWeapons);
+      expect(
+        itemNamesForCategory(contentsValidator, "armour", `${label}.contents`),
+      ).toEqual(expectedArmour);
+      expect(
+        itemNamesForCategory(
+          contentsValidator,
+          "consumable",
+          `${label}.contents`,
+        ),
+      ).toEqual(expectedConsumables);
+    }
   });
 });
 

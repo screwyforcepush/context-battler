@@ -12,7 +12,7 @@
 //   turns        — one row per (matchId, turn). agentRecords[] is the trace ledger
 //   prompts      — deduplicated prompt text by hash + kind
 //   worldStatic  — one row per match. immutable walls / cover terrain
-//   worldState   — one row per match. dynamic world state (chests, corpses, evac)
+//   worldState   — one row per match. dynamic world state (crates, corpses, evac)
 //   runs         — one row per completed match (written by WP12). per-persona stats
 //   reports      — one row per harness invocation (written by WP14). multi-run aggregate
 //
@@ -105,16 +105,18 @@ const tileValidator = v.object({ x: v.number(), y: v.number() });
 
 // ItemRef — refers to one of the locked v0 stat-tier instances by name.
 // The names are the literals locked in ADR §6 (also `concept-spec.md` §14):
-//   weapons:     rusty_blade | sword | axe | greatsword
-//   armour:      cloth | leather | chain | plate
+//   weapons:     rusty_blade | dagger | sword | axe | greatsword | warhammer
+//   armour:      cloth | leather | chain | plate | riot_plate
 //   consumables: heal | speed
 const weaponRefValidator = v.object({
   category: v.literal("weapon"),
   name: v.union(
     v.literal("rusty_blade"),
+    v.literal("dagger"),
     v.literal("sword"),
     v.literal("axe"),
     v.literal("greatsword"),
+    v.literal("warhammer"),
   ),
 });
 const armourRefValidator = v.object({
@@ -124,6 +126,7 @@ const armourRefValidator = v.object({
     v.literal("leather"),
     v.literal("chain"),
     v.literal("plate"),
+    v.literal("riot_plate"),
   ),
 });
 const consumableRefValidator = v.object({
@@ -359,12 +362,13 @@ const resolutionValidator = v.object({
       // attack/overwatch damage entries. Optional for historical rows and
       // unarmed strikes.
       weapon: v.optional(v.string()),
-      // Phase 7 WP-A1 — item name carried by successful chest/corpse loot
+      // Phase 7 WP-A1 — item name carried by successful crate/corpse loot
       // traces so the next-turn feed can name the reward.
       lootedItem: v.optional(v.string()),
     }),
   ),
   deaths: v.array(v.id("characters")),
+  environmentalDeaths: v.array(v.id("characters")),
   visibilityUpdates: v.array(
     v.object({
       characterId: v.id("characters"),
@@ -375,7 +379,7 @@ const resolutionValidator = v.object({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// World state — per match. Walls + cover + chests + corpses + evac.
+// World state — per match. Walls + cover + crates + corpses + evac.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const wallValidator = v.object({
@@ -385,11 +389,19 @@ const wallValidator = v.object({
   h: v.number(),
 });
 
-const chestValidator = v.object({
+const crateValidator = v.object({
   id: v.string(),
   pos: tileValidator,
   contents: v.union(itemRefValidator, v.null()),
   opened: v.boolean(),
+});
+
+const airdropValidator = v.object({
+  id: v.string(),
+  pos: tileValidator,
+  landsAtTurn: v.number(),
+  contents: itemRefValidator,
+  looted: v.boolean(),
 });
 
 const corpseValidator = v.object({
@@ -884,7 +896,7 @@ export default defineSchema({
     startedAt: v.number(), // Date.now() at match creation
     completedAt: v.union(v.number(), v.null()),
     mapId: v.string(), // "reference" for phase 1
-    rngSeed: v.string(), // seeds chest loot rolls AND persona-to-spawn assignment
+    rngSeed: v.string(), // seeds crate loot rolls AND persona-to-spawn assignment
     // Azure Responses API `reasoning.effort` knob for every per-turn LLM
     // call in this match. Optional on the table so historical rows persist
     // without migration; absent → treated as "low" by `runMatch.advanceTurn`
@@ -947,7 +959,8 @@ export default defineSchema({
   // ── worldState: one row per match, dynamic fields only ────────────────────
   worldState: defineTable({
     matchId: v.id("matches"),
-    chests: v.array(chestValidator),
+    crates: v.array(crateValidator),
+    airdrops: v.array(airdropValidator),
     corpses: v.array(corpseValidator),
     evac: v.object({
       centre: tileValidator,

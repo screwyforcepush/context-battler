@@ -4,7 +4,8 @@ import type { Tile, Wall } from "./engine/types.js";
 
 type DynamicWorldStateRow = {
   matchId: unknown;
-  chests: unknown[];
+  crates: unknown[];
+  airdrops: unknown[];
   corpses: unknown[];
   evac: unknown;
 };

@@ -1,5 +1,5 @@
 {
-  "_comment": "WP3 reference map descriptor. 100x100 arena. Hand-authored per ADR §5. Coordinate system: (0,0) top-left, x→east, y→south. Walls + cover are axis-aligned rectangles {x,y,w,h}. Spawns are 8 perimeter points (avoiding corners). Evac centre is (48,48) — 3x3 zone occupies (47,47)..(49,49). Phase-1 invariant: same map every run; same rngSeed → same chest contents and persona-to-spawn permutation. Layout intent: four scattered room-clusters in the four interior quadrants, a central open arena around evac, cover clusters dense around evac to encourage camper signal. Every wall is small (≤6 in either dim) with significant gaps so no spawn is isolated and reachability to evac holds for all 8 spawns. WP15 may iterate; this is the first playable pass.",
+  "_comment": "WP3 reference map descriptor. 100x100 arena. Hand-authored per ADR §5. Coordinate system: (0,0) top-left, x→east, y→south. Walls + cover are axis-aligned rectangles {x,y,w,h}. Spawns are 8 perimeter points (avoiding corners). Evac centre is (48,48) — 3x3 zone occupies (47,47)..(49,49). Phase-1 invariant: same map every run; same rngSeed → same crate contents and persona-to-spawn permutation. Layout intent: four scattered room-clusters in the four interior quadrants, a central open arena around evac, cover clusters dense around evac to encourage camper signal. Every wall is small (≤6 in either dim) with significant gaps so no spawn is isolated and reachability to evac holds for all 8 spawns. WP15 may iterate; this is the first playable pass.",
   "size": { "w": 100, "h": 100 },
   "walls": [
     { "x": 0,  "y": 0,  "w": 100, "h": 1 },
@@ -47,19 +47,45 @@
     { "x": 32, "y": 32, "w": 2, "h": 2 },
     { "x": 65, "y": 65, "w": 2, "h": 2 }
   ],
-  "chests": [
-    { "x": 14, "y": 14, "lootTable": "starter" },
-    { "x": 85, "y": 14, "lootTable": "starter" },
-    { "x": 14, "y": 85, "lootTable": "starter" },
-    { "x": 85, "y": 85, "lootTable": "starter" },
-    { "x": 33, "y": 33, "lootTable": "weapons-light" },
-    { "x": 66, "y": 33, "lootTable": "weapons-light" },
-    { "x": 33, "y": 66, "lootTable": "weapons-heavy" },
-    { "x": 66, "y": 66, "lootTable": "weapons-heavy" },
-    { "x": 50, "y": 25, "lootTable": "consumables" },
-    { "x": 47, "y": 46, "lootTable": "weapons-light" },
-    { "x": 49, "y": 52, "lootTable": "weapons-light" },
-    { "x": 53, "y": 54, "lootTable": "weapons-heavy" }
+  "crates": [
+    { "x": 14, "y": 14, "contents": { "category": "armour", "name": "cloth" } },
+    { "x": 85, "y": 14, "contents": { "category": "weapon", "name": "dagger" } },
+    { "x": 14, "y": 85, "contents": { "category": "weapon", "name": "rusty_blade" } },
+    { "x": 85, "y": 85, "contents": { "category": "armour", "name": "leather" } },
+    { "x": 33, "y": 33, "contents": { "category": "weapon", "name": "sword" } },
+    { "x": 66, "y": 33, "contents": { "category": "weapon", "name": "axe" } },
+    { "x": 47, "y": 46, "contents": { "category": "armour", "name": "chain" } },
+    { "x": 49, "y": 52, "contents": { "category": "weapon", "name": "sword" } },
+    { "x": 33, "y": 66, "contents": { "category": "weapon", "name": "greatsword" } },
+    { "x": 66, "y": 66, "contents": { "category": "armour", "name": "plate" } },
+    { "x": 53, "y": 54, "contents": { "category": "weapon", "name": "warhammer" } },
+    { "x": 50, "y": 25, "contents": { "category": "consumable", "name": "heal" } }
+  ],
+  "airdrops": [
+    {
+      "x": 50,
+      "y": 50,
+      "landsAtTurn": 10,
+      "contents": { "category": "armour", "name": "leather" }
+    },
+    {
+      "x": 25,
+      "y": 75,
+      "landsAtTurn": 20,
+      "contents": { "category": "weapon", "name": "axe" }
+    },
+    {
+      "x": 75,
+      "y": 25,
+      "landsAtTurn": 30,
+      "contents": { "category": "armour", "name": "plate" }
+    },
+    {
+      "x": 48,
+      "y": 48,
+      "landsAtTurn": 40,
+      "contents": { "category": "weapon", "name": "greatsword" }
+    }
   ],
   "spawns": [
     { "x": 28, "y": 28 },

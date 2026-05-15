@@ -8,7 +8,7 @@
 // Coverage anchors (de-risking.md §1.1 .. §1.9 enumerated failure modes):
 //   §1.1 Stationary character keeps position (no `kind:"none"` entry).
 //   §1.2 Death timing — corpse at actor's POST-movement position.
-//   §1.3 Chest opens at turn N, stays open at turn N+k.
+//   §1.3 Crate opens at turn N, stays open at turn N+k.
 //   §1.4 Hidden flag toggles via visibilityUpdates (applied LAST).
 //   §1.5 Spawn index lookup — happy path AND throws on missing spawnIndex.
 //   §1.6 Idempotency — same input → same output; backward-jump equals fresh.
@@ -83,7 +83,8 @@ function makeWorld(overrides: Partial<WorldStateDoc> = {}): WorldStateDoc {
     matchId: asMatchId("m1"),
     walls: [],
     coverTiles: [],
-    chests: [],
+    crates: [],
+    airdrops: [],
     corpses: [],
     evac: { centre: { x: 5, y: 5 }, revealedAtTurn: null },
     ...overrides,
@@ -442,14 +443,14 @@ describe("reconstruct — §1.2 death timing (post-movement, pre-visibilityUpdat
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// §1.3 — Chest open / loot timing (open carries forward across turns)
+// §1.3 — Crate open / loot timing (open carries forward across turns)
 // ───────────────────────────────────────────────────────────────────────────
 
-describe("reconstruct — §1.3 chest open persistence", () => {
-  it("loot kind + opened result on turn 3 → chest opened on turn 5", () => {
-    // Phase-3 ADR §1 / PM lock D7 — chest opens emit
-    // `kind: "loot"`, `target: "Chest_<x>_<y>"`, `result: "opened"`. The walk
-    // dispatches the chest-flip on this exact tuple.
+describe("reconstruct — §1.3 crate open persistence", () => {
+  it("loot kind + opened result on turn 3 → crate opened on turn 5", () => {
+    // Phase-3 ADR §1 / PM lock D7 — crate opens emit
+    // `kind: "loot"`, `target: "Crate_<x>_<y>"`, `result: "opened"`. The walk
+    // dispatches the crate-flip on this exact tuple.
     const A = makeCharacter("a", 0);
     const bundle: ReplayBundle = {
       match: makeMatch({ turn: 5 }),
@@ -462,7 +463,7 @@ describe("reconstruct — §1.3 chest open persistence", () => {
             {
               characterId: A._id,
               kind: "loot",
-              target: "Chest_50_50",
+              target: "Crate_50_50",
               result: "opened",
             },
           ],
@@ -473,10 +474,10 @@ describe("reconstruct — §1.3 chest open persistence", () => {
       characters: [A],
       worldState: makeWorld({
         // Note: terminal worldState may carry `opened: true`; the walk forces
-        // turn-0 chests closed so we can prove the walk re-derives the flip.
-        chests: [
+        // turn-0 crates closed so we can prove the walk re-derives the flip.
+        crates: [
           {
-            id: "Chest_50_50",
+            id: "Crate_50_50",
             pos: { x: 50, y: 50 },
             contents: null,
             opened: true,
@@ -485,12 +486,74 @@ describe("reconstruct — §1.3 chest open persistence", () => {
       }),
     };
 
-    expect(reconstruct(bundle, 2).chests[0]!.opened).toBe(false);
-    expect(reconstruct(bundle, 3).chests[0]!.opened).toBe(true);
-    expect(reconstruct(bundle, 5).chests[0]!.opened).toBe(true);
+    expect(reconstruct(bundle, 2).crates[0]!.opened).toBe(false);
+    expect(reconstruct(bundle, 3).crates[0]!.opened).toBe(true);
+    expect(reconstruct(bundle, 5).crates[0]!.opened).toBe(true);
   });
 
-  it("loot/Chest_<x>_<y> with non-opened result (already_opened/no_chest/out_of_range) does NOT toggle", () => {
+  it("WP-C — replay snapshot represents telegraphed, landed, and spent airdrops without using LLM Vision", () => {
+    const A = makeCharacter("a", 0);
+    const turns = Array.from({ length: 12 }, (_, i) => {
+      const turn = i + 1;
+      return makeTurn(
+        turn,
+        turn === 12
+          ? {
+              ...emptyResolution(),
+              actions: [
+                {
+                  characterId: A._id,
+                  kind: "loot",
+                  target: "Crate_50_50",
+                  result: "opened",
+                },
+              ],
+            }
+          : emptyResolution(),
+      );
+    });
+    const bundle: ReplayBundle = {
+      match: makeMatch({ turn: 12 }),
+      turns,
+      characters: [A],
+      worldState: makeWorld({
+        airdrops: [
+          {
+            id: "Crate_50_50",
+            pos: { x: 50, y: 50 },
+            landsAtTurn: 10,
+            contents: { category: "armour", name: "leather" },
+            looted: true,
+          },
+        ],
+      }),
+    };
+
+    expect(reconstruct(bundle, 7).airdrops).toEqual([
+      {
+        id: "Crate_50_50",
+        pos: { x: 50, y: 50 },
+        landsAtTurn: 10,
+        countdown: 3,
+        state: "telegraphed",
+        looted: false,
+      },
+    ]);
+    expect(reconstruct(bundle, 10).airdrops[0]).toMatchObject({
+      state: "telegraphed",
+      countdown: 0,
+    });
+    expect(reconstruct(bundle, 11).airdrops[0]).toMatchObject({
+      state: "landed",
+      looted: false,
+    });
+    expect(reconstruct(bundle, 12).airdrops[0]).toMatchObject({
+      state: "spent",
+      looted: true,
+    });
+  });
+
+  it("loot/Crate_<x>_<y> with non-opened result (already_opened/no_crate/out_of_range) does NOT toggle", () => {
     const A = makeCharacter("a", 0);
     const bundle: ReplayBundle = {
       match: makeMatch({ turn: 1 }),
@@ -501,19 +564,19 @@ describe("reconstruct — §1.3 chest open persistence", () => {
             {
               characterId: A._id,
               kind: "loot",
-              target: "Chest_1_1",
+              target: "Crate_1_1",
               result: "already_opened",
             },
             {
               characterId: A._id,
               kind: "loot",
-              target: "Chest_-2_2",
-              result: "no_chest",
+              target: "Crate_-2_2",
+              result: "no_crate",
             },
             {
               characterId: A._id,
               kind: "loot",
-              target: "Chest_2_2",
+              target: "Crate_2_2",
               result: "out_of_range",
             },
           ],
@@ -521,10 +584,10 @@ describe("reconstruct — §1.3 chest open persistence", () => {
       ],
       characters: [A],
       worldState: makeWorld({
-        chests: [
-          { id: "Chest_1_1", pos: { x: 1, y: 1 }, contents: null, opened: true },
+        crates: [
+          { id: "Crate_1_1", pos: { x: 1, y: 1 }, contents: null, opened: true },
           {
-            id: "Chest_2_2",
+            id: "Crate_2_2",
             pos: { x: 2, y: 2 },
             contents: null,
             opened: false,
@@ -533,14 +596,14 @@ describe("reconstruct — §1.3 chest open persistence", () => {
       }),
     };
     const snap = reconstruct(bundle, 1);
-    // Walk-forced: turn-0 closes chests; non-"opened" results do NOT flip.
-    expect(snap.chests.every((c) => !c.opened)).toBe(true);
+    // Walk-forced: turn-0 closes crates; non-"opened" results do NOT flip.
+    expect(snap.crates.every((c) => !c.opened)).toBe(true);
   });
 
-  it("corpse loot (kind=loot + corpse target) does NOT trigger chest-flip", () => {
-    // Phase-3 ADR §1 — chests + corpses both flow through the unified loot
-    // arm; the walk's chest-flip MUST gate on coord-encoded chest ids
-    // so a successful corpse loot can't flip a same-id chest by accident.
+  it("corpse loot (kind=loot + corpse target) does NOT trigger crate-flip", () => {
+    // Phase-3 ADR §1 — crates + corpses both flow through the unified loot
+    // arm; the walk's crate-flip MUST gate on coord-encoded crate ids
+    // so a successful corpse loot can't flip a same-id crate by accident.
     const A = makeCharacter("a", 0);
     const dead = makeCharacter("b", 1, { displayName: "Camper" });
     const bundle: ReplayBundle = {
@@ -552,7 +615,7 @@ describe("reconstruct — §1.3 chest open persistence", () => {
             {
               characterId: A._id,
               kind: "loot",
-              // Corpse target — id namespace is the character's id, not Chest_<x>_<y>.
+              // Corpse target — id namespace is the character's id, not Crate_<x>_<y>.
               target: dead._id,
               result: "opened",
             },
@@ -561,15 +624,15 @@ describe("reconstruct — §1.3 chest open persistence", () => {
       ],
       characters: [A, dead],
       worldState: makeWorld({
-        chests: [
-          { id: "Chest_1_1", pos: { x: 1, y: 1 }, contents: null, opened: true },
+        crates: [
+          { id: "Crate_1_1", pos: { x: 1, y: 1 }, contents: null, opened: true },
         ],
       }),
     };
     const snap = reconstruct(bundle, 1);
-    // The chest must remain CLOSED — the corpse-loot result must not be
-    // treated as a chest flip.
-    expect(snap.chests.every((c) => !c.opened)).toBe(true);
+    // The crate must remain CLOSED — the corpse-loot result must not be
+    // treated as a crate flip.
+    expect(snap.crates.every((c) => !c.opened)).toBe(true);
   });
 
   it("loot/attack actions DO NOT mutate snapshot state (per D-P2-11)", () => {
@@ -702,7 +765,7 @@ describe("reconstruct — §1.6 idempotency", () => {
             {
               characterId: A._id,
               kind: "loot",
-              target: "Chest_50_50",
+              target: "Crate_50_50",
               result: "opened",
             },
           ],
@@ -721,9 +784,9 @@ describe("reconstruct — §1.6 idempotency", () => {
       ],
       characters: [A, B],
       worldState: makeWorld({
-        chests: [
+        crates: [
           {
-            id: "Chest_50_50",
+            id: "Crate_50_50",
             pos: { x: 50, y: 50 },
             contents: null,
             opened: true,

@@ -4,11 +4,13 @@ import {
   normaliseCorpseTargetId,
   parsePositionId,
   resolveTypedEntity,
+  TELEGRAPHED_CRATE_STOP_AT_RANGE_ENV,
   visibleTargetIds,
 } from "../../convex/llm/idNormalisation.js";
 import type {
   CharacterState,
-  ChestState,
+  AirdropState,
+  CrateState,
   CorpseState,
   MatchState,
   PersonaId,
@@ -23,7 +25,8 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
     walls: [],
     coverClusters: [],
     coverTiles: [],
-    chests: [],
+    crates: [],
+    airdrops: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
@@ -63,8 +66,22 @@ function makeCharacter(opts: {
   };
 }
 
-function makeChest(id: string, pos: Tile): ChestState {
-  return { id, pos, contents: null, opened: false, lootTable: "starter" };
+function makeCrate(id: string, pos: Tile): CrateState {
+  return { id, pos, contents: null, opened: false };
+}
+
+function makeAirdrop(
+  landsAtTurn: number,
+  pos: Tile = { x: 50, y: 50 },
+  looted = false,
+): AirdropState {
+  return {
+    id: `Crate_${pos.x}_${pos.y}`,
+    pos,
+    landsAtTurn,
+    contents: { category: "weapon", name: "axe" },
+    looted,
+  };
 }
 
 function makeCorpse(characterId: string, pos: Tile): CorpseState {
@@ -74,10 +91,11 @@ function makeCorpse(characterId: string, pos: Tile): CorpseState {
 function makeState(opts: {
   characters: CharacterState[];
   world?: Partial<WorldState>;
+  turn?: number;
 }): MatchState {
   return {
     matchId: "test-match",
-    turn: 31,
+    turn: opts.turn ?? 31,
     world: makeWorld(opts.world),
     characters: opts.characters,
     rngSeed: "test-seed",
@@ -118,7 +136,7 @@ function makeVisibleFixture(): MatchState {
   return makeState({
     characters: [observer, camper, deadVulture],
     world: {
-      chests: [makeChest("Chest_56_50", { x: 56, y: 50 })],
+      crates: [makeCrate("Crate_56_50", { x: 56, y: 50 })],
       corpses: [makeCorpse("opaque_character_vulture", { x: 58, y: 50 })],
       coverClusters: [{ x: 54, y: 42, w: 1, h: 1 }],
       coverTiles: [{ x: 54, y: 42 }],
@@ -167,13 +185,13 @@ describe("resolveTypedEntity", () => {
       stopAtRange: 2,
       engineRef: { characterId: "opaque_character_camper" },
     });
-    expect(resolveTypedEntity(state, observerId, "Chest_56_50")).toEqual({
-      kind: "chest",
+    expect(resolveTypedEntity(state, observerId, "Crate_56_50")).toEqual({
+      kind: "crate",
       tile: { x: 56, y: 50 },
       stopAtRange: 2,
-      engineRef: { chestId: "Chest_56_50" },
+      engineRef: { crateId: "Crate_56_50" },
     });
-    expect(resolveTypedEntity(state, observerId, "chest_legacy")).toBeNull();
+    expect(resolveTypedEntity(state, observerId, "crate_legacy")).toBeNull();
     expect(resolveTypedEntity(state, observerId, "Corpse_Vulture")).toEqual({
       kind: "corpse",
       tile: { x: 58, y: 50 },
@@ -253,7 +271,7 @@ describe("resolveTypedEntity", () => {
     const state = makeState({
       characters: [observer, hidden, dead, far, deadFar],
       world: {
-        chests: [makeChest("Chest_80_50", { x: 80, y: 50 })],
+        crates: [makeCrate("Crate_80_50", { x: 80, y: 50 })],
         corpses: [makeCorpse("opaque_character_9", { x: 82, y: 50 })],
         coverTiles: [{ x: 80, y: 50 }],
         walls: [{ x: 80, y: 51, w: 1, h: 1 }],
@@ -267,7 +285,7 @@ describe("resolveTypedEntity", () => {
       "Paranoid",
       "Trader",
       "Sprinter",
-      "Chest_80_50",
+      "Crate_80_50",
       "Corpse_Opportunist",
       "Cover_80_50",
       "Wall_80_51",
@@ -293,6 +311,165 @@ describe("resolveTypedEntity", () => {
       tile: { x: 58, y: 50 },
       stopAtRange: 2,
     });
+  });
+
+  it("WP-C — resolves telegraphed non-LOS airdrops as movement targets with stopAtRange 0", () => {
+    const observer = makeCharacter({
+      id: "opaque_observer_id",
+      displayName: "Rat",
+      pos: { x: 1, y: 1 },
+      personaId: "rat",
+    });
+    const state = makeState({
+      characters: [observer],
+      turn: 7,
+      world: {
+        walls: [{ x: 2, y: 2, w: 80, h: 1 }],
+        airdrops: [makeAirdrop(10, { x: 50, y: 50 })],
+      },
+    });
+
+    expect(visibleTargetIds(state, "opaque_observer_id")).toContain(
+      "Crate_50_50",
+    );
+    expect(
+      resolveTypedEntity(state, "opaque_observer_id", "Crate_50_50"),
+    ).toEqual({
+      kind: "crate",
+      tile: { x: 50, y: 50 },
+      stopAtRange: 0,
+      engineRef: { crateId: "Crate_50_50" },
+    });
+  });
+
+  it("WP-C — resolves landed visible airdrops as normal crate targets and spent airdrops as absent", () => {
+    const observer = makeCharacter({
+      id: "opaque_observer_id",
+      displayName: "Rat",
+      pos: { x: 10, y: 10 },
+      personaId: "rat",
+    });
+    const landed = makeState({
+      characters: [observer],
+      turn: 11,
+      world: {
+        airdrops: [makeAirdrop(10, { x: 12, y: 10 })],
+      },
+    });
+
+    expect(resolveTypedEntity(landed, "opaque_observer_id", "Crate_12_10")).toEqual({
+      kind: "crate",
+      tile: { x: 12, y: 10 },
+      stopAtRange: 2,
+      engineRef: { crateId: "Crate_12_10" },
+    });
+
+    const spent = makeState({
+      characters: [observer],
+      turn: 11,
+      world: {
+        airdrops: [makeAirdrop(10, { x: 12, y: 10 }, true)],
+      },
+    });
+    expect(resolveTypedEntity(spent, "opaque_observer_id", "Crate_12_10")).toBeNull();
+  });
+
+  it("WP-E — applies state-aware crate stopAtRange defaults", () => {
+    const observer = makeCharacter({
+      id: "opaque_observer_id",
+      displayName: "Rat",
+      pos: { x: 10, y: 10 },
+      personaId: "rat",
+    });
+    const state = makeState({
+      characters: [observer],
+      turn: 7,
+      world: {
+        crates: [makeCrate("Crate_11_10", { x: 11, y: 10 })],
+        airdrops: [
+          makeAirdrop(10, { x: 50, y: 50 }),
+          makeAirdrop(6, { x: 12, y: 10 }),
+        ],
+      },
+    });
+
+    expect(resolveTypedEntity(state, "opaque_observer_id", "Crate_11_10")).toEqual({
+      kind: "crate",
+      tile: { x: 11, y: 10 },
+      stopAtRange: 2,
+      engineRef: { crateId: "Crate_11_10" },
+    });
+    expect(resolveTypedEntity(state, "opaque_observer_id", "Crate_50_50")).toEqual({
+      kind: "crate",
+      tile: { x: 50, y: 50 },
+      stopAtRange: 0,
+      engineRef: { crateId: "Crate_50_50" },
+    });
+    expect(resolveTypedEntity(state, "opaque_observer_id", "Crate_12_10")).toEqual({
+      kind: "crate",
+      tile: { x: 12, y: 10 },
+      stopAtRange: 2,
+      engineRef: { crateId: "Crate_12_10" },
+    });
+  });
+
+  it("WP-E — allows telegraphed airdrop stopAtRange override without changing state", () => {
+    const observer = makeCharacter({
+      id: "opaque_observer_id",
+      displayName: "Rat",
+      pos: { x: 1, y: 1 },
+      personaId: "rat",
+    });
+    const state = makeState({
+      characters: [observer],
+      turn: 7,
+      world: {
+        airdrops: [makeAirdrop(10, { x: 50, y: 50 })],
+      },
+    });
+
+    expect(
+      resolveTypedEntity(state, "opaque_observer_id", "Crate_50_50", {
+        telegraphedCrateStopAtRange: 2,
+      }),
+    ).toEqual({
+      kind: "crate",
+      tile: { x: 50, y: 50 },
+      stopAtRange: 2,
+      engineRef: { crateId: "Crate_50_50" },
+    });
+  });
+
+  it("WP-E — reads telegraphed airdrop stopAtRange from process env when no option is passed", () => {
+    const previous = process.env[TELEGRAPHED_CRATE_STOP_AT_RANGE_ENV];
+    process.env[TELEGRAPHED_CRATE_STOP_AT_RANGE_ENV] = "2";
+    try {
+      const observer = makeCharacter({
+        id: "opaque_observer_id",
+        displayName: "Rat",
+        pos: { x: 1, y: 1 },
+        personaId: "rat",
+      });
+      const state = makeState({
+        characters: [observer],
+        turn: 7,
+        world: {
+          airdrops: [makeAirdrop(10, { x: 50, y: 50 })],
+        },
+      });
+
+      expect(
+        resolveTypedEntity(state, "opaque_observer_id", "Crate_50_50"),
+      ).toMatchObject({
+        stopAtRange: 2,
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env[TELEGRAPHED_CRATE_STOP_AT_RANGE_ENV];
+      } else {
+        process.env[TELEGRAPHED_CRATE_STOP_AT_RANGE_ENV] = previous;
+      }
+    }
   });
 
   it("resolves rect ids to nearest tiles and includes the canonical rect for wall, cover, and evac", () => {

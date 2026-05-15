@@ -30,7 +30,7 @@ const LAST_KNOWN_CAP = 3;
  *  4. Return the new list.
  *
  * Pure: same `prev` + same `visible` + same `currentTurn` → same output.
- * Non-character visible entities (chests, corpses, cover, walls) are
+ * Non-character visible entities (crates, corpses, cover, walls) are
  * ignored — `lastKnown` is the *enemy memory* layer, not generic terrain
  * memory.
  */

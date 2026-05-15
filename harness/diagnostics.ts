@@ -178,7 +178,7 @@ export function renderDiagnosticsMarkdown(report: DiagnosticsReport): string {
     `Counters fired: ${report.mechanics.counter.fired}; primed without incoming attack: ${report.mechanics.counter.primedWithoutIncomingAttack}`,
   );
   lines.push(
-    `Chest loot: seen ${report.mechanics.loot.chest.seen}, actions ${report.mechanics.loot.chest.lootActions}, opened ${report.mechanics.loot.chest.opened}, equipped ${report.mechanics.loot.chest.equipped}`,
+    `Crate loot: seen ${report.mechanics.loot.crate.seen}, actions ${report.mechanics.loot.crate.lootActions}, opened ${report.mechanics.loot.crate.opened}, equipped ${report.mechanics.loot.crate.equipped}`,
   );
   lines.push(
     `Corpse loot: seen ${report.mechanics.loot.corpse.seen}, actions ${report.mechanics.loot.corpse.lootActions}, looted ${report.mechanics.loot.corpse.looted}, drained-repeat ${report.mechanics.loot.corpse.drainedRepeat}`,

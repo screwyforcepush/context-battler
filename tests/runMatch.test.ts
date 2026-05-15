@@ -24,6 +24,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  adaptPriorTurnRowForBuilder,
+  adaptResolutionForSchema,
   buildHeardForObserver,
   buildAgentInputRecord,
   buildAgentLlmRecord,
@@ -125,6 +127,44 @@ describe("WP10.5 A4 — buildHeardForObserver reads from persisted trace.heardBy
       { speakerId: "a", text: "first" },
       { speakerId: "b", text: "second" },
     ]);
+  });
+});
+
+describe("WP-D — environmentalDeaths persistence adapters", () => {
+  it("carries environmentalDeaths through schema adaptation and prior-turn builder adaptation", () => {
+    const adapted = adaptResolutionForSchema({
+      consumed: [],
+      speech: [],
+      moves: [],
+      actions: [],
+      deaths: [],
+      environmentalDeaths: ["c_telefragged"],
+      visibilityUpdates: [],
+    });
+
+    expect(adapted.environmentalDeaths).toEqual(["c_telefragged"]);
+
+    const prev = adaptPriorTurnRowForBuilder({
+      resolution: {
+        consumed: [],
+        speech: [],
+        moves: [],
+        actions: [],
+        deaths: [],
+        environmentalDeaths: adapted.environmentalDeaths,
+        visibilityUpdates: [],
+      },
+      agentRecords: [
+        {
+          characterId: "c_survivor",
+          decision: {
+            position: { kind: "move", direction: { kind: "N" }, dist: 0 },
+          },
+        },
+      ],
+    });
+
+    expect(prev?.resolution.environmentalDeaths).toEqual(["c_telefragged"]);
   });
 });
 
@@ -291,7 +331,8 @@ describe("Phase 11 prompt persistence — slim agent input", () => {
       _id: "w1",
       _creationTime: 0,
       matchId: matchRow._id,
-      chests: [],
+      crates: [],
+      airdrops: [],
       corpses: [],
       evac: { centre: { x: 48, y: 48 }, revealedAtTurn: null },
     } as unknown as Doc<"worldState">;
@@ -387,13 +428,13 @@ describe("WP10.5 B.3 — validatorFieldErrors persist into agent-llm trace recor
       wrapperFellBack: true,
       failureReason: undefined,
       validatorFieldErrors: {
-        action: "loot target 'Chest_6_5' is already opened",
+        action: "loot target 'Crate_6_5' is already opened",
       },
     });
 
     expect(record.fellBackToSafeDefault).toBe(true);
     expect(record.validatorFieldErrors).toEqual({
-      action: "loot target 'Chest_6_5' is already opened",
+      action: "loot target 'Crate_6_5' is already opened",
     });
     // No wrapper-level failureReason for validator-only rejections.
     expect(record.failureReason).toBeUndefined();
@@ -557,7 +598,8 @@ describe("Gate-2.5 Path A — CHARACTER_MAX_HP shared-source-of-truth invariant"
             _id: "w1",
             _creationTime: 0,
             matchId: matchRow._id,
-            chests: [],
+            crates: [],
+            airdrops: [],
             corpses: [],
             evac: { centre: { x: 48, y: 48 }, revealedAtTurn: null },
           } as unknown as Doc<"worldState">;
@@ -620,12 +662,21 @@ describe("Gate-2.5 Path A — CHARACTER_MAX_HP shared-source-of-truth invariant"
             _id: "w1",
             _creationTime: 0,
             matchId: matchRow._id,
-            chests: [
+            crates: [
               {
-                id: "Chest_2_3",
+                id: "Crate_2_3",
                 pos: { x: 2, y: 3 },
                 contents: null,
                 opened: false,
+              },
+            ],
+            airdrops: [
+              {
+                id: "Crate_50_50",
+                pos: { x: 50, y: 50 },
+                landsAtTurn: 10,
+                contents: { category: "armour", name: "leather" },
+                looted: false,
               },
             ],
             corpses: [],
@@ -651,8 +702,18 @@ describe("Gate-2.5 Path A — CHARACTER_MAX_HP shared-source-of-truth invariant"
           expect(state.world.walls).toEqual(worldStaticRow.walls);
           expect(state.world.coverClusters).toEqual(worldStaticRow.coverClusters);
           expect(state.world.coverTiles).toEqual(worldStaticRow.coverTiles);
-          expect(state.world.chests).toMatchObject([
-            { id: "Chest_2_3", pos: { x: 2, y: 3 }, opened: false },
+          expect(state.world.crates).toMatchObject([
+            { id: "Crate_2_3", pos: { x: 2, y: 3 }, opened: false },
+          ]);
+          expect(state.world.crates[0]).not.toHaveProperty("lootTable");
+          expect(state.world.airdrops).toEqual([
+            {
+              id: "Crate_50_50",
+              pos: { x: 50, y: 50 },
+              landsAtTurn: 10,
+              contents: { category: "armour", name: "leather" },
+              looted: false,
+            },
           ]);
           expect(state.world.evac).toEqual(worldRow.evac);
         });

@@ -315,20 +315,20 @@ describe("composeDecisionJson and rawArguments comparison", () => {
       use: "consumable",
       position: {
         kind: "move",
-        direction: { kind: "toward", targetId: "Chest_53_54" },
+        direction: { kind: "toward", targetId: "Crate_53_54" },
         dist: 8,
       },
-      action: { kind: "loot", targetId: "Chest_53_54" },
+      action: { kind: "loot", targetId: "Crate_53_54" },
       say: null,
-      scratchpad: "Loot the chest.",
+      scratchpad: "Loot the crate.",
     };
     const rawArguments = JSON.stringify({
-      scratchpad: "Loot the chest.",
+      scratchpad: "Loot the crate.",
       say: null,
-      action: { targetId: "Chest_53_54", kind: "loot" },
+      action: { targetId: "Crate_53_54", kind: "loot" },
       position: {
         dist: 8,
-        direction: { targetId: "Chest_53_54", kind: "toward" },
+        direction: { targetId: "Crate_53_54", kind: "toward" },
         kind: "move",
       },
       use: "consumable",

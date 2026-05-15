@@ -15,6 +15,7 @@ import type {
   CharacterState,
   MatchState,
   PersonaId,
+  AirdropState,
   Tile,
   VisibleEntity,
   Wall,
@@ -29,7 +30,8 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
     walls: [],
     coverClusters: [],
     coverTiles: [],
-    chests: [],
+    crates: [],
+    airdrops: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
@@ -82,6 +84,20 @@ function findVisible(
   predicate: (v: VisibleEntity) => boolean,
 ): VisibleEntity | undefined {
   return visible.find(predicate);
+}
+
+function makeAirdrop(
+  landsAtTurn: number,
+  pos: Tile = { x: 50, y: 50 },
+  looted = false,
+): AirdropState {
+  return {
+    id: `Crate_${pos.x}_${pos.y}`,
+    pos,
+    landsAtTurn,
+    contents: { category: "armour", name: "leather" },
+    looted,
+  };
 }
 
 // ─── hasLineOfSight ────────────────────────────────────────────────────────
@@ -195,6 +211,104 @@ describe("WP5 — computeVisibleEntities (concept-spec §7)", () => {
     }
   });
 
+  describe("WP-C — airdrop projection lifecycle", () => {
+    it("BC-3 — telegraphs landsAtTurn-3..landsAtTurn to every living agent with countdown 3,2,1,0, ignoring LOS and range", () => {
+      const drop = makeAirdrop(10, { x: 50, y: 50 });
+      const blocker: Wall = { x: 10, y: 10, w: 80, h: 1 };
+
+      for (const [turn, countdown] of [
+        [7, 3],
+        [8, 2],
+        [9, 1],
+        [10, 0],
+      ] as const) {
+        const observerA = makeCharacter({ id: "A", pos: { x: 1, y: 1 } });
+        const observerB = makeCharacter({ id: "B", pos: { x: 95, y: 95 } });
+        const state = makeState({
+          characters: [observerA, observerB],
+          world: { walls: [blocker], airdrops: [drop] },
+        });
+        state.turn = turn;
+
+        for (const observerId of ["A", "B"]) {
+          const { visible } = computeVisibleEntities(state, observerId);
+          expect(
+            visible.find(
+              (entity) =>
+                entity.kind === "airdrop" &&
+                entity.objectId === "Crate_50_50" &&
+                entity.countdown === countdown,
+            ),
+            `${observerId} should see countdown ${countdown} on turn ${turn}`,
+          ).toBeDefined();
+        }
+      }
+    });
+
+    it("BC-3 — landed airdrops become normal LOS-gated crate entries only after landsAtTurn", () => {
+      const drop = makeAirdrop(10, { x: 12, y: 10 });
+      const observer = makeCharacter({ id: "A", pos: { x: 10, y: 10 } });
+
+      const landingTurnState = makeState({
+        characters: [observer],
+        world: { airdrops: [drop] },
+      });
+      landingTurnState.turn = 10;
+      expect(
+        computeVisibleEntities(landingTurnState, "A").visible.find(
+          (entity) => entity.kind === "crate" && entity.objectId === "Crate_12_10",
+        ),
+      ).toBeUndefined();
+
+      const nextTurnState = makeState({
+        characters: [observer],
+        world: { airdrops: [drop] },
+      });
+      nextTurnState.turn = 11;
+      expect(
+        computeVisibleEntities(nextTurnState, "A").visible.find(
+          (entity) => entity.kind === "crate" && entity.objectId === "Crate_12_10",
+        ),
+      ).toMatchObject({
+        kind: "crate",
+        objectId: "Crate_12_10",
+        opened: false,
+      });
+
+      const blockedState = makeState({
+        characters: [observer],
+        world: {
+          airdrops: [drop],
+          walls: [{ x: 11, y: 10, w: 1, h: 1 }],
+        },
+      });
+      blockedState.turn = 11;
+      expect(
+        computeVisibleEntities(blockedState, "A").visible.find(
+          (entity) => entity.kind === "crate" && entity.objectId === "Crate_12_10",
+        ),
+      ).toBeUndefined();
+    });
+
+    it("BC-3 — spent airdrops are absent from engine vision", () => {
+      const drop = makeAirdrop(10, { x: 12, y: 10 }, true);
+      const observer = makeCharacter({ id: "A", pos: { x: 10, y: 10 } });
+      const state = makeState({
+        characters: [observer],
+        world: { airdrops: [drop] },
+      });
+      state.turn = 11;
+
+      expect(
+        computeVisibleEntities(state, "A").visible.find(
+          (entity) =>
+            (entity.kind === "crate" || entity.kind === "airdrop") &&
+            entity.objectId === "Crate_12_10",
+        ),
+      ).toBeUndefined();
+    });
+  });
+
   it("§7 — hpBucket is low/mid/high per the thresholds (≤0.33/≤0.66/else)", () => {
     const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     // hp/max = 0.33 → "low" (boundary inclusive)
@@ -239,15 +353,14 @@ describe("WP5 — computeVisibleEntities (concept-spec §7)", () => {
     expect(buckets["H"]).toBe("high");
   });
 
-  it("Phase 9 WP-A — chests, corpses, characters stay point-keyed; cover emits as a rect", () => {
+  it("Phase 9 WP-A — crates, corpses, characters stay point-keyed; cover emits as a rect", () => {
     const observer = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const target = makeCharacter({ id: "B", pos: { x: 2, y: 0 } });
-    const chest = {
-      id: "Chest_4_0",
+    const crate = {
+      id: "Crate_4_0",
       pos: { x: 4, y: 0 },
       contents: null,
       opened: false,
-      lootTable: "starter",
     };
     const corpse = {
       characterId: "X",
@@ -258,7 +371,7 @@ describe("WP5 — computeVisibleEntities (concept-spec §7)", () => {
     const state = makeState({
       characters: [observer, target],
       world: {
-        chests: [chest],
+        crates: [crate],
         corpses: [corpse],
         coverClusters: [coverCluster],
         coverTiles: [
@@ -274,7 +387,7 @@ describe("WP5 — computeVisibleEntities (concept-spec §7)", () => {
       expect.objectContaining({ kind: "character", characterId: "B" }),
     );
     expect(visible).toContainEqual(
-      expect.objectContaining({ kind: "chest", objectId: "Chest_4_0" }),
+      expect.objectContaining({ kind: "crate", objectId: "Crate_4_0" }),
     );
     expect(visible).toContainEqual(
       expect.objectContaining({ kind: "corpse", objectId: "X" }),
@@ -287,7 +400,7 @@ describe("WP5 — computeVisibleEntities (concept-spec §7)", () => {
     expect(visible.map((v) => v.kind)).not.toContain("cover");
   });
 
-  it("Phase 9 WP-A — chest, corpse, character, and cover are still LOS-gated by walls", () => {
+  it("Phase 9 WP-A — crate, corpse, character, and cover are still LOS-gated by walls", () => {
     const observer = makeCharacter({ id: "A", pos: { x: 10, y: 10 } });
     const occluded = makeCharacter({ id: "B", pos: { x: 3, y: 10 } });
     const blocker: Wall = { x: 5, y: 8, w: 1, h: 5 };
@@ -296,13 +409,12 @@ describe("WP5 — computeVisibleEntities (concept-spec §7)", () => {
       characters: [observer, occluded],
       world: {
         walls: [blocker],
-        chests: [
+        crates: [
           {
-            id: "Chest_3_10",
+            id: "Crate_3_10",
             pos: { x: 3, y: 10 },
             contents: null,
             opened: false,
-            lootTable: "starter",
           },
         ],
         corpses: [{ characterId: "X", pos: { x: 3, y: 11 }, contents: {} }],
@@ -321,7 +433,7 @@ describe("WP5 — computeVisibleEntities (concept-spec §7)", () => {
     expect(
       visible.some((v) => v.kind === "character" && v.characterId === "B"),
     ).toBe(false);
-    expect(visible.some((v) => v.kind === "chest")).toBe(false);
+    expect(visible.some((v) => v.kind === "crate")).toBe(false);
     expect(visible.some((v) => v.kind === "corpse")).toBe(false);
     expect(visible.some((v) => v.kind === "cover_rect")).toBe(false);
   });

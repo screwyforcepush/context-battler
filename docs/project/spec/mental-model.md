@@ -142,7 +142,7 @@ How the substrate is grown, stated as enduring intent rather than a phase log:
 
 Where the substrate is heading next, as intent (not an assignment record):
 
-- **Crate, not chest.** The agents natively prefer "crate" — they say it unprompted. The substrate's vocabulary should match the model's, the same way agents became named personas rather than `Player_N`. Closing that gap is pure agent ergonomics; it removes a name the scratchpad would otherwise translate.
+- **Crate vocabulary.** Agents natively prefer "crate" — they say it unprompted. The substrate's vocabulary should match the model's, the same way agents became named personas rather than `Player_N`. Closing that gap is pure agent ergonomics; it removes a translation burden from the scratchpad.
 
 - **Equipment variance is worth seeing before RNG exists.** The user wants to watch personas react to a *range* of gear — a larger weapon/armour catalog — without yet introducing roll-noise. Hand-placed, deterministic. Plain names for now; the catalog is the future seam for pillar-5 cursed-item flavour text, but that is a later, deliberate content pass (the moderation tension in §12 must be designed for first).
 

@@ -41,7 +41,7 @@ function record(
     scratchpadChanged: overrides.scratchpadChanged ?? false,
     visibleSummary: overrides.visibleSummary ?? {
       enemies: 0,
-      chests: 0,
+      crates: 0,
       corpses: 0,
       evacSeen: false,
     },

@@ -128,7 +128,7 @@ describe("turns.byMatchSlim projection contract", () => {
           {
             characterId: "char_duelist",
             kind: "loot",
-            target: "Chest_53_54",
+            target: "Crate_53_54",
             result: "opened",
             lootedItem: "speed",
           },
@@ -164,7 +164,7 @@ describe("turns.byMatchSlim projection contract", () => {
                 shape: "patch",
               },
               Camper: { dist: 2, bearing: "E", hp: "mid", armed: true },
-              Chest_53_54: { dist: 1, bearing: "N" },
+              Crate_53_54: { dist: 1, bearing: "N" },
               Corpse_Rat: { dist: 3, bearing: "W" },
             },
             null,
@@ -234,7 +234,7 @@ describe("turns.byMatchSlim projection contract", () => {
     expect(record.scratchpadChanged).toBe(true);
     expect(record.visibleSummary).toEqual({
       enemies: 1,
-      chests: 1,
+      crates: 1,
       corpses: 1,
       evacSeen: true,
     });
@@ -246,8 +246,8 @@ describe("turns.byMatchSlim projection contract", () => {
     expect(record.insideBearingHere).toBe(true);
     expect(record.observerPos).toEqual({ x: 7, y: 9 });
     expect(Object.keys(record.visibleSummary).sort()).toEqual([
-      "chests",
       "corpses",
+      "crates",
       "enemies",
       "evacSeen",
     ]);
@@ -304,7 +304,7 @@ describe("turns.byMatchSlim projection contract", () => {
           {
             characterId: "char_duelist",
             kind: "loot",
-            target: "Chest_53_54",
+            target: "Crate_53_54",
             result: "opened",
             lootedItem: "speed",
           },
@@ -358,7 +358,7 @@ describe("turns.byMatchSlim projection contract", () => {
             },
           },
           narrativeLines: [
-            "You looted speed from Chest_53_54",
+            "You looted speed from Crate_53_54",
             "Camper attacked you with axe (dmg 12)",
             "Trader said \"Peace nearby.\"",
             "Duelist killed Camper with sword",
@@ -405,7 +405,7 @@ describe("turns.byMatchSlim projection contract", () => {
       {
         result: "opened",
         item: "speed",
-        target: "Chest_53_54",
+        target: "Crate_53_54",
         delivered: true,
       },
     ]);
@@ -616,7 +616,7 @@ describe("turns derived helper functions", () => {
   it("summariseVisible returns zero counts for no enemies and hidden evac", () => {
     expect(summariseVisible("{}")).toEqual({
       enemies: 0,
-      chests: 0,
+      crates: 0,
       corpses: 0,
       evacSeen: false,
     });
@@ -626,13 +626,13 @@ describe("turns derived helper functions", () => {
     const summary = summariseVisible(`Vision:
 {
   "Trader": { "dist": 4, "bearing": "N", "hp": "low", "armed": false },
-  "Chest_1_2": { "dist": 3, "bearing": "E" },
+  "Crate_1_2": { "dist": 3, "bearing": "E" },
   "Corpse_Rat": { "dist": 5, "bearing": "W" }
 }`);
 
     expect(summary).toEqual({
       enemies: 1,
-      chests: 1,
+      crates: 1,
       corpses: 1,
       evacSeen: false,
     });
@@ -687,7 +687,7 @@ describe("turns derived helper functions", () => {
           {
             characterId: "self",
             kind: "loot",
-            target: "Chest_1_2",
+            target: "Crate_1_2",
             result: "already_opened",
             lootedItem: "should-not-leak",
           },
@@ -701,14 +701,14 @@ describe("turns derived helper functions", () => {
           {
             characterId: "other",
             kind: "loot",
-            target: "Chest_1_2",
+            target: "Crate_1_2",
             result: "opened",
           },
         ],
         "self",
       ),
     ).toEqual([
-      { result: "already_opened", target: "Chest_1_2" },
+      { result: "already_opened", target: "Crate_1_2" },
       { result: "looted", item: "axe", target: "Corpse_Rat" },
     ]);
   });

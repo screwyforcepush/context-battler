@@ -19,6 +19,7 @@
 // the engine's pre-cap here is a safety net, not the primary control).
 
 import { chebyshev } from "./distance.js";
+import { airdropCountdown, airdropProjectionState, worldAirdrops } from "./airdrops.js";
 import type {
   CharacterState,
   MatchState,
@@ -193,7 +194,7 @@ function hpBucket(hp: number, maxHp: number): "low" | "mid" | "high" {
  *
  * Inclusions:
  *  - Other living, non-hidden characters within Chebyshev 20 with LOS.
- *  - Chests within Chebyshev 20 with LOS.
+ *  - Crates within Chebyshev 20 with LOS.
  *  - Corpses within Chebyshev 20 with LOS.
  *  - Cover rects within Chebyshev 20 with LOS, capped at 12 closest.
  *  - Wall rects within Chebyshev 20 with LOS. Walls do not bypass LOS:
@@ -222,15 +223,41 @@ export function computeVisibleEntities(
     visible.push(entry);
   }
 
-  // Chests.
-  for (const chest of state.world.chests) {
-    if (chebyshev(observer.pos, chest.pos) > VISION_RANGE) continue;
-    if (!hasLineOfSight(state.world, observer.pos, chest.pos)) continue;
+  // Crates.
+  for (const crate of state.world.crates) {
+    if (chebyshev(observer.pos, crate.pos) > VISION_RANGE) continue;
+    if (!hasLineOfSight(state.world, observer.pos, crate.pos)) continue;
     visible.push({
-      kind: "chest",
-      objectId: chest.id,
-      pos: chest.pos,
-      opened: chest.opened,
+      kind: "crate",
+      objectId: crate.id,
+      pos: crate.pos,
+      opened: crate.opened,
+    });
+  }
+
+  // Airdrops. Telegraphs are intentional match-meta and bypass range/LOS;
+  // landed drops become normal LOS-gated crate entries.
+  for (const airdrop of worldAirdrops(state.world)) {
+    const projection = airdropProjectionState(airdrop, state.turn);
+    if (projection === "telegraphed") {
+      const countdown = airdropCountdown(airdrop, state.turn);
+      if (countdown === null) continue;
+      visible.push({
+        kind: "airdrop",
+        objectId: airdrop.id,
+        pos: airdrop.pos,
+        countdown,
+      });
+      continue;
+    }
+    if (projection !== "landed") continue;
+    if (chebyshev(observer.pos, airdrop.pos) > VISION_RANGE) continue;
+    if (!hasLineOfSight(state.world, observer.pos, airdrop.pos)) continue;
+    visible.push({
+      kind: "crate",
+      objectId: airdrop.id,
+      pos: airdrop.pos,
+      opened: false,
     });
   }
 

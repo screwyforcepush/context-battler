@@ -290,37 +290,37 @@ function MechanicsSection(props: {
       </TwoColumn>
       <TwoColumn>
         <CountTable
-          title="Chest funnel"
+          title="Crate funnel"
           rows={[
             {
               label: "seen",
-              count: report.loot.chest.seen,
-              examples: examples.loot["chest:seen"],
+              count: report.loot.crate.seen,
+              examples: examples.loot["crate:seen"],
             },
             {
               label: "loot actions",
-              count: report.loot.chest.lootActions,
-              examples: examples.loot["chest:action"],
+              count: report.loot.crate.lootActions,
+              examples: examples.loot["crate:action"],
             },
             {
               label: "opened",
-              count: report.loot.chest.opened,
-              examples: examples.loot["chest:opened"],
+              count: report.loot.crate.opened,
+              examples: examples.loot["crate:opened"],
             },
             {
               label: "equipped",
-              count: report.loot.chest.equipped,
-              examples: examples.loot["chest:equipped"],
+              count: report.loot.crate.equipped,
+              examples: examples.loot["crate:equipped"],
             },
             {
               label: "empty",
-              count: report.loot.chest.empty,
-              examples: examples.loot["chest:empty"],
+              count: report.loot.crate.empty,
+              examples: examples.loot["crate:empty"],
             },
             {
               label: "same-turn collision",
-              count: report.loot.chest.sameTurnCollision,
-              examples: examples.loot["chest:already_opened"],
+              count: report.loot.crate.sameTurnCollision,
+              examples: examples.loot["crate:already_opened"],
             },
           ]}
         />
@@ -466,16 +466,16 @@ function collectExamples(rows: SlimTurnRow[]): DashboardExamples {
       for (const field of Object.keys(record.llm.validatorFieldErrors ?? {})) {
         pushBucketExample(buckets.validatorFields, field, turn, record);
       }
-      if (record.visibleSummary.chests > 0) {
-        pushBucketExample(buckets.loot, "chest:seen", turn, record);
+      if (record.visibleSummary.crates > 0) {
+        pushBucketExample(buckets.loot, "crate:seen", turn, record);
       }
       if (record.visibleSummary.corpses > 0) {
         pushBucketExample(buckets.loot, "corpse:seen", turn, record);
       }
       if (record.decision.action.kind === "loot") {
         const target = record.decision.action.targetId;
-        if (isChestTarget(target)) {
-          pushBucketExample(buckets.loot, "chest:action", turn, record);
+        if (isCrateTarget(target)) {
+          pushBucketExample(buckets.loot, "crate:action", turn, record);
         } else if (isCorpseTarget(target)) {
           pushBucketExample(buckets.loot, "corpse:action", turn, record);
         }
@@ -499,13 +499,13 @@ function collectExamples(rows: SlimTurnRow[]): DashboardExamples {
           record,
         );
       } else if (action.kind === "loot") {
-        if (isChestTarget(action.target)) {
-          pushBucketExample(buckets.loot, `chest:${action.result}`, turn, record);
+        if (isCrateTarget(action.target)) {
+          pushBucketExample(buckets.loot, `crate:${action.result}`, turn, record);
           if (
             action.result === "opened" &&
             typeof action.lootedItem === "string"
           ) {
-            pushBucketExample(buckets.loot, "chest:equipped", turn, record);
+            pushBucketExample(buckets.loot, "crate:equipped", turn, record);
           }
         } else if (isCorpseTarget(action.target)) {
           pushBucketExample(
@@ -829,8 +829,8 @@ function attackOutcomeBucket(result: string): string {
   return "other";
 }
 
-function isChestTarget(target: string): boolean {
-  return /^Chest_-?\d+_-?\d+$/.test(target) || /^chest_\d+$/.test(target);
+function isCrateTarget(target: string): boolean {
+  return /^Crate_-?\d+_-?\d+$/.test(target);
 }
 
 function isCorpseTarget(target: string): boolean {

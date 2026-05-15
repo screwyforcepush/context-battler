@@ -48,7 +48,7 @@ function record(
     scratchpadChanged: overrides.scratchpadChanged ?? false,
     visibleSummary: overrides.visibleSummary ?? {
       enemies: 0,
-      chests: 0,
+      crates: 0,
       corpses: 0,
       evacSeen: false,
     },
@@ -246,7 +246,7 @@ describe("diagnostics mechanics", () => {
             {
               characterId: "c_looter",
               kind: "loot",
-              target: "Chest_10_20",
+              target: "Crate_10_20",
               result: "opened",
               lootedItem: "speed",
             },
@@ -288,16 +288,16 @@ describe("diagnostics mechanics", () => {
             characterId: "c_looter",
             decision: moveDecision(1, {
               kind: "loot",
-              targetId: "Chest_10_20",
+              targetId: "Crate_10_20",
             }),
             visibleSummary: {
               enemies: 0,
-              chests: 1,
+              crates: 1,
               corpses: 0,
               evacSeen: false,
             },
             lootOutcomeFeed: [
-              { result: "opened", item: "speed", target: "Chest_10_20" },
+              { result: "opened", item: "speed", target: "Crate_10_20" },
             ],
           }),
           record({
@@ -308,7 +308,7 @@ describe("diagnostics mechanics", () => {
             }),
             visibleSummary: {
               enemies: 0,
-              chests: 0,
+              crates: 0,
               corpses: 1,
               evacSeen: false,
             },
@@ -330,7 +330,7 @@ describe("diagnostics mechanics", () => {
     expect(out.attackOutcomes).toMatchObject({ landed: 1, missed: 1 });
     expect(out.overwatch).toEqual({ movementTriggered: 1, defensive: 1 });
     expect(out.counter).toEqual({ fired: 1, primedWithoutIncomingAttack: 1 });
-    expect(out.loot.chest).toMatchObject({
+    expect(out.loot.crate).toMatchObject({
       seen: 1,
       lootActions: 1,
       opened: 1,
@@ -372,10 +372,10 @@ describe("diagnostics mechanics", () => {
           // Previously this case was silently dropped because the counter
           // keyed off decision.action.targetId instead of outcome.target.
           record({
-            characterId: "c_chest_walker",
+            characterId: "c_crate_walker",
             decision: moveDecision(2),
             lootOutcomeFeed: [
-              { result: "opened", item: "sword", target: "Chest_30_40" },
+              { result: "opened", item: "sword", target: "Crate_30_40" },
             ],
           }),
           // Drained a corpse last turn, attacking this turn.
@@ -386,12 +386,12 @@ describe("diagnostics mechanics", () => {
               { result: "looted", item: "leather", target: "Corpse_Rat" },
             ],
           }),
-          // Opened a dud chest last turn (no item), idle now.
+          // Opened a dud crate last turn (no item), idle now.
           record({
-            characterId: "c_dud_chest",
+            characterId: "c_dud_crate",
             decision: NONE_DECISION,
             lootOutcomeFeed: [
-              { result: "opened", target: "Chest_70_70" },
+              { result: "opened", target: "Crate_70_70" },
             ],
           }),
           // Hit an already-drained corpse last turn, idle now.
@@ -408,7 +408,7 @@ describe("diagnostics mechanics", () => {
 
     const out = computeMechanicsDiagnostics(rows);
 
-    expect(out.loot.chest).toMatchObject({
+    expect(out.loot.crate).toMatchObject({
       opened: 2,
       equipped: 1,
     });
@@ -434,7 +434,7 @@ describe("diagnostics behaviour", () => {
             },
             visibleSummary: {
               enemies: 1,
-              chests: 0,
+              crates: 0,
               corpses: 0,
               evacSeen: false,
             },
@@ -445,7 +445,7 @@ describe("diagnostics behaviour", () => {
             decision: moveDecision(0),
             visibleSummary: {
               enemies: 1,
-              chests: 0,
+              crates: 0,
               corpses: 0,
               evacSeen: false,
             },

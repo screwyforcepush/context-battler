@@ -144,7 +144,7 @@ const ACTION_SCHEMA: JsonSchema = {
           type: "string",
           enum: ["attack", "loot"],
           description:
-            "Attack a visible living character or loot a visible chest/corpse. Pair with a target-relative move toward the same target to close range.",
+            "Attack a visible living character or loot a visible crate/corpse. Pair with a target-relative move toward the same target to close range.",
         },
         targetId: {
           type: "string",

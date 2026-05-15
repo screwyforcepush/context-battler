@@ -50,6 +50,7 @@ function makeTrace(overrides: Partial<ResolutionTrace> = {}): ResolutionTrace {
     moves: [],
     actions: [],
     deaths: [],
+    environmentalDeaths: [],
     visibilityUpdates: [],
     ...overrides,
   };
@@ -312,7 +313,7 @@ describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", (
         {
           characterId: "char_looter",
           kind: "loot",
-          target: "Chest_4_5",
+          target: "Crate_4_5",
           result: "opened",
           lootedItem: "speed",
         },
@@ -331,7 +332,7 @@ describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", (
         {
           characterId: "char_looter",
           kind: "loot",
-          target: "Chest_4_5",
+          target: "Crate_4_5",
           result: "empty",
         },
       ],
@@ -403,6 +404,40 @@ describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", (
     expect(overwatch!.triggeredByMovement).toBe(true);
     expect(counter!.result).toBe("dmg 7");
     expect("triggeredByMovement" in counter!).toBe(false);
+  });
+
+  it("WP-D — propagates environmentalDeaths through schema and prior-turn builder adapters", () => {
+    const trace = makeTrace({
+      environmentalDeaths: ["char_telefragged"],
+    });
+
+    const adapted = adaptResolutionForSchema(trace);
+
+    expect(adapted.environmentalDeaths).toEqual(["char_telefragged"]);
+
+    const prev = adaptPriorTurnRowForBuilder({
+      resolution: {
+        consumed: [],
+        speech: [],
+        moves: [],
+        actions: [],
+        deaths: [],
+        environmentalDeaths: adapted.environmentalDeaths,
+        visibilityUpdates: [],
+      },
+      agentRecords: [
+        {
+          characterId: "char_survivor",
+          decision: {
+            position: { kind: "move", direction: { kind: "N" }, dist: 0 },
+          },
+        },
+      ],
+    });
+
+    expect(prev?.resolution.environmentalDeaths).toEqual([
+      "char_telefragged",
+    ]);
   });
 });
 

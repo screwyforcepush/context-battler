@@ -242,16 +242,18 @@ export function buildMatchState(
       h: w.h,
     })),
     coverTiles: worldStaticRow.coverTiles.map((t) => ({ x: t.x, y: t.y })),
-    // ChestState in the engine carries `lootTable`; the row shape doesn't
-    // (it's bookkeeping only, used by WP3 expansion). Re-inject a stub
-    // value — the engine never re-rolls loot post-spawn so the lootTable
-    // value is unused after match-start.
-    chests: worldRow.chests.map((c) => ({
+    crates: worldRow.crates.map((c) => ({
       id: c.id,
       pos: { x: c.pos.x, y: c.pos.y },
       contents: c.contents,
       opened: c.opened,
-      lootTable: "",
+    })),
+    airdrops: (worldRow.airdrops ?? []).map((drop) => ({
+      id: drop.id,
+      pos: { x: drop.pos.x, y: drop.pos.y },
+      landsAtTurn: drop.landsAtTurn,
+      contents: drop.contents,
+      looted: drop.looted,
     })),
     corpses: worldRow.corpses.map((c) => ({
       characterId: c.characterId as string,
@@ -486,6 +488,7 @@ export function adaptResolutionForSchema(
     lootedItem?: string;
   }>;
   deaths: Id<"characters">[];
+  environmentalDeaths: Id<"characters">[];
   visibilityUpdates: Array<{
     characterId: Id<"characters">;
     hidden: boolean;
@@ -542,6 +545,9 @@ export function adaptResolutionForSchema(
       ...(a.lootedItem !== undefined ? { lootedItem: a.lootedItem } : {}),
     })),
     deaths: trace.deaths.map((d) => d as Id<"characters">),
+    environmentalDeaths: trace.environmentalDeaths.map(
+      (d) => d as Id<"characters">,
+    ),
     visibilityUpdates: trace.visibilityUpdates.map((u) => ({
       characterId: u.characterId as Id<"characters">,
       hidden: u.hidden,
@@ -589,6 +595,7 @@ type PersistedPriorTurnRow = {
       lootedItem?: string;
     }>;
     deaths: ReadonlyArray<string>;
+    environmentalDeaths?: ReadonlyArray<string>;
     visibilityUpdates: ReadonlyArray<{
       characterId: string;
       hidden: boolean;
@@ -638,6 +645,9 @@ export function adaptPriorTurnRowForBuilder(
         ...(a.lootedItem !== undefined ? { lootedItem: a.lootedItem } : {}),
       })),
       deaths: priorTurnRow.resolution.deaths.map((d) => d as string),
+      environmentalDeaths: (
+        priorTurnRow.resolution.environmentalDeaths ?? []
+      ).map((d) => d as string),
       visibilityUpdates: priorTurnRow.resolution.visibilityUpdates.map((u) => ({
         characterId: u.characterId as string,
         hidden: u.hidden,
@@ -1056,11 +1066,18 @@ export const advanceTurn = action({
           })),
         })),
         worldPatch: {
-          chests: nextState.world.chests.map((c) => ({
+          crates: nextState.world.crates.map((c) => ({
             id: c.id,
             pos: { x: c.pos.x, y: c.pos.y },
             contents: c.contents,
             opened: c.opened,
+          })),
+          airdrops: nextState.world.airdrops.map((drop) => ({
+            id: drop.id,
+            pos: { x: drop.pos.x, y: drop.pos.y },
+            landsAtTurn: drop.landsAtTurn,
+            contents: drop.contents,
+            looted: drop.looted,
           })),
           corpses: nextState.world.corpses.map((c) => ({
             characterId: c.characterId as Id<"characters">,

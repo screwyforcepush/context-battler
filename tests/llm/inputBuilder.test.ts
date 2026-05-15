@@ -16,8 +16,9 @@ import { loadPersonas } from "../../convex/llm/personas.js";
 import {
   PERSONA_IDS,
   titleCase,
+  type AirdropState,
   type CharacterState,
-  type ChestState,
+  type CrateState,
   type CorpseState,
   type MatchState,
   type PersonaId,
@@ -34,7 +35,8 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
     walls: [],
     coverClusters: [],
     coverTiles: [],
-    chests: [],
+    crates: [],
+    airdrops: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
@@ -91,8 +93,22 @@ function makeCharacter(opts: {
   };
 }
 
-function makeChest(id: string, pos: Tile, opened = false): ChestState {
-  return { id, pos, contents: null, opened, lootTable: "starter" };
+function makeCrate(id: string, pos: Tile, opened = false): CrateState {
+  return { id, pos, contents: null, opened };
+}
+
+function makeAirdrop(
+  landsAtTurn: number,
+  pos: Tile = { x: 50, y: 50 },
+  looted = false,
+): AirdropState {
+  return {
+    id: `Crate_${pos.x}_${pos.y}`,
+    pos,
+    landsAtTurn,
+    contents: { category: "armour", name: "leather" },
+    looted,
+  };
 }
 
 function makeCorpse(
@@ -127,6 +143,7 @@ function makePrevTurn(
       moves: [],
       actions: [],
       deaths: [],
+      environmentalDeaths: [],
       visibilityUpdates: [],
       ...partial,
     },
@@ -899,7 +916,7 @@ describe("Phase 6 input builder — event helpers", () => {
             {
               characterId: "c_duelist",
               kind: "loot",
-              target: "Chest_53_54",
+              target: "Crate_53_54",
               result: "opened",
               lootedItem: "speed",
             },
@@ -907,7 +924,7 @@ describe("Phase 6 input builder — event helpers", () => {
         }),
         1,
       ).composedUserMessage,
-    ).toContain("You looted speed from Chest_53_54");
+    ).toContain("You looted speed from Crate_53_54");
 
     expect(
       buildAgentInput(
@@ -939,14 +956,14 @@ describe("Phase 6 input builder — event helpers", () => {
             {
               characterId: "c_duelist",
               kind: "loot",
-              target: "Chest_53_54",
+              target: "Crate_53_54",
               result: "already_opened",
             },
           ],
         }),
         1,
       ).composedUserMessage,
-    ).toContain("You looted nothing from empty Chest_53_54");
+    ).toContain("You looted nothing from empty Crate_53_54");
 
     expect(
       buildAgentInput(
@@ -958,14 +975,14 @@ describe("Phase 6 input builder — event helpers", () => {
             {
               characterId: "c_duelist",
               kind: "loot",
-              target: "Chest_53_54",
+              target: "Crate_53_54",
               result: "empty",
             },
           ],
         }),
         1,
       ).composedUserMessage,
-    ).toContain("You looted nothing from empty Chest_53_54");
+    ).toContain("You looted nothing from empty Crate_53_54");
 
     expect(
       buildAgentInput(
@@ -1179,6 +1196,175 @@ describe("Phase 6 input builder — event helpers", () => {
       "Camper killed Rat with bare hands",
     ]);
   });
+
+  it("WP-D — emits a pure telefrag kill-feed line despite zero weapon deaths", () => {
+    const rat = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 50, y: 50 },
+      hp: 0,
+      alive: false,
+    });
+    const duelist = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 48, y: 50 },
+    });
+    const state = makeState({ characters: [rat, duelist] });
+    const prev = makePrevTurn({
+      deaths: [],
+      environmentalDeaths: ["c_rat"],
+    });
+
+    expect(buildKillFeedLines(prev, state)).toEqual([
+      "Rat got telefragged by crate spawn",
+    ]);
+  });
+
+  it("WP-D — orders weapon kills, charge kills, then telefrag lines", () => {
+    const rat = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 10, y: 10 },
+      hp: 0,
+      alive: false,
+    });
+    const trader = makeCharacter({
+      id: "c_trader",
+      personaId: "trader",
+      displayName: "Trader",
+      pos: { x: 12, y: 10 },
+      hp: 0,
+      alive: false,
+    });
+    const camper = makeCharacter({
+      id: "c_camper",
+      personaId: "camper",
+      displayName: "Camper",
+      pos: { x: 50, y: 50 },
+      hp: 0,
+      alive: false,
+    });
+    const vulture = makeCharacter({
+      id: "c_vulture",
+      personaId: "vulture",
+      displayName: "Vulture",
+      pos: { x: 11, y: 10 },
+    });
+    const duelist = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 13, y: 10 },
+    });
+    const state = makeState({
+      characters: [rat, trader, camper, vulture, duelist],
+    });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "c_vulture",
+          kind: "attack",
+          target: "Rat",
+          result: "dmg 50",
+          weapon: "greatsword",
+        },
+      ],
+      moves: [
+        {
+          characterId: "c_duelist",
+          from: { x: 13, y: 10 },
+          to: { x: 13, y: 10 },
+          bodyCollision: { kind: "character", defenderId: "c_trader" },
+        },
+      ],
+      deaths: ["c_rat", "c_trader"],
+      environmentalDeaths: ["c_camper"],
+    });
+
+    expect(buildKillFeedLines(prev, state)).toEqual([
+      "Vulture killed Rat with greatsword",
+      "Duelist killed Trader with bare hands",
+      "Camper got telefragged by crate spawn",
+    ]);
+  });
+
+  it("WP-D — telefrag takes precedence over same-turn attack in the kill feed", () => {
+    const rat = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 50, y: 50 },
+      hp: 0,
+      alive: false,
+    });
+    const vulture = makeCharacter({
+      id: "c_vulture",
+      personaId: "vulture",
+      displayName: "Vulture",
+      pos: { x: 49, y: 50 },
+    });
+    const state = makeState({ characters: [rat, vulture] });
+    const prev = makePrevTurn({
+      actions: [
+        {
+          characterId: "c_vulture",
+          kind: "attack",
+          target: "Rat",
+          result: "dmg 50",
+          weapon: "greatsword",
+        },
+      ],
+      deaths: [],
+      environmentalDeaths: ["c_rat"],
+    });
+
+    expect(buildKillFeedLines(prev, state)).toEqual([
+      "Rat got telefragged by crate spawn",
+    ]);
+  });
+
+  it("WP-D — next input keeps a telefragged character out of Vision while carrying the feed line", () => {
+    const duelist = makeCharacter({
+      id: "c_duelist",
+      personaId: "duelist",
+      displayName: "Duelist",
+      pos: { x: 49, y: 50 },
+    });
+    const rat = makeCharacter({
+      id: "c_rat",
+      personaId: "rat",
+      displayName: "Rat",
+      pos: { x: 50, y: 50 },
+      hp: 0,
+      alive: false,
+    });
+    const state = makeState({ characters: [duelist, rat], turn: 11 });
+    const prev = makePrevTurn({
+      environmentalDeaths: ["c_rat"],
+    });
+
+    const built = buildAgentInput(
+      state,
+      "c_duelist",
+      "Win direct fights.",
+      prev,
+      1,
+    );
+    const visible = JSON.parse(
+      built.visibleStateDigest.slice("Vision:\n".length),
+    ) as VisibleObject;
+
+    expect(built.narrativeLines).toContain(
+      "Rat got telefragged by crate spawn",
+    );
+    expect(visible.Rat).toBeUndefined();
+    expect(visible.Corpse_Rat).toBeUndefined();
+    expect(built.composedUserMessage).toContain("Turn 11, 1/8 players alive");
+  });
 });
 
 describe("Phase 6 input builder — visible object", () => {
@@ -1267,7 +1453,7 @@ describe("Phase 6 input builder — visible object", () => {
     });
   });
 
-  it("preserves point-keying for characters, chests, and corpses", () => {
+  it("preserves point-keying for characters, crates, and corpses", () => {
     const me = makeCharacter({
       id: "c_duelist",
       personaId: "duelist",
@@ -1290,7 +1476,7 @@ describe("Phase 6 input builder — visible object", () => {
     const state = makeState({
       characters: [me, camper, rat],
       world: {
-        chests: [makeChest("Chest_51_50", { x: 51, y: 50 })],
+        crates: [makeCrate("Crate_51_50", { x: 51, y: 50 })],
         corpses: [
           makeCorpse("c_rat", { x: 53, y: 50 }, {
             weapon: { category: "weapon", name: "sword" },
@@ -1302,7 +1488,7 @@ describe("Phase 6 input builder — visible object", () => {
     const visible = parseVisible(state, "c_duelist");
 
     expect(visible.Camper).toMatchObject({ dist: 2, bearing: "E" });
-    expect(visible.Chest_51_50).toMatchObject({ dist: 1, bearing: "E" });
+    expect(visible.Crate_51_50).toMatchObject({ dist: 1, bearing: "E" });
     expect(visible.Corpse_Rat).toMatchObject({ dist: 3, bearing: "E" });
     expect(Object.keys(visible).filter((key) => key.includes("_to_"))).toEqual(
       [],
@@ -1327,7 +1513,7 @@ describe("Phase 6 input builder — visible object", () => {
       characters: [me, rat],
       world: {
         walls: [{ x: 12, y: 8, w: 1, h: 5 }],
-        chests: [makeChest("Chest_14_10", { x: 14, y: 10 })],
+        crates: [makeCrate("Crate_14_10", { x: 14, y: 10 })],
         corpses: [
           makeCorpse("c_rat", { x: 14, y: 11 }, {
             weapon: { category: "weapon", name: "sword" },
@@ -1346,7 +1532,7 @@ describe("Phase 6 input builder — visible object", () => {
 
     const visible = parseVisible(state, "c_duelist");
 
-    expect(visible.Chest_14_10).toBeUndefined();
+    expect(visible.Crate_14_10).toBeUndefined();
     expect(visible.Corpse_Rat).toBeUndefined();
     expect(visible.Cover_14_8_to_14_12).toBeUndefined();
   });
@@ -1378,7 +1564,7 @@ describe("Phase 6 input builder — visible object", () => {
     const state = makeState({
       characters: [me, camper, rat],
       world: {
-        chests: [makeChest("Chest_53_50", { x: 53, y: 50 })],
+        crates: [makeCrate("Crate_53_50", { x: 53, y: 50 })],
         corpses: [
           makeCorpse("c_rat", { x: 50, y: 53 }, {
             weapon: { category: "weapon", name: "sword" },
@@ -1420,11 +1606,11 @@ describe("Phase 6 input builder — visible object", () => {
       "dist",
       "hp",
     ]);
-    expect(visible.Chest_53_50).toMatchObject({
+    expect(visible.Crate_53_50).toMatchObject({
       dist: 3,
       bearing: "E",
     });
-    expect(visibleKeys(visible.Chest_53_50)).toEqual([
+    expect(visibleKeys(visible.Crate_53_50)).toEqual([
       "bearing",
       "dist",
     ]);
@@ -1511,7 +1697,7 @@ describe("Phase 6 input builder — visible object", () => {
     expect(visible.Evac).toBeUndefined();
   });
 
-  it("drops spent chests from Vision once opened", () => {
+  it("drops spent crates from Vision once opened", () => {
     const me = makeCharacter({
       id: "c_duelist",
       personaId: "duelist",
@@ -1521,17 +1707,75 @@ describe("Phase 6 input builder — visible object", () => {
     const state = makeState({
       characters: [me],
       world: {
-        chests: [
-          makeChest("Chest_52_50", { x: 52, y: 50 }, true),
-          makeChest("Chest_53_50", { x: 53, y: 50 }, false),
+        crates: [
+          makeCrate("Crate_52_50", { x: 52, y: 50 }, true),
+          makeCrate("Crate_53_50", { x: 53, y: 50 }, false),
         ],
       },
     });
 
     const visible = parseVisible(state, "c_duelist");
 
-    expect(visible.Chest_52_50).toBeUndefined();
-    expect(visible.Chest_53_50).toBeDefined();
+    expect(visible.Crate_52_50).toBeUndefined();
+    expect(visible.Crate_53_50).toBeDefined();
+  });
+
+  it("WP-C BC-3 — renders airdrop countdown 3,2,1,0 in Vision for every telegraph turn", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      displayName: "Duelist",
+      pos: { x: 1, y: 1 },
+      personaId: "duelist",
+    });
+    const state = makeState({
+      characters: [me],
+      world: {
+        walls: [{ x: 2, y: 2, w: 70, h: 1 }],
+        airdrops: [makeAirdrop(10, { x: 50, y: 50 })],
+      },
+    });
+
+    for (const [turn, countdown] of [
+      [7, 3],
+      [8, 2],
+      [9, 1],
+      [10, 0],
+    ] as const) {
+      const atTurn = { ...state, turn };
+      const visible = parseVisible(atTurn, "c_duelist");
+      expect(visible.Crate_50_50).toMatchObject({ countdown });
+    }
+  });
+
+  it("WP-C BC-3 — landed airdrop looks like a normal crate and spent airdrop is absent from Vision", () => {
+    const me = makeCharacter({
+      id: "c_duelist",
+      displayName: "Duelist",
+      pos: { x: 49, y: 50 },
+      personaId: "duelist",
+    });
+    const landed = makeState({
+      characters: [me],
+      turn: 11,
+      world: {
+        airdrops: [makeAirdrop(10, { x: 50, y: 50 })],
+      },
+    });
+    const landedVisible = parseVisible(landed, "c_duelist");
+    expect(landedVisible.Crate_50_50).toMatchObject({
+      dist: 1,
+      bearing: "E",
+    });
+    expect(landedVisible.Crate_50_50).not.toHaveProperty("countdown");
+
+    const spent = makeState({
+      characters: [me],
+      turn: 11,
+      world: {
+        airdrops: [makeAirdrop(10, { x: 50, y: 50 }, true)],
+      },
+    });
+    expect(parseVisible(spent, "c_duelist").Crate_50_50).toBeUndefined();
   });
 
   it("drops drained corpses from Vision once contents exhausted", () => {
@@ -1627,14 +1871,14 @@ describe("Phase 6 input builder — visible object", () => {
         pos: { x: 51 + i, y: 50 },
       }),
     );
-    const chests: ChestState[] = [];
+    const crates: CrateState[] = [];
     for (let i = 0; i < 6; i++) {
-      chests.push(makeChest(`Chest_50_${55 + i}`, { x: 50, y: 55 + i }));
+      crates.push(makeCrate(`Crate_50_${55 + i}`, { x: 50, y: 55 + i }));
     }
     const state = makeState({
       characters: [me, ...enemies],
       world: {
-        chests,
+        crates,
         coverTiles: [{ x: 49, y: 49 }, { x: 48, y: 48 }],
       },
     });
@@ -1651,7 +1895,7 @@ describe("Phase 6 input builder — visible object", () => {
         "Sprinter",
         "Vulture",
       ].includes(key) ||
-      key.startsWith("Chest_") ||
+      key.startsWith("Crate_") ||
       key.startsWith("Corpse_")
     );
     const covers = keys.filter((key) => key.startsWith("Cover_"));
@@ -1684,7 +1928,7 @@ describe("Phase 6 input builder — visible object", () => {
       const state = makeState({
         characters: [me, camper],
         world: {
-          chests: [makeChest("Chest_53_50", { x: 53, y: 50 })],
+          crates: [makeCrate("Crate_53_50", { x: 53, y: 50 })],
           coverTiles: [{ x: 51, y: 51 }],
           walls: [{ x: 49, y: 49, w: 1, h: 1 }],
           evac: { centre: { x: 50, y: 50 }, revealedAtTurn: 30 },

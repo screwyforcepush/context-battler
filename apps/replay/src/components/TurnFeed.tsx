@@ -61,15 +61,18 @@ const CHARACTER_MAX_HP = 50;
 const MIN_DAMAGE_FLOOR = 5;
 const WEAPON_DAMAGE = {
   rusty_blade: 10,
+  dagger: 8,
   sword: 15,
   axe: 20,
   greatsword: 25,
+  warhammer: 30,
 } as const;
 const ARMOUR_REDUCTION = {
   cloth: 0,
   leather: 3,
   chain: 6,
   plate: 10,
+  riot_plate: 14,
 } as const;
 const CONSUMABLE_LABEL = {
   heal: "heal 20% max HP",

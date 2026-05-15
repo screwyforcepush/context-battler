@@ -7,12 +7,21 @@ describe("worldState merged terrain shape", () => {
       _id: "dynamic-world-row",
       _creationTime: 200,
       matchId: "match-1",
-      chests: [
+      crates: [
         {
-          id: "Chest_10_10",
+          id: "Crate_10_10",
           pos: { x: 10, y: 10 },
           contents: null,
           opened: false,
+        },
+      ],
+      airdrops: [
+        {
+          id: "Crate_50_50",
+          pos: { x: 50, y: 50 },
+          landsAtTurn: 10,
+          contents: { category: "armour", name: "leather" },
+          looted: false,
         },
       ],
       corpses: [],
@@ -71,7 +80,8 @@ describe("worldState merged terrain shape", () => {
       mergeWorldStateRows(
         {
           matchId: "match-1",
-          chests: [],
+          crates: [],
+          airdrops: [],
           corpses: [],
           evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
         },

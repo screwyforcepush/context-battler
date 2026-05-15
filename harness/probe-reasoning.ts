@@ -102,7 +102,7 @@ async function main(): Promise<void> {
                 hp: "high",
                 armed: true,
               },
-              Chest_53_54: {
+              Crate_53_54: {
                 dist: 4,
                 bearing: "SW",
               },

@@ -125,17 +125,17 @@ describe("summariseDecision — Phase 6 position vocabulary", () => {
     const ar = makeAgentRecord(me._id, {
       position: {
         kind: "move",
-        direction: { kind: "toward", targetId: "Chest_53_54" },
+        direction: { kind: "toward", targetId: "Crate_53_54" },
         dist: 8,
       },
     });
 
     const out = summariseDecision(ar, emptyResolution(), characterMap(me));
 
-    expect(out.oneLine).toContain("Moved toward Chest_53_54 up to 8");
-    expect(out.bullets).toContain("Position: Moved toward Chest_53_54 up to 8");
+    expect(out.oneLine).toContain("Moved toward Crate_53_54 up to 8");
+    expect(out.bullets).toContain("Position: Moved toward Crate_53_54 up to 8");
     expect(out.intentVsOutcome[0]).toEqual({
-      intent: "Moved toward Chest_53_54 up to 8",
+      intent: "Moved toward Crate_53_54 up to 8",
       outcome: "(no movement)",
     });
   });
@@ -402,7 +402,7 @@ describe("summariseDecision — Phase 6 action and reactive outcomes", () => {
   it("renders loot targetId without redundant opened suffix", () => {
     const me = makeChar("c1", "Camper");
     const ar = makeAgentRecord(me._id, {
-      action: { kind: "loot", targetId: "Chest_53_54" },
+      action: { kind: "loot", targetId: "Crate_53_54" },
     });
     const res: TurnResolution = {
       ...emptyResolution(),
@@ -410,7 +410,7 @@ describe("summariseDecision — Phase 6 action and reactive outcomes", () => {
         {
           characterId: me._id,
           kind: "loot",
-          target: "Chest_53_54",
+          target: "Crate_53_54",
           result: "opened",
         },
       ],
@@ -418,8 +418,8 @@ describe("summariseDecision — Phase 6 action and reactive outcomes", () => {
 
     const out = summariseDecision(ar, res, characterMap(me));
 
-    expect(out.oneLine).toContain("Opened Chest_53_54.");
-    expect(out.oneLine).not.toContain("Opened Chest_53_54 — opened");
+    expect(out.oneLine).toContain("Opened Crate_53_54.");
+    expect(out.oneLine).not.toContain("Opened Crate_53_54 — opened");
   });
 });
 

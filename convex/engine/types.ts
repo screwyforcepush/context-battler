@@ -57,8 +57,14 @@ export const PERSONA_DISPLAY_NAMES: Set<string> = new Set(
 
 // ─── Item names + stat tiers (locked, ADR §6 / concept-spec §14) ─────────────
 
-export type WeaponName = "rusty_blade" | "sword" | "axe" | "greatsword";
-export type ArmourName = "cloth" | "leather" | "chain" | "plate";
+export type WeaponName =
+  | "rusty_blade"
+  | "dagger"
+  | "sword"
+  | "axe"
+  | "greatsword"
+  | "warhammer";
+export type ArmourName = "cloth" | "leather" | "chain" | "plate" | "riot_plate";
 export type ConsumableName = "heal" | "speed";
 
 /**
@@ -68,9 +74,11 @@ export type ConsumableName = "heal" | "speed";
  */
 export const WEAPONS: Record<WeaponName, { damage: number; range: number }> = {
   rusty_blade: { damage: 10, range: 2 },
+  dagger: { damage: 8, range: 2 },
   sword: { damage: 15, range: 2 },
   axe: { damage: 20, range: 2 },
   greatsword: { damage: 25, range: 2 },
+  warhammer: { damage: 30, range: 2 },
 };
 
 /** Armour reduction table — locked per ADR §6. */
@@ -79,6 +87,7 @@ export const ARMOUR: Record<ArmourName, { reduction: number }> = {
   leather: { reduction: 3 },
   chain: { reduction: 6 },
   plate: { reduction: 10 },
+  riot_plate: { reduction: 14 },
 };
 
 /** Consumable effect table — locked per ADR §6.
@@ -135,15 +144,24 @@ export type Wall = { x: number; y: number; w: number; h: number };
 
 export type RectShape = "single" | "E-W line" | "N-S line" | "patch";
 
-/** Per-chest state. `contents` is `null` until the chest is opened — WP7
+/** Per-crate state. `contents` is `null` after the crate is opened — WP7
  *  flips `opened` and consumes `contents` to `null` on equip per concept-
- *  spec §13. `lootTable` references a key in `LOOT_TABLES` (WP3 loot.ts). */
-export type ChestState = {
+ *  spec §13. Initial contents are hand-authored in the map descriptor. */
+export type CrateState = {
   id: string;
   pos: Tile;
   contents: ItemRef | null;
   opened: boolean;
-  lootTable: string;
+};
+
+/** Per-airdrop world-event state. The lifecycle is turn-derived:
+ *  telegraphed before landing, landed after `landsAtTurn`, spent when looted. */
+export type AirdropState = {
+  id: string;
+  pos: Tile;
+  landsAtTurn: number;
+  contents: ItemRef;
+  looted: boolean;
 };
 
 /** Per-corpse state. `contents` mirrors the dead agent's full equipped slots
@@ -164,7 +182,8 @@ export type WorldState = {
   walls: Wall[];
   coverClusters: Wall[];
   coverTiles: Tile[];
-  chests: ChestState[];
+  crates: CrateState[];
+  airdrops: AirdropState[];
   corpses: CorpseState[];
   evac: EvacZone;
 };
@@ -178,7 +197,7 @@ export type WorldState = {
  *
  * - `walls`         — terrain rectangles (block movement + LOS).
  * - `coverClusters` — rectangles expanded into `coverTiles[]`.
- * - `chests`        — point spawns; `lootTable` resolved at match start.
+ * - `crates`        — point spawns with hand-authored deterministic contents.
  * - `spawns`        — exactly 8 perimeter points; persona-to-spawn
  *                     assignment is seeded by `rngSeed` (WP3).
  * - `evac`          — 3×3 zone centre.
@@ -187,7 +206,13 @@ export type MapDescriptor = {
   size: { w: number; h: number };
   walls: Wall[];
   coverClusters: Wall[];
-  chests: Array<{ x: number; y: number; lootTable: string }>;
+  crates: Array<{ x: number; y: number; contents: ItemRef }>;
+  airdrops: Array<{
+    x: number;
+    y: number;
+    landsAtTurn: number;
+    contents: ItemRef;
+  }>;
   spawns: Tile[];
   evac: Tile;
 };
@@ -334,7 +359,13 @@ export type VisibleEntity =
       hpBucket: "low" | "mid" | "high";
       weapon?: WeaponName;
     }
-  | { kind: "chest"; objectId: string; pos: Tile; opened: boolean }
+  | { kind: "crate"; objectId: string; pos: Tile; opened: boolean }
+  | {
+      kind: "airdrop";
+      objectId: string;
+      pos: Tile;
+      countdown: number;
+    }
   | { kind: "corpse"; objectId: string; pos: Tile; contents: EquippedSlots }
   | { kind: "cover_rect"; rect: Wall; shape: RectShape }
   | { kind: "wall_rect"; rect: Wall; shape: RectShape }

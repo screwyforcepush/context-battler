@@ -57,7 +57,7 @@ The schema is the contract, so it deserves naming up front. Concrete shape evolv
 - **`matches`** — match metadata: settings, current turn, status, winners, prize-split outcome.
 - **`characters`** — agent records: display name, owner, behavioural prompt, equipped gear, HP, position, scratchpad, hidden state, alive/dead.
 - **`turns`** (the turn ledger) — one record per (match, turn). Captures the visible-state shown to each agent, the decision returned, the resolved diff. The ledger *is* the replay.
-- **`worldState`** — terrain, cover, chests, corpses; whatever isn't agent-local.
+- **`worldState`** — terrain, cover, crates, corpses; whatever isn't agent-local.
 
 Two non-obvious properties:
 - **The turn ledger is the replay.** The renderer doesn't "render the engine" — it renders the ledger. This is what makes engine/renderer decoupling work.

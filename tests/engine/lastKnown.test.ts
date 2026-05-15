@@ -110,7 +110,7 @@ describe("WP5 — updateLastKnown (concept-spec §7 + ADR §6 cap-3)", () => {
   it("§7 — non-character visible entities do not affect lastKnown", () => {
     const seed: LastKnownEntry[] = [];
     const visible: VisibleEntity[] = [
-      { kind: "chest", objectId: "Chest_1_1", pos: { x: 1, y: 1 }, opened: false },
+      { kind: "crate", objectId: "Crate_1_1", pos: { x: 1, y: 1 }, opened: false },
       { kind: "cover_rect", rect: { x: 2, y: 2, w: 1, h: 1 }, shape: "single" },
       { kind: "wall_rect", rect: { x: 3, y: 3, w: 1, h: 1 }, shape: "single" },
     ];

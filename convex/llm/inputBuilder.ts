@@ -60,6 +60,7 @@ export type PrevTurnRow = {
       lootedItem?: string;
     }>;
     deaths: ReadonlyArray<string>;
+    environmentalDeaths: ReadonlyArray<string>;
     visibilityUpdates: ReadonlyArray<{
       characterId: string;
       hidden: boolean;
@@ -104,7 +105,7 @@ function renderCharacterTypedId(state: MatchState, characterId: string): string 
   return resolveDisplayName(state, characterId);
 }
 
-function renderChestId(objectId: string): string {
+function renderCrateId(objectId: string): string {
   return objectId;
 }
 
@@ -112,9 +113,11 @@ function corpseDrained(contents: CorpseState["contents"]): boolean {
   return !contents.weapon && !contents.armour && !contents.consumable;
 }
 
-function chestSpentById(state: MatchState, objectId: string): boolean {
-  const chest = state.world.chests.find((c) => c.id === objectId);
-  return chest?.opened === true;
+function crateSpentById(state: MatchState, objectId: string): boolean {
+  const crate = state.world.crates.find((c) => c.id === objectId);
+  if (crate?.opened === true) return true;
+  const airdrop = state.world.airdrops.find((drop) => drop.id === objectId);
+  return airdrop?.looted === true;
 }
 
 function corpseDrainedById(state: MatchState, objectId: string): boolean {
@@ -164,7 +167,7 @@ function renderSlideTarget(state: MatchState, rawTargetId: string): string {
     rawTargetId.startsWith("Wall_") ||
     rawTargetId.startsWith("Cover_") ||
     rawTargetId.startsWith("Evac_") ||
-    rawTargetId.startsWith("Chest_")
+    rawTargetId.startsWith("Crate_")
   ) {
     return rawTargetId;
   }
@@ -376,7 +379,13 @@ export function buildKillFeedLines(
   prev: PrevTurnRow | null,
   state: MatchState,
 ): string[] {
-  if (!prev || prev.resolution.deaths.length === 0) return [];
+  if (
+    !prev ||
+    (prev.resolution.deaths.length === 0 &&
+      prev.resolution.environmentalDeaths.length === 0)
+  ) {
+    return [];
+  }
   const deathIds = new Set(prev.resolution.deaths);
   const lines: string[] = [];
   const emittedVictims = new Set<string>();
@@ -413,11 +422,16 @@ export function buildKillFeedLines(
     lines.push(`${killer} killed ${victim.displayName} with bare hands`);
   }
 
+  for (const victimId of prev.resolution.environmentalDeaths) {
+    const victim = renderCharacterTypedId(state, victimId);
+    lines.push(`${victim} got telefragged by crate spawn`);
+  }
+
   return lines;
 }
 
 type VisibleEntry = {
-  tier: 1 | 2 | 3 | 4 | 5;
+  tier: 0 | 1 | 2 | 3 | 4 | 5;
   dist: number;
   key: string;
   value: { [key: string]: VisibleJsonValue };
@@ -476,13 +490,25 @@ function visibleEntryFor(
         },
       };
     }
-    case "chest": {
-      const key = renderChestId(entity.objectId);
+    case "crate": {
+      const key = renderCrateId(entity.objectId);
       return {
         tier: 2,
         dist: chebyshev(observer.pos, entity.pos),
         key,
         value: baseVisibleValue(observer, entity.pos),
+      };
+    }
+    case "airdrop": {
+      const key = renderCrateId(entity.objectId);
+      return {
+        tier: 0,
+        dist: chebyshev(observer.pos, entity.pos),
+        key,
+        value: {
+          ...baseVisibleValue(observer, entity.pos),
+          countdown: entity.countdown,
+        },
       };
     }
     case "corpse": {
@@ -542,26 +568,29 @@ function buildVisibleObject(
   observer: CharacterState,
 ): Record<string, VisibleJsonValue> {
   const { visible } = computeVisibleEntities(state, observer.characterId);
+  const airdrops: VisibleEntry[] = [];
   const charAndLoot: VisibleEntry[] = [];
   const cover: VisibleEntry[] = [];
   const walls: VisibleEntry[] = [];
   const evac: VisibleEntry[] = [];
 
   for (const entity of visible) {
-    if (entity.kind === "chest" && chestSpentById(state, entity.objectId)) {
+    if (entity.kind === "crate" && crateSpentById(state, entity.objectId)) {
       continue;
     }
     if (entity.kind === "corpse" && corpseDrainedById(state, entity.objectId)) {
       continue;
     }
     const entry = visibleEntryFor(entity, state, observer);
-    if (entry.tier <= 2) charAndLoot.push(entry);
+    if (entry.tier === 0) airdrops.push(entry);
+    else if (entry.tier <= 2) charAndLoot.push(entry);
     else if (entry.tier === 3) cover.push(entry);
     else if (entry.tier === 4) walls.push(entry);
     else evac.push(entry);
   }
 
   const entries = [
+    ...airdrops.sort(visibleComparator),
     ...charAndLoot.sort(visibleComparator).slice(0, VISIBLE_ENTITY_CAP),
     ...cover.sort(visibleComparator).slice(0, COVER_CAP),
     ...walls.sort(visibleComparator).slice(0, WALL_CAP),

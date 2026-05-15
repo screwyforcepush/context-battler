@@ -58,8 +58,8 @@ type TurnDoc = Doc<"turns">;
 type WorldStateDoc = Doc<"worldState">;
 type AgentRecord = TurnDoc["agentRecords"][number];
 type TestEquipped = {
-  weapon?: { category: "weapon"; name: "rusty_blade" | "sword" | "axe" | "greatsword" };
-  armour?: { category: "armour"; name: "cloth" | "leather" | "chain" | "plate" };
+  weapon?: { category: "weapon"; name: "rusty_blade" | "dagger" | "sword" | "axe" | "greatsword" | "warhammer" };
+  armour?: { category: "armour"; name: "cloth" | "leather" | "chain" | "plate" | "riot_plate" };
   consumable?: { category: "consumable"; name: "heal" | "speed" };
 };
 
@@ -115,7 +115,8 @@ function makeWorld(): WorldStateDoc {
     walls: [],
     coverClusters: [],
     coverTiles: [],
-    chests: [],
+    crates: [],
+    airdrops: [],
     corpses: [],
     evac: { centre: { x: 49, y: 50 }, revealedAtTurn: null },
   } as WorldStateDoc;
@@ -199,6 +200,7 @@ function makeBundle(
       ],
       actions: [],
       deaths: [],
+      environmentalDeaths: [],
       visibilityUpdates: [],
     },
   } as TurnDoc;

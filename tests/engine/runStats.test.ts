@@ -11,22 +11,25 @@
 // reads the rows and calls this pure function.
 //
 // Equip rule (locked, WP12): an "equip" is counted once per equipped-
-// slot transition — chest-equip (trace action kind="interact"
+// slot transition — crate-equip (trace action kind="interact"
 // result="opened") OR corpse-loot-equip (trace kind="loot"
-// result="looted"). Opening a chest without taking contents is not an
+// result="looted"). Opening a crate without taking contents is not an
 // equip event (the resolver only emits result="opened" when the equip
-// side-effect succeeded — chests with null contents short-circuit
+// side-effect succeeded — crates with null contents short-circuit
 // before the trace push). Looting without equipping is similarly not
 // counted.
 //
 // Per-persona kill attribution (locked here): every attacker that
-// landed an attack (action.kind="attack" with result starting "dmg ")
-// against a target whose characterId appears in the same turn's
-// `trace.deaths` is credited with one kill. In multi-attacker
-// scenarios all hitters share credit (concept-spec §12: "three
-// attackers on one target → all damage applies"). Top-level `kills`
-// is the count of deaths, which may be less than the sum of
-// per-persona kills when multiple attackers share credit.
+// landed damage (`attack` / `overwatch` / `counter`, result starting
+// "dmg ") against a target whose engine characterId appears in the
+// same turn's `trace.deaths` is credited with one kill. Action targets
+// may be character ids, persona ids, or display names; the aggregator
+// resolves all three to engine character ids before death lookup. In
+// multi-attacker scenarios all hitters share credit (concept-spec §12:
+// "three attackers on one target → all damage applies"). Top-level
+// `kills` is the count of weapon/counter deaths, which may be less
+// than the sum of per-persona kills when multiple attackers share
+// credit. Environmental deaths are not kills and are not credited.
 
 import { describe, expect, it } from "vitest";
 import { aggregateRunStats, type AggregatorTurnRow, type AggregatorCharacterRow } from "../../convex/engine/runStats.js";
@@ -55,6 +58,7 @@ function turn(opts: Partial<AggregatorTurnRow> & { turn: number }): AggregatorTu
       moves: opts.resolution?.moves ?? [],
       actions: opts.resolution?.actions ?? [],
       deaths: opts.resolution?.deaths ?? [],
+      environmentalDeaths: opts.resolution?.environmentalDeaths ?? [],
       visibilityUpdates: opts.resolution?.visibilityUpdates ?? [],
     },
   };
@@ -102,22 +106,22 @@ describe("WP12 — runs.aggregate top-level counts", () => {
     expect(result.kills).toBe(2);
   });
 
-  it("counts equips from chest-equip + corpse-loot-equip trace actions (WP12: 3 chest opens + 1 chest opens-without-equip → equips=3)", () => {
+  it("counts equips from crate-equip + corpse-loot-equip trace actions (WP12: 3 crate opens + 1 crate opens-without-equip → equips=3)", () => {
     // The resolver emits result="opened" ONLY when the equip side-effect
-    // succeeded (chests with null contents short-circuit before the trace
+    // succeeded (crates with null contents short-circuit before the trace
     // push at convex/engine/resolution.ts:455-461). For aggregation we
     // therefore treat every (kind="interact", result="opened") as an equip.
-    // The "+1 chest opens without equip" half of the WP12 acceptance is
+    // The "+1 crate opens without equip" half of the WP12 acceptance is
     // exercised by the trace omitting that interact entirely (it surfaces
     // as result="already_opened" or doesn't reach the push).
     const roster = defaultRoster();
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
-        { characterId: "c0", kind: "loot", target: "Chest_1_1", result: "opened" },
-        { characterId: "c1", kind: "loot", target: "Chest_2_1", result: "opened" },
-        { characterId: "c2", kind: "loot", target: "Chest_3_1", result: "opened" },
+        { characterId: "c0", kind: "loot", target: "Crate_1_1", result: "opened" },
+        { characterId: "c1", kind: "loot", target: "Crate_2_1", result: "opened" },
+        { characterId: "c2", kind: "loot", target: "Crate_3_1", result: "opened" },
         // already_opened is NOT counted as an equip
-        { characterId: "c3", kind: "loot", target: "Chest_1_1", result: "already_opened" },
+        { characterId: "c3", kind: "loot", target: "Crate_1_1", result: "already_opened" },
       ] } }),
     ];
     const result = aggregateRunStats(turns, roster);
@@ -199,12 +203,84 @@ describe("WP12 — runs.aggregate per-persona breakdown (consistency invariant)"
     expect(kBy.trader).toBe(0);
   });
 
+  it("credits lethal attack actions whose targets are persona display names", () => {
+    const roster = defaultRoster();
+    const turns: AggregatorTurnRow[] = [
+      turn({ turn: 5, resolution: {
+        consumed: [], speech: [], moves: [], visibilityUpdates: [],
+        deaths: ["c1"],
+        actions: [
+          { characterId: "c0", kind: "attack", target: "Duelist", result: "dmg 60" },
+        ],
+      } }),
+    ];
+    const result = aggregateRunStats(turns, roster);
+    expect(result.kills).toBe(1);
+    const kBy = Object.fromEntries(result.perPersona.map((p) => [p.personaId, p.kills]));
+    expect(kBy.rat).toBe(1);
+    expect(kBy.duelist).toBe(0);
+  });
+
+  it("credits lethal attack actions whose targets are persona ids while preserving character-id targets", () => {
+    const roster = defaultRoster();
+    const turns: AggregatorTurnRow[] = [
+      turn({ turn: 6, resolution: {
+        consumed: [], speech: [], moves: [], visibilityUpdates: [],
+        deaths: ["c1", "c3"],
+        actions: [
+          { characterId: "c0", kind: "attack", target: "duelist", result: "dmg 60" },
+          { characterId: "c2", kind: "attack", target: "c3", result: "dmg 60" },
+        ],
+      } }),
+    ];
+    const result = aggregateRunStats(turns, roster);
+    expect(result.kills).toBe(2);
+    const kBy = Object.fromEntries(result.perPersona.map((p) => [p.personaId, p.kills]));
+    expect(kBy.rat).toBe(1);
+    expect(kBy.trader).toBe(1);
+  });
+
+  it("credits lethal counter-fire actions whose targets are display names", () => {
+    const roster = defaultRoster();
+    const turns: AggregatorTurnRow[] = [
+      turn({ turn: 9, resolution: {
+        consumed: [], speech: [], moves: [], visibilityUpdates: [],
+        deaths: ["c0"],
+        actions: [
+          { characterId: "c1", kind: "counter", target: "Rat", result: "dmg 60" },
+        ],
+      } }),
+    ];
+    const result = aggregateRunStats(turns, roster);
+    expect(result.kills).toBe(1);
+    const kBy = Object.fromEntries(result.perPersona.map((p) => [p.personaId, p.kills]));
+    expect(kBy.duelist).toBe(1);
+    expect(kBy.rat).toBe(0);
+  });
+
+  it("does not count environmental-death-only turns as kills or per-persona kill credit", () => {
+    const roster = defaultRoster();
+    const turns: AggregatorTurnRow[] = [
+      turn({ turn: 10, resolution: {
+        consumed: [], speech: [], moves: [], visibilityUpdates: [],
+        deaths: [],
+        environmentalDeaths: ["c1"],
+        actions: [
+          { characterId: "c0", kind: "attack", target: "Duelist", result: "dmg 60" },
+        ],
+      } }),
+    ];
+    const result = aggregateRunStats(turns, roster);
+    expect(result.kills).toBe(0);
+    expect(result.perPersona.reduce((acc, p) => acc + p.kills, 0)).toBe(0);
+  });
+
   it("perPersona.equips sum equals top-level equips (each equip attributed once)", () => {
     const roster = defaultRoster();
     // c0=rat, c1=duelist, c4=paranoid (per default roster ordering)
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
-        { characterId: "c0", kind: "loot", target: "Chest_1_1", result: "opened" },
+        { characterId: "c0", kind: "loot", target: "Crate_1_1", result: "opened" },
         { characterId: "c1", kind: "loot", target: "Corpse_Paranoid", result: "looted" },
       ] } }),
     ];
@@ -217,12 +293,12 @@ describe("WP12 — runs.aggregate per-persona breakdown (consistency invariant)"
     expect(sum).toBe(result.equips);
   });
 
-  it("does not count malformed chest looted rows as corpse equips", () => {
+  it("does not count malformed crate looted rows as corpse equips", () => {
     const roster = defaultRoster();
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
-        { characterId: "c0", kind: "loot", target: "Chest_1_1", result: "opened" },
-        { characterId: "c0", kind: "loot", target: "Chest_1_1", result: "looted" },
+        { characterId: "c0", kind: "loot", target: "Crate_1_1", result: "opened" },
+        { characterId: "c0", kind: "loot", target: "Crate_1_1", result: "looted" },
         { characterId: "c1", kind: "loot", target: "Corpse_Camper", result: "looted" },
       ] } }),
     ];
@@ -297,7 +373,7 @@ describe("WP12 — runs.aggregate per-persona breakdown (consistency invariant)"
 });
 
 describe("WP12 — runs.aggregate WP12 acceptance scenario", () => {
-  it("synthetic match with 2 kills (T5+T12), 3 chest opens with equip, 1 chest open without equip, 1 extraction → kills=2, equips=3, extractions=1", () => {
+  it("synthetic match with 2 kills (T5+T12), 3 crate opens with equip, 1 crate open without equip, 1 extraction → kills=2, equips=3, extractions=1", () => {
     // Mirrors the WP12 acceptance bullet verbatim.
     const roster: AggregatorCharacterRow[] = [
       character({ _id: "c0", personaId: "rat", alive: true, extractedAtTurn: 50 }),
@@ -311,11 +387,11 @@ describe("WP12 — runs.aggregate WP12 acceptance scenario", () => {
     ];
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
-        { characterId: "c0", kind: "loot", target: "Chest_1_1", result: "opened" },
-        { characterId: "c3", kind: "loot", target: "Chest_2_1", result: "opened" },
-        { characterId: "c4", kind: "loot", target: "Chest_3_1", result: "opened" },
-        // 4th chest open with no equip — emitted as already_opened or out_of_range
-        { characterId: "c5", kind: "loot", target: "Chest_1_1", result: "already_opened" },
+        { characterId: "c0", kind: "loot", target: "Crate_1_1", result: "opened" },
+        { characterId: "c3", kind: "loot", target: "Crate_2_1", result: "opened" },
+        { characterId: "c4", kind: "loot", target: "Crate_3_1", result: "opened" },
+        // 4th crate open with no equip — emitted as already_opened or out_of_range
+        { characterId: "c5", kind: "loot", target: "Crate_1_1", result: "already_opened" },
       ] } }),
       turn({ turn: 5, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: ["c1"], actions: [
         { characterId: "c0", kind: "attack", target: "c1", result: "dmg 100" },
@@ -338,10 +414,10 @@ describe("WP12 — runs.aggregate WP12 acceptance scenario", () => {
 //            `result="looted"` is emitted ONLY when the equip side-effect
 //            actually ran. Two failure modes the previous emission shape
 //            mishandled:
-//              (a) Dud chest (chest.contents === null / opened === true) →
+//              (a) Dud crate (crate.contents === null / opened === true) →
 //                  no equip side-effect → no success trace.
 //              (b) Same-turn collision (two actors target same un-opened
-//                  chest) → only the first actor's equip runs → only that
+//                  crate) → only the first actor's equip runs → only that
 //                  one gets a success trace.
 //            Same shape applies to the corpse-loot path (empty / drained
 //            corpse → no looted trace).
@@ -361,7 +437,8 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
     walls: [],
     coverClusters: [],
     coverTiles: [],
-    chests: [],
+    crates: [],
+    airdrops: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
@@ -451,9 +528,9 @@ function rosterFromState(state: MatchState): AggregatorCharacterRow[] {
   }));
 }
 
-describe("Fix #1 — equip ground-truth (chest)", () => {
-  it("two actors target the same un-opened chest same turn → equips counter increments by exactly 1, not 2", () => {
-    // Two actors A (rat) and B (duelist) both adjacent to Chest_1_0 and both
+describe("Fix #1 — equip ground-truth (crate)", () => {
+  it("two actors target the same un-opened crate same turn → equips counter increments by exactly 1, not 2", () => {
+    // Two actors A (rat) and B (duelist) both adjacent to Crate_1_0 and both
     // commit `interact` against it the same turn. Phase 5 only equips ONE of
     // them (whichever runs first in sorted order). Aggregator must count the
     // equip exactly once — top-level + per-persona.
@@ -472,26 +549,25 @@ describe("Fix #1 — equip ground-truth (chest)", () => {
     const state = makeState({
       characters: [a, b],
       world: {
-        chests: [
+        crates: [
           {
-            id: "Chest_1_0",
+            id: "Crate_1_0",
             pos: { x: 1, y: 0 },
             contents: { category: "weapon", name: "axe" },
             opened: false,
-            lootTable: "weapons-heavy",
           },
         ],
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ action: { kind: "loot", targetId: "Chest_1_0" } })],
-      ["B", nullDecision({ action: { kind: "loot", targetId: "Chest_1_0" } })],
+      ["A", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })],
+      ["B", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
 
-    // Sanity: chest is opened, exactly one of A/B has axe equipped.
-    const chest = next.world.chests.find((c) => c.id === "Chest_1_0")!;
-    expect(chest.opened).toBe(true);
+    // Sanity: crate is opened, exactly one of A/B has axe equipped.
+    const crate = next.world.crates.find((c) => c.id === "Crate_1_0")!;
+    expect(crate.opened).toBe(true);
     const aWeap = next.characters.find((c) => c.characterId === "A")!.equipped.weapon;
     const bWeap = next.characters.find((c) => c.characterId === "B")!.equipped.weapon;
     const equippedAxe = [aWeap, bWeap].filter(
@@ -511,9 +587,9 @@ describe("Fix #1 — equip ground-truth (chest)", () => {
     expect(eBy.trader).toBe(0);
   });
 
-  it("dud chest (contents === null) → no equip; aggregator equips counter is 0", () => {
+  it("dud crate (contents === null) → no equip; aggregator equips counter is 0", () => {
     // Action-build previously pushed `result="opened"` for the actor's claim
-    // even when the chest had null contents (phase 5 short-circuits without
+    // even when the crate had null contents (phase 5 short-circuits without
     // running the equip side-effect). Post-fix: the ground-truth contract
     // requires no `result="opened"` action when no equip ran.
     const a = makeCharacter({
@@ -524,38 +600,37 @@ describe("Fix #1 — equip ground-truth (chest)", () => {
     const state = makeState({
       characters: [a],
       world: {
-        chests: [
+        crates: [
           {
-            id: "Chest_1_0",
+            id: "Crate_1_0",
             pos: { x: 1, y: 0 },
             contents: null,
             opened: false,
-            lootTable: "weapons-heavy",
           },
         ],
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ action: { kind: "loot", targetId: "Chest_1_0" } })],
+      ["A", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })],
     ]);
     const { trace, state: next } = resolveTurn(state, decisions);
 
-    // No success trace is emitted; empty chests now produce an explicit
+    // No success trace is emitted; empty crates now produce an explicit
     // non-success trace.
-    // Phase-3 PM lock D7: chest opens emit `kind="loot"` / `result="opened"`
+    // Phase-3 PM lock D7: crate opens emit `kind="loot"` / `result="opened"`
     // (the resolved-engine-path, unified under loot per ADR §1).
     const successOpens = trace.actions.filter(
       (act) =>
         act.kind === "loot" &&
         act.result === "opened" &&
         typeof act.target === "string" &&
-        /^Chest_-?\d+_-?\d+$/.test(act.target),
+        /^Crate_-?\d+_-?\d+$/.test(act.target),
     );
     expect(successOpens).toHaveLength(0);
     expect(trace.actions).toContainEqual({
       characterId: "A",
       kind: "loot",
-      target: "Chest_1_0",
+      target: "Crate_1_0",
       result: "empty",
     });
 

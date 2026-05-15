@@ -17,26 +17,23 @@
 // Pure-function module per ADR §1; no Convex imports. Three exports:
 //   - `loadReferenceMap()`         — return the bundled descriptor (cloned).
 //   - `expandMap(descriptor, seed)`— turn a descriptor into a `WorldState`,
-//                                    resolving chest contents deterministically.
+//                                    copying hand-authored crate contents.
 //   - `assignPersonasToSpawns(seed, personas)` — seeded permutation that
 //                                    pairs each persona with a unique
 //                                    spawnIndex ∈ [0, personas.length).
 //
 // Determinism contract (tested in `tests/engine/map.test.ts`):
 //   `expandMap(d, "x")` deep-equals itself across calls.
-//   `expandMap(d, "x")` differs from `expandMap(d, "y")` in at least one
-//   chest's resolved contents (probabilistic — seed plumbing is broken
-//   if it doesn't).
+//   `expandMap(d, "x")` deep-equals `expandMap(d, "y")` for crate contents.
 //
 // PRNG:
 //   - `makeRng` is xmur3 + mulberry32 (re-exported from `loot.ts`).
-//   - Per-chest seed: `rngSeed + ":chest:" + chestId` so two chests with
-//     different ids never share a stream.
 //   - Persona-spawn seed: `rngSeed + ":spawnAssign"` so it doesn't collide
-//     with chest streams.
+//     with future deterministic streams.
 
 import {
-  type ChestState,
+  type AirdropState,
+  type CrateState,
   type EvacZone,
   type MapDescriptor,
   type PersonaId,
@@ -44,7 +41,7 @@ import {
   type WorldState,
   type Wall,
 } from "./types.js";
-import { makeRng, rollLoot } from "./loot.js";
+import { makeRng } from "./loot.js";
 // JSON import — Convex's esbuild-based bundler + tsconfig
 // `resolveJsonModule: true` make this work in both deployment + vitest.
 // The `_comment` doc field is stripped at the loader boundary below so the
@@ -72,7 +69,8 @@ export function loadReferenceMap(): MapDescriptor {
     size: parsed.size,
     walls: parsed.walls,
     coverClusters: parsed.coverClusters,
-    chests: parsed.chests,
+    crates: parsed.crates,
+    airdrops: parsed.airdrops,
     spawns: parsed.spawns,
     evac: parsed.evac,
   };
@@ -97,45 +95,45 @@ function rectToTiles(rect: Wall): Tile[] {
 // ─── expandMap ───────────────────────────────────────────────────────────────
 
 /**
- * Turn a `MapDescriptor` into a `WorldState` deterministically given an
- * `rngSeed`.
+ * Turn a `MapDescriptor` into a `WorldState`.
  *
  * Per ADR §5/§6:
  *  - `walls` are passed through unchanged (terrain is static).
  *  - `coverClusters` are unrolled into `coverTiles[]`.
- *  - Each chest's `contents` is resolved by seeding a fresh PRNG with
- *    `rngSeed + ":chest:" + chestId` and calling `rollLoot(lootTable, rng)`.
- *    Different chests never share a stream — this means swapping a single
- *    chest's `lootTable` in the descriptor doesn't perturb other chests'
- *    contents, which keeps WP15's tuning iterations diff-friendly.
+ *  - Each crate's `contents` is copied from the hand-authored descriptor.
  *  - `evac.revealedAtTurn` initialises to `null` (revealed at turn 30 by
  *    WP7/WP10 per concept-spec §15).
  *  - `corpses[]` initialises to empty (WP7 phase 6 fills it on death).
  *
- * Chest ids: stable coord-encoded ids (`Chest_<x>_<y>`) derived from the
+ * Crate ids: stable coord-encoded ids (`Crate_<x>_<y>`) derived from the
  * descriptor position.
  */
 export function expandMap(
   descriptor: MapDescriptor,
-  rngSeed: string,
+  _rngSeed: string,
 ): WorldState {
   const coverTiles: Tile[] = [];
   for (const cluster of descriptor.coverClusters) {
     coverTiles.push(...rectToTiles(cluster));
   }
 
-  const chests: ChestState[] = descriptor.chests.map((c) => {
-    const chestId = `Chest_${c.x}_${c.y}`;
-    const rng = makeRng(`${rngSeed}:chest:${chestId}`);
-    const contents = rollLoot(c.lootTable, rng);
+  const crates: CrateState[] = descriptor.crates.map((c) => {
+    const crateId = `Crate_${c.x}_${c.y}`;
     return {
-      id: chestId,
+      id: crateId,
       pos: { x: c.x, y: c.y },
-      contents,
+      contents: { ...c.contents },
       opened: false,
-      lootTable: c.lootTable,
     };
   });
+
+  const airdrops: AirdropState[] = descriptor.airdrops.map((drop) => ({
+    id: `Crate_${drop.x}_${drop.y}`,
+    pos: { x: drop.x, y: drop.y },
+    landsAtTurn: drop.landsAtTurn,
+    contents: { ...drop.contents },
+    looted: false,
+  }));
 
   const evac: EvacZone = {
     centre: { x: descriptor.evac.x, y: descriptor.evac.y },
@@ -147,7 +145,8 @@ export function expandMap(
     walls: descriptor.walls,
     coverClusters: descriptor.coverClusters,
     coverTiles,
-    chests,
+    crates,
+    airdrops,
     corpses: [],
     evac,
   };

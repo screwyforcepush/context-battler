@@ -6,7 +6,7 @@
 //   - concept-spec.md §10 (movement; entity-tracking; no mid-move retarget)
 //   - concept-spec.md §11 (overwatch; reveal-on-fire)
 //   - concept-spec.md §12 (combat; simultaneous resolution)
-//   - concept-spec.md §13 (gear; chest open + equip; corpse formation/loot)
+//   - concept-spec.md §13 (gear; crate open + equip; corpse formation/loot)
 //   - concept-spec.md §14 (consumables; heal/speed)
 //   - concept-spec.md §15 (evac; turn-30 reveal; turn-50 extraction)
 //   - concept-spec.md §16 (speech; broadcast; reveal speaker)
@@ -51,6 +51,7 @@ import {
   applyDamage,
   weaponNameForTrace,
 } from "./combat.js";
+import { findCrateById } from "./airdrops.js";
 import { chebyshev } from "./distance.js";
 import { isInCover } from "./hiding.js";
 import { updateLastKnown } from "./lastKnown.js";
@@ -118,6 +119,7 @@ export type ResolutionTrace = {
   // kind="counter".
   actions: ActionTraceEntry[];
   deaths: string[];
+  environmentalDeaths: string[];
   visibilityUpdates: Array<{
     characterId: string;
     hidden: boolean;
@@ -136,8 +138,8 @@ const EVAC_HALF_SIZE = 1; // 3×3 zone = centre ± 1
 
 // ─── Internal helpers ────────────────────────────────────────────────────
 
-function isChestId(id: string): boolean {
-  return /^Chest_-?\d+_-?\d+$/.test(id);
+function isCrateId(id: string): boolean {
+  return /^Crate_-?\d+_-?\d+$/.test(id);
 }
 
 /**
@@ -179,6 +181,7 @@ export function resolveTurn(
     moves: [],
     actions: [],
     deaths: [],
+    environmentalDeaths: [],
     visibilityUpdates: [],
   };
 
@@ -359,7 +362,7 @@ export function resolveTurn(
   // Collect interact / loot mutations to apply post-attacks (these don't
   // affect simultaneity with attacks; sequencing them after attack
   // collection is fine because they don't target characters).
-  type InteractEvent = { actorId: string; chestId: string };
+  type InteractEvent = { actorId: string; crateId: string };
   // `corpseId` is the engine-internal corpse characterId (matches
   // `corpse.characterId`); `traceTarget` is the original LLM-facing
   // corpse id (e.g. "Corpse_Camper") so the persisted trace echoes
@@ -491,11 +494,11 @@ export function resolveTurn(
       }
       case "loot": {
         // Unified loot dispatch by id namespace.
-        //   Chest_<x>_<y> → chest-open path
+        //   Crate_<x>_<y> → crate-open path
         //   Corpse_*         → corpse-loot path (rendered typed id from
         //                      digest, e.g. `Corpse_Camper`)
         //   otherwise        → result="no_target" (rejection)
-        // PM lock D7: chest opens emit `kind="loot"` / `result="opened"`.
+        // PM lock D7: crate opens emit `kind="loot"` / `result="opened"`.
         const rawTargetId = action.targetId;
         if (typeof rawTargetId !== "string" || rawTargetId === "") {
           trace.actions.push({
@@ -557,32 +560,32 @@ export function resolveTurn(
           });
           break;
         }
-        if (isChestId(rawTargetId)) {
-          const chestId = rawTargetId;
-          const chest = working.world.chests.find((c) => c.id === chestId);
-          if (!chest) {
+        if (isCrateId(rawTargetId)) {
+          const crateId = rawTargetId;
+          const crate = findCrateById(working.world, crateId, state.turn);
+          if (!crate) {
             trace.actions.push({
               characterId: id,
               kind: "loot",
-              target: chestId,
-              result: "no_chest",
+              target: crateId,
+              result: "no_crate",
             });
             break;
           }
-          if (chest.opened) {
+          if (crate.opened) {
             trace.actions.push({
               characterId: id,
               kind: "loot",
-              target: chestId,
+              target: crateId,
               result: "already_opened",
             });
             break;
           }
-          if (chebyshev(actor.pos, chest.pos) > INTERACT_RANGE) {
+          if (chebyshev(actor.pos, crate.pos) > INTERACT_RANGE) {
             trace.actions.push({
               characterId: id,
               kind: "loot",
-              target: chestId,
+              target: crateId,
               result: "out_of_range",
             });
             break;
@@ -591,7 +594,7 @@ export function resolveTurn(
           // Success trace (`kind: "loot"`, `result: "opened"`) is
           // emitted inside the phase-5 inner loop after the equip
           // side-effect succeeds.
-          interacts.push({ actorId: id, chestId });
+          interacts.push({ actorId: id, crateId });
           break;
         }
 
@@ -755,45 +758,63 @@ export function resolveTurn(
     }
   }
 
-  // Apply chest interactions (open chest, equip contents into matching slot,
-  // discard previous; flip opened=true, contents=null). Every valid chest
+  // Apply crate interactions (open crate, equip contents into matching slot,
+  // discard previous; flip opened=true, contents=null). Every valid crate
   // attempt produces a trace entry: success includes the looted item; dud
-  // chests and same-turn collisions are explicit non-success outcomes.
+  // crates and same-turn collisions are explicit non-success outcomes.
   for (const ev of interacts) {
-    const chest = working.world.chests.find((c) => c.id === ev.chestId);
-    if (!chest) continue;
-    if (chest.opened) {
+    const crate = findCrateById(working.world, ev.crateId, state.turn);
+    if (!crate) {
       trace.actions.push({
         characterId: ev.actorId,
         kind: "loot",
-        target: ev.chestId,
+        target: ev.crateId,
+        result: "no_crate",
+      });
+      continue;
+    }
+    if (crate.opened) {
+      trace.actions.push({
+        characterId: ev.actorId,
+        kind: "loot",
+        target: ev.crateId,
         result: "already_opened",
       });
       continue;
     }
-    if (chest.contents === null) {
+    if (crate.contents === null) {
       trace.actions.push({
         characterId: ev.actorId,
         kind: "loot",
-        target: ev.chestId,
+        target: ev.crateId,
         result: "empty",
       });
       continue;
     }
-    const item: ItemRef = chest.contents;
+    const item: ItemRef = crate.contents;
     working = equipIntoSlot(working, ev.actorId, item);
-    // Mutate chests array immutably.
-    const newChests = working.world.chests.map((c) =>
-      c.id === ev.chestId ? { ...c, opened: true, contents: null } : c,
-    );
-    working = {
-      ...working,
-      world: { ...working.world, chests: newChests },
-    };
+    // Mutate crates array immutably.
+    if (crate.source === "static") {
+      const newCrates = working.world.crates.map((c) =>
+        c.id === ev.crateId ? { ...c, opened: true, contents: null } : c,
+      );
+      working = {
+        ...working,
+        world: { ...working.world, crates: newCrates },
+      };
+    } else {
+      const newAirdrops = working.world.airdrops.map((drop) =>
+        drop.id === ev.crateId ? { ...drop, looted: true } : drop,
+      );
+      working = {
+        ...working,
+        world: { ...working.world, airdrops: newAirdrops },
+      };
+    }
     trace.actions.push({
       characterId: ev.actorId,
       kind: "loot",
-      target: ev.chestId,
+      target: ev.crateId,
       result: "opened",
       lootedItem: item.name,
     });
@@ -882,6 +903,31 @@ export function resolveTurn(
       }));
     }
   }
+
+  // ── World events — airdrop spawn / telefrag ──────────────────────────
+  // Airdrops physically spawn after all phase-5 action/loot resolution but
+  // before phase-6 corpse formation. Anyone still alive on the landing tile
+  // vanishes as an environmental death, even if same-turn damage already put
+  // their HP at or below zero.
+  for (const airdrop of working.world.airdrops) {
+    if (airdrop.landsAtTurn !== state.turn) continue;
+    const victim = working.characters
+      .filter(
+        (c) =>
+          c.alive &&
+          c.pos.x === airdrop.pos.x &&
+          c.pos.y === airdrop.pos.y,
+      )
+      .sort((a, b) => a.characterId.localeCompare(b.characterId))[0];
+    if (!victim) continue;
+    working = replaceCharacter(working, victim.characterId, {
+      ...victim,
+      alive: false,
+      diedAtTurn: state.turn,
+    });
+    trace.environmentalDeaths.push(victim.characterId);
+  }
+  trace.environmentalDeaths.sort();
 
   // ── Phase 6 — Death + corpse formation ────────────────────────────────
   // Any character with hp ≤ 0 (and currently alive) → flip alive=false, set

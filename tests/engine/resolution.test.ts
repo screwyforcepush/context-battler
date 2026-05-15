@@ -6,7 +6,7 @@
 //   - concept-spec.md §10 (movement; entity-tracking; no mid-move retarget)
 //   - concept-spec.md §11 (overwatch; reveal-on-fire)
 //   - concept-spec.md §12 (combat; simultaneous resolution)
-//   - concept-spec.md §13 (gear; chest open + equip; corpse formation/loot)
+//   - concept-spec.md §13 (gear; crate open + equip; corpse formation/loot)
 //   - concept-spec.md §14 (consumables; heal/speed)
 //   - concept-spec.md §15 (evac; turn-30 reveal; turn-50 extraction)
 //   - concept-spec.md §16 (speech; broadcast; reveal speaker)
@@ -17,6 +17,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveTurn } from "../../convex/engine/resolution.js";
 import type {
+  AirdropState,
   CharacterState,
   ItemRef,
   MatchState,
@@ -34,7 +35,8 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
     walls: [],
     coverClusters: [],
     coverTiles: [],
-    chests: [],
+    crates: [],
+    airdrops: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
@@ -105,6 +107,21 @@ function nullDecision(overrides: Partial<ParsedDecision> = {}): ParsedDecision {
     say: null,
     scratchpad: null,
     ...overrides,
+  };
+}
+
+function makeAirdrop(
+  landsAtTurn: number,
+  pos: Tile = { x: 50, y: 50 },
+  looted = false,
+  contents: ItemRef = { category: "weapon", name: "axe" },
+): AirdropState {
+  return {
+    id: `Crate_${pos.x}_${pos.y}`,
+    pos,
+    landsAtTurn,
+    contents,
+    looted,
   };
 }
 
@@ -200,12 +217,12 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
     ).toBeTruthy();
   });
 
-  it("§9 — position move resolves first, THEN action (move-then-loot chest)", () => {
-    // Sister scenario for chest interaction — the canonical "move to chest,
-    // then open" pattern needed for ≥80% chest-equip done-bar (mental-model
-    // §10). A at (0,0), chest at (3,0) holding axe. A moves dx=2 → (2,0); chest
+  it("§9 — position move resolves first, THEN action (move-then-loot crate)", () => {
+    // Sister scenario for crate interaction — the canonical "move to crate,
+    // then open" pattern needed for ≥80% crate-equip done-bar (mental-model
+    // §10). A at (0,0), crate at (3,0) holding axe. A moves dx=2 → (2,0); crate
     // is now at distance 1 ≤ INTERACT_RANGE (2). The post-move interact opens
-    // the chest and equips the axe.
+    // the crate and equips the axe.
     const a = makeCharacter({
       id: "A",
       pos: { x: 0, y: 0 },
@@ -214,13 +231,12 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
     const state = makeState({
       characters: [a],
       world: {
-        chests: [
+        crates: [
           {
-            id: "Chest_3_0",
+            id: "Crate_3_0",
             pos: { x: 3, y: 0 },
             contents: { category: "weapon", name: "axe" },
             opened: false,
-            lootTable: "weapons-heavy",
           },
         ],
       },
@@ -231,24 +247,24 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
         nullDecision({
           position: {
             kind: "move",
-            direction: { kind: "toward", targetId: "Chest_3_0" },
+            direction: { kind: "toward", targetId: "Crate_3_0" },
             dist: 8,
           },
-          action: { kind: "loot", targetId: "Chest_3_0" },
+          action: { kind: "loot", targetId: "Crate_3_0" },
         }),
       ],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
-    // A moved closer to the chest (toward stops at Chebyshev 2 from the
-    // chest's target tile); confirm A is now within INTERACT_RANGE.
+    // A moved closer to the crate (toward stops at Chebyshev 2 from the
+    // crate's target tile); confirm A is now within INTERACT_RANGE.
     const aAfter = findChar(next, "A");
     expect(Math.max(Math.abs(aAfter.pos.x - 3), Math.abs(aAfter.pos.y - 0))).toBeLessThanOrEqual(2);
-    // Chest opened, axe equipped (replacing rusty_blade).
+    // Crate opened, axe equipped (replacing rusty_blade).
     expect(aAfter.equipped.weapon).toEqual({ category: "weapon", name: "axe" });
-    const chest = next.world.chests.find((c) => c.id === "Chest_3_0")!;
-    expect(chest.opened).toBe(true);
-    expect(chest.contents).toBeNull();
-    // Phase-3 PM lock D7: chest opens emit `kind === "loot"` (the
+    const crate = next.world.crates.find((c) => c.id === "Crate_3_0")!;
+    expect(crate.opened).toBe(true);
+    expect(crate.contents).toBeNull();
+    // Phase-3 PM lock D7: crate opens emit `kind === "loot"` (the
     // resolved-engine-path, unified under loot per ADR §1).  Trace
     // contains both the move and the loot action.
     expect(trace.moves.find((m) => m.characterId === "A")).toBeTruthy();
@@ -257,7 +273,7 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
         (act) =>
           act.characterId === "A" &&
           act.kind === "loot" &&
-          act.target === "Chest_3_0" &&
+          act.target === "Crate_3_0" &&
           act.result === "opened" &&
           act.lootedItem === "axe",
       ),
@@ -745,10 +761,10 @@ describe("WP7 resolution — concept-spec §11 overwatch", () => {
   });
 });
 
-// ─── §13 gear / chest / corpse ───────────────────────────────────────────
+// ─── §13 gear / crate / corpse ───────────────────────────────────────────
 
 describe("WP7 resolution — concept-spec §13 gear / loot", () => {
-  it("§13 — chest equip replaces slot, discards previous, marks chest opened+contents=null", () => {
+  it("§13 — crate equip replaces slot, discards previous, marks crate opened+contents=null", () => {
     const a = makeCharacter({
       id: "A",
       pos: { x: 0, y: 0 },
@@ -757,13 +773,12 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
     const state = makeState({
       characters: [a],
       world: {
-        chests: [
+        crates: [
           {
-            id: "Chest_1_0",
+            id: "Crate_1_0",
             pos: { x: 1, y: 0 },
             contents: { category: "weapon", name: "axe" },
             opened: false,
-            lootTable: "weapons-heavy",
           },
         ],
       },
@@ -772,7 +787,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "loot", targetId: "Chest_1_0" },
+          action: { kind: "loot", targetId: "Crate_1_0" },
         }),
       ],
     ]);
@@ -781,20 +796,20 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       category: "weapon",
       name: "axe",
     });
-    const chest = next.world.chests.find((c) => c.id === "Chest_1_0")!;
-    expect(chest.opened).toBe(true);
-    expect(chest.contents).toBeNull();
+    const crate = next.world.crates.find((c) => c.id === "Crate_1_0")!;
+    expect(crate.opened).toBe(true);
+    expect(crate.contents).toBeNull();
     expect(
       trace.actions.find(
         (act) =>
           act.kind === "loot" &&
-          act.target === "Chest_1_0" &&
+          act.target === "Crate_1_0" &&
           act.result === "opened",
       )?.lootedItem,
     ).toBe("axe");
   });
 
-  it("§13 — chest equip dispatches under coord-encoded `Chest_x_y` id", () => {
+  it("§13 — crate equip dispatches under coord-encoded `Crate_x_y` id", () => {
     const a = makeCharacter({
       id: "A",
       pos: { x: 0, y: 0 },
@@ -803,13 +818,12 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
     const state = makeState({
       characters: [a],
       world: {
-        chests: [
+        crates: [
           {
-            id: "Chest_1_0",
+            id: "Crate_1_0",
             pos: { x: 1, y: 0 },
             contents: { category: "weapon", name: "sword" },
             opened: false,
-            lootTable: "weapons-light",
           },
         ],
       },
@@ -818,7 +832,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "loot", targetId: "Chest_1_0" },
+          action: { kind: "loot", targetId: "Crate_1_0" },
         }),
       ],
     ]);
@@ -827,58 +841,318 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       category: "weapon",
       name: "sword",
     });
-    const chest = next.world.chests.find((c) => c.id === "Chest_1_0")!;
-    expect(chest.opened).toBe(true);
+    const crate = next.world.crates.find((c) => c.id === "Crate_1_0")!;
+    expect(crate.opened).toBe(true);
     expect(
       trace.actions.some(
         (act) =>
           act.kind === "loot" &&
-          act.target === "Chest_1_0" &&
+          act.target === "Crate_1_0" &&
           act.result === "opened" &&
           act.lootedItem === "sword",
       ),
     ).toBe(true);
   });
 
-  it("§13 — same-turn chest collision traces winner item and loser already_opened", () => {
+  it("WP-C BC-3 — no same-turn airdrop loot on landsAtTurn; first lootable turn is landsAtTurn+1", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 49, y: 50 } });
+    const drop = makeAirdrop(10, { x: 50, y: 50 });
+    const landingTurn = makeState({
+      characters: [a],
+      turn: 10,
+      world: { airdrops: [drop] },
+    });
+
+    const denied = resolveTurn(
+      landingTurn,
+      new Map([
+        [
+          "A",
+          nullDecision({ action: { kind: "loot", targetId: "Crate_50_50" } }),
+        ],
+      ]),
+    );
+
+    expect(denied.trace.actions).toContainEqual({
+      characterId: "A",
+      kind: "loot",
+      target: "Crate_50_50",
+      result: "no_crate",
+    });
+    expect(denied.state.world.airdrops[0]?.looted).toBe(false);
+    expect(findChar(denied.state, "A").equipped.weapon).toBeUndefined();
+
+    const firstLootable = makeState({
+      characters: [a],
+      turn: 11,
+      world: { airdrops: [drop] },
+    });
+    const opened = resolveTurn(
+      firstLootable,
+      new Map([
+        [
+          "A",
+          nullDecision({ action: { kind: "loot", targetId: "Crate_50_50" } }),
+        ],
+      ]),
+    );
+
+    expect(opened.trace.actions).toContainEqual({
+      characterId: "A",
+      kind: "loot",
+      target: "Crate_50_50",
+      result: "opened",
+      lootedItem: "axe",
+    });
+    expect(opened.state.world.airdrops[0]?.looted).toBe(true);
+    expect(findChar(opened.state, "A").equipped.weapon).toEqual({
+      category: "weapon",
+      name: "axe",
+    });
+  });
+
+  it("WP-C BC-2 — landed airdrop loot at range 2 uses the same opened trace contract as a static crate and flips to spent", () => {
+    const staticLooter = makeCharacter({ id: "A", pos: { x: 1, y: 0 } });
+    const airdropLooter = makeCharacter({ id: "B", pos: { x: 49, y: 50 } });
+    const state = makeState({
+      characters: [staticLooter, airdropLooter],
+      turn: 11,
+      world: {
+        crates: [
+          {
+            id: "Crate_1_0",
+            pos: { x: 1, y: 0 },
+            contents: { category: "weapon", name: "axe" },
+            opened: false,
+          },
+        ],
+        airdrops: [makeAirdrop(10, { x: 50, y: 50 })],
+      },
+    });
+
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([
+        [
+          "A",
+          nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } }),
+        ],
+        [
+          "B",
+          nullDecision({ action: { kind: "loot", targetId: "Crate_50_50" } }),
+        ],
+      ]),
+    );
+
+    const staticTrace = trace.actions.find((a) => a.target === "Crate_1_0");
+    const dropTrace = trace.actions.find((a) => a.target === "Crate_50_50");
+    expect(staticTrace).toMatchObject({
+      kind: "loot",
+      result: "opened",
+      lootedItem: "axe",
+    });
+    expect(dropTrace).toMatchObject({
+      kind: "loot",
+      result: "opened",
+      lootedItem: "axe",
+    });
+    expect(next.world.crates[0]).toMatchObject({
+      id: "Crate_1_0",
+      opened: true,
+      contents: null,
+    });
+    expect(next.world.airdrops[0]).toMatchObject({
+      id: "Crate_50_50",
+      looted: true,
+    });
+  });
+
+  it("WP-C BC-2 — spent airdrop loot emits already_opened and remains spent", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 49, y: 50 } });
+    const state = makeState({
+      characters: [a],
+      turn: 11,
+      world: { airdrops: [makeAirdrop(10, { x: 50, y: 50 }, true)] },
+    });
+
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([
+        [
+          "A",
+          nullDecision({ action: { kind: "loot", targetId: "Crate_50_50" } }),
+        ],
+      ]),
+    );
+
+    expect(trace.actions).toContainEqual({
+      characterId: "A",
+      kind: "loot",
+      target: "Crate_50_50",
+      result: "already_opened",
+    });
+    expect(next.world.airdrops[0]?.looted).toBe(true);
+  });
+
+  it("WP-D — telefrags an agent camped on the airdrop spawn tile on landsAtTurn without corpse or gear transfer", () => {
+    const camper = makeCharacter({
+      id: "A",
+      pos: { x: 50, y: 50 },
+      weapon: { category: "weapon", name: "greatsword" },
+      armour: { category: "armour", name: "plate" },
+    });
+    const survivor = makeCharacter({ id: "B", pos: { x: 45, y: 50 } });
+    const dropContents: ItemRef = { category: "weapon", name: "axe" };
+    const state = makeState({
+      characters: [camper, survivor],
+      turn: 10,
+      world: {
+        airdrops: [makeAirdrop(10, { x: 50, y: 50 }, false, dropContents)],
+      },
+    });
+
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([
+        ["A", nullDecision()],
+        ["B", nullDecision()],
+      ]),
+    );
+
+    expect(trace.environmentalDeaths).toEqual(["A"]);
+    expect(trace.deaths).toEqual([]);
+    const camperAfter = findChar(next, "A");
+    expect(camperAfter.alive).toBe(false);
+    expect(camperAfter.diedAtTurn).toBe(10);
+    expect(next.world.corpses).toEqual([]);
+    expect(next.world.airdrops[0]).toMatchObject({
+      id: "Crate_50_50",
+      contents: dropContents,
+      looted: false,
+    });
+    expect(next.characters.filter((c) => c.alive).map((c) => c.characterId)).toEqual([
+      "B",
+    ]);
+  });
+
+  it("WP-D — telefrags an agent that moves onto the spawn tile before the airdrop lands", () => {
+    const sprinter = makeCharacter({ id: "A", pos: { x: 49, y: 50 } });
+    const observer = makeCharacter({ id: "B", pos: { x: 45, y: 50 } });
+    const state = makeState({
+      characters: [sprinter, observer],
+      turn: 10,
+      world: { airdrops: [makeAirdrop(10, { x: 50, y: 50 })] },
+    });
+
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([
+        [
+          "A",
+          nullDecision({
+            position: { kind: "move", direction: { kind: "E" }, dist: 1 },
+          }),
+        ],
+        ["B", nullDecision()],
+      ]),
+    );
+
+    expect(trace.moves).toContainEqual({
+      characterId: "A",
+      from: { x: 49, y: 50 },
+      to: { x: 50, y: 50 },
+    });
+    expect(trace.environmentalDeaths).toEqual(["A"]);
+    expect(trace.deaths).toEqual([]);
+    expect(findChar(next, "A")).toMatchObject({
+      alive: false,
+      diedAtTurn: 10,
+      pos: { x: 50, y: 50 },
+    });
+    expect(next.world.corpses).toEqual([]);
+  });
+
+  it("WP-D — telefrag wins over same-turn lethal attack and leaves no death trace or corpse", () => {
+    const attacker = makeCharacter({
+      id: "A",
+      pos: { x: 48, y: 50 },
+      weapon: { category: "weapon", name: "warhammer" },
+    });
+    const victim = makeCharacter({
+      id: "B",
+      pos: { x: 50, y: 50 },
+      hp: 10,
+      weapon: { category: "weapon", name: "greatsword" },
+    });
+    const state = makeState({
+      characters: [attacker, victim],
+      turn: 10,
+      world: { airdrops: [makeAirdrop(10, { x: 50, y: 50 })] },
+    });
+
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([
+        ["A", nullDecision({ action: { kind: "attack", targetId: "B" } })],
+        ["B", nullDecision()],
+      ]),
+    );
+
+    expect(trace.actions).toContainEqual({
+      characterId: "A",
+      kind: "attack",
+      target: "B",
+      result: "dmg 30",
+      weapon: "warhammer",
+    });
+    expect(findChar(next, "B").hp).toBeLessThanOrEqual(0);
+    expect(trace.environmentalDeaths).toEqual(["B"]);
+    expect(trace.deaths).toEqual([]);
+    expect(next.world.corpses).toEqual([]);
+    expect(findChar(next, "B")).toMatchObject({
+      alive: false,
+      diedAtTurn: 10,
+    });
+  });
+
+  it("§13 — same-turn crate collision traces winner item and loser already_opened", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const b = makeCharacter({ id: "B", pos: { x: 2, y: 0 } });
     const state = makeState({
       characters: [a, b],
       world: {
-        chests: [
+        crates: [
           {
-            id: "Chest_1_0",
+            id: "Crate_1_0",
             pos: { x: 1, y: 0 },
             contents: { category: "weapon", name: "axe" },
             opened: false,
-            lootTable: "weapons-heavy",
           },
         ],
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ action: { kind: "loot", targetId: "Chest_1_0" } })],
-      ["B", nullDecision({ action: { kind: "loot", targetId: "Chest_1_0" } })],
+      ["A", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })],
+      ["B", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })],
     ]);
 
     const { state: next, trace } = resolveTurn(state, decisions);
     const lootTraces = trace.actions.filter(
-      (act) => act.kind === "loot" && act.target === "Chest_1_0",
+      (act) => act.kind === "loot" && act.target === "Crate_1_0",
     );
 
     expect(lootTraces).toEqual([
       {
         characterId: "A",
         kind: "loot",
-        target: "Chest_1_0",
+        target: "Crate_1_0",
         result: "opened",
         lootedItem: "axe",
       },
       {
         characterId: "B",
         kind: "loot",
-        target: "Chest_1_0",
+        target: "Crate_1_0",
         result: "already_opened",
       },
     ]);
@@ -886,24 +1160,23 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
     expect(findChar(next, "B").equipped.weapon).toBeUndefined();
   });
 
-  it("§13 — empty chest attempts emit result empty instead of disappearing", () => {
+  it("§13 — empty crate attempts emit result empty instead of disappearing", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({
       characters: [a],
       world: {
-        chests: [
+        crates: [
           {
-            id: "Chest_1_0",
+            id: "Crate_1_0",
             pos: { x: 1, y: 0 },
             contents: null,
             opened: false,
-            lootTable: "weapons-heavy",
           },
         ],
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", nullDecision({ action: { kind: "loot", targetId: "Chest_1_0" } })],
+      ["A", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })],
     ]);
 
     const { trace } = resolveTurn(state, decisions);
@@ -911,7 +1184,7 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
     expect(trace.actions).toContainEqual({
       characterId: "A",
       kind: "loot",
-      target: "Chest_1_0",
+      target: "Crate_1_0",
       result: "empty",
     });
   });
@@ -1628,7 +1901,7 @@ describe("WP-B.2 drained-corpse trace — ADR §4", () => {
 // ─── WP-B.3 Loot dispatch by id namespace — Phase-3 ADR §1 ───────────────
 
 describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
-  it("Chest_x_y prefix → chest-open path (kind='loot', result='opened')", () => {
+  it("Crate_x_y prefix → crate-open path (kind='loot', result='opened')", () => {
     const a = makeCharacter({
       id: "A",
       pos: { x: 0, y: 0 },
@@ -1637,13 +1910,12 @@ describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
     const state = makeState({
       characters: [a],
       world: {
-        chests: [
+        crates: [
           {
-            id: "Chest_1_0",
+            id: "Crate_1_0",
             pos: { x: 1, y: 0 },
             contents: { category: "weapon", name: "axe" },
             opened: false,
-            lootTable: "starter",
           },
         ],
       },
@@ -1652,7 +1924,7 @@ describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
       [
         "A",
         nullDecision({
-          action: { kind: "loot", targetId: "Chest_1_0" },
+          action: { kind: "loot", targetId: "Crate_1_0" },
         }),
       ],
     ]);
@@ -1661,7 +1933,7 @@ describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
       (act) =>
         act.characterId === "A" &&
         act.kind === "loot" &&
-        act.target === "Chest_1_0" &&
+        act.target === "Crate_1_0" &&
         act.result === "opened" &&
         act.lootedItem === "axe",
     );
@@ -1701,7 +1973,7 @@ describe("WP-B.3 loot dispatch by id namespace — ADR §1", () => {
     expect(looted).toBeDefined();
   });
 
-  it("bogus id (neither Chest_x_y nor Corpse_ prefix) → trace emits result='no_target'", () => {
+  it("bogus id (neither Crate_x_y nor Corpse_ prefix) → trace emits result='no_target'", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({ characters: [a] });
     const decisions = new Map<string, ParsedDecision>([

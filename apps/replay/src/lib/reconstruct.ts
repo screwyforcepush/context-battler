@@ -14,14 +14,14 @@
 //     by `row.turn` — NEVER indexed by array position.
 //   - D-P2-11: equipped + hp are NOT derivable from the ledger; snapshot
 //     fields are ALWAYS `null`. Hover card (WP-D) shows "see expand panel".
-//   - D-P2-12: opened-chest contents are not persisted (engine clears
-//     `worldState.chests[i].contents` on open — `resolution.ts:537`). Walk
+//   - D-P2-12: opened-crate contents are not persisted (engine clears
+//     `worldState.crates[i].contents` on open — `resolution.ts:537`). Walk
 //     just flips `opened=true`; hover card shows "contents not persisted".
 //   - D-P2-14 + phase-3 ADR §1 / PM lock D7: result-string vocabulary
 //     canonical source is `convex/engine/resolution.ts`. Phase-3 unifies
 //     `interact`+`loot` into a single `loot` kind dispatched by id
 //     namespace. The walk consults `result` ONLY for
-//     `kind === "loot" && result === "opened" && isChestId(target)`.
+//     `kind === "loot" && result === "opened" && isCrateId(target)`.
 //     Death detection comes from `resolution.deaths[]`, NEVER from a
 //     result string.
 //   - Phase-8 extraction (NOT a `kind:"extract"` action) is read from the
@@ -81,17 +81,27 @@ export type SnapshotCorpse = {
   pos: Tile;
 };
 
-export type SnapshotChest = {
+export type SnapshotCrate = {
   id: string;
   pos: Tile;
   opened: boolean;
+};
+
+export type SnapshotAirdrop = {
+  id: string;
+  pos: Tile;
+  landsAtTurn: number;
+  state: "pre" | "telegraphed" | "landed" | "spent";
+  looted: boolean;
+  countdown?: number;
 };
 
 export type EntitySnapshot = {
   turn: number;
   characters: SnapshotCharacter[];
   corpses: SnapshotCorpse[];
-  chests: SnapshotChest[];
+  crates: SnapshotCrate[];
+  airdrops: SnapshotAirdrop[];
   evacRevealed: boolean;
 };
 
@@ -126,7 +136,12 @@ export function reconstruct(
   let snapshot = synthesiseTurnZero(bundle);
 
   // ── If atTurn === 0, return synthetic snapshot directly. ───────────────
-  if (atTurn <= 0) return snapshot;
+  if (atTurn <= 0) {
+    return {
+      ...snapshot,
+      airdrops: projectAirdrops(snapshot.airdrops, 0),
+    };
+  }
 
   // ── Walk t = 1..atTurn. Stop early if a turn has no ledger row. ───────
   for (let t = 1; t <= atTurn; t++) {
@@ -142,7 +157,12 @@ export function reconstruct(
   const revealedAt = bundle.worldState?.evac.revealedAtTurn ?? null;
   const evacRevealed = revealedAt !== null && revealedAt <= atTurn;
 
-  return { ...snapshot, turn: atTurn, evacRevealed };
+  return {
+    ...snapshot,
+    turn: atTurn,
+    airdrops: projectAirdrops(snapshot.airdrops, atTurn),
+    evacRevealed,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -177,20 +197,30 @@ function synthesiseTurnZero(bundle: ReplayBundle): EntitySnapshot {
     };
   });
 
-  // Chests: from worldState (terminal) but `.opened` forced false at turn 0.
+  // Crates: from worldState (terminal) but `.opened` forced false at turn 0.
   // The walk re-derives the open flip via the action ledger so backward
   // jumps stay correct (de-risking §1.6).
-  const chests: SnapshotChest[] = (bundle.worldState?.chests ?? []).map((c) => ({
+  const crates: SnapshotCrate[] = (bundle.worldState?.crates ?? []).map((c) => ({
     id: c.id,
     pos: { x: c.pos.x, y: c.pos.y },
     opened: false,
   }));
+  const airdrops: SnapshotAirdrop[] = (bundle.worldState?.airdrops ?? []).map(
+    (drop) => ({
+      id: drop.id,
+      pos: { x: drop.pos.x, y: drop.pos.y },
+      landsAtTurn: drop.landsAtTurn,
+      state: "pre",
+      looted: false,
+    }),
+  );
 
   return {
     turn: 0,
     characters,
     corpses: [],
-    chests,
+    crates,
+    airdrops,
     evacRevealed: false,
   };
 }
@@ -199,7 +229,7 @@ function synthesiseTurnZero(bundle: ReplayBundle): EntitySnapshot {
 // Internal: apply one turn's resolution to the snapshot. Returns NEW state.
 // Order mirrors concept-spec.md §23 (and engine resolution.ts):
 //   1. moves         — set named characters' pos to move.to
-//   2. actions       — loot/opened/Chest_<x>_<y> flips chests; corpse-loot and
+//   2. actions       — loot/opened/Crate_<x>_<y> flips crates; corpse-loot and
 //                      attack are no-ops (per D-P2-11/D-P2-12; HP &
 //                      equipment not snapshot-tracked)
 //   3. deaths        — flip alive=false, set diedAtTurn=t, push corpse at
@@ -228,33 +258,37 @@ function applyTurn(
 
   // ── 2) Actions ────────────────────────────────────────────────────────
   // Per phase-3 ADR §1 / PM lock D7 walk rules: only `loot` with
-  // `result === "opened"` AND `isChestId(target)` mutates the
-  // snapshot (chest's `opened` flips true). Corpse loots — same `kind:
-  // "loot"` — must NOT trigger the chest-flip (the target id namespace
+  // `result === "opened"` AND `isCrateId(target)` mutates the
+  // snapshot (crate's `opened` flips true). Corpse loots — same `kind:
+  // "loot"` — must NOT trigger the crate-flip (the target id namespace
   // disambiguates). Other action results are no-ops at the snapshot
   // layer — equipment/HP are NOT tracked (D-P2-11).
-  let chests = prev.chests;
+  let crates = prev.crates;
+  let airdrops = prev.airdrops;
   for (const a of resolution.actions) {
     if (
       a.kind === "loot" &&
       a.result === "opened" &&
-      isChestId(a.target)
+      isCrateId(a.target)
     ) {
       const targetId = a.target;
       let mutated = false;
-      const next = chests.map((c) => {
+      const next = crates.map((c) => {
         if (c.id === targetId && !c.opened) {
           mutated = true;
           return { ...c, opened: true };
         }
         return c;
       });
-      if (mutated) chests = next;
+      if (mutated) crates = next;
+      airdrops = airdrops.map((drop) =>
+        drop.id === targetId ? { ...drop, looted: true } : drop,
+      );
     }
-    // attack / corpse loot / chest-loot-other-results → snapshot is
+    // attack / corpse loot / crate-loot-other-results → snapshot is
     // unchanged. The side-panel feed (decisionEnglish) renders the
     // outcome string separately; the snapshot only tracks position +
-    // chest-open-state + alive/hidden + extraction.
+    // crate-open-state + alive/hidden + extraction.
   }
 
   // ── 3) Deaths ─────────────────────────────────────────────────────────
@@ -290,13 +324,14 @@ function applyTurn(
     turn: t,
     characters,
     corpses,
-    chests,
+    crates,
+    airdrops,
     evacRevealed: prev.evacRevealed,
   };
 }
 
-function isChestId(id: string): boolean {
-  return /^Chest_-?\d+_-?\d+$/.test(id);
+function isCrateId(id: string): boolean {
+  return /^Crate_-?\d+_-?\d+$/.test(id);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -328,4 +363,32 @@ function applyExtraction(
     return c;
   });
   return { ...snap, characters };
+}
+
+function projectAirdrops(
+  airdrops: SnapshotAirdrop[],
+  atTurn: number,
+): SnapshotAirdrop[] {
+  return airdrops.map((drop) => {
+    if (drop.looted) {
+      return withoutCountdown({ ...drop, state: "spent" });
+    }
+    if (atTurn < drop.landsAtTurn - 3) {
+      return withoutCountdown({ ...drop, state: "pre" });
+    }
+    if (atTurn <= drop.landsAtTurn) {
+      return {
+        ...drop,
+        state: "telegraphed",
+        countdown: drop.landsAtTurn - atTurn,
+      };
+    }
+    return withoutCountdown({ ...drop, state: "landed" });
+  });
+}
+
+function withoutCountdown(drop: SnapshotAirdrop): SnapshotAirdrop {
+  const next = { ...drop };
+  delete next.countdown;
+  return next;
 }

@@ -41,9 +41,11 @@ const weaponRefValidator = v.object({
   category: v.literal("weapon"),
   name: v.union(
     v.literal("rusty_blade"),
+    v.literal("dagger"),
     v.literal("sword"),
     v.literal("axe"),
     v.literal("greatsword"),
+    v.literal("warhammer"),
   ),
 });
 const armourRefValidator = v.object({
@@ -53,6 +55,7 @@ const armourRefValidator = v.object({
     v.literal("leather"),
     v.literal("chain"),
     v.literal("plate"),
+    v.literal("riot_plate"),
   ),
 });
 const consumableRefValidator = v.object({
@@ -240,6 +243,7 @@ const resolutionValidator = v.object({
     }),
   ),
   deaths: v.array(v.id("characters")),
+  environmentalDeaths: v.array(v.id("characters")),
   visibilityUpdates: v.array(
     v.object({
       characterId: v.id("characters"),
@@ -268,11 +272,19 @@ const characterPatchValidator = v.object({
   ),
 });
 
-const chestRowValidator = v.object({
+const crateRowValidator = v.object({
   id: v.string(),
   pos: tileValidator,
   contents: v.union(itemRefValidator, v.null()),
   opened: v.boolean(),
+});
+
+const airdropRowValidator = v.object({
+  id: v.string(),
+  pos: tileValidator,
+  landsAtTurn: v.number(),
+  contents: itemRefValidator,
+  looted: v.boolean(),
 });
 
 const corpseRowValidator = v.object({
@@ -286,7 +298,8 @@ const corpseRowValidator = v.object({
 });
 
 const worldPatchValidator = v.object({
-  chests: v.array(chestRowValidator),
+  crates: v.array(crateRowValidator),
+  airdrops: v.array(airdropRowValidator),
   corpses: v.array(corpseRowValidator),
   evac: v.object({
     centre: tileValidator,
@@ -511,7 +524,7 @@ export const markFailed = mutation({
  *   - Insert the `turns` row (agentRecords[] + resolution).
  *   - Patch each character row (hp/pos/equipped/scratchpad/hidden/alive/
  *     diedAtTurn?/extractedAtTurn?/lastKnown).
- *   - Patch the worldState row (chests/corpses/evac may have flipped).
+ *   - Patch the worldState row (crates/corpses/evac may have flipped).
  *   - Update matches.turn to `nextTurn`.
  *   - On `terminal=true`: also flip status to "completed" + populate
  *     outcome + completedAt.
@@ -594,7 +607,8 @@ export const persistTurn = mutation({
     const worldRow = worldRows[0];
     if (worldRow) {
       await ctx.db.patch(worldRow._id, {
-        chests: args.worldPatch.chests,
+        crates: args.worldPatch.crates,
+        airdrops: args.worldPatch.airdrops,
         corpses: args.worldPatch.corpses,
         evac: args.worldPatch.evac,
       });

@@ -77,7 +77,7 @@ const EXTRACTION_THRESHOLD = 0.3;
 /** ≥ 80% of runs contain at least one kill. */
 const KILL_THRESHOLD = 0.8;
 
-/** ≥ 80% of runs contain at least one chest equip. */
+/** ≥ 80% of runs contain at least one crate equip. */
 const EQUIP_THRESHOLD = 0.8;
 
 /** ≥ 50% of runs contain at least one speech event. */

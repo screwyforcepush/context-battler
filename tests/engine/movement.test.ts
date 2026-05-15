@@ -33,7 +33,8 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
     walls: [],
     coverClusters: [],
     coverTiles: [],
-    chests: [],
+    crates: [],
+    airdrops: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
@@ -309,27 +310,26 @@ describe("WP7 movement — concept-spec §10", () => {
     expect(findChar(next, "A").pos).toEqual({ x: 5, y: 5 });
   });
 
-  it("§10 — toward Chest_x_y uses static chest position and stops at Chebyshev 2", () => {
+  it("§10 — toward Crate_x_y uses static crate position and stops at Chebyshev 2", () => {
     const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
     const state = makeState({
       characters: [a],
       world: {
-        chests: [
+        crates: [
           {
-            id: "Chest_5_0",
+            id: "Crate_5_0",
             pos: { x: 5, y: 0 },
             contents: { category: "weapon", name: "sword" },
             opened: false,
-            lootTable: "starter",
           },
         ],
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "toward", targetId: "Chest_5_0" })],
+      ["A", moveDecision({ kind: "toward", targetId: "Crate_5_0" })],
     ]);
     const { state: next } = simulateMovement(state, decisions);
-    // Stops at Chebyshev 2 from chest at (5,0): A ends at (3,0).
+    // Stops at Chebyshev 2 from crate at (5,0): A ends at (3,0).
     expect(findChar(next, "A").pos).toEqual({ x: 3, y: 0 });
   });
 
@@ -513,37 +513,36 @@ describe("Phase 05 WP-C movement resolver — typed target ids", () => {
     expect(findChar(next, "A").pos).toEqual({ x: 58, y: 50 });
   });
 
-  it("away Chest_x_y moves opposite from a chest at loot range 1", () => {
+  it("away Crate_x_y moves opposite from a crate at loot range 1", () => {
     const actor = makeCharacter({
       id: "A",
       displayName: "Rat",
       pos: { x: 50, y: 50 },
     });
-    const chestTile = { x: 49, y: 50 };
+    const crateTile = { x: 49, y: 50 };
     const state = makeState({
       characters: [actor],
       world: {
-        chests: [
+        crates: [
           {
-            id: "Chest_49_50",
-            pos: chestTile,
+            id: "Crate_49_50",
+            pos: crateTile,
             contents: { category: "weapon", name: "sword" },
             opened: false,
-            lootTable: "starter",
           },
         ],
       },
     });
     const decisions = new Map<string, ParsedDecision>([
-      ["A", moveDecision({ kind: "away", targetId: "Chest_49_50" })],
+      ["A", moveDecision({ kind: "away", targetId: "Crate_49_50" })],
     ]);
 
     const { state: next } = simulateMovement(state, decisions);
     const final = findChar(next, "A").pos;
 
-    expect(chebyshevDistance(actor.pos, chestTile)).toBe(1);
+    expect(chebyshevDistance(actor.pos, crateTile)).toBe(1);
     expect(final).toEqual({ x: 58, y: 50 });
-    expect(chebyshevDistance(final, chestTile)).toBeGreaterThan(2);
+    expect(chebyshevDistance(final, crateTile)).toBeGreaterThan(2);
   });
 
   it("away Corpse_Camper moves opposite from a corpse at loot range 1", () => {

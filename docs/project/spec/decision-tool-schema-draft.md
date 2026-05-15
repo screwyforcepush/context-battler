@@ -90,19 +90,19 @@ Per-turn decision economy reads:
 
 ## 2. Examples
 
-**Speed-rush a chest:**
+**Speed-rush a crate:**
 
 ```json
 {
   "use": "consumable",
   "position": {
     "kind": "move",
-    "direction": { "kind": "toward", "targetId": "Chest_012" },
+    "direction": { "kind": "toward", "targetId": "Crate_012" },
     "dist": 8
   },
-  "action": { "kind": "loot", "targetId": "Chest_012" },
+  "action": { "kind": "loot", "targetId": "Crate_012" },
   "say": null,
-  "scratchpad": "Use speed to close on the chest and loot if reachable."
+  "scratchpad": "Use speed to close on the crate and loot if reachable."
 }
 ```
 
@@ -280,7 +280,7 @@ Per-turn decision economy reads:
                         "attack",
                         "loot"
                       ],
-                      "description": "Attack a visible living character or loot a visible chest/corpse. Pair with `position.move.toward` to close actopm range delta."
+                      "description": "Attack a visible living character or loot a visible crate/corpse. Pair with `position.move.toward` to close actopm range delta."
                     },
                     "targetId": {
                       "type": "string",

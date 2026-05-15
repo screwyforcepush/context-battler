@@ -18,8 +18,8 @@ const turns: any[] = await client.query(api.turns.byMatch, {
   matchId: matchId as never,
 });
 
-function isChestId(id: string): boolean {
-  return /^Chest_-?\d+_-?\d+$/.test(id);
+function isCrateId(id: string): boolean {
+  return /^Crate_-?\d+_-?\d+$/.test(id);
 }
 
 let total = 0;
@@ -37,8 +37,8 @@ let attacksMissed = 0;
 let attacksOutOfRange = 0;
 let movementTriggeredOverwatch = 0;
 let countersResolved = 0;
-let chestEquips = 0;
-let chestInteracts = 0;
+let crateEquips = 0;
+let crateInteracts = 0;
 let speechEvents = 0;
 let deaths = 0;
 let extractions = 0;
@@ -62,10 +62,10 @@ for (const t of turns) {
     } else if (
       a.kind === "loot" &&
       typeof a.target === "string" &&
-      isChestId(a.target)
+      isCrateId(a.target)
     ) {
-      chestInteracts += 1;
-      if (a.result === "opened" || a.result === "equipped") chestEquips += 1;
+      crateInteracts += 1;
+      if (a.result === "opened" || a.result === "equipped") crateEquips += 1;
     } else if (a.kind === "extract") {
       extractions += 1;
     }
@@ -153,10 +153,10 @@ console.log(
   countersResolved,
 );
 console.log(
-  "chest interacts:",
-  chestInteracts,
+  "crate interacts:",
+  crateInteracts,
   "equips/opens:",
-  chestEquips,
+  crateEquips,
 );
 console.log(
   "speech events:",
@@ -187,9 +187,9 @@ console.log(
   `(${(fallbackRate * 100).toFixed(1)}%)`,
 );
 console.log(
-  "≥1 chest equip:",
-  chestEquips >= 1 ? "PASS" : "FAIL",
-  `(${chestEquips})`,
+  "≥1 crate equip:",
+  crateEquips >= 1 ? "PASS" : "FAIL",
+  `(${crateEquips})`,
 );
 console.log(
   "≥1 attack landed-or-near-miss:",

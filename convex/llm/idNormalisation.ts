@@ -3,6 +3,10 @@ import {
   computeVisibleEntities,
   nearestTileOfRect,
 } from "../engine/vision.js";
+import {
+  airdropProjectionState,
+  findNavigableCrateById,
+} from "../engine/airdrops.js";
 
 // Phase-6 — character target id normalisation at the validator boundary.
 //
@@ -94,12 +98,87 @@ export function normaliseCorpseTargetId(
 }
 
 export type ResolvedEntity = {
-  kind: "character" | "chest" | "corpse" | "cover" | "wall" | "evac";
+  kind: "character" | "crate" | "corpse" | "cover" | "wall" | "evac";
   tile: Tile;
   stopAtRange: number;
   rect?: Wall;
-  engineRef?: { characterId?: string; chestId?: string };
+  engineRef?: { characterId?: string; crateId?: string };
 };
+
+export const TELEGRAPHED_CRATE_STOP_AT_RANGE_ENV =
+  "TELEGRAPHED_CRATE_STOP_AT_RANGE";
+
+export type TelegraphedCrateStopAtRange = 0 | 2;
+
+export type ResolveTypedEntityOptions = {
+  telegraphedCrateStopAtRange?: TelegraphedCrateStopAtRange;
+};
+
+type StopAtRangeContext = {
+  state: MatchState;
+  targetId?: string;
+  options?: ResolveTypedEntityOptions;
+};
+
+const DEFAULT_TELEGRAPHED_CRATE_STOP_AT_RANGE: TelegraphedCrateStopAtRange = 0;
+
+const STOP_AT_RANGE = {
+  character: () => 2,
+  crate: (context: StopAtRangeContext) => crateStopAtRange(context),
+  corpse: () => 2,
+  cover: () => 0,
+  wall: () => 1,
+  evac: () => 0,
+} satisfies Record<
+  ResolvedEntity["kind"],
+  (context: StopAtRangeContext) => number
+>;
+
+function parseTelegraphedCrateStopAtRange(
+  value: string | undefined,
+): TelegraphedCrateStopAtRange | null {
+  if (value === "0") return 0;
+  if (value === "2") return 2;
+  return null;
+}
+
+function configuredTelegraphedCrateStopAtRange(
+  options: ResolveTypedEntityOptions | undefined,
+): TelegraphedCrateStopAtRange {
+  if (options?.telegraphedCrateStopAtRange !== undefined) {
+    return options.telegraphedCrateStopAtRange;
+  }
+
+  const envValue =
+    typeof process === "undefined"
+      ? undefined
+      : process.env[TELEGRAPHED_CRATE_STOP_AT_RANGE_ENV];
+  return (
+    parseTelegraphedCrateStopAtRange(envValue) ??
+    DEFAULT_TELEGRAPHED_CRATE_STOP_AT_RANGE
+  );
+}
+
+function crateStopAtRange({
+  state,
+  targetId,
+  options,
+}: StopAtRangeContext): number {
+  const airdrop = targetId
+    ? state.world.airdrops.find((candidate) => candidate.id === targetId)
+    : undefined;
+  if (airdrop && airdropProjectionState(airdrop, state.turn) === "telegraphed") {
+    return configuredTelegraphedCrateStopAtRange(options);
+  }
+  return 2;
+}
+
+function stopAtRangeFor(
+  kind: ResolvedEntity["kind"],
+  context: StopAtRangeContext,
+): number {
+  return STOP_AT_RANGE[kind](context);
+}
 
 function copyTile(tile: Tile): Tile {
   return { x: tile.x, y: tile.y };
@@ -110,12 +189,8 @@ function observerPos(state: MatchState, observerId: string): Tile {
   return observer ? copyTile(observer.pos) : { x: 0, y: 0 };
 }
 
-function isChestId(targetId: string): boolean {
-  return /^Chest_-?\d+_-?\d+$/.test(targetId);
-}
-
-function findChestByTargetId(state: MatchState, targetId: string) {
-  return state.world.chests.find((chest) => chest.id === targetId);
+function isCrateId(targetId: string): boolean {
+  return /^Crate_-?\d+_-?\d+$/.test(targetId);
 }
 
 function formatRectId(prefix: "Cover" | "Wall" | "Evac", rect: Wall): string {
@@ -195,7 +270,10 @@ export function visibleTargetIds(
         if (character) ids.add(character.displayName);
         break;
       }
-      case "chest":
+      case "crate":
+        ids.add(entity.objectId);
+        break;
+      case "airdrop":
         ids.add(entity.objectId);
         break;
       case "corpse": {
@@ -237,6 +315,7 @@ export function resolveTypedEntity(
   state: MatchState,
   observerId: string,
   targetId: string,
+  options?: ResolveTypedEntityOptions,
 ): ResolvedEntity | null {
   if (targetId.startsWith("Corpse_")) {
     if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
@@ -248,19 +327,19 @@ export function resolveTypedEntity(
     return {
       kind: "corpse",
       tile: copyTile(corpse.pos),
-      stopAtRange: 2,
+      stopAtRange: stopAtRangeFor("corpse", { state, targetId, options }),
     };
   }
 
-  if (isChestId(targetId)) {
+  if (isCrateId(targetId)) {
     if (!hasLineOfSightVisibleTarget(state, observerId, targetId)) return null;
-    const chest = findChestByTargetId(state, targetId);
-    if (!chest) return null;
+    const crate = findNavigableCrateById(state.world, targetId, state.turn);
+    if (!crate) return null;
     return {
-      kind: "chest",
-      tile: copyTile(chest.pos),
-      stopAtRange: 2,
-      engineRef: { chestId: chest.id },
+      kind: "crate",
+      tile: copyTile(crate.pos),
+      stopAtRange: stopAtRangeFor("crate", { state, targetId, options }),
+      engineRef: { crateId: crate.id },
     };
   }
 
@@ -277,7 +356,7 @@ export function resolveTypedEntity(
     return {
       kind: "cover",
       tile: nearestTileOfRect(observerPos(state, observerId), rect),
-      stopAtRange: 0,
+      stopAtRange: stopAtRangeFor("cover", { state, targetId, options }),
       rect,
     };
   }
@@ -295,7 +374,7 @@ export function resolveTypedEntity(
     return {
       kind: "wall",
       tile: nearestTileOfRect(observerPos(state, observerId), rect),
-      stopAtRange: 1,
+      stopAtRange: stopAtRangeFor("wall", { state, targetId, options }),
       rect,
     };
   }
@@ -311,7 +390,7 @@ export function resolveTypedEntity(
     return {
       kind: "evac",
       tile: nearestTileOfRect(observerPos(state, observerId), rect),
-      stopAtRange: 0,
+      stopAtRange: stopAtRangeFor("evac", { state, targetId, options }),
       rect,
     };
   }
@@ -324,7 +403,7 @@ export function resolveTypedEntity(
     return {
       kind: "character",
       tile: copyTile(character.pos),
-      stopAtRange: 2,
+      stopAtRange: stopAtRangeFor("character", { state, targetId, options }),
       engineRef: { characterId: character.characterId },
     };
   }
@@ -339,7 +418,7 @@ export function resolveTypedEntity(
     return {
       kind: "corpse",
       tile: copyTile(corpse.pos),
-      stopAtRange: 2,
+      stopAtRange: stopAtRangeFor("corpse", { state, targetId, options }),
       engineRef: { characterId: corpse.characterId },
     };
   }

@@ -10,7 +10,7 @@
 //   - Two-column body: square Grid + hover-listener wrapper, TurnFeed takes
 //     the remaining widescreen width.
 //   - Hover-target dispatch via React event delegation on the Grid wrapper —
-//     reads `data-token-kind` / `data-character-id` / `data-chest-id` from
+//     reads `data-token-kind` / `data-character-id` / `data-crate-id` from
 //     Grid.tsx (WP-B) and constructs a HoverTarget for WP-D's HoverCard.
 //   - Modal state (`modalTarget`) — fed to WP-D's ExpandModal; opened by
 //     TurnFeed's "..." button.
@@ -118,15 +118,15 @@ export function Replay(props: {
   }, [bundle, currentTurn, hasVintageAgentRecords]);
 
   // ── Hover listener: delegated event handlers on the Grid wrapper. ───
-  // Grid.tsx emits `data-token-kind` (background/wall/cover/evac/chest/
-  // corpse/agent) plus `data-character-id` / `data-chest-id` on tokens
+  // Grid.tsx emits `data-token-kind` (background/wall/cover/evac/crate/
+  // corpse/agent) plus `data-character-id` / `data-crate-id` on tokens
   // that need them. We read those + the hovered SVG tile's local x/y
   // attributes to construct the HoverTarget union.
   //
   // TODO (Grid.tsx is WP-D's territory): emit `data-px` / `data-py` on
   // each per-tile <rect> so the hover position is always the GRID-LOCAL
   // tile coord. For now we extract x/y from the SVG node's `x`/`y`
-  // attribute when available (cover/wall/chest/corpse) and fall back to
+  // attribute when available (cover/wall/crate/corpse) and fall back to
   // (-1,-1) for the background/evac tokens that span the viewport.
   const onGridMouseOver = (e: React.MouseEvent): void => {
     const el = (e.target as Element).closest(
@@ -135,7 +135,7 @@ export function Replay(props: {
     if (!el) return;
     const kind = el.dataset.tokenKind;
     const characterId = el.dataset.characterId;
-    const chestId = el.dataset.chestId;
+    const crateId = el.dataset.crateId;
 
     // Try to read px/py from data-* (preferred) then fall back to SVG x/y.
     const px = parseLocalCoord(el, "px") ?? parseLocalCoord(el, "x") ?? 0;
@@ -158,12 +158,12 @@ export function Replay(props: {
         };
         break;
       }
-      case "chest": {
-        if (!chestId) break;
-        const fromSnap = snapshot?.chests.find((c) => c.id === chestId);
+      case "crate": {
+        if (!crateId) break;
+        const fromSnap = snapshot?.crates.find((c) => c.id === crateId);
         next = {
-          kind: "chest",
-          chestId,
+          kind: "crate",
+          crateId,
           pos: fromSnap ? fromSnap.pos : pos,
         };
         break;
@@ -366,7 +366,8 @@ function emptySnapshotFallback() {
     turn: 0,
     characters: [],
     corpses: [],
-    chests: [],
+    crates: [],
+    airdrops: [],
     evacRevealed: false,
   };
 }

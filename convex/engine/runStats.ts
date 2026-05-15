@@ -15,12 +15,15 @@
 //
 // Counter semantics (locked here):
 //
-//   kills: total deaths across the match (`sum(turns[*].resolution.deaths.length)`).
-//          Also surfaces in `perPersona.kills` for every attacker who landed
-//          a same-turn `attack` against a target whose id appears in the
-//          turn's `deaths`. Multi-attacker credit per concept-spec §12 —
-//          the sum of `perPersona.kills` may exceed top-level `kills` when
-//          multiple attackers contributed to one death.
+//   kills: total weapon/counter deaths across the match
+//          (`sum(turns[*].resolution.deaths.length)`). Environmental deaths
+//          live outside `deaths`, so they are not counted as kills. Also
+//          surfaces in `perPersona.kills` for every attacker who landed
+//          same-turn damage against a target whose resolved engine
+//          characterId appears in the turn's `deaths`. Multi-attacker
+//          credit per concept-spec §12 — the sum of `perPersona.kills` may
+//          exceed top-level `kills` when multiple attackers contributed to
+//          one death.
 //
 //   extractions: count of characters with `extractedAtTurn` populated in
 //          their final state. Per-persona bucket is 0/1 per character.
@@ -30,14 +33,14 @@
 //          result="looted")`. Ground-truth contract (Gate-2 fix #1): the
 //          resolver pushes the success result ONLY from inside the phase-5
 //          equip / loot APPLICATION loops, AFTER each short-circuit
-//          (chests: `chest.opened || chest.contents === null`; corpses:
+//          (crates: `crate.opened || crate.contents === null`; corpses:
 //          no remaining slot to pick) — so `result="opened"` /
 //          `result="looted"` is one-to-one with the equip side-effect
 //          actually running. Same-turn collisions (multiple actors target
-//          the same chest/corpse) only credit the one actor whose
-//          side-effect runs; dud chests with null contents and drained
+//          the same crate/corpse) only credit the one actor whose
+//          side-effect runs; dud crates with null contents and drained
 //          corpses produce zero equip events. Failed action-build attempts
-//          (`already_opened` / `out_of_range` / `no_chest` / `no_corpse`)
+//          (`already_opened` / `out_of_range` / `no_crate` / `no_corpse`)
 //          are emitted as those non-success results and are NOT counted.
 //
 //   speechEvents: total `trace.speech.length` across all turns. Per-persona
@@ -51,15 +54,15 @@
 // Cross-references:
 //   - ADR §6 — locks the `runs` row schema (field names + types).
 //   - work-packages.md WP12 — acceptance ("Synthetic match with 2 kills,
-//     3 chest opens with equip, 1 chest open without equip, 1 extraction
+//     3 crate opens with equip, 1 crate open without equip, 1 extraction
 //     → kills=2, equips=3, extractions=1") covered by runStats.test.ts.
 //   - mental-model.md §10 — Gate-3 done-bar consumes the per-persona
 //     extraction-rate spread that builds on top of these per-persona counts.
 
-import { PERSONA_IDS, type PersonaId } from "./types.js";
+import { PERSONA_IDS, titleCase, type PersonaId } from "./types.js";
 
-function isChestId(id: string): boolean {
-  return /^Chest_-?\d+_-?\d+$/.test(id);
+function isCrateId(id: string): boolean {
+  return /^Crate_-?\d+_-?\d+$/.test(id);
 }
 
 // ─── Types (mirror Convex row shapes; plain-object) ──────────────────────
@@ -87,6 +90,7 @@ export type AggregatorResolution = {
   moves: Array<{ characterId: string; from: { x: number; y: number }; to: { x: number; y: number } }>;
   actions: AggregatorAction[];
   deaths: string[];
+  environmentalDeaths?: string[];
   visibilityUpdates: Array<{ characterId: string; hidden: boolean; revealedBy?: string }>;
 };
 
@@ -101,6 +105,7 @@ export type AggregatorTurnRow = {
 export type AggregatorCharacterRow = {
   _id: string;
   personaId: PersonaId;
+  displayName?: string;
   alive: boolean;
   diedAtTurn?: number;
   extractedAtTurn?: number;
@@ -159,6 +164,50 @@ function buildPersonaIndex(
   return idx;
 }
 
+function addTargetAliases(
+  lookup: Map<string, string>,
+  participant: { characterId: string; personaId: PersonaId; displayName?: string },
+): void {
+  lookup.set(participant.characterId, participant.characterId);
+  lookup.set(participant.personaId, participant.characterId);
+  lookup.set(titleCase(participant.personaId), participant.characterId);
+  if (participant.displayName && participant.displayName.trim().length > 0) {
+    lookup.set(participant.displayName, participant.characterId);
+  }
+}
+
+function buildTargetIdLookup(
+  turns: readonly AggregatorTurnRow[],
+  characters: readonly AggregatorCharacterRow[],
+): Map<string, string> {
+  const lookup = new Map<string, string>();
+  for (const c of characters) {
+    addTargetAliases(lookup, {
+      characterId: c._id,
+      personaId: c.personaId,
+      ...(c.displayName !== undefined ? { displayName: c.displayName } : {}),
+    });
+  }
+  for (const t of turns) {
+    for (const record of t.agentRecords) {
+      addTargetAliases(lookup, {
+        characterId: record.characterId,
+        personaId: record.personaId,
+      });
+    }
+  }
+  return lookup;
+}
+
+function isDamageAction(action: AggregatorAction): boolean {
+  return (
+    (action.kind === "attack" ||
+      action.kind === "overwatch" ||
+      action.kind === "counter") &&
+    /^dmg\s+\d+/i.test(action.result)
+  );
+}
+
 // ─── Public aggregator ────────────────────────────────────────────────────
 
 /**
@@ -180,6 +229,7 @@ export function aggregateRunStats(
   characters: AggregatorCharacterRow[],
 ): RunSummary {
   const personaIndex = buildPersonaIndex(characters);
+  const targetIdLookup = buildTargetIdLookup(turns, characters);
   const perPersona = emptyPerPersona();
 
   let kills = 0;
@@ -192,21 +242,17 @@ export function aggregateRunStats(
     kills += t.resolution.deaths.length;
 
     if (deathSet.size > 0) {
-      // For each landed attack against a dead character this turn, credit
+      // For each landed damage action against a dead character this turn, credit
       // the attacker's persona with one kill. Multi-attacker scenarios
       // share credit (concept-spec §12: "if three agents attack one
-      // target, all valid attacks land"). BOTH stationary attacks
-      // (`kind === "attack"`) AND overwatch hits (`kind === "overwatch"`,
-      // concept-spec §11) qualify; the resolver emits the same
-      // `result = "dmg N"` marker for both. Filter to actions with
-      // `result` starting "dmg " against a target whose id appears in
-      // this turn's `trace.deaths` (Gate-2 fix #2: previously only
-      // `kind === "attack"` was credited, which under-counted per-persona
-      // kills for overwatch lethal hits).
+      // target, all valid attacks land"). Stationary attacks, overwatch,
+      // and counter-fire qualify; resolver traces may target display names
+      // or persona ids, so normalise to engine characterId before checking
+      // `trace.deaths`.
       for (const a of t.resolution.actions) {
-        if (a.kind !== "attack" && a.kind !== "overwatch") continue;
-        if (!a.result.startsWith("dmg ")) continue;
-        if (!deathSet.has(a.target)) continue;
+        if (!isDamageAction(a)) continue;
+        const targetId = targetIdLookup.get(a.target) ?? a.target;
+        if (!deathSet.has(targetId)) continue;
         const attackerPersona = personaIndex.get(a.characterId);
         if (!attackerPersona) continue;
         const bucket = perPersona.get(attackerPersona);
@@ -214,20 +260,20 @@ export function aggregateRunStats(
       }
     }
 
-    // ── equips: chest-equip + corpse-loot-equip ────────────────────────
-    // Chests and corpses share `kind="loot"` but are disambiguated by
+    // ── equips: crate-equip + corpse-loot-equip ────────────────────────
+    // Crates and corpses share `kind="loot"` but are disambiguated by
     // target namespace. Corpse loot success must come from Corpse_<PersonaName>
-    // so malformed chest rows cannot inflate equip counts.
+    // so malformed crate rows cannot inflate equip counts.
     for (const a of t.resolution.actions) {
-      const isChestEquip =
+      const isCrateEquip =
         a.kind === "loot" &&
         a.result === "opened" &&
-        isChestId(a.target);
+        isCrateId(a.target);
       const isCorpseLootEquip =
         a.kind === "loot" &&
         a.result === "looted" &&
         a.target.startsWith("Corpse_");
-      if (!isChestEquip && !isCorpseLootEquip) continue;
+      if (!isCrateEquip && !isCorpseLootEquip) continue;
       equips += 1;
       const persona = personaIndex.get(a.characterId);
       if (!persona) continue;

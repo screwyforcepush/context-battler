@@ -1,13 +1,11 @@
-// WP3 — pure-function unit tests for loot table resolution.
+// WP3/WP-B — pure-function unit tests for deterministic item plumbing.
 //
 // Tests are written FIRST per AOP. They exercise:
-//   9. Every chest's resolved contents references a valid v0 item name.
-//  10. `rollLoot` is deterministic given a seeded rng.
-//  11. Every entry in `LOOT_TABLES` is a valid `ItemRef` over the locked
-//      v0 names from `types.ts` (no invented items).
+//   9. Every crate's hand-authored contents references a valid catalog item.
+//  10. `makeRng` remains deterministic for spawn assignment.
 
 import { describe, expect, it } from "vitest";
-import { LOOT_TABLES, rollLoot, makeRng } from "../../convex/engine/loot.js";
+import { makeRng } from "../../convex/engine/loot.js";
 import { expandMap, loadReferenceMap } from "../../convex/engine/map.js";
 import {
   WEAPONS,
@@ -36,54 +34,34 @@ function isValidItemRef(ref: ItemRef): boolean {
   }
 }
 
-describe("WP3 — loot table integrity", () => {
-  it("Test 11: every LOOT_TABLES entry is a valid ItemRef over locked v0 names", () => {
-    const tableNames = Object.keys(LOOT_TABLES);
-    expect(tableNames.length).toBeGreaterThan(0);
-    for (const tableName of tableNames) {
-      const entries = LOOT_TABLES[tableName];
-      expect(entries, `loot table "${tableName}" missing`).toBeDefined();
-      const arr = entries as ItemRef[];
-      expect(arr.length, `loot table "${tableName}" empty`).toBeGreaterThan(0);
-      for (const entry of arr) {
-        expect(
-          isValidItemRef(entry),
-          `loot table "${tableName}" has invalid entry ${JSON.stringify(entry)}`,
-        ).toBe(true);
-      }
-    }
+describe("WP3 — makeRng determinism", () => {
+  it("Test 10: makeRng('x') produces the same stream across calls", () => {
+    const a = makeRng("x");
+    const b = makeRng("x");
+    expect([a(), a(), a()]).toEqual([b(), b(), b()]);
+  });
+
+  it("different seeds produce different streams for spawn assignment", () => {
+    const a = makeRng("seed1");
+    const b = makeRng("seed2");
+    expect([a(), a(), a()]).not.toEqual([b(), b(), b()]);
   });
 });
 
-describe("WP3 — rollLoot determinism", () => {
-  it("Test 10: rollLoot('starter', rngFromSeed('x')) is deterministic across calls", () => {
-    const a = rollLoot("starter", makeRng("x"));
-    const b = rollLoot("starter", makeRng("x"));
-    expect(a).toEqual(b);
-  });
-
-  it("rollLoot returns a valid ItemRef for every named table", () => {
-    for (const tableName of Object.keys(LOOT_TABLES)) {
-      const ref = rollLoot(tableName, makeRng("seed-" + tableName));
-      expect(isValidItemRef(ref)).toBe(true);
-    }
-  });
-});
-
-describe("WP3 — chest contents after expandMap reference valid v0 names", () => {
-  it("Test 9: every chest in the expanded WorldState has contents referencing a locked v0 item name", () => {
+describe("WP-B — crate contents after expandMap reference valid catalog names", () => {
+  it("Test 9: every crate in the expanded WorldState has hand-authored valid contents", () => {
     const descriptor = loadReferenceMap();
     const world = expandMap(descriptor, "seed1");
-    expect(world.chests.length).toBeGreaterThan(0);
-    for (const chest of world.chests) {
+    expect(world.crates.length).toBeGreaterThan(0);
+    for (const crate of world.crates) {
       expect(
-        chest.contents,
-        `chest ${chest.id} has null contents (chests resolve at match start)`,
+        crate.contents,
+        `crate ${crate.id} has null contents (crates resolve at match start)`,
       ).not.toBeNull();
-      const ref = chest.contents as ItemRef;
+      const ref = crate.contents as ItemRef;
       expect(
         isValidItemRef(ref),
-        `chest ${chest.id} resolved to invalid item ${JSON.stringify(ref)}`,
+        `crate ${crate.id} resolved to invalid item ${JSON.stringify(ref)}`,
       ).toBe(true);
     }
   });

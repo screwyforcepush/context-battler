@@ -8,8 +8,8 @@
 // helpers are reimplemented INLINE here rather than imported from
 // `convex/engine/map.ts`, because that module's top-level `node:fs` import
 // is not resolvable by Convex's default-runtime bundler. The inline
-// implementations are byte-equivalent to the engine module (they use the
-// same `loot.ts` PRNG) so they round-trip with the engine's tests.
+// implementations are byte-equivalent to the engine module so they
+// round-trip with the engine's tests.
 //
 // `runMatch.ts` is the per-turn action and lives in the node runtime
 // (`"use node"`) so it can call `loadPersonas()` per turn (WP9 contract).
@@ -18,7 +18,7 @@
 //   - ADR §6 — locks the schema rows this module writes/reads.
 //   - ADR §7 — the trace-introspection contract `status` exposes for harness.
 //   - work-packages.md WP10 — defines the public surface (start/get/status).
-//   - convex/engine/loot.ts — `makeRng`, `rollLoot` (pure, fs-free).
+//   - convex/engine/loot.ts — `makeRng` (pure, fs-free).
 //   - convex/engine/types.ts — `PERSONA_IDS`, `MapDescriptor`.
 
 import { v } from "convex/values";
@@ -26,10 +26,11 @@ import { mutation, query } from "./_generated/server.js";
 import { api } from "./_generated/api.js";
 import { reasoningEffortValidator } from "./schema.js";
 // loot.ts is fs-free; safe to import from default-runtime module.
-import { makeRng, rollLoot } from "./engine/loot.js";
+import { makeRng } from "./engine/loot.js";
 import { CHARACTER_MAX_HP, PERSONA_IDS, titleCase } from "./engine/types.js";
 import type {
-  ChestState,
+  AirdropState,
+  CrateState,
   EvacZone,
   MapDescriptor,
   PersonaId,
@@ -64,7 +65,8 @@ function getReferenceMapDescriptor(): MapDescriptor {
     size: parsed.size,
     walls: parsed.walls,
     coverClusters: parsed.coverClusters,
-    chests: parsed.chests,
+    crates: parsed.crates,
+    airdrops: parsed.airdrops,
     spawns: parsed.spawns,
     evac: parsed.evac,
   };
@@ -76,8 +78,8 @@ function getReferenceMapDescriptor(): MapDescriptor {
 // because Convex's default-runtime bundler cannot resolve `node:fs` —
 // which `convex/engine/map.ts` imports at module top-level for the
 // `loadReferenceMap()` helper, even though we don't call that one. The
-// `loot.ts` primitives (`makeRng`, `rollLoot`) ARE fs-free and we re-use
-// them directly. WP15 / future engine refactors that move
+// `loot.ts`'s `makeRng` primitive IS fs-free and we re-use it directly
+// for spawn assignment. WP15 / future engine refactors that move
 // `loadReferenceMap` out of `engine/map.ts` can collapse this back into
 // a direct import.
 
@@ -93,31 +95,35 @@ function rectToTiles(rect: Wall): Tile[] {
 }
 
 /**
- * Mirror of `convex/engine/map.ts` `expandMap`. Pure; deterministic given
- * `rngSeed`. Chest ids are coord-encoded (`Chest_<x>_<y>`). Per-chest seed:
- * `rngSeed + ":chest:" + chestId`.
+ * Mirror of `convex/engine/map.ts` `expandMap`. Pure; crate ids are
+ * coord-encoded (`Crate_<x>_<y>`) and contents are hand-authored.
  */
-function expandMapInline(
+export function expandMapInline(
   descriptor: MapDescriptor,
-  rngSeed: string,
+  _rngSeed: string,
 ): WorldState {
   const coverTiles: Tile[] = [];
   for (const cluster of descriptor.coverClusters) {
     coverTiles.push(...rectToTiles(cluster));
   }
 
-  const chests: ChestState[] = descriptor.chests.map((c) => {
-    const chestId = `Chest_${c.x}_${c.y}`;
-    const rng = makeRng(`${rngSeed}:chest:${chestId}`);
-    const contents = rollLoot(c.lootTable, rng);
+  const crates: CrateState[] = descriptor.crates.map((c) => {
+    const crateId = `Crate_${c.x}_${c.y}`;
     return {
-      id: chestId,
+      id: crateId,
       pos: { x: c.x, y: c.y },
-      contents,
+      contents: { ...c.contents },
       opened: false,
-      lootTable: c.lootTable,
     };
   });
+
+  const airdrops: AirdropState[] = descriptor.airdrops.map((drop) => ({
+    id: `Crate_${drop.x}_${drop.y}`,
+    pos: { x: drop.x, y: drop.y },
+    landsAtTurn: drop.landsAtTurn,
+    contents: { ...drop.contents },
+    looted: false,
+  }));
 
   const evac: EvacZone = {
     centre: { x: descriptor.evac.x, y: descriptor.evac.y },
@@ -129,7 +135,8 @@ function expandMapInline(
     walls: descriptor.walls,
     coverClusters: descriptor.coverClusters,
     coverTiles,
-    chests,
+    crates,
+    airdrops,
     corpses: [],
     evac,
   };
@@ -227,16 +234,22 @@ export const start = mutation({
       coverClusters: world.coverClusters,
       coverTiles: world.coverTiles,
     });
-    //    ChestState carries `lootTable` for engine bookkeeping; the schema
-    //    validator accepts the trimmed `{id, pos, contents, opened}` shape
-    //    only — strip lootTable when persisting.
+    //    CrateState already matches the schema's `{id, pos, contents, opened}`
+    //    shape; contents are copied from the descriptor, not rolled.
     await ctx.db.insert("worldState", {
       matchId,
-      chests: world.chests.map((c) => ({
+      crates: world.crates.map((c) => ({
         id: c.id,
         pos: c.pos,
         contents: c.contents,
         opened: c.opened,
+      })),
+      airdrops: world.airdrops.map((drop) => ({
+        id: drop.id,
+        pos: drop.pos,
+        landsAtTurn: drop.landsAtTurn,
+        contents: drop.contents,
+        looted: drop.looted,
       })),
       corpses: [],
       evac: {

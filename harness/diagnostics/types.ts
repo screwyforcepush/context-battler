@@ -26,7 +26,7 @@ export type AzureUsageSlim = {
 
 export type VisibleSummary = {
   enemies: number;
-  chests: number;
+  crates: number;
   corpses: number;
   evacSeen: boolean;
 };
@@ -155,6 +155,7 @@ export type SlimTurnRow = {
     moves: ResolutionMove[];
     actions: ResolutionAction[];
     deaths: string[];
+    environmentalDeaths?: string[];
     visibilityUpdates: Array<{
       characterId: string;
       hidden: boolean;

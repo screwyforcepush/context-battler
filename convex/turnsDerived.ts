@@ -2,7 +2,7 @@ import { CHARACTER_MAX_HP, type EquippedSlots } from "./engine/types.js";
 
 type VisibleSummary = {
   enemies: number;
-  chests: number;
+  crates: number;
   corpses: number;
   evacSeen: boolean;
 };
@@ -169,10 +169,10 @@ function hasPrefix(key: string, prefixes: readonly string[]): boolean {
   return prefixes.some((prefix) => key.startsWith(prefix));
 }
 
-function isChestEntry(key: string, value: unknown): boolean {
+function isCrateEntry(key: string, value: unknown): boolean {
   return (
-    hasPrefix(key, ["Chest_", "chest_"]) ||
-    (isRecord(value) && value.kind === "chest")
+    hasPrefix(key, ["Crate_"]) ||
+    (isRecord(value) && value.kind === "crate")
   );
 }
 
@@ -200,7 +200,7 @@ function isTerrainEntry(key: string, value: unknown): boolean {
 
 function isEnemyEntry(key: string, value: unknown): boolean {
   if (
-    isChestEntry(key, value) ||
+    isCrateEntry(key, value) ||
     isCorpseEntry(key, value) ||
     isEvacEntry(key, value) ||
     isTerrainEntry(key, value)
@@ -234,22 +234,22 @@ function insideBearingHere(source: string): boolean {
 export function summariseVisible(visibleStateDigest: string): VisibleSummary {
   const visible = parseVisibleObject(visibleStateDigest);
   if (!visible) {
-    return { enemies: 0, chests: 0, corpses: 0, evacSeen: false };
+    return { enemies: 0, crates: 0, corpses: 0, evacSeen: false };
   }
 
   let enemies = 0;
-  let chests = 0;
+  let crates = 0;
   let corpses = 0;
   let evacSeen = false;
 
   for (const [key, value] of Object.entries(visible)) {
-    if (isChestEntry(key, value)) chests += 1;
+    if (isCrateEntry(key, value)) crates += 1;
     else if (isCorpseEntry(key, value)) corpses += 1;
     else if (isEvacEntry(key, value)) evacSeen = true;
     else if (isEnemyEntry(key, value)) enemies += 1;
   }
 
-  return { enemies, chests, corpses, evacSeen };
+  return { enemies, crates, corpses, evacSeen };
 }
 
 function selfEquipmentFromStatus(equipped: EquippedSlots): SelfEquipment {

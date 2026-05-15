@@ -32,7 +32,8 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
     walls: [],
     coverClusters: [],
     coverTiles: [],
-    chests: [],
+    crates: [],
+    airdrops: [],
     corpses: [],
     evac: { centre: { x: 50, y: 50 }, revealedAtTurn: null },
     ...overrides,
@@ -191,6 +192,30 @@ describe("WP7 combat — damageFor (concept-spec §12, ADR §6)", () => {
     expect(a).toBe(17);
   });
 
+  it("WP-B — dagger deals 8 and warhammer deals 30 before armour", () => {
+    expect(damageFor({ category: "weapon", name: "dagger" }, undefined)).toBe(
+      8,
+    );
+    expect(
+      damageFor({ category: "weapon", name: "warhammer" }, undefined),
+    ).toBe(30);
+  });
+
+  it("WP-B — riot_plate reduces damage by 14, with the existing floor still binding", () => {
+    expect(
+      damageFor(
+        { category: "weapon", name: "warhammer" },
+        { category: "armour", name: "riot_plate" },
+      ),
+    ).toBe(16);
+    expect(
+      damageFor(
+        { category: "weapon", name: "sword" },
+        { category: "armour", name: "riot_plate" },
+      ),
+    ).toBe(5);
+  });
+
   it("§12 — non-weapon ItemRef in weapon slot is treated as unarmed", () => {
     // Defensive: if a corrupt ItemRef ever slipped through, the engine
     // must not crash. Unarmed default applies.
@@ -209,9 +234,11 @@ describe("WP7 combat — weaponRange (concept-spec §14)", () => {
 
   it("§14 — all v0 weapons have range 2", () => {
     expect(weaponRange({ category: "weapon", name: "rusty_blade" })).toBe(2);
+    expect(weaponRange({ category: "weapon", name: "dagger" })).toBe(2);
     expect(weaponRange({ category: "weapon", name: "sword" })).toBe(2);
     expect(weaponRange({ category: "weapon", name: "axe" })).toBe(2);
     expect(weaponRange({ category: "weapon", name: "greatsword" })).toBe(2);
+    expect(weaponRange({ category: "weapon", name: "warhammer" })).toBe(2);
   });
 
   it("§14 — unarmed range defaults to 2 (matches v0 weapon range)", () => {
