@@ -64,11 +64,17 @@ function makeAgentRecord(
     personaId: "rat",
     input: {
       systemPromptHash: "h",
-      systemPromptText: "sys",
       personaPromptHash: "h",
-      personaPromptText: "per",
       visibleStateDigest: "vis",
       scratchpadBefore: "before",
+      status: {
+        hp: 50,
+        pos: { x: 0, y: 0 },
+        equipped: {},
+        insideEvac: false,
+      },
+      narrativeLines: [],
+      aliveCount: 8,
       useVariant: "null_only",
     },
     decision: {

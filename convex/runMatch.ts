@@ -69,7 +69,11 @@ import {
   type WeaponName,
   type WorldState,
 } from "./engine/types.js";
-import { buildAgentInput, type PrevTurnRow } from "./llm/inputBuilder.js";
+import {
+  buildAgentInput,
+  type AgentInputStatus,
+  type PrevTurnRow,
+} from "./llm/inputBuilder.js";
 import { callDecisionTool, type AzureUsage } from "./llm/azure.js";
 import { loadPersonas } from "./llm/personas.js";
 
@@ -112,7 +116,7 @@ const PRIZE_POOL = 100;
  * input always produces the same output. Used to populate
  * `agentRecords[].input.{systemPromptHash,personaPromptHash}` (ADR §7).
  */
-function hashHex(text: string): string {
+export function hashHex(text: string): string {
   let h = 5381;
   for (let i = 0; i < text.length; i++) {
     // h = h * 33 + char — xor variant for slightly better distribution.
@@ -199,6 +203,7 @@ export function buildMatchState(
   matchRow: Doc<"matches">,
   characters: Doc<"characters">[],
   worldRow: Doc<"worldState">,
+  worldStaticRow: Doc<"worldStatic">,
   descriptorSize: { w: number; h: number },
 ): MatchState {
   const charStates: CharacterState[] = characters.map((c) => ({
@@ -224,14 +229,19 @@ export function buildMatchState(
 
   const world: WorldState = {
     size: descriptorSize,
-    walls: worldRow.walls.map((w) => ({ x: w.x, y: w.y, w: w.w, h: w.h })),
-    coverClusters: worldRow.coverClusters.map((w) => ({
+    walls: worldStaticRow.walls.map((w) => ({
       x: w.x,
       y: w.y,
       w: w.w,
       h: w.h,
     })),
-    coverTiles: worldRow.coverTiles.map((t) => ({ x: t.x, y: t.y })),
+    coverClusters: worldStaticRow.coverClusters.map((w) => ({
+      x: w.x,
+      y: w.y,
+      w: w.w,
+      h: w.h,
+    })),
+    coverTiles: worldStaticRow.coverTiles.map((t) => ({ x: t.x, y: t.y })),
     // ChestState in the engine carries `lootTable`; the row shape doesn't
     // (it's bookkeeping only, used by WP3 expansion). Re-inject a stub
     // value — the engine never re-rolls loot post-spawn so the lootTable
@@ -394,18 +404,23 @@ export function buildAgentInputRecord(r: {
   personaPromptText: string;
   visibleStateDigest: string;
   scratchpadBefore: string;
-  composedUserMessage: string;
   useVariant: UseVariant;
+  status: AgentInputStatus;
+  narrativeLines: string[];
+  aliveCount: number;
 }) {
   return {
     systemPromptHash: hashHex(r.systemPrompt),
-    systemPromptText: r.systemPrompt,
     personaPromptHash: hashHex(r.personaPromptText),
-    personaPromptText: r.personaPromptText,
     visibleStateDigest: r.visibleStateDigest,
     scratchpadBefore: r.scratchpadBefore,
-    composedUserMessage: r.composedUserMessage,
     useVariant: r.useVariant,
+    status: {
+      ...r.status,
+      equipped: narrowEquipped(r.status.equipped),
+    },
+    narrativeLines: r.narrativeLines,
+    aliveCount: r.aliveCount,
   };
 }
 
@@ -686,12 +701,22 @@ export const advanceTurn = action({
           `runMatch.advanceTurn: worldState row missing for match ${matchId}`,
         );
       }
+      const worldStaticRow = await ctx.runQuery(
+        api._internal_runMatch.worldStaticByMatch,
+        { matchId },
+      );
+      if (!worldStaticRow) {
+        throw new Error(
+          `runMatch.advanceTurn: worldStatic row missing for match ${matchId}`,
+        );
+      }
 
       // Use the descriptor's size constant (100×100 reference map per ADR §5).
       const state: MatchState = buildMatchState(
         { ...matchRow, turn: currentTurn },
         characters,
         worldRow,
+        worldStaticRow,
         { w: 100, h: 100 },
       );
 
@@ -738,6 +763,9 @@ export const advanceTurn = action({
         personaPromptText: string;
         visibleStateDigest: string;
         composedUserMessage: string;
+        status: AgentInputStatus;
+        narrativeLines: string[];
+        aliveCount: number;
         scratchpadBefore: string;
         useVariant: UseVariant;
       };
@@ -760,6 +788,9 @@ export const advanceTurn = action({
           personaPromptText: personaText,
           visibleStateDigest: built.visibleStateDigest,
           composedUserMessage: built.composedUserMessage,
+          status: built.status,
+          narrativeLines: built.narrativeLines,
+          aliveCount: built.aliveCount,
           scratchpadBefore: actor.scratchpad,
           useVariant,
         };
@@ -796,6 +827,9 @@ export const advanceTurn = action({
         systemPrompt: string;
         visibleStateDigest: string;
         composedUserMessage: string;
+        status: AgentInputStatus;
+        narrativeLines: string[];
+        aliveCount: number;
         scratchpadBefore: string;
         useVariant: UseVariant;
         decision: ParsedDecision;
@@ -848,6 +882,9 @@ export const advanceTurn = action({
           systemPrompt: entry.systemPrompt,
           visibleStateDigest: entry.visibleStateDigest,
           composedUserMessage: entry.composedUserMessage,
+          status: entry.status,
+          narrativeLines: entry.narrativeLines,
+          aliveCount: entry.aliveCount,
           scratchpadBefore: entry.scratchpadBefore,
           useVariant: entry.useVariant,
           decision: finalDecision,
@@ -922,6 +959,24 @@ export const advanceTurn = action({
           reasoning: r.reasoning,
         }),
       }));
+      const promptTextMap = new Map<
+        string,
+        { kind: "system" | "persona"; hash: string; text: string }
+      >();
+      for (const r of resolved) {
+        const systemHash = hashHex(r.systemPrompt);
+        promptTextMap.set(`system:${systemHash}`, {
+          kind: "system",
+          hash: systemHash,
+          text: r.systemPrompt,
+        });
+        const personaHash = hashHex(r.personaPromptText);
+        promptTextMap.set(`persona:${personaHash}`, {
+          kind: "persona",
+          hash: personaHash,
+          text: r.personaPromptText,
+        });
+      }
 
       const adaptedResolution = adaptResolutionForSchema(trace);
 
@@ -982,6 +1037,7 @@ export const advanceTurn = action({
         matchId,
         turn: currentTurn,
         agentRecords,
+        promptTexts: [...promptTextMap.values()],
         resolution: adaptedResolution,
         characterPatches: nextState.characters.map((c) => ({
           id: c.characterId as Id<"characters">,

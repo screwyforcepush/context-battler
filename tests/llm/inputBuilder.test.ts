@@ -6,6 +6,8 @@ import {
   buildOwnOutcomeLine,
   buildOwnSpeechLine,
   buildVisibleStateDigest,
+  MissingPromptHashError,
+  recomposeUserMessage,
   renderDamageEventLines,
   type PrevTurnRow,
 } from "../../convex/llm/inputBuilder.js";
@@ -314,13 +316,196 @@ describe("Phase 6 input builder — composed user message", () => {
 
   it("returns a minimal fallback shape when the observer is missing", () => {
     const state = makeState({ characters: [] });
-    expect(buildAgentInput(state, "missing", "persona", null, 0)).toEqual({
-      systemPrompt: buildSystemPrompt(1),
-      visibleStateDigest: "Vision:\n{}",
-      composedUserMessage: "{}",
-    });
-  });
-});
+          expect(buildAgentInput(state, "missing", "persona", null, 0)).toEqual({
+            systemPrompt: buildSystemPrompt(1),
+            visibleStateDigest: "Vision:\n{}",
+            status: {
+              hp: 0,
+              pos: { x: 0, y: 0 },
+              equipped: {},
+              insideEvac: false,
+            },
+            narrativeLines: [],
+            aliveCount: 0,
+            composedUserMessage: "{}",
+          });
+        });
+
+        it("recomposes the persisted slim input byte-equal to the runtime user message", () => {
+          const me = makeCharacter({
+            id: "c_duelist",
+            personaId: "duelist",
+            displayName: "Duelist",
+            pos: { x: 44, y: 53 },
+            hp: 35,
+            maxHp: 50,
+            weapon: "rusty_blade",
+            armour: "leather",
+            consumable: "speed",
+            scratchpad: "Pressure Vulture now.",
+          });
+          const camper = makeCharacter({
+            id: "c_camper",
+            personaId: "camper",
+            displayName: "Camper",
+            pos: { x: 46, y: 53 },
+            weapon: "axe",
+          });
+          const rat = makeCharacter({
+            id: "c_rat",
+            personaId: "rat",
+            displayName: "Rat",
+            pos: { x: 47, y: 53 },
+            hp: 0,
+            alive: false,
+          });
+          const state = makeState({
+            characters: [me, camper, rat],
+            turn: 44,
+            world: {
+              corpses: [
+                makeCorpse("c_rat", { x: 47, y: 53 }, {
+                  weapon: { category: "weapon", name: "sword" },
+                }),
+              ],
+            },
+          });
+          const prev = makePrevTurn({
+            moves: [
+              {
+                characterId: "c_duelist",
+                from: { x: 42, y: 51 },
+                to: { x: 44, y: 53 },
+              },
+            ],
+            actions: [
+              {
+                characterId: "c_duelist",
+                kind: "attack",
+                target: "Vulture",
+                result: "dmg 10",
+                weapon: "rusty_blade",
+              },
+              {
+                characterId: "c_camper",
+                kind: "counter",
+                target: "Duelist",
+                result: "dmg 8",
+                weapon: "axe",
+              },
+              {
+                characterId: "c_camper",
+                kind: "attack",
+                target: "Rat",
+                result: "dmg 50",
+                weapon: "axe",
+              },
+            ],
+            speech: [
+              { characterId: "c_duelist", text: "Hold range.", heardBy: [] },
+            ],
+            deaths: ["c_rat"],
+          });
+          const personaPromptText = "Win direct fights.";
+          const built = buildAgentInput(
+            state,
+            "c_duelist",
+            personaPromptText,
+            prev,
+            3,
+          );
+
+          const recomposed = recomposeUserMessage({
+            input: {
+              systemPromptHash: "sys-hash",
+              personaPromptHash: "persona-hash",
+              visibleStateDigest: built.visibleStateDigest,
+              scratchpadBefore: me.scratchpad,
+              status: built.status,
+              narrativeLines: built.narrativeLines,
+              aliveCount: built.aliveCount,
+            },
+            turn: 44,
+            displayName: "Duelist",
+            prompts: {
+              systemText: () => built.systemPrompt,
+              personaText: () => personaPromptText,
+            },
+          });
+
+          expect(recomposed).toBe(built.composedUserMessage);
+          expect(recomposed).toContain("Turn 44, 3/8 players alive");
+          const lines = recomposed.split("\n");
+          const gameStateStart = lines.indexOf("# Current Game State");
+          expect(lines.slice(gameStateStart + 1, gameStateStart + 7)).toEqual([
+            "Turn 44, 3/8 players alive",
+            "You moved 2 SE, attacked Vulture (dmg 10)",
+            "Camper attacked you with axe (dmg 8)",
+            "You said \"Hold range.\"",
+            "Camper killed Rat with axe",
+            "",
+          ]);
+        });
+
+        it("throws fatally when recomposition cannot resolve a prompt hash", () => {
+          const input = {
+            systemPromptHash: "missing-system",
+            personaPromptHash: "persona-hash",
+            visibleStateDigest: "Vision:\n{}",
+            scratchpadBefore: "",
+            status: {
+              hp: 50,
+              pos: { x: 1, y: 2 },
+              equipped: {},
+              insideEvac: false,
+            },
+            narrativeLines: [],
+            aliveCount: 8,
+          };
+
+          expect(() =>
+            recomposeUserMessage({
+              input,
+              turn: 7,
+              displayName: "Rat",
+              prompts: {
+                systemText: () => undefined as unknown as string,
+                personaText: () => "Survive.",
+              },
+            }),
+          ).toThrow(MissingPromptHashError);
+        });
+
+        it("requires turn at the type boundary for byte-equal recomposition", () => {
+          const shouldNotCompile = false;
+          if (shouldNotCompile) {
+            // @ts-expect-error D11: turn is mandatory, not optional.
+            recomposeUserMessage({
+              input: {
+                systemPromptHash: "system-hash",
+                personaPromptHash: "persona-hash",
+                visibleStateDigest: "Vision:\n{}",
+                scratchpadBefore: "",
+                status: {
+                  hp: 50,
+                  pos: { x: 1, y: 1 },
+                  equipped: {},
+                  insideEvac: false,
+                },
+                narrativeLines: [],
+                aliveCount: 8,
+              },
+              displayName: "Rat",
+              prompts: {
+                systemText: () => "system",
+                personaText: () => "persona",
+              },
+            });
+          }
+
+          expect(shouldNotCompile).toBe(false);
+        });
+      });
 
 describe("Phase 6 input builder — event helpers", () => {
   it.each([

@@ -27,7 +27,8 @@ const COMPASS_BEARINGS = 8;
 
 export type Phase9WorldStateEvidence = {
   walls: Wall[];
-  coverClusters?: Wall[];
+  coverClusters: Wall[];
+  coverTiles: Tile[];
   evac: { centre: Tile; revealedAtTurn: number | null };
 };
 

@@ -3,9 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   auditDamageFeed,
   countInboundSpeech,
-  extractSelfHp,
   extractLootOutcomes,
-  extractSelfEquipment,
   projectSlimTurnRow,
   projectSlimTurnRows,
   summariseVisible,
@@ -24,32 +22,41 @@ function makeAgentRecord(overrides: {
   characterId: string;
   personaId: "duelist" | "camper" | "trader";
   visibleStateDigest?: string;
-  composedUserMessage?: string;
+  narrativeLines?: string[];
+  status?: {
+    hp?: number;
+    pos?: { x: number; y: number };
+    equipped?: {
+      weapon?: { category: "weapon"; name: "sword" | "axe" };
+      armour?: { category: "armour"; name: "leather" };
+      consumable?: { category: "consumable"; name: "heal" | "speed" };
+    };
+    insideEvac?: boolean;
+  };
   scratchpadBefore?: string;
   scratchpadAfter?: string;
   retried?: boolean;
 }) {
+  const status = overrides.status ?? {};
   return {
     characterId: overrides.characterId,
     personaId: overrides.personaId,
     input: {
       systemPromptHash: "system-hash",
-      systemPromptText: "HEAVY system prompt",
       personaPromptHash: "persona-hash",
-      personaPromptText: "HEAVY persona prompt",
       visibleStateDigest: overrides.visibleStateDigest ?? "{}",
       scratchpadBefore: overrides.scratchpadBefore ?? "before",
-      composedUserMessage:
-        overrides.composedUserMessage ??
-        [
-          "# Duelist",
-          "## Status",
-          "weapon: sword [dmg 20]",
-          "armour: leather [-3 dmg]",
-          "",
-          "Vision:",
-          "{}",
-        ].join("\n"),
+      status: {
+        hp: status.hp ?? 40,
+        pos: status.pos ?? { x: 0, y: 0 },
+        equipped: status.equipped ?? {
+          weapon: { category: "weapon", name: "sword" },
+          armour: { category: "armour", name: "leather" },
+        },
+        insideEvac: status.insideEvac ?? false,
+      },
+      narrativeLines: overrides.narrativeLines ?? [],
+      aliveCount: 3,
       useVariant: "consumable_or_null" as const,
     },
     decision,
@@ -73,12 +80,6 @@ function makeAgentRecord(overrides: {
 
 describe("turns.byMatchSlim projection contract", () => {
   it("omits heavy text fields and includes derived diagnostic signals", () => {
-    const visibleStateDigest = JSON.stringify({
-      Camper: { dist: 2, bearing: "E", hp: "mid", armed: true },
-      Chest_53_54: { dist: 1, bearing: "N" },
-      Corpse_Rat: { dist: 3, bearing: "W" },
-      Evac: { dist: 10, bearing: "S" },
-    });
     const row = {
       _id: "turn_1",
       matchId: "match_1",
@@ -145,41 +146,38 @@ describe("turns.byMatchSlim projection contract", () => {
         makeAgentRecord({
           characterId: "char_duelist",
           personaId: "duelist",
-          visibleStateDigest,
-          composedUserMessage: [
-            "# Duelist",
-            "## Status",
-            "📍(7,9) Outside Evac",
-            "❤️HP: 25/40 HP",
-            "⚔️weapon: sword [dmg 20]",
-            "🛡️armour: leather [-3 dmg]",
-            "",
-            "# Current Game State",
-            "Turn 7, 2/8 players alive",
-            "",
-            "Vision:",
-            JSON.stringify(
-              {
-                Wall_10_10_to_12_10: {
-                  dist: 1,
-                  bearing: "E",
-                  shape: "E-W line",
-                },
-                Cover_20_20_to_22_22: {
-                  dist: 0,
-                  bearing: "here",
-                  shape: "patch",
-                },
-                Evac_29_29_to_31_31: {
-                  dist: 22,
-                  bearing: "SE",
-                  shape: "patch",
-                },
+          visibleStateDigest: `Vision:\n${JSON.stringify(
+            {
+              Wall_10_10_to_12_10: {
+                dist: 1,
+                bearing: "E",
+                shape: "E-W line",
               },
-              null,
-              2,
-            ),
-          ].join("\n"),
+              Cover_20_20_to_22_22: {
+                dist: 0,
+                bearing: "here",
+                shape: "patch",
+              },
+              Evac_29_29_to_31_31: {
+                dist: 22,
+                bearing: "SE",
+                shape: "patch",
+              },
+              Camper: { dist: 2, bearing: "E", hp: "mid", armed: true },
+              Chest_53_54: { dist: 1, bearing: "N" },
+              Corpse_Rat: { dist: 3, bearing: "W" },
+            },
+            null,
+            2,
+          )}`,
+          status: {
+            hp: 25,
+            pos: { x: 7, y: 9 },
+            equipped: {
+              weapon: { category: "weapon", name: "sword" },
+              armour: { category: "armour", name: "leather" },
+            },
+          },
           retried: true,
         }),
         makeAgentRecord({
@@ -274,20 +272,6 @@ describe("turns.byMatchSlim projection contract", () => {
   });
 
   it("audits speech, loot, and damage delivery from the previous turn feed", () => {
-    const baseStatus = [
-      "# Duelist",
-      "## Status",
-      "❤️HP: 25/40 HP",
-      "⚔️weapon: sword [dmg 20]",
-      "🛡️armour: leather [-3 dmg]",
-      "🧪consumable: heal [heal 50% max HP]",
-      "",
-      "# Current Game State",
-      "Turn 1, 3/8 players alive",
-      "",
-      "Vision:",
-      "{}",
-    ].join("\n");
     const turnOne = {
       _id: "turn_1",
       matchId: "match_1",
@@ -338,17 +322,14 @@ describe("turns.byMatchSlim projection contract", () => {
         makeAgentRecord({
           characterId: "char_duelist",
           personaId: "duelist",
-          composedUserMessage: baseStatus,
         }),
         makeAgentRecord({
           characterId: "char_camper",
           personaId: "camper",
-          composedUserMessage: baseStatus.replace("# Duelist", "# Camper"),
         }),
         makeAgentRecord({
           characterId: "char_trader",
           personaId: "trader",
-          composedUserMessage: baseStatus.replace("# Duelist", "# Trader"),
         }),
       ],
     };
@@ -368,42 +349,28 @@ describe("turns.byMatchSlim projection contract", () => {
         makeAgentRecord({
           characterId: "char_duelist",
           personaId: "duelist",
-          composedUserMessage: [
-            "# Duelist",
-            "## Status",
-            "❤️HP: 13/40 HP",
-            "⚔️weapon: sword [dmg 20]",
-            "🛡️armour: leather [-3 dmg]",
-            "🧪consumable: heal [heal 50% max HP]",
-            "",
-            "# Current Game State",
-            "Turn 2, 2/8 players alive",
+          status: {
+            hp: 13,
+            equipped: {
+              weapon: { category: "weapon", name: "sword" },
+              armour: { category: "armour", name: "leather" },
+              consumable: { category: "consumable", name: "heal" },
+            },
+          },
+          narrativeLines: [
             "You looted speed from Chest_53_54",
             "Camper attacked you with axe (dmg 12)",
             "Trader said \"Peace nearby.\"",
             "Duelist killed Camper with sword",
-            "",
-            "Vision:",
-            "{}",
-          ].join("\n"),
+          ],
         }),
         makeAgentRecord({
           characterId: "char_trader",
           personaId: "trader",
-          composedUserMessage: [
-            "# Trader",
-            "## Status",
-            "❤️HP: 40/40 HP",
-            "⚔️weapon: unarmed [dmg 5]",
-            "🛡️armour: none",
-            "🧪consumable: none",
-            "",
-            "# Current Game State",
-            "Turn 2, 2/8 players alive",
-            "",
-            "Vision:",
-            "{}",
-          ].join("\n"),
+          status: {
+            hp: 40,
+            equipped: {},
+          },
         }),
       ],
     };
@@ -444,7 +411,7 @@ describe("turns.byMatchSlim projection contract", () => {
     ]);
     expect(turnTwoDuelist.lootOutcomeExpected).toBe(1);
     expect(turnTwoDuelist.lootOutcomeMissing).toBe(0);
-    expect(turnTwoDuelist.selfHp).toEqual({ hp: 13, maxHp: 40 });
+    expect(turnTwoDuelist.selfHp).toEqual({ hp: 13, maxHp: 50 });
     expect(turnTwoDuelist.selfEquipment).toEqual({
       weapon: "sword",
       armour: "leather",
@@ -457,21 +424,68 @@ describe("turns.byMatchSlim projection contract", () => {
     expect(turnTwoTrader.lootOutcomeFeed).toEqual([]);
   });
 
+  it("does not count delivery evidence split across narrative line entries", () => {
+    const turnOne = {
+      _id: "turn_1",
+      matchId: "match_1",
+      turn: 1,
+      resolution: {
+        consumed: [],
+        speech: [
+          {
+            characterId: "char_trader",
+            text: "Peace nearby.",
+            heardBy: ["char_duelist"],
+          },
+        ],
+        moves: [],
+        actions: [],
+        deaths: [],
+        visibilityUpdates: [],
+      },
+      agentRecords: [
+        makeAgentRecord({
+          characterId: "char_duelist",
+          personaId: "duelist",
+        }),
+        makeAgentRecord({
+          characterId: "char_trader",
+          personaId: "trader",
+        }),
+      ],
+    };
+    const turnTwo = {
+      ...turnOne,
+      _id: "turn_2",
+      turn: 2,
+      resolution: {
+        consumed: [],
+        speech: [],
+        moves: [],
+        actions: [],
+        deaths: [],
+        visibilityUpdates: [],
+      },
+      agentRecords: [
+        makeAgentRecord({
+          characterId: "char_duelist",
+          personaId: "duelist",
+          narrativeLines: ["Trader said \"Peace", " nearby.\""],
+        }),
+      ],
+    };
+
+    const slim = projectSlimTurnRows([turnOne, turnTwo]);
+    const turnTwoDuelist = slim[1]!.agentRecords.find(
+      (record) => record.characterId === "char_duelist",
+    )!;
+
+    expect(turnTwoDuelist.inboundSpeechExpected).toBe(1);
+    expect(turnTwoDuelist.inboundSpeechCount).toBe(0);
+    expect(turnTwoDuelist.inboundSpeechMissing).toBe(1);
+  });
+
   it("audits cross-turn body-collision charge feed without changing action counters", () => {
-    const baseStatus = [
-      "# Agent",
-      "## Status",
-      "❤️HP: 40/40 HP",
-      "⚔️weapon: unarmed [dmg 5]",
-      "🛡️armour: none",
-      "🧪consumable: none",
-      "",
-      "# Current Game State",
-      "Turn 1, 3/8 players alive",
-      "",
-      "Vision:",
-      "{}",
-    ].join("\n");
     const turnOne = {
       _id: "turn_1",
       matchId: "match_1",
@@ -507,17 +521,14 @@ describe("turns.byMatchSlim projection contract", () => {
         makeAgentRecord({
           characterId: "char_camper",
           personaId: "camper",
-          composedUserMessage: baseStatus.replace("# Agent", "# Camper"),
         }),
         makeAgentRecord({
           characterId: "char_duelist",
           personaId: "duelist",
-          composedUserMessage: baseStatus.replace("# Agent", "# Duelist"),
         }),
         makeAgentRecord({
           characterId: "char_trader",
           personaId: "trader",
-          composedUserMessage: baseStatus.replace("# Agent", "# Trader"),
         }),
       ],
     };
@@ -537,48 +548,20 @@ describe("turns.byMatchSlim projection contract", () => {
         makeAgentRecord({
           characterId: "char_camper",
           personaId: "camper",
-          composedUserMessage: [
-            "# Camper",
-            "## Status",
-            "❤️HP: 39/40 HP",
-            "",
-            "# Current Game State",
-            "Turn 2, 3/8 players alive",
-            "",
-            "Vision:",
-            "{}",
-          ].join("\n"),
+          status: { hp: 39 },
         }),
         makeAgentRecord({
           characterId: "char_duelist",
           personaId: "duelist",
-          composedUserMessage: [
-            "# Duelist",
-            "## Status",
-            "❤️HP: 39/40 HP",
-            "",
-            "# Current Game State",
-            "Turn 2, 3/8 players alive",
+          status: { hp: 39 },
+          narrativeLines: [
             "Camper charged into you (dmg 1)",
-            "",
-            "Vision:",
-            "{}",
-          ].join("\n"),
+          ],
         }),
         makeAgentRecord({
           characterId: "char_trader",
           personaId: "trader",
-          composedUserMessage: [
-            "# Trader",
-            "## Status",
-            "❤️HP: 39/40 HP",
-            "",
-            "# Current Game State",
-            "Turn 2, 3/8 players alive",
-            "",
-            "Vision:",
-            "{}",
-          ].join("\n"),
+          status: { hp: 39 },
         }),
       ],
     };
@@ -652,26 +635,6 @@ describe("turns derived helper functions", () => {
       chests: 1,
       corpses: 1,
       evacSeen: false,
-    });
-  });
-
-  it("extractSelfEquipment returns null slots for unarmed or unarmoured status", () => {
-    expect(
-      extractSelfEquipment(
-        [
-          "## Status",
-          "weapon: unarmed [dmg 5]",
-          "armour: none",
-          "consumable: none",
-        ].join("\n"),
-      ),
-    ).toEqual({ weapon: null, armour: null, consumable: null });
-  });
-
-  it("extracts self HP from the Status block", () => {
-    expect(extractSelfHp(["## Status", "❤️HP: 50/75 HP"].join("\n"))).toEqual({
-      hp: 50,
-      maxHp: 75,
     });
   });
 

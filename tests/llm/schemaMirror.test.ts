@@ -752,16 +752,36 @@ describe("phase-6 schema mirror", () => {
     );
   });
 
-  it("input and validator diagnostics carry the phase-6 slots", () => {
+  it("input and validator diagnostics carry the phase-11 slim input slots", () => {
     const agentRecord = schemaValidators().agentRecord;
     const input = inputField(agentRecord, "schema.agentRecord");
     const llm = llmField(agentRecord, "schema.agentRecord");
+
+    expect(fieldNames(input, "agentRecord.input")).toEqual([
+      "aliveCount",
+      "narrativeLines",
+      "personaPromptHash",
+      "scratchpadBefore",
+      "status",
+      "systemPromptHash",
+      "useVariant",
+      "visibleStateDigest",
+    ]);
 
     const useVariant = objectField(input, "useVariant", "agentRecord.input");
     expect(useVariant.optional).toBe(true);
     expect(literalStrings(useVariant.fieldType, "input.useVariant").sort()).toEqual([
       "consumable_or_null",
       "null_only",
+    ]);
+
+    const status = objectField(input, "status", "agentRecord.input");
+    expect(status.optional).toBe(false);
+    expect(fieldNames(status.fieldType, "agentRecord.input.status")).toEqual([
+      "equipped",
+      "hp",
+      "insideEvac",
+      "pos",
     ]);
 
     const fieldErrors = objectField(

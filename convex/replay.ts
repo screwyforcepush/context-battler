@@ -22,7 +22,8 @@
 
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import { query } from "./_generated/server.js";
+import type { Doc } from "./_generated/dataModel.js";
+import { query, type QueryCtx } from "./_generated/server.js";
 
 /**
  * Paginate completed matches in reverse-chronological order.
@@ -68,6 +69,9 @@ export const listMatches = query({
  *   - `worldState` has no `by_match` index in the phase-1 schema; we
  *     `.filter()` + `.unique()` for the 1:1 lookup. The `.unique()` call
  *     enforces "one row per match"; a missing or duplicate row throws.
+ *   - Phase 11 joins `worldStatic` back into the single `worldState` bundle
+ *     field and joins prompt hashes into `promptsLookup` so the replay app
+ *     can render the full prompt/world from the slim persisted shape.
  */
 export const getReplayBundle = query({
   args: { matchId: v.id("matches") },
@@ -87,6 +91,57 @@ export const getReplayBundle = query({
       .query("worldState")
       .filter((q) => q.eq(q.field("matchId"), matchId))
       .unique();
-    return { match, turns, characters, worldState };
+    const worldStatic = await ctx.db
+      .query("worldStatic")
+      .withIndex("by_match", (q) => q.eq("matchId", matchId))
+      .unique();
+    if (worldState && !worldStatic) {
+      throw new Error(
+        `replay.getReplayBundle: missing worldStatic row for match ${matchId}`,
+      );
+    }
+    const promptsLookup = await buildPromptsLookup(ctx, turns);
+    const mergedWorldState =
+      worldState && worldStatic ? { ...worldStatic, ...worldState } : worldState;
+    return { match, turns, characters, worldState: mergedWorldState, promptsLookup };
   },
 });
+
+type PromptKind = "system" | "persona";
+type PromptLookup = {
+  system: Record<string, string>;
+  persona: Record<string, string>;
+};
+
+async function buildPromptsLookup(
+  ctx: QueryCtx,
+  turns: Array<Doc<"turns">>,
+): Promise<PromptLookup> {
+  const requested = new Map<string, { kind: PromptKind; hash: string }>();
+  for (const turn of turns) {
+    for (const record of turn.agentRecords) {
+      requested.set(promptKey("system", record.input.systemPromptHash), {
+        kind: "system",
+        hash: record.input.systemPromptHash,
+      });
+      requested.set(promptKey("persona", record.input.personaPromptHash), {
+        kind: "persona",
+        hash: record.input.personaPromptHash,
+      });
+    }
+  }
+
+  const lookup: PromptLookup = { system: {}, persona: {} };
+  for (const { kind, hash } of requested.values()) {
+    const row = await ctx.db
+      .query("prompts")
+      .withIndex("by_hash_kind", (q) => q.eq("hash", hash).eq("kind", kind))
+      .unique();
+    if (row) lookup[kind][hash] = row.text;
+  }
+  return lookup;
+}
+
+function promptKey(kind: PromptKind, hash: string): string {
+  return `${kind}:${hash}`;
+}

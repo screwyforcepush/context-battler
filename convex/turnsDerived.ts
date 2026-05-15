@@ -1,3 +1,5 @@
+import { CHARACTER_MAX_HP, type EquippedSlots } from "./engine/types.js";
+
 type VisibleSummary = {
   enemies: number;
   chests: number;
@@ -39,12 +41,17 @@ type DamageFeedAudit = {
 
 type AgentInputLike = {
   systemPromptHash: string;
-  systemPromptText?: string;
   personaPromptHash: string;
-  personaPromptText?: string;
   visibleStateDigest: string;
   scratchpadBefore: string;
-  composedUserMessage?: string;
+  status: {
+    hp: number;
+    pos: { x: number; y: number };
+    equipped: EquippedSlots;
+    insideEvac: boolean;
+  };
+  narrativeLines: readonly string[];
+  aliveCount: number;
   useVariant?: "consumable_or_null" | "null_only";
 };
 
@@ -224,18 +231,6 @@ function insideBearingHere(source: string): boolean {
   );
 }
 
-function extractObserverPos(source: string): { x: number; y: number } | null {
-  for (const line of source.split(/\r?\n/)) {
-    const match = line.match(/📍\((-?\d+),(-?\d+)\)/);
-    if (!match) continue;
-    const x = Number.parseInt(match[1]!, 10);
-    const y = Number.parseInt(match[2]!, 10);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    return { x, y };
-  }
-  return null;
-}
-
 export function summariseVisible(visibleStateDigest: string): VisibleSummary {
   const visible = parseVisibleObject(visibleStateDigest);
   if (!visible) {
@@ -257,45 +252,12 @@ export function summariseVisible(visibleStateDigest: string): VisibleSummary {
   return { enemies, chests, corpses, evacSeen };
 }
 
-function slotValueFromLine(source: string, labels: readonly string[]): string | null {
-  const lines = source.split(/\r?\n/);
-  for (const line of lines) {
-    const lower = line.toLowerCase();
-    const label = labels.find((candidate) => lower.includes(`${candidate}:`));
-    if (!label) continue;
-    const start = lower.indexOf(`${label}:`) + label.length + 1;
-    const value = line.slice(start).replace(/\s*\[.*$/, "").trim();
-    if (
-      value.length === 0 ||
-      value === "none" ||
-      value === "unarmed" ||
-      value === "null"
-    ) {
-      return null;
-    }
-    return value;
-  }
-  return null;
-}
-
-export function extractSelfEquipment(source: string): SelfEquipment {
+function selfEquipmentFromStatus(equipped: EquippedSlots): SelfEquipment {
   return {
-    weapon: slotValueFromLine(source, ["weapon"]),
-    armour: slotValueFromLine(source, ["armour", "armor"]),
-    consumable: slotValueFromLine(source, ["consumable"]),
+    weapon: equipped.weapon?.name ?? null,
+    armour: equipped.armour?.name ?? null,
+    consumable: equipped.consumable?.name ?? null,
   };
-}
-
-export function extractSelfHp(source: string): SelfHp | null {
-  for (const line of source.split(/\r?\n/)) {
-    const match = line.match(/hp:\s*(\d+)\s*\/\s*(\d+)\s*hp/i);
-    if (!match) continue;
-    const hp = Number.parseInt(match[1]!, 10);
-    const maxHp = Number.parseInt(match[2]!, 10);
-    if (Number.isNaN(hp) || Number.isNaN(maxHp)) return null;
-    return { hp, maxHp };
-  }
-  return null;
 }
 
 function personaToDisplayName(personaId: string | undefined): string | null {
@@ -392,7 +354,7 @@ function ensureDamageAuditKeys(
 }
 
 // Same-turn damage involvement helper; projectSlimTurnRows uses cross-turn
-// composed-message evidence for the delivery-facing damageFeedAudit field.
+// narrative-line evidence for the delivery-facing damageFeedAudit field.
 export function auditDamageFeed(
   resolution: Pick<ResolutionLike, "actions" | "deaths">,
   characterId: string,
@@ -421,6 +383,10 @@ export function auditDamageFeed(
     outgoing,
     dealtKills: dealtKillIds.size,
   };
+}
+
+function hasNarrativeLine(input: AgentInputLike, expected: string): boolean {
+  return input.narrativeLines.some((line) => line.includes(expected));
 }
 
 export function countInboundSpeech(
@@ -569,7 +535,7 @@ function buildDeliverySignals(
       if (!listenerRecord || !listenerSignals) continue;
 
       listenerSignals.inboundSpeechExpected += 1;
-      if (listenerRecord.input.composedUserMessage?.includes(expectedLine) === true) {
+      if (hasNarrativeLine(listenerRecord.input, expectedLine)) {
         listenerSignals.inboundSpeechCount += 1;
       } else {
         listenerSignals.inboundSpeechMissing += 1;
@@ -585,8 +551,7 @@ function buildDeliverySignals(
       if (!actorRecord || !actorSignals || !expected) continue;
 
       actorSignals.lootOutcomeExpected += 1;
-      const delivered =
-        actorRecord.input.composedUserMessage?.includes(expected) === true;
+      const delivered = hasNarrativeLine(actorRecord.input, expected);
       const outcome = extractLootOutcomes([action], action.characterId)[0];
       if (outcome) {
         const deliveredOutcome: LootOutcome = {
@@ -624,9 +589,7 @@ function buildDeliverySignals(
     const attackerSignals = signalsByCharacter.get(action.characterId);
 
     if (victimRecord && victimSignals) {
-      const delivered =
-        victimRecord.input.composedUserMessage?.includes(expectedDamageLine) ===
-        true;
+      const delivered = hasNarrativeLine(victimRecord.input, expectedDamageLine);
       victimSignals.damageFeedAudit.expectedIncoming += 1;
       if (delivered) victimSignals.damageFeedAudit.incoming += 1;
       else victimSignals.damageFeedAudit.missingIncoming += 1;
@@ -643,11 +606,8 @@ function buildDeliverySignals(
         action.weapon,
       )}`;
       attackerSignals.damageFeedAudit.expectedDealtKills += 1;
-      if (
-        currentRecords
-          .get(action.characterId)
-          ?.input.composedUserMessage?.includes(expectedKillLine) === true
-      ) {
+      const attackerRecord = currentRecords.get(action.characterId);
+      if (attackerRecord && hasNarrativeLine(attackerRecord.input, expectedKillLine)) {
         attackerSignals.damageFeedAudit.dealtKills += 1;
       } else {
         attackerSignals.damageFeedAudit.missingDealtKills += 1;
@@ -669,9 +629,7 @@ function buildDeliverySignals(
     const chargerSignals = signalsByCharacter.get(move.characterId);
     if (!defenderRecord || !defenderSignals) continue;
 
-    const delivered =
-      defenderRecord.input.composedUserMessage?.includes(expectedDamageLine) ===
-      true;
+    const delivered = hasNarrativeLine(defenderRecord.input, expectedDamageLine);
 
     ensureDamageAuditKeys(defenderSignals.damageFeedAudit, [
       "bodyCollisionIncoming",
@@ -774,14 +732,13 @@ export function projectSlimTurnRow<Row extends TurnRowLike>(
     turn: row.turn,
     resolution: row.resolution,
     agentRecords: row.agentRecords.map((record) => {
-      const source = record.input.composedUserMessage ?? "";
-      const visibleSource =
-        source.length > 0 ? source : record.input.visibleStateDigest;
-      const selfHp = extractSelfHp(source);
-      const observerPos = extractObserverPos(source) ?? { x: 0, y: 0 };
       const signals =
         fallbackSignals.get(record.characterId) ?? emptyDeliverySignals();
       const clonedSignals = cloneDeliverySignals(signals);
+      const selfHp: SelfHp = {
+        hp: record.input.status.hp,
+        maxHp: CHARACTER_MAX_HP,
+      };
 
       return {
         characterId: record.characterId,
@@ -791,11 +748,11 @@ export function projectSlimTurnRow<Row extends TurnRowLike>(
         scratchpadChanged:
           record.input.scratchpadBefore !== record.scratchpadAfter,
         visibleSummary: summariseVisible(record.input.visibleStateDigest),
-        visibleRectKeys: visibleRectKeys(visibleSource),
-        insideBearingHere: insideBearingHere(visibleSource),
-        observerPos,
-        selfEquipment: extractSelfEquipment(source),
-        ...(selfHp !== null ? { selfHp } : {}),
+        visibleRectKeys: visibleRectKeys(record.input.visibleStateDigest),
+        insideBearingHere: insideBearingHere(record.input.visibleStateDigest),
+        observerPos: { ...record.input.status.pos },
+        selfEquipment: selfEquipmentFromStatus(record.input.status.equipped),
+        selfHp,
         ...clonedSignals,
         input: slimInput(record.input),
         llm: slimLlm(record.llm),

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "lint": "eslint .",
+    "ts:check": "npm run typecheck",
     "typecheck": "tsc --noEmit && npm --prefix apps/replay run typecheck",
     "test": "vitest run",
     "build": "tsc --noEmit && npm --prefix apps/replay run typecheck",

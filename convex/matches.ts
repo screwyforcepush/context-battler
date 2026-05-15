@@ -167,8 +167,9 @@ function assignPersonasToSpawnsInline(
  *   1. Insert `matches` row with `status="pending"`, `turn=0`,
  *      `mapId="reference"`, the resolved (or generated) `rngSeed`, and
  *      empty `outcome` / no `failure`.
- *   2. Build the `worldState` row by expanding the reference descriptor
- *      with `rngSeed` (deterministic per ADR §5).
+ *   2. Build the world rows by expanding the reference descriptor
+ *      with `rngSeed` (deterministic per ADR §5): static terrain goes to
+ *      `worldStatic`, dynamic match entities go to `worldState`.
  *   3. Compute persona-to-spawn permutation via the inline mirror of
  *      `assignPersonasToSpawns(rngSeed, PERSONA_IDS)`.
  *   4. Insert 8 `characters` rows (one per persona), seeded with HP =
@@ -218,15 +219,19 @@ export const start = mutation({
       },
     });
 
-    // 2. Insert worldState row. ChestState carries `lootTable` for engine
-    //    bookkeeping; the schema validator accepts the trimmed
-    //    `{id, pos, contents, opened}` shape only — strip lootTable when
-    //    persisting.
-    await ctx.db.insert("worldState", {
+    // 2. Insert world rows. Static terrain is immutable post-spawn and lives
+    //    outside the per-turn worldState read path.
+    await ctx.db.insert("worldStatic", {
       matchId,
       walls: world.walls,
       coverClusters: world.coverClusters,
       coverTiles: world.coverTiles,
+    });
+    //    ChestState carries `lootTable` for engine bookkeeping; the schema
+    //    validator accepts the trimmed `{id, pos, contents, opened}` shape
+    //    only — strip lootTable when persisting.
+    await ctx.db.insert("worldState", {
+      matchId,
       chests: world.chests.map((c) => ({
         id: c.id,
         pos: c.pos,

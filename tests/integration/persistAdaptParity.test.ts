@@ -32,6 +32,10 @@ import {
   adaptPriorTurnRowForBuilder,
   adaptResolutionForSchema,
 } from "../../convex/runMatch.js";
+import {
+  DataIntegrityError,
+  getOrCreatePrompt,
+} from "../../convex/_internal_runMatch.js";
 import type { ResolutionTrace } from "../../convex/engine/resolution.js";
 
 // ─── Fixture helpers ───────────────────────────────────────────────────
@@ -404,15 +408,21 @@ describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", (
 
 // ─── agentRecord.input optional field parity ───────────────────────────────
 
-describe("WP-A — agentRecord.input composedUserMessage optional serialization", () => {
+describe("Phase 11 — agentRecord.input slim prompt serialization", () => {
   function baseAgentInput() {
     return {
       systemPromptHash: "sys-hash",
-      systemPromptText: "system",
       personaPromptHash: "persona-hash",
-      personaPromptText: "persona",
       visibleStateDigest: "You: at (1,1)",
       scratchpadBefore: "remember this",
+      status: {
+        hp: 50,
+        pos: { x: 1, y: 1 },
+        equipped: {},
+        insideEvac: false,
+      },
+      narrativeLines: ["You moved 1 E"],
+      aliveCount: 8,
     };
   }
 
@@ -428,20 +438,72 @@ describe("WP-A — agentRecord.input composedUserMessage optional serialization"
     return roundTripped as Record<string, Value>;
   }
 
-  it("round-trips agent input with composedUserMessage present", () => {
-    const input = {
-      ...baseAgentInput(),
-      composedUserMessage: "persona\n\n## previous turn\nYou: no-op",
-    };
-
+  it("round-trips the forward slim shape without prompt text blobs", () => {
+    const input = baseAgentInput();
     expect(roundTrip(input)).toEqual(input);
+    expect(input).not.toHaveProperty("systemPromptText");
+    expect(input).not.toHaveProperty("personaPromptText");
+    expect(input).not.toHaveProperty("composedUserMessage");
+  });
+});
+
+describe("Phase 11 — getOrCreatePrompt collision guard", () => {
+  type PromptTestQuery = {
+    eq(field: "hash" | "kind", value: string): PromptTestQuery;
+  };
+
+  function fakePromptContext(existingText: string) {
+    return {
+      db: {
+        query(table: "prompts") {
+          expect(table).toBe("prompts");
+          return {
+            withIndex(
+              indexName: "by_hash_kind",
+              cb: (q: PromptTestQuery) => PromptTestQuery,
+            ) {
+              expect(indexName).toBe("by_hash_kind");
+              const q: PromptTestQuery = {
+                eq: () => q,
+              };
+              cb(q);
+              return {
+                async unique() {
+                  return {
+                    _id: "prompt_1",
+                    hash: "forced",
+                    kind: "system" as const,
+                    text: existingText,
+                  };
+                },
+              };
+            },
+          };
+        },
+        async insert() {
+          throw new Error("insert should not run for an existing prompt");
+        },
+      },
+    };
+  }
+
+  it("throws DataIntegrityError on a forced DJB2 hash collision", async () => {
+    await expect(
+      getOrCreatePrompt(fakePromptContext("existing text"), {
+        kind: "system",
+        hash: "forced",
+        text: "different text",
+      }),
+    ).rejects.toThrow(DataIntegrityError);
   });
 
-  it("round-trips agent input with composedUserMessage absent", () => {
-    const input = baseAgentInput();
-    const roundTripped = roundTrip(input);
-
-    expect(roundTripped).toEqual(input);
-    expect("composedUserMessage" in roundTripped).toBe(false);
+  it("reuses an existing prompt row when text matches", async () => {
+    await expect(
+      getOrCreatePrompt(fakePromptContext("same text"), {
+        kind: "system",
+        hash: "forced",
+        text: "same text",
+      }),
+    ).resolves.toBe("prompt_1");
   });
 });

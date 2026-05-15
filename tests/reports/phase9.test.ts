@@ -5,6 +5,7 @@ import {
   type Phase9RunInput,
   type Phase9WorldStateEvidence,
 } from "../../convex/reports/phase9.js";
+import { runPhase9ClosingCli } from "../../harness/closing/phase9.js";
 import type {
   SlimAgentRecord,
   SlimTurnRow,
@@ -97,6 +98,7 @@ function world(
   return {
     walls: overrides.walls ?? [],
     coverClusters: overrides.coverClusters ?? [],
+    coverTiles: overrides.coverTiles ?? [],
     evac: overrides.evac ?? {
       centre: { x: 30, y: 30 },
       revealedAtTurn: 30,
@@ -262,6 +264,12 @@ describe("computePhase9Metrics", () => {
         worldState: world({
           walls: [{ x: 10, y: 10, w: 3, h: 1 }],
           coverClusters: [{ x: 20, y: 20, w: 2, h: 2 }],
+          coverTiles: [
+            { x: 20, y: 20 },
+            { x: 21, y: 20 },
+            { x: 20, y: 21 },
+            { x: 21, y: 21 },
+          ],
         }),
         turns: [
           rowWithRecord(
@@ -380,5 +388,102 @@ describe("computePhase9Metrics", () => {
     expect(out.targetRelativeTowardExercised).toBe(true);
     expect(out.targetRelativeAwayExercised).toBe(true);
     expect(out.meetsAllThresholds).toBe(true);
+  });
+});
+
+describe("phase9 closing terrain read", () => {
+  it("preserves merged static terrain from worldState.byMatchId", async () => {
+    const wall = { x: 10, y: 10, w: 3, h: 1 };
+    const cover = { x: 20, y: 20, w: 2, h: 2 };
+    const result = await runPhase9ClosingCli(["--matchIds", "M1"], {
+      client: {
+        query: async () => {
+          throw new Error("unexpected query");
+        },
+        mutation: async () => {
+          throw new Error("unexpected mutation");
+        },
+      },
+      fetchSlimAcross: async () => [
+        [
+          rowWithRecord(
+            record({
+              characterId: "observer",
+              visibleRectKeys: [
+                "Wall_10_10_to_12_10",
+                "Cover_20_20_to_21_21",
+              ],
+            }),
+          ),
+        ],
+      ],
+      readRunByMatch: async () => ({
+        matchId: "M1",
+        kills: 1,
+        extractions: 1,
+        equips: 1,
+        speechEvents: 1,
+        perPersona: [{ personaId: "duelist", extracted: 1 }],
+      }),
+      readMatchStatus: async () => ({
+        status: "completed",
+        turn: 50,
+        completedAt: 123,
+      }),
+      readWorldStateByMatch: async () => ({
+        walls: [wall],
+        coverClusters: [cover],
+        coverTiles: [
+          { x: 20, y: 20 },
+          { x: 21, y: 20 },
+          { x: 20, y: 21 },
+          { x: 21, y: 21 },
+        ],
+        evac: { centre: { x: 30, y: 30 }, revealedAtTurn: 30 },
+      }),
+      persistReport: async (_client, args) => ({
+        _id: "report-1",
+        existed: false,
+        payload: args.payload,
+      }),
+      writeStdout: () => {},
+    });
+
+    expect(result.payload?.wallRectKeyCount).toBe(1);
+    expect(result.payload?.coverRectKeyCount).toBe(1);
+  });
+
+  it("fails loudly when the merged worldState is missing static terrain", async () => {
+    await expect(
+      runPhase9ClosingCli(["--matchIds", "M1"], {
+        client: {
+          query: async () => {
+            throw new Error("unexpected query");
+          },
+          mutation: async () => {
+            throw new Error("unexpected mutation");
+          },
+        },
+        fetchSlimAcross: async () => [[]],
+        readRunByMatch: async () => null,
+        readMatchStatus: async () => ({
+          status: "completed",
+          turn: 50,
+          completedAt: 123,
+        }),
+        readWorldStateByMatch: async () =>
+          ({
+            walls: [],
+            coverClusters: [],
+            evac: { centre: { x: 30, y: 30 }, revealedAtTurn: 30 },
+          }) as never,
+        persistReport: async (_client, args) => ({
+          _id: "report-1",
+          existed: false,
+          payload: args.payload,
+        }),
+        writeStdout: () => {},
+      }),
+    ).rejects.toThrow("Missing static terrain in worldState row for match M1");
   });
 });

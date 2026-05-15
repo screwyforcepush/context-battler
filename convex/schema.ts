@@ -1,5 +1,6 @@
 // WP2 — full Convex schema per `architecture-decisions.md` §6 (the canonical
-// shape). Six tables: matches, characters, turns, worldState, runs, reports.
+// shape). Current tables: prompts, matches, characters, turns, worldStatic,
+// worldState, runs, reports.
 //
 // Every literal-union below is the locked vocabulary; downstream WPs share
 // these validators by re-importing from this module rather than redeclaring.
@@ -9,7 +10,9 @@
 //   matches      — one row per match. status / outcome / failure?
 //   characters   — 8 rows per match (one per agent). persona, hp, equipped, lastKnown
 //   turns        — one row per (matchId, turn). agentRecords[] is the trace ledger
-//   worldState   — one row per match. walls, cover, chests, corpses, evac
+//   prompts      — deduplicated prompt text by hash + kind
+//   worldStatic  — one row per match. immutable walls / cover terrain
+//   worldState   — one row per match. dynamic world state (chests, corpses, evac)
 //   runs         — one row per completed match (written by WP12). per-persona stats
 //   reports      — one row per harness invocation (written by WP14). multi-run aggregate
 //
@@ -224,14 +227,18 @@ const validatorFieldErrorsValidator = v.object({
 
 const agentInputValidator = v.object({
   systemPromptHash: v.string(),
-  systemPromptText: v.string(),
   personaPromptHash: v.string(),
-  personaPromptText: v.string(),
   visibleStateDigest: v.string(),
   scratchpadBefore: v.string(),
-  // Phase-4 WP-A / ADR §1b — optional slot only. WP-D owns population.
-  composedUserMessage: v.optional(v.string()),
   useVariant: v.optional(useVariantValidator),
+  status: v.object({
+    hp: v.number(),
+    pos: tileValidator,
+    equipped: equippedValidator,
+    insideEvac: v.boolean(),
+  }),
+  narrativeLines: v.array(v.string()),
+  aliveCount: v.number(),
 });
 
 const agentLlmValidator = v.object({
@@ -863,6 +870,13 @@ const reportPayloadValidator = v.object({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default defineSchema({
+  // ── prompts: deduplicated prompt text by hash + kind ───────────────────────
+  prompts: defineTable({
+    hash: v.string(),
+    kind: v.union(v.literal("system"), v.literal("persona")),
+    text: v.string(),
+  }).index("by_hash_kind", ["hash", "kind"]),
+
   // ── matches: one row per match ────────────────────────────────────────────
   matches: defineTable({
     status: matchStatusValidator,
@@ -922,12 +936,17 @@ export default defineSchema({
     resolution: resolutionValidator,
   }).index("by_match_turn", ["matchId", "turn"]),
 
-  // ── worldState: one row per match ─────────────────────────────────────────
-  worldState: defineTable({
+  // ── worldStatic: immutable terrain written once per match ─────────────────
+  worldStatic: defineTable({
     matchId: v.id("matches"),
     walls: v.array(wallValidator),
     coverClusters: v.array(wallValidator),
     coverTiles: v.array(tileValidator),
+  }).index("by_match", ["matchId"]),
+
+  // ── worldState: one row per match, dynamic fields only ────────────────────
+  worldState: defineTable({
+    matchId: v.id("matches"),
     chests: v.array(chestValidator),
     corpses: v.array(corpseValidator),
     evac: v.object({

@@ -119,8 +119,11 @@ export type Phase6AgentRecord = {
   characterId: string;
   personaId: PersonaId;
   input: {
-    composedUserMessage?: string;
-    personaPromptText?: string;
+    systemPromptHash: string;
+    personaPromptHash: string;
+    visibleStateDigest: string;
+    scratchpadBefore: string;
+    narrativeLines: string[];
     useVariant?: UseVariant;
   };
   decision: ParsedDecision;
@@ -202,12 +205,26 @@ function countPlayerNInDecisionTargets(decision: ParsedDecision): number {
 }
 
 function countPlayerNInRecordSurfaces(record: Phase6AgentRecord): number {
+  // Prompt text is now joined through the prompts table. This phase-6
+  // compatibility report keeps scanning persisted agent-facing surfaces;
+  // prompt-text scans require the caller to join hash -> prompt text first.
   return (
-    countPlayerNInText(record.input.composedUserMessage) +
-    countPlayerNInText(record.input.personaPromptText) +
+    countPlayerNInText(record.input.visibleStateDigest) +
+    countPlayerNInText(record.input.scratchpadBefore) +
+    record.input.narrativeLines.reduce(
+      (count, line) => count + countPlayerNInText(line),
+      0,
+    ) +
     countPlayerNInText(record.llm.rawArguments) +
     countPlayerNInDecisionTargets(record.decision)
   );
+}
+
+function hasNarrativeLine(
+  input: Phase6AgentRecord["input"],
+  expectedLine: string,
+): boolean {
+  return input.narrativeLines.some((line) => line.includes(expectedLine));
 }
 
 function countPlayerNInReportPayloadSurfaces(payload: Phase6Payload): number {
@@ -402,8 +419,7 @@ export function computePhase6Metrics(runs: Phase6RunInput[]): Phase6Payload {
         const expectedLine = `${attacker} attacked you with ${weaponName(
           action.weapon,
         )} (dmg ${damage})`;
-        const present =
-          nextRecord.input.composedUserMessage?.includes(expectedLine) ?? false;
+        const present = hasNarrativeLine(nextRecord.input, expectedLine);
         damageFeedEvents += 1;
         if (!present) damageFeedMissing += 1;
         if (damageFeedAuditSamples.length < 20) {
@@ -804,8 +820,11 @@ export const computeAndPersistPhase6Report = mutation({
             characterId: record.characterId as unknown as string,
             personaId: record.personaId,
             input: {
-              composedUserMessage: record.input.composedUserMessage,
-              personaPromptText: record.input.personaPromptText,
+              systemPromptHash: record.input.systemPromptHash,
+              personaPromptHash: record.input.personaPromptHash,
+              visibleStateDigest: record.input.visibleStateDigest,
+              scratchpadBefore: record.input.scratchpadBefore,
+              narrativeLines: [...record.input.narrativeLines],
               useVariant: record.input.useVariant,
             },
             decision: record.decision,

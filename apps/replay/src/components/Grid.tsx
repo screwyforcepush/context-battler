@@ -18,7 +18,7 @@
 
 import React from "react";
 import type { EntitySnapshot } from "../lib/reconstruct";
-import type { Doc } from "../../../../convex/_generated/dataModel";
+import type { ReplayWorldState } from "../lib/reconstruct";
 
 const VIEW_W = 100;
 const VIEW_H = 100;
@@ -48,7 +48,7 @@ function personaGlyph(personaId: string): string {
 
 export type GridProps = {
   snapshot: EntitySnapshot;
-  worldState: Doc<"worldState"> | null;
+  worldState: ReplayWorldState | null;
 };
 
 export function Grid({ snapshot, worldState }: GridProps): React.ReactElement {

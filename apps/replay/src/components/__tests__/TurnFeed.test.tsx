@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
 import type { ReplayBundle } from "../../lib/reconstruct";
-import { parseStatusBlockForReplay, truncateOneLine, TurnFeed } from "../TurnFeed";
+import { buildStatusBlockForReplay, truncateOneLine, TurnFeed } from "../TurnFeed";
 
 describe("truncateOneLine — boundary behaviour", () => {
   it("returns the input unchanged when length <= budget", () => {
@@ -57,6 +57,11 @@ type MatchDoc = Doc<"matches">;
 type TurnDoc = Doc<"turns">;
 type WorldStateDoc = Doc<"worldState">;
 type AgentRecord = TurnDoc["agentRecords"][number];
+type TestEquipped = {
+  weapon?: { category: "weapon"; name: "rusty_blade" | "sword" | "axe" | "greatsword" };
+  armour?: { category: "armour"; name: "cloth" | "leather" | "chain" | "plate" };
+  consumable?: { category: "consumable"; name: "heal" | "speed" };
+};
 
 function asCharId(s: string): Id<"characters"> {
   return s as unknown as Id<"characters">;
@@ -118,19 +123,31 @@ function makeWorld(): WorldStateDoc {
 
 function makeRecord(
   character: CharacterDoc,
-  composedUserMessage?: string,
+  statusOverrides: Partial<{
+    hp: number;
+    pos: { x: number; y: number };
+    equipped: TestEquipped;
+    insideEvac: boolean;
+    scratchpadBefore: string;
+  }> = {},
 ): AgentRecord {
   return {
     characterId: character._id,
     personaId: character.personaId,
     input: {
       systemPromptHash: "system-hash",
-      systemPromptText: "System for <Player Name>",
       personaPromptHash: "persona-hash",
-      personaPromptText: "Persona",
       visibleStateDigest: "Vision:\n{}",
-      scratchpadBefore: "fallback scratchpad",
-      ...(composedUserMessage === undefined ? {} : { composedUserMessage }),
+      scratchpadBefore:
+        statusOverrides.scratchpadBefore ?? "fallback scratchpad",
+      status: {
+        hp: statusOverrides.hp ?? 50,
+        pos: statusOverrides.pos ?? { x: 45, y: 47 },
+        equipped: statusOverrides.equipped ?? {},
+        insideEvac: statusOverrides.insideEvac ?? false,
+      },
+      narrativeLines: [],
+      aliveCount: 8,
       useVariant: "consumable_or_null",
     },
     decision: {
@@ -191,25 +208,24 @@ function makeBundle(
     turns: [turn],
     characters: [character],
     worldState: makeWorld(),
+    promptsLookup: { system: {}, persona: {} },
   };
 }
 
-describe("parseStatusBlockForReplay", () => {
-  it("extracts the renderStatusBlock contract verbatim, preserving bracketed stats and evac state", () => {
-    const status = parseStatusBlockForReplay(
-      [
-        "# Duelist",
-        "## Status",
-        "📍(45,47) Inside Evac",
-        "❤️HP: 38/50 HP",
-        "⚔️weapon: sword [dmg 15]",
-        "🛡️armour: leather [-3 dmg]",
-        "🧪consumable: heal [heal 20% max HP]",
-        "🗒️scratchpad: two enemies near evac, holding for trader",
-        "",
-        "Vision:",
-        "{}",
-      ].join("\n"),
+describe("buildStatusBlockForReplay", () => {
+  it("renders the structured input.status contract, preserving bracketed stats and evac state", () => {
+    const character = makeCharacter("c_duelist", "Duelist", "duelist");
+    const status = buildStatusBlockForReplay(
+      makeRecord(character, {
+        hp: 38,
+        insideEvac: true,
+        equipped: {
+          weapon: { category: "weapon", name: "sword" },
+          armour: { category: "armour", name: "leather" },
+          consumable: { category: "consumable", name: "heal" },
+        },
+        scratchpadBefore: "two enemies near evac, holding for trader",
+      }).input,
     );
 
     expect(status.available).toBe(true);
@@ -223,8 +239,14 @@ describe("parseStatusBlockForReplay", () => {
     ]);
   });
 
-  it("returns an unavailable status when composedUserMessage is missing the Status block", () => {
-    expect(parseStatusBlockForReplay("Vision:\n{}")).toEqual({
+  it("returns an unavailable status when structured input.status is missing", () => {
+    const character = makeCharacter("c_duelist", "Duelist", "duelist");
+    const input = makeRecord(character).input as AgentRecord["input"] & {
+      status?: unknown;
+    };
+    delete (input as { status?: unknown }).status;
+
+    expect(buildStatusBlockForReplay(input)).toEqual({
       available: false,
       lines: [],
     });
@@ -234,23 +256,22 @@ describe("parseStatusBlockForReplay", () => {
 describe("TurnFeed Status card", () => {
   it("renders the per-agent Status block above the decision summary", () => {
     const character = makeCharacter("c_duelist", "Duelist", "duelist");
-    const composedUserMessage = [
-      "# Duelist",
-      "## Status",
-      "📍(45,47) Inside Evac",
-      "❤️HP: 38/50 HP",
-      "⚔️weapon: sword [dmg 15]",
-      "🛡️armour: leather [-3 dmg]",
-      "🧪consumable: heal [heal 20% max HP]",
-      "🗒️scratchpad: two enemies near evac, holding for trader",
-      "",
-      "Vision:",
-      "{}",
-    ].join("\n");
 
     const html = renderToStaticMarkup(
       React.createElement(TurnFeed, {
-        bundle: makeBundle(character, makeRecord(character, composedUserMessage)),
+        bundle: makeBundle(
+          character,
+          makeRecord(character, {
+            hp: 38,
+            insideEvac: true,
+            equipped: {
+              weapon: { category: "weapon", name: "sword" },
+              armour: { category: "armour", name: "leather" },
+              consumable: { category: "consumable", name: "heal" },
+            },
+            scratchpadBefore: "two enemies near evac, holding for trader",
+          }),
+        ),
         currentTurn: 1,
         onOpenModal: () => undefined,
       }),
@@ -265,18 +286,22 @@ describe("TurnFeed Status card", () => {
     expect(html).toContain("🗒️scratchpad: two enemies near evac, holding for trader");
   });
 
-  it("degrades cleanly when composedUserMessage is absent", () => {
+  it("shows a visible status error when input.status is absent", () => {
     const character = makeCharacter("c_duelist", "Duelist", "duelist");
+    const record = makeRecord(character) as AgentRecord & {
+      input: AgentRecord["input"] & { status?: unknown };
+    };
+    delete (record.input as { status?: unknown }).status;
 
     const html = renderToStaticMarkup(
       React.createElement(TurnFeed, {
-        bundle: makeBundle(character, makeRecord(character)),
+        bundle: makeBundle(character, record),
         currentTurn: 1,
         onOpenModal: () => undefined,
       }),
     );
 
     expect(html).toContain("Status (start of turn 1)");
-    expect(html).toContain("(status unavailable — vintage record)");
+    expect(html).toContain("(status unavailable — input.status missing)");
   });
 });

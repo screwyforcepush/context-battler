@@ -17,6 +17,7 @@
 
 import React, { useMemo, useState } from "react";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
+import type { EquippedSlots, Tile } from "../../../../convex/engine/types";
 import type { ReplayBundle } from "../lib/reconstruct";
 import { summariseDecision } from "../lib/decisionEnglish";
 import {
@@ -56,6 +57,24 @@ const FALLBACK_COLOUR = "#444";
 const SCRATCHPAD_AFTER_BUDGET = 500;
 const SCRATCHPAD_PREVIEW_BUDGET = 100;
 const DEFAULT_MAX_OUTPUT_TOKENS = 1200;
+const CHARACTER_MAX_HP = 50;
+const MIN_DAMAGE_FLOOR = 5;
+const WEAPON_DAMAGE = {
+  rusty_blade: 10,
+  sword: 15,
+  axe: 20,
+  greatsword: 25,
+} as const;
+const ARMOUR_REDUCTION = {
+  cloth: 0,
+  leather: 3,
+  chain: 6,
+  plate: 10,
+} as const;
+const CONSUMABLE_LABEL = {
+  heal: "heal 20% max HP",
+  speed: "+4 move range max dist",
+} as const;
 
 export type ReplayStatusBlock = {
   available: boolean;
@@ -237,9 +256,7 @@ function FeedRow(props: {
   const scratchpadChanged =
     agentRecord.decision.scratchpad !== null &&
     agentRecord.decision.scratchpad !== agentRecord.input.scratchpadBefore;
-  const statusBlock = parseStatusBlockForReplay(
-    agentRecord.input.composedUserMessage,
-  );
+  const statusBlock = buildStatusBlockForReplay(agentRecord.input);
   // Phase-3 ADR §2 — reasoning indicator. Lights up when reasoning text
   // is present so the user knows the raw-pane modal has substrate-mind
   // content to surface.
@@ -384,37 +401,79 @@ function FeedRow(props: {
 // Helpers + presentational primitives
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STATUS_LINE_PATTERNS = [
-  /^📍\(-?\d+,-?\d+\) (Inside Evac|Outside Evac)$/,
-  /^❤️HP: \d+\/\d+ HP$/,
-  /^⚔️weapon: .+$/,
-  /^🛡️armour: .+$/,
-  /^🧪consumable: .+$/,
-  /^🗒️scratchpad: .*$/,
-] as const;
+type StructuredReplayStatus = {
+  hp: number;
+  pos: Tile;
+  equipped: EquippedSlots;
+  insideEvac: boolean;
+};
 
-export function parseStatusBlockForReplay(
-  composedUserMessage: string | null | undefined,
+export function buildStatusBlockForReplay(
+  input: Doc<"turns">["agentRecords"][number]["input"],
 ): ReplayStatusBlock {
-  if (typeof composedUserMessage !== "string" || composedUserMessage.length === 0) {
+  const status = readStructuredStatus(input);
+  if (status === null) {
     return { available: false, lines: [] };
   }
 
-  const lines = composedUserMessage.split(/\r?\n/);
-  const statusIndex = lines.findIndex((line) => line === "## Status");
-  if (statusIndex < 0) return { available: false, lines: [] };
+  const evacStatus = status.insideEvac ? "Inside Evac" : "Outside Evac";
+  const scratchpadBefore = input.scratchpadBefore;
+  const lines = [
+    `📍(${status.pos.x},${status.pos.y}) ${evacStatus}`,
+    `❤️HP: ${status.hp}/${CHARACTER_MAX_HP} HP`,
+    `⚔️weapon: ${renderWeaponSlot(status.equipped)}`,
+    `🛡️armour: ${renderArmourSlot(status.equipped)}`,
+    `🧪consumable: ${renderConsumableSlot(status.equipped)}`,
+    `🗒️scratchpad: ${scratchpadBefore}`,
+  ];
 
-  const statusLines = lines.slice(statusIndex + 1, statusIndex + 1 + 6);
-  if (statusLines.length !== STATUS_LINE_PATTERNS.length) {
-    return { available: false, lines: [] };
+  return { available: true, lines };
+}
+
+function readStructuredStatus(
+  input: Doc<"turns">["agentRecords"][number]["input"],
+): StructuredReplayStatus | null {
+  const raw = (input as { status?: unknown }).status;
+  if (raw === null || raw === undefined || typeof raw !== "object") return null;
+  const obj = raw as Partial<StructuredReplayStatus>;
+  if (
+    typeof obj.hp !== "number" ||
+    obj.pos === null ||
+    obj.pos === undefined ||
+    typeof obj.pos !== "object" ||
+    typeof obj.pos.x !== "number" ||
+    typeof obj.pos.y !== "number" ||
+    typeof obj.insideEvac !== "boolean"
+  ) {
+    return null;
   }
+  return {
+    hp: obj.hp,
+    pos: { x: obj.pos.x, y: obj.pos.y },
+    equipped:
+      obj.equipped && typeof obj.equipped === "object" ? obj.equipped : {},
+    insideEvac: obj.insideEvac,
+  };
+}
 
-  const matchesContract = STATUS_LINE_PATTERNS.every((pattern, index) =>
-    pattern.test(statusLines[index] ?? ""),
-  );
-  if (!matchesContract) return { available: false, lines: [] };
+function renderWeaponSlot(equipped: EquippedSlots): string {
+  const weapon = equipped.weapon;
+  if (!weapon || weapon.category !== "weapon") {
+    return `unarmed [dmg ${MIN_DAMAGE_FLOOR}]`;
+  }
+  return `${weapon.name} [dmg ${WEAPON_DAMAGE[weapon.name]}]`;
+}
 
-  return { available: true, lines: statusLines };
+function renderArmourSlot(equipped: EquippedSlots): string {
+  const armour = equipped.armour;
+  if (!armour || armour.category !== "armour") return "none";
+  return `${armour.name} [-${ARMOUR_REDUCTION[armour.name]} dmg]`;
+}
+
+function renderConsumableSlot(equipped: EquippedSlots): string {
+  const consumable = equipped.consumable;
+  if (!consumable || consumable.category !== "consumable") return "none";
+  return `${consumable.name} [${CONSUMABLE_LABEL[consumable.name]}]`;
 }
 
 function StatusCard(props: {
@@ -436,7 +495,7 @@ function StatusCard(props: {
         </div>
       ) : (
         <div style={statusUnavailableStyle}>
-          (status unavailable — vintage record)
+          (status unavailable — input.status missing)
         </div>
       )}
     </div>

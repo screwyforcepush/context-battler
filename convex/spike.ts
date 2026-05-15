@@ -40,9 +40,11 @@ export const checkEnv = action({
 // budget on the `turns` table alone after a phase-1 closing-50 run; we
 // chunk per-table and let the caller loop the small ones at the end.)
 type WipeTable =
+  | "prompts"
   | "turns"
   | "characters"
   | "matches"
+  | "worldStatic"
   | "worldState"
   | "runs"
   | "reports";
@@ -55,6 +57,8 @@ export const wipeOneTable = mutation({
       v.literal("turns"),
       v.literal("characters"),
       v.literal("matches"),
+      v.literal("prompts"),
+      v.literal("worldStatic"),
       v.literal("worldState"),
       v.literal("runs"),
       v.literal("reports"),

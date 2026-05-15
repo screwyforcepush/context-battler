@@ -44,7 +44,8 @@ type RunSummaryRow = {
 
 type WorldStateRow = {
   walls: Wall[];
-  coverClusters?: Wall[];
+  coverClusters: Wall[];
+  coverTiles: Tile[];
   evac: { centre: Tile; revealedAtTurn: number | null };
 } | null;
 
@@ -395,9 +396,17 @@ function adaptWorldState(
   if (row === undefined || row === null) {
     throw new Error(`Missing worldState row for match ${matchId}`);
   }
+  if (
+    !Array.isArray(row.walls) ||
+    !Array.isArray(row.coverClusters) ||
+    !Array.isArray(row.coverTiles)
+  ) {
+    throw new Error(`Missing static terrain in worldState row for match ${matchId}`);
+  }
   return {
     walls: row.walls,
-    coverClusters: row.coverClusters ?? [],
+    coverClusters: row.coverClusters,
+    coverTiles: row.coverTiles,
     evac: row.evac,
   };
 }

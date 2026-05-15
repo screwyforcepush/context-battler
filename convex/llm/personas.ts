@@ -14,9 +14,8 @@
 //   - WP15's tuning loop edits persona BODIES across iterations. Convex
 //     actions resolve fresh on every invocation, so a top-level singleton
 //     would prevent hot-edits during tuning without a redeploy.
-//   - Trace introspection (ADR §7) captures `personaPromptText` per turn
-//     row anyway — the cost of cloning the 8-entry record at each match
-//     start is negligible vs. the auditability win.
+//   - Trace introspection stores `personaPromptHash` per turn row and joins
+//     prompt text through the prompts table when a full input view needs it.
 //
 // Boundary (ADR §1): pure-function module; no Convex imports, no
 // `convex/_generated/` access, no `fetch`. With fs gone the module no
@@ -26,9 +25,8 @@
 //
 // Cross-references:
 //   - ADR §6 — locks `PersonaId` and `PERSONA_IDS`.
-//   - ADR §7 — `agentRecords[].input.personaPromptText` is the live text
-//     this loader returns; the trace persists it per-turn so post-edit
-//     auditability holds.
+//   - ADR §7 / Phase 11 — `agentRecords[].input.personaPromptHash` is the
+//     trace join key for the live text this loader returns.
 //   - work-packages.md WP9 — locked filenames, ≤ 80-token budget per body
 //     (asserted by `tests/llm/personas.test.ts`), trimmed strings.
 

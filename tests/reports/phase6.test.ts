@@ -16,17 +16,26 @@ const NONE_DECISION: ParsedDecision = {
   scratchpad: null,
 };
 
+function makeInput(
+  overrides: Partial<Phase6AgentRecord["input"]> = {},
+): Phase6AgentRecord["input"] {
+  return {
+    systemPromptHash: overrides.systemPromptHash ?? "system-hash",
+    personaPromptHash: overrides.personaPromptHash ?? "persona-hash",
+    visibleStateDigest: overrides.visibleStateDigest ?? "Vision:\n{}",
+    scratchpadBefore: overrides.scratchpadBefore ?? "",
+    narrativeLines: overrides.narrativeLines ?? [],
+    useVariant: overrides.useVariant ?? "consumable_or_null",
+  };
+}
+
 function makeRecord(
   overrides: Partial<Phase6AgentRecord> & { characterId: string },
 ): Phase6AgentRecord {
   return {
     characterId: overrides.characterId,
     personaId: overrides.personaId ?? "rat",
-    input: overrides.input ?? {
-      personaPromptText: "Rat prompt",
-      composedUserMessage: "# Rat\n\n# Current Game State",
-      useVariant: "consumable_or_null",
-    },
+    input: overrides.input ?? makeInput(),
     decision: overrides.decision ?? NONE_DECISION,
     scratchpadAfter: overrides.scratchpadAfter ?? "",
     llm: overrides.llm ?? {
@@ -199,9 +208,7 @@ describe("computePhase6Metrics — raw null-only use violations", () => {
               makeRecord({
                 characterId: "c1",
                 input: {
-                  personaPromptText: "Rat prompt",
-                  composedUserMessage: "# Rat",
-                  useVariant: "null_only",
+                  ...makeInput({ useVariant: "null_only" }),
                 },
                 decision: NONE_DECISION,
                 llm: {
@@ -250,9 +257,10 @@ describe("computePhase6Metrics — scoped legacy-id scan", () => {
               makeRecord({
                 characterId: `${legacyId(99)}-is-an-arbitrary-record-id`,
                 input: {
-                  personaPromptText: `Prompt mentions ${legacyId(2)}`,
-                  composedUserMessage: `Visible: ${legacyId(1)}`,
-                  useVariant: "consumable_or_null",
+                  ...makeInput({
+                    visibleStateDigest: `Vision: ${legacyId(1)}`,
+                    scratchpadBefore: `Memory mentions ${legacyId(2)}`,
+                  }),
                 },
                 decision: leakingDecision,
                 llm: {
@@ -287,10 +295,11 @@ describe("computePhase6Metrics — scoped legacy-id scan", () => {
               makeRecord({
                 characterId: "victim-id",
                 input: {
-                  personaPromptText: "Victim prompt",
-                  composedUserMessage:
-                    `${legacyId(7)} attacked you with hammer (dmg 4)`,
-                  useVariant: "consumable_or_null",
+                  ...makeInput({
+                    narrativeLines: [
+                      `${legacyId(7)} attacked you with hammer (dmg 4)`,
+                    ],
+                  }),
                 },
               }),
             ],

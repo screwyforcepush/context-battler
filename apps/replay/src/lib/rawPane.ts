@@ -12,14 +12,32 @@ import type { UseVariant } from "../../../../convex/llm/decisionTool";
 // Replay must show the schema variant actually shipped for this turn.
 // eslint-disable-next-line no-restricted-imports
 import { buildDecisionTool } from "../../../../convex/llm/decisionTool";
+// Phase 11 replay recomposes the persisted user-role input from slim fields.
+// Namespace import keeps this file testable while the helper lands in the
+// parallel WP-A change; production calls require the helper to be present.
+// eslint-disable-next-line no-restricted-imports
+import * as inputBuilder from "../../../../convex/llm/inputBuilder";
 import type { AgentRecord } from "./decisionEnglish";
-
-type AgentInputWithComposed = AgentRecord["input"] & {
-  composedUserMessage?: string;
-};
+import type { ReplayPromptsLookup } from "./reconstruct";
 
 type JsonObject = { [key: string]: JsonValue };
 type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+
+export type FullLlmInputContext = {
+  turn: number;
+  displayName: string;
+  promptsLookup: ReplayPromptsLookup;
+};
+
+type RecomposeUserMessage = (args: {
+  input: AgentRecord["input"];
+  turn: number;
+  displayName: string;
+  prompts: {
+    systemText(hash: string): string;
+    personaText(hash: string): string;
+  };
+}) => string;
 
 type RawArgumentsVsDecision = {
   matched: boolean;
@@ -42,16 +60,25 @@ const VALIDATOR_FIELDS = [
 type ValidatorField = (typeof VALIDATOR_FIELDS)[number];
 type ValidatorFieldErrors = Partial<Record<ValidatorField, string>>;
 
-export const LEGACY_COMPOSED_USER_MESSAGE_UNAVAILABLE =
-  "(legacy phase-3 record — composedUserMessage unavailable)";
+export const PROMPT_LOOKUP_FATAL_PREFIX =
+  "FATAL: prompt lookup failed for replay recomposition";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Full LLM input
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function composeFullLlmInput(agentRecord: AgentRecord): string {
-  const system = composeSystemRole(agentRecord);
-  const userRole = composeUserRole(agentRecord);
+export class ReplayPromptLookupError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReplayPromptLookupError";
+  }
+}
+
+export function composeFullLlmInput(
+  agentRecord: AgentRecord,
+  context: FullLlmInputContext,
+): string {
+  const { system, userRole } = composeRoles(agentRecord, context);
   const toolSchema = composeToolSchemaSection(agentRecord);
 
   return [
@@ -61,32 +88,78 @@ export function composeFullLlmInput(agentRecord: AgentRecord): string {
   ].join("\n\n");
 }
 
-function composeSystemRole(agentRecord: AgentRecord): string {
-  const system = agentRecord.input.systemPromptText;
-  const playerName = readPlayerName(agentRecord);
-  return system.replace("<Player Name>", playerName);
-}
-
-function readPlayerName(agentRecord: AgentRecord): string {
-  const input = agentRecord.input as AgentInputWithComposed;
-  const match = /^#\s+(.+)$/m.exec(input.composedUserMessage ?? "");
-  if (match && match[1]?.trim()) return match[1].trim();
-  return titleCase(agentRecord.personaId);
-}
-
-function titleCase(value: string): string {
-  return value.length === 0
-    ? value
-    : `${value[0]!.toUpperCase()}${value.slice(1)}`;
-}
-
-function composeUserRole(agentRecord: AgentRecord): string {
-  const input = agentRecord.input as AgentInputWithComposed;
-  if (typeof input.composedUserMessage === "string") {
-    return input.composedUserMessage;
+function composeRoles(
+  agentRecord: AgentRecord,
+  context: FullLlmInputContext,
+): { system: string; userRole: string } {
+  try {
+    return {
+      system: composeSystemRole(agentRecord, context),
+      userRole: composeUserRole(agentRecord, context),
+    };
+  } catch (err) {
+    const fatal = renderPromptLookupFatal(err);
+    return { system: fatal, userRole: fatal };
   }
+}
 
-  return LEGACY_COMPOSED_USER_MESSAGE_UNAVAILABLE;
+function composeSystemRole(
+  agentRecord: AgentRecord,
+  context: FullLlmInputContext,
+): string {
+  const system = readPromptText(
+    context.promptsLookup,
+    "system",
+    agentRecord.input.systemPromptHash,
+  );
+  return system.replace("<Player Name>", context.displayName);
+}
+
+function composeUserRole(
+  agentRecord: AgentRecord,
+  context: FullLlmInputContext,
+): string {
+  return getRecomposeUserMessage()({
+    input: agentRecord.input,
+    turn: context.turn,
+    displayName: context.displayName,
+    prompts: {
+      systemText: (hash) => readPromptText(context.promptsLookup, "system", hash),
+      personaText: (hash) =>
+        readPromptText(context.promptsLookup, "persona", hash),
+    },
+  });
+}
+
+function getRecomposeUserMessage(): RecomposeUserMessage {
+  const candidate = (
+    inputBuilder as unknown as {
+      recomposeUserMessage?: unknown;
+    }
+  ).recomposeUserMessage;
+  if (typeof candidate !== "function") {
+    throw new ReplayPromptLookupError(
+      "convex/llm/inputBuilder.recomposeUserMessage is unavailable",
+    );
+  }
+  return candidate as RecomposeUserMessage;
+}
+
+function readPromptText(
+  lookup: ReplayPromptsLookup,
+  kind: "system" | "persona",
+  hash: string,
+): string {
+  const text = lookup[kind][hash];
+  if (typeof text !== "string") {
+    throw new ReplayPromptLookupError(`missing ${kind} prompt hash "${hash}"`);
+  }
+  return text;
+}
+
+function renderPromptLookupFatal(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return `${PROMPT_LOOKUP_FATAL_PREFIX}\n${message}`;
 }
 
 export const TOOL_SCHEMA_UNAVAILABLE =

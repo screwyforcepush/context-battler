@@ -848,9 +848,9 @@ Both threads are diagnostic-grade refinements to the v0 overseer
 (§11), not the consumer-renderer slice. They preserve the
 batch-fetch + step-don't-stream + ground-truth-always posture.
 
-## 19. DB bandwidth substrate refinement (dispatched 2026-05-15)
+## 19. DB bandwidth substrate refinement (closed 2026-05-15)
 
-> **Status:** dispatched 2026-05-15. Jam-surfaced substrate slice,
+> **Status:** CLOSED — 2026-05-15. Jam-surfaced substrate slice,
 > orthogonal to phase-10's body-collision + overseer-v0 work. The
 > trigger was the user flagging `_internal_runMatch.persistTurn` and
 > `_internal_runMatch.worldByMatch` as the two Convex functions
@@ -900,7 +900,16 @@ the next substrate iteration; the cap is deliberate.
 - Schema break to `agentInputValidator` and `worldState` table
   acceptable in lockstep.
 
-**Done bar — light, not a closing report.** This is a
+**Closure record.** Phase 11 landed the forward schema and read-side
+joins; closure record:
+[`PHASE-11-CLOSURE.md`](../phases/11-db-bandwidth-substrate/PHASE-11-CLOSURE.md).
+The 10-run smoke passed the light engine/replay/diagnostics bars
+and the write-path bandwidth claim passed. The combined world-read
+bandwidth target did **not** pass because it conflicts with the
+locked per-turn double-read scope (D5/D14); true combined reduction
+requires a separately scoped action-chain/cache refactor.
+
+**Done bar — light, not a closing report.** This was a
 *smoke* validation, not a metric-perfect closing pass:
 - 10-run smoke completes with zero engine crashes and zero
   validator-zero explosions.

@@ -1,6 +1,35 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const recomposeUserMessageMock = vi.hoisted(() =>
+  vi.fn((args: {
+    input: {
+      personaPromptHash: string;
+      scratchpadBefore: string;
+      visibleStateDigest: string;
+    };
+    turn: number;
+    displayName: string;
+    prompts: {
+      personaText(hash: string): string;
+      systemText(hash: string): string;
+    };
+  }) =>
+    [
+      `# ${args.displayName}`,
+      `turn=${args.turn}`,
+      `persona=${args.prompts.personaText(args.input.personaPromptHash)}`,
+      `scratchpad=${args.input.scratchpadBefore}`,
+      args.input.visibleStateDigest,
+    ].join("\n"),
+  ),
+);
+
+vi.mock("../../../../../convex/llm/inputBuilder", () => ({
+  recomposeUserMessage: recomposeUserMessageMock,
+}));
+
 import {
-  LEGACY_COMPOSED_USER_MESSAGE_UNAVAILABLE,
+  PROMPT_LOOKUP_FATAL_PREFIX,
   TOOL_SCHEMA_UNAVAILABLE,
   composeDecisionJson,
   composeFullLlmInput,
@@ -15,14 +44,18 @@ import {
   summariseValidatorFieldErrors,
 } from "../rawPane";
 import type { AgentRecord } from "../decisionEnglish";
+import type { FullLlmInputContext } from "../rawPane";
+
+beforeEach(() => {
+  recomposeUserMessageMock.mockClear();
+});
 
 function makeAgentRecord(
   overrides: Partial<{
-    systemPromptText: string;
-    personaPromptText: string;
+    systemPromptHash: string;
+    personaPromptHash: string;
     scratchpadBefore: string;
     visibleStateDigest: string;
-    composedUserMessage: string;
     useVariant: AgentRecord["input"]["useVariant"];
     reasoning: string | null;
     rawArguments: string | null;
@@ -44,12 +77,18 @@ function makeAgentRecord(
     characterId: "c1" as unknown as AgentRecord["characterId"],
     personaId: "rat",
     input: {
-      systemPromptHash: "sh",
-      systemPromptText: overrides.systemPromptText ?? "SYSTEM TEXT",
-      personaPromptHash: "ph",
-      personaPromptText: overrides.personaPromptText ?? "PERSONA TEXT",
+      systemPromptHash: overrides.systemPromptHash ?? "sh",
+      personaPromptHash: overrides.personaPromptHash ?? "ph",
       visibleStateDigest: overrides.visibleStateDigest ?? "DIGEST TEXT",
       scratchpadBefore: overrides.scratchpadBefore ?? "SCRATCH TEXT",
+      status: {
+        hp: 50,
+        pos: { x: 45, y: 47 },
+        equipped: {},
+        insideEvac: false,
+      },
+      narrativeLines: [],
+      aliveCount: 8,
       ...(overrides.useVariant !== undefined
         ? { useVariant: overrides.useVariant }
         : { useVariant: "null_only" as const }),
@@ -75,33 +114,51 @@ function makeAgentRecord(
     },
   } as AgentRecord;
 
-  if (overrides.composedUserMessage !== undefined) {
-    (
-      record.input as AgentRecord["input"] & {
-        composedUserMessage?: string;
-      }
-    ).composedUserMessage = overrides.composedUserMessage;
-  }
-
   return record;
+}
+
+function makeContext(
+  overrides: Partial<FullLlmInputContext> = {},
+): FullLlmInputContext {
+  return {
+    turn: overrides.turn ?? 7,
+    displayName: overrides.displayName ?? "Rat",
+    promptsLookup: overrides.promptsLookup ?? {
+      system: { sh: "SYSTEM TEXT for <Player Name>" },
+      persona: { ph: "PERSONA TEXT" },
+    },
+  };
+}
+
+function extractUserRole(fullInput: string): string {
+  const userMarker = "--- user role ---\n";
+  const toolMarker = "\n\n--- tool schema ---";
+  return fullInput.slice(
+    fullInput.indexOf(userMarker) + userMarker.length,
+    fullInput.indexOf(toolMarker),
+  );
 }
 
 describe("composeFullLlmInput", () => {
   it("includes system, user, and per-turn tool schema sections", () => {
     const ar = makeAgentRecord({
-      systemPromptText: "SYS_BODY",
-      personaPromptText: "PERSONA_BODY",
       scratchpadBefore: "SCRATCH_BODY",
       visibleStateDigest: "DIGEST_BODY",
-      composedUserMessage:
-        "# Rat\n\n## Status\nSTATUS_BODY\n\n# Current Game State\nDIGEST_BODY",
       useVariant: "null_only",
     });
-    const out = composeFullLlmInput(ar);
+    const out = composeFullLlmInput(
+      ar,
+      makeContext({
+        promptsLookup: {
+          system: { sh: "SYS_BODY" },
+          persona: { ph: "PERSONA_BODY" },
+        },
+      }),
+    );
 
     expect(out).toContain("--- system role ---\nSYS_BODY");
     expect(out).toContain(
-      "--- user role ---\n# Rat\n\n## Status\nSTATUS_BODY\n\n# Current Game State\nDIGEST_BODY",
+      "--- user role ---\n# Rat\nturn=7\npersona=PERSONA_BODY\nscratchpad=SCRATCH_BODY\nDIGEST_BODY",
     );
     expect(out).toContain("--- tool schema ---");
     expect(out).toContain('"name": "decide_turn"');
@@ -111,29 +168,48 @@ describe("composeFullLlmInput", () => {
     expect(out).toContain('"scratchpad"');
   });
 
-  it("renders composedUserMessage verbatim when present", () => {
-    const composed = "# Current Game State\nVisible: []";
+  it("recomposes the user role from slim input, turn, display name, and prompt lookup", () => {
     const ar = makeAgentRecord({
-      composedUserMessage: composed,
-      personaPromptText: "IGNORED",
+      personaPromptHash: "persona-hash",
+      scratchpadBefore: "memory",
+      visibleStateDigest: "Vision:\n{}",
     });
-    const out = composeFullLlmInput(ar);
-    const userMarker = "--- user role ---\n";
-    const toolMarker = "\n\n--- tool schema ---";
-    const userRole = out.slice(
-      out.indexOf(userMarker) + userMarker.length,
-      out.indexOf(toolMarker),
+    const out = composeFullLlmInput(
+      ar,
+      makeContext({
+        turn: 11,
+        displayName: "Camper",
+        promptsLookup: {
+          system: { sh: "System" },
+          persona: { "persona-hash": "Camper body" },
+        },
+      }),
     );
+    const userRole = extractUserRole(out);
 
-    expect(userRole).toBe(composed);
-    expect(userRole).not.toContain("IGNORED");
+    expect(userRole).toBe(
+      "# Camper\nturn=11\npersona=Camper body\nscratchpad=memory\nVision:\n{}",
+    );
+    expect(recomposeUserMessageMock).toHaveBeenCalledWith({
+      input: ar.input,
+      turn: 11,
+      displayName: "Camper",
+      prompts: expect.objectContaining({
+        systemText: expect.any(Function),
+        personaText: expect.any(Function),
+      }),
+    });
   });
 
-  it("substitutes the persisted system prompt template for display only", () => {
+  it("substitutes the joined system prompt template for display only", () => {
     const out = composeFullLlmInput(
-      makeAgentRecord({
-        systemPromptText: "You are <Player Name>, extraction-arena agent.",
-        composedUserMessage: "# Camper\n\n## Status\nready",
+      makeAgentRecord(),
+      makeContext({
+        displayName: "Camper",
+        promptsLookup: {
+          system: { sh: "You are <Player Name>, extraction-arena agent." },
+          persona: { ph: "persona" },
+        },
       }),
     );
 
@@ -142,28 +218,31 @@ describe("composeFullLlmInput", () => {
     );
   });
 
-  it("does not build the phase-3 Persona/Scratchpad/Visible fallback", () => {
+  it("renders a visible fatal prompt error instead of silently replacing missing hashes", () => {
     const out = composeFullLlmInput(
       makeAgentRecord({
-        personaPromptText: "PERSONA_BODY",
-        scratchpadBefore: "SCRATCH_BODY",
-        visibleStateDigest: "DIGEST_BODY",
+        systemPromptHash: "missing-system",
       }),
+      makeContext(),
     );
-    const userMarker = "--- user role ---\n";
-    const toolMarker = "\n\n--- tool schema ---";
-    const userRole = out.slice(
-      out.indexOf(userMarker) + userMarker.length,
-      out.indexOf(toolMarker),
+    const userRole = extractUserRole(out);
+
+    expect(out).toContain(PROMPT_LOOKUP_FATAL_PREFIX);
+    expect(userRole).toContain("missing system prompt hash \"missing-system\"");
+    expect(userRole).not.toContain("SCRATCH TEXT");
+    expect(recomposeUserMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("renders a visible fatal prompt error when the persona hash is missing during recomposition", () => {
+    const out = composeFullLlmInput(
+      makeAgentRecord({ personaPromptHash: "missing-persona" }),
+      makeContext(),
     );
 
-    expect(userRole).toBe(LEGACY_COMPOSED_USER_MESSAGE_UNAVAILABLE);
-    expect(userRole).not.toContain("## Persona");
-    expect(userRole).not.toContain("## Scratchpad");
-    expect(userRole).not.toContain("## Visible state");
-    expect(userRole).not.toContain("PERSONA_BODY");
-    expect(userRole).not.toContain("SCRATCH_BODY");
-    expect(userRole).not.toContain("DIGEST_BODY");
+    expect(extractUserRole(out)).toContain(
+      "missing persona prompt hash \"missing-persona\"",
+    );
+    expect(out).toContain(PROMPT_LOOKUP_FATAL_PREFIX);
   });
 });
 

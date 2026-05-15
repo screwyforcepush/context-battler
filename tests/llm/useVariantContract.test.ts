@@ -56,14 +56,21 @@ describe("phase-6 useVariant contract", () => {
 
   it("persists the same useVariant in the agent input record", () => {
     const useVariant = useVariantForActor(character({}));
-    const input = buildAgentInputRecord({
-      systemPrompt: "You are <Player Name>.",
-      personaPromptText: "Persona.",
-      visibleStateDigest: "{}",
-      scratchpadBefore: "",
-      composedUserMessage: "# Rat",
-      useVariant,
-    });
+          const input = buildAgentInputRecord({
+            systemPrompt: "You are <Player Name>.",
+            personaPromptText: "Persona.",
+            visibleStateDigest: "{}",
+            scratchpadBefore: "",
+            useVariant,
+            status: {
+              hp: 50,
+              pos: { x: 1, y: 1 },
+              equipped: {},
+              insideEvac: false,
+            },
+            narrativeLines: [],
+            aliveCount: 8,
+          });
 
     expect(input.useVariant).toBe(useVariant);
   });

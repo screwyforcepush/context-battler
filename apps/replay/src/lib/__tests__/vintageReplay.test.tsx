@@ -44,6 +44,7 @@ function makeBundle(agentRecords: AgentRecord[]): ReplayBundle {
     ],
     worldState: null,
     characters: [],
+    promptsLookup: { system: {}, persona: {} },
   };
 }
 
@@ -53,13 +54,18 @@ function makeIter2Record(): AgentRecord {
     personaId: "rat",
     input: {
       systemPromptHash: "h",
-      systemPromptText: "sys",
       personaPromptHash: "h",
-      personaPromptText: "persona",
       visibleStateDigest: "{}",
       scratchpadBefore: "",
+      status: {
+        hp: 50,
+        pos: { x: 45, y: 47 },
+        equipped: {},
+        insideEvac: false,
+      },
+      narrativeLines: [],
+      aliveCount: 8,
       useVariant: "null_only",
-      composedUserMessage: "# Rat\n\n## Status\n...\n\n# Current Game State\n...",
     },
     decision: {
       use: null,

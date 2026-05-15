@@ -129,14 +129,18 @@ const validatorFieldErrorsValidator = v.object({
 
 const agentInputValidator = v.object({
   systemPromptHash: v.string(),
-  systemPromptText: v.string(),
   personaPromptHash: v.string(),
-  personaPromptText: v.string(),
   visibleStateDigest: v.string(),
   scratchpadBefore: v.string(),
-  // Phase-4 WP-A mirror — optional slot only; WP-D owns population.
-  composedUserMessage: v.optional(v.string()),
   useVariant: v.optional(useVariantValidator),
+  status: v.object({
+    hp: v.number(),
+    pos: tileValidator,
+    equipped: equippedValidator,
+    insideEvac: v.boolean(),
+  }),
+  narrativeLines: v.array(v.string()),
+  aliveCount: v.number(),
 });
 
 const agentLlmValidator = v.object({
@@ -290,6 +294,14 @@ const worldPatchValidator = v.object({
   }),
 });
 
+const promptKindValidator = v.union(v.literal("system"), v.literal("persona"));
+
+const promptTextValidator = v.object({
+  kind: promptKindValidator,
+  hash: v.string(),
+  text: v.string(),
+});
+
 const outcomeValidator = v.object({
   extracted: v.array(v.id("characters")),
   lastSurvivor: v.optional(v.id("characters")),
@@ -297,6 +309,90 @@ const outcomeValidator = v.object({
     v.object({ id: v.id("characters"), points: v.number() }),
   ),
 });
+
+type PromptKind = "system" | "persona";
+
+type PromptRow = {
+  _id: unknown;
+  hash: string;
+  kind: PromptKind;
+  text: string;
+};
+
+type PromptIndexQuery = {
+  eq(field: "hash" | "kind", value: string): PromptIndexQuery;
+};
+
+type PromptPersistenceContext = {
+  db: {
+    query(table: "prompts"): unknown;
+    insert(
+      table: "prompts",
+      value: { hash: string; kind: PromptKind; text: string },
+    ): Promise<unknown>;
+  };
+};
+
+export class DataIntegrityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DataIntegrityError";
+  }
+}
+
+export async function getOrCreatePrompt(
+  ctx: PromptPersistenceContext,
+  args: { hash: string; kind: PromptKind; text: string },
+): Promise<unknown> {
+  const promptQuery = ctx.db.query("prompts") as {
+    withIndex(
+      indexName: "by_hash_kind",
+      cb: (q: PromptIndexQuery) => unknown,
+    ): { unique(): Promise<PromptRow | null> };
+  };
+  const existing = await promptQuery
+    .withIndex("by_hash_kind", (q) =>
+      q.eq("hash", args.hash).eq("kind", args.kind),
+    )
+    .unique();
+
+  if (existing) {
+    if (existing.text !== args.text) {
+      throw new DataIntegrityError(
+        `Prompt hash collision for ${args.kind}:${args.hash}`,
+      );
+    }
+    return existing._id;
+  }
+
+  return await ctx.db.insert("prompts", args);
+}
+
+async function upsertPromptTexts(
+  ctx: PromptPersistenceContext,
+  promptTexts: Array<{ hash: string; kind: PromptKind; text: string }>,
+): Promise<Map<string, string>> {
+  const unique = new Map<
+    string,
+    { hash: string; kind: PromptKind; text: string }
+  >();
+  for (const prompt of promptTexts) {
+    const key = `${prompt.kind}:${prompt.hash}`;
+    const existing = unique.get(key);
+    if (existing && existing.text !== prompt.text) {
+      throw new DataIntegrityError(
+        `Prompt hash collision within persistTurn args for ${key}`,
+      );
+    }
+    unique.set(key, prompt);
+  }
+
+  for (const prompt of unique.values()) {
+    await getOrCreatePrompt(ctx, prompt);
+  }
+
+  return new Map([...unique].map(([key, prompt]) => [key, prompt.text]));
+}
 
 // ─── Internal queries ─────────────────────────────────────────────────────
 
@@ -328,6 +424,20 @@ export const worldByMatch = query({
       .filter((q) => q.eq(q.field("matchId"), matchId))
       .collect();
     return rows[0] ?? null;
+  },
+});
+
+/**
+ * Read immutable terrain for a match. Kept separate from `worldByMatch` so the
+ * per-turn dynamic read does not ship walls/cover.
+ */
+export const worldStaticByMatch = query({
+  args: { matchId: v.id("matches") },
+  handler: async (ctx, { matchId }) => {
+    return await ctx.db
+      .query("worldStatic")
+      .withIndex("by_match", (q) => q.eq("matchId", matchId))
+      .unique();
   },
 });
 
@@ -415,6 +525,7 @@ export const persistTurn = mutation({
     matchId: v.id("matches"),
     turn: v.number(),
     agentRecords: v.array(agentRecordValidator),
+    promptTexts: v.array(promptTextValidator),
     resolution: resolutionValidator,
     characterPatches: v.array(characterPatchValidator),
     worldPatch: worldPatchValidator,
@@ -424,6 +535,22 @@ export const persistTurn = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const promptLookup = await upsertPromptTexts(ctx, args.promptTexts);
+    for (const record of args.agentRecords) {
+      const systemKey = `system:${record.input.systemPromptHash}`;
+      const personaKey = `persona:${record.input.personaPromptHash}`;
+      if (!promptLookup.has(systemKey)) {
+        throw new DataIntegrityError(
+          `Missing system prompt text for hash ${record.input.systemPromptHash}`,
+        );
+      }
+      if (!promptLookup.has(personaKey)) {
+        throw new DataIntegrityError(
+          `Missing persona prompt text for hash ${record.input.personaPromptHash}`,
+        );
+      }
+    }
+
     // 1. Insert turns row (one per turn).
     await ctx.db.insert("turns", {
       matchId: args.matchId,

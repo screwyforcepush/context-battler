@@ -5,6 +5,7 @@ import {
 } from "../engine/vision.js";
 import {
   ARMOUR,
+  CHARACTER_MAX_HP,
   CONSUMABLES,
   MIN_DAMAGE_FLOOR,
   WEAPONS,
@@ -15,6 +16,7 @@ import {
   type MatchState,
   type Position,
   type Tile,
+  type UseVariant,
   type VisibleEntity,
   type Wall,
 } from "../engine/types.js";
@@ -126,8 +128,8 @@ function parseDamageResult(result: string): number | null {
   return Number(match[1]);
 }
 
-function renderWeaponSlot(actor: CharacterState): string {
-  const weapon = actor.equipped.weapon;
+function renderWeaponSlot(equipped: EquippedSlots): string {
+  const weapon = equipped.weapon;
   if (!weapon || weapon.category !== "weapon") {
     return `unarmed [dmg ${MIN_DAMAGE_FLOOR}]`;
   }
@@ -135,15 +137,15 @@ function renderWeaponSlot(actor: CharacterState): string {
   return `${weapon.name} [dmg ${stats.damage}]`;
 }
 
-function renderArmourSlot(actor: CharacterState): string {
-  const armour = actor.equipped.armour;
+function renderArmourSlot(equipped: EquippedSlots): string {
+  const armour = equipped.armour;
   if (!armour || armour.category !== "armour") return "none";
   const stats = ARMOUR[armour.name];
   return `${armour.name} [-${stats.reduction} dmg]`;
 }
 
-function renderConsumableSlot(actor: CharacterState): string {
-  const consumable = actor.equipped.consumable;
+function renderConsumableSlot(equipped: EquippedSlots): string {
+  const consumable = equipped.consumable;
   if (!consumable || consumable.category !== "consumable") return "none";
   const effect = CONSUMABLES[consumable.name];
   const label =
@@ -583,18 +585,115 @@ export function buildVisibleStateDigest(
   return `Vision:\n${JSON.stringify(buildVisibleObject(state, observer), null, 2)}`;
 }
 
-function renderStatusBlock(state: MatchState, observer: CharacterState): string {
-  const evacStatus = observerInEvacZone(state, observer)
-    ? "Inside Evac"
-    : "Outside Evac";
+export type AgentInputStatus = {
+  hp: number;
+  pos: Tile;
+  equipped: EquippedSlots;
+  insideEvac: boolean;
+};
+
+export type PersistedAgentInput = {
+  systemPromptHash: string;
+  personaPromptHash: string;
+  visibleStateDigest: string;
+  scratchpadBefore: string;
+  useVariant?: UseVariant;
+  status: AgentInputStatus;
+  narrativeLines: string[];
+  aliveCount: number;
+};
+
+export type PromptsLookup = {
+  systemText(hash: string): string;
+  personaText(hash: string): string;
+};
+
+export class MissingPromptHashError extends Error {
+  constructor(kind: "system" | "persona", hash: string) {
+    super(`Missing ${kind} prompt text for hash ${hash}`);
+    this.name = "MissingPromptHashError";
+  }
+}
+
+function requirePromptText(
+  kind: "system" | "persona",
+  hash: string,
+  text: unknown,
+): string {
+  if (typeof text !== "string") {
+    throw new MissingPromptHashError(kind, hash);
+  }
+  return text;
+}
+
+export function renderStatusBlock(args: {
+  hp: number;
+  maxHp: number;
+  pos: Tile;
+  equipped: EquippedSlots;
+  insideEvac: boolean;
+  scratchpad: string;
+}): string {
+  const evacStatus = args.insideEvac ? "Inside Evac" : "Outside Evac";
   return [
     "## Status",
-    `📍(${observer.pos.x},${observer.pos.y}) ${evacStatus}`,
-    `❤️HP: ${observer.hp}/${observer.maxHp} HP`,
-    `⚔️weapon: ${renderWeaponSlot(observer)}`,
-    `🛡️armour: ${renderArmourSlot(observer)}`,
-    `🧪consumable: ${renderConsumableSlot(observer)}`,
-    `🗒️scratchpad: ${observer.scratchpad}`,
+    `📍(${args.pos.x},${args.pos.y}) ${evacStatus}`,
+    `❤️HP: ${args.hp}/${args.maxHp} HP`,
+    `⚔️weapon: ${renderWeaponSlot(args.equipped)}`,
+    `🛡️armour: ${renderArmourSlot(args.equipped)}`,
+    `🧪consumable: ${renderConsumableSlot(args.equipped)}`,
+    `🗒️scratchpad: ${args.scratchpad}`,
+  ].join("\n");
+}
+
+function statusFromObserver(
+  state: MatchState,
+  observer: CharacterState,
+): AgentInputStatus {
+  return {
+    hp: observer.hp,
+    pos: { x: observer.pos.x, y: observer.pos.y },
+    equipped: { ...observer.equipped },
+    insideEvac: observerInEvacZone(state, observer),
+  };
+}
+
+export function recomposeUserMessage(args: {
+  input: PersistedAgentInput;
+  turn: number;
+  displayName: string;
+  prompts: PromptsLookup;
+}): string {
+  requirePromptText(
+    "system",
+    args.input.systemPromptHash,
+    args.prompts.systemText(args.input.systemPromptHash),
+  );
+  const personaPromptText = requirePromptText(
+    "persona",
+    args.input.personaPromptHash,
+    args.prompts.personaText(args.input.personaPromptHash),
+  );
+
+  return [
+    `# ${args.displayName}`,
+    `You adopt ${args.displayName} persona:`,
+    personaPromptText,
+    "",
+    renderStatusBlock({
+      hp: args.input.status.hp,
+      maxHp: CHARACTER_MAX_HP,
+      pos: args.input.status.pos,
+      equipped: args.input.status.equipped,
+      insideEvac: args.input.status.insideEvac,
+      scratchpad: args.input.scratchpadBefore,
+    }),
+    "",
+    "# Current Game State",
+    `Turn ${args.turn}, ${args.input.aliveCount}/8 players alive`,
+    ...args.input.narrativeLines,
+    "",
+    args.input.visibleStateDigest,
   ].join("\n");
 }
 
@@ -607,6 +706,9 @@ export function buildAgentInput(
 ): {
   systemPrompt: string;
   visibleStateDigest: string;
+  status: AgentInputStatus;
+  narrativeLines: string[];
+  aliveCount: number;
   composedUserMessage: string;
 } {
   const observer = state.characters.find((c) => c.characterId === characterId);
@@ -615,12 +717,21 @@ export function buildAgentInput(
     return {
       systemPrompt,
       visibleStateDigest: "Vision:\n{}",
+      status: {
+        hp: 0,
+        pos: { x: 0, y: 0 },
+        equipped: {},
+        insideEvac: false,
+      },
+      narrativeLines: [],
+      aliveCount,
       composedUserMessage: "{}",
     };
   }
 
   const systemPrompt = buildSystemPrompt(state.turn);
   const visibleStateDigest = buildVisibleStateDigest(state, characterId, prev);
+  const status = statusFromObserver(state, observer);
   const events = [
     buildOwnOutcomeLine(state, characterId, prev),
     ...renderDamageEventLines(prev, state, observer),
@@ -634,7 +745,11 @@ export function buildAgentInput(
     `You adopt ${observer.displayName} persona:`,
     personaPromptText,
     "",
-    renderStatusBlock(state, observer),
+    renderStatusBlock({
+      ...status,
+      maxHp: observer.maxHp,
+      scratchpad: observer.scratchpad,
+    }),
     "",
     "# Current Game State",
     `Turn ${state.turn}, ${aliveCount}/8 players alive`,
@@ -646,6 +761,9 @@ export function buildAgentInput(
   return {
     systemPrompt,
     visibleStateDigest,
+    status,
+    narrativeLines: events,
+    aliveCount,
     composedUserMessage,
   };
 }

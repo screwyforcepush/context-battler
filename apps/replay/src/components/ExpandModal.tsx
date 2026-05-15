@@ -18,8 +18,9 @@
 //     "No agentRecord at turn N for this character" placeholder + back link.
 //   - Three vertical raw-dump sections, each a read-only <pre> with a copy
 //     button:
-//       1. **Full LLM input** — `composeFullLlmInput(agentRecord)` — the
-//          system role + user role concatenation that went on the wire.
+//       1. **Full LLM input** — `composeFullLlmInput(agentRecord, context)` —
+//          the system role + recomposed user role concatenation that went on
+//          the wire.
 //       2. **Reasoning text** — `composeReasoningText(agentRecord)` —
 //          `agentRecord.llm.reasoning ?? "(no reasoning captured)"`. The
 //          phase-3 schema does NOT carry a `decision.rationale` field —
@@ -32,7 +33,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
-import type { ReplayBundle } from "../lib/reconstruct";
+import type { ReplayBundle, ReplayPromptsLookup } from "../lib/reconstruct";
 import { truncateMid } from "../lib/formatters";
 import {
   composeFullLlmInput,
@@ -140,7 +141,14 @@ export function ExpandModal(
               </button>
             </div>
           ) : (
-            <RawPane agentRecord={lookup.agentRecord} />
+            <RawPane
+              agentRecord={lookup.agentRecord}
+              turn={target.turn}
+              displayName={
+                character?.displayName ?? titleCase(lookup.agentRecord.personaId)
+              }
+              promptsLookup={bundle.promptsLookup ?? EMPTY_PROMPTS_LOOKUP}
+            />
           )}
         </section>
       </div>
@@ -155,14 +163,29 @@ export function ExpandModal(
 
 type AgentRecord = Doc<"turns">["agentRecords"][number];
 
-function RawPane(props: { agentRecord: AgentRecord }): React.ReactElement {
+const EMPTY_PROMPTS_LOOKUP: ReplayPromptsLookup = {
+  system: {},
+  persona: {},
+};
+
+function RawPane(props: {
+  agentRecord: AgentRecord;
+  turn: number;
+  displayName: string;
+  promptsLookup: ReplayPromptsLookup;
+}): React.ReactElement {
   // Memoise the three composition strings — `agentRecord` is stable per
   // open-modal lookup, but JSON.stringify is non-trivial and the user
   // can re-render multiple times via React's strict-mode double-invoke
   // or hover-card-driven re-renders.
   const llmInput = useMemo(
-    () => composeFullLlmInput(props.agentRecord),
-    [props.agentRecord],
+    () =>
+      composeFullLlmInput(props.agentRecord, {
+        turn: props.turn,
+        displayName: props.displayName,
+        promptsLookup: props.promptsLookup,
+      }),
+    [props.agentRecord, props.displayName, props.promptsLookup, props.turn],
   );
   const reasoning = useMemo(
     () => composeReasoningText(props.agentRecord),
@@ -204,6 +227,12 @@ function RawPane(props: { agentRecord: AgentRecord }): React.ReactElement {
       ) : null}
     </div>
   );
+}
+
+function titleCase(value: string): string {
+  return value.length === 0
+    ? value
+    : `${value[0]!.toUpperCase()}${value.slice(1)}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

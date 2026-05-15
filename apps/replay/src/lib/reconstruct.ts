@@ -43,11 +43,23 @@ import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 
 export type Tile = { x: number; y: number };
 
+export type ReplayPromptsLookup = {
+  system: Record<string, string>;
+  persona: Record<string, string>;
+};
+
+export type ReplayWorldState = Doc<"worldState"> & {
+  walls?: Array<{ x: number; y: number; w: number; h: number }>;
+  coverClusters?: Array<{ x: number; y: number; w: number; h: number }>;
+  coverTiles?: Tile[];
+};
+
 export type ReplayBundle = {
   match: Doc<"matches">;
   turns: Array<Doc<"turns">>;
-  worldState: Doc<"worldState"> | null;
+  worldState: ReplayWorldState | null;
   characters: Array<Doc<"characters">>;
+  promptsLookup?: ReplayPromptsLookup;
 };
 
 export type SnapshotCharacter = {

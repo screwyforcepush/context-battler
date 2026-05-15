@@ -28,10 +28,15 @@ import {
   buildAgentInputRecord,
   buildAgentLlmRecord,
   buildMatchState,
+  hashHex,
   MAX_HP,
 } from "../convex/runMatch.js";
 import { callDecisionTool } from "../convex/llm/azure.js";
 import { CHARACTER_MAX_HP } from "../convex/engine/types.js";
+import {
+  buildAgentInput,
+  recomposeUserMessage,
+} from "../convex/llm/inputBuilder.js";
 import type {
   CharacterState,
   FailureReason,
@@ -211,8 +216,15 @@ describe("WP10.5 A5 — reasoningEffort threads into Azure request body", () => 
   });
 });
 
-describe("Phase 6 D13 — system prompt persistence is template-stable", () => {
-  it("keeps systemPromptText and systemPromptHash identical across personas", () => {
+describe("Phase 11 prompt persistence — slim agent input", () => {
+  const status = {
+    hp: 50,
+    pos: { x: 1, y: 2 },
+    equipped: {},
+    insideEvac: false,
+  };
+
+  it("keeps systemPromptHash identical across personas without persisting prompt text", () => {
     const systemPrompt =
       "You are <Player Name>, extraction-arena agent. Each turn, emit ONE tool call to `decide_turn`.";
     const ratRecord = buildAgentInputRecord({
@@ -220,23 +232,126 @@ describe("Phase 6 D13 — system prompt persistence is template-stable", () => {
       personaPromptText: "Rat persona",
       visibleStateDigest: "{}",
       scratchpadBefore: "",
-      composedUserMessage: "# Rat\n\n## Status\nready\n\n# Current Game State\n{}",
       useVariant: "null_only",
+      status,
+      narrativeLines: [],
+      aliveCount: 8,
     });
     const duelistRecord = buildAgentInputRecord({
       systemPrompt,
       personaPromptText: "Duelist persona",
       visibleStateDigest: "{}",
       scratchpadBefore: "",
-      composedUserMessage:
-        "# Duelist\n\n## Status\nready\n\n# Current Game State\n{}",
       useVariant: "consumable_or_null",
+      status,
+      narrativeLines: [],
+      aliveCount: 8,
     });
 
-    expect(ratRecord.systemPromptText).toBe(systemPrompt);
-    expect(duelistRecord.systemPromptText).toBe(systemPrompt);
     expect(ratRecord.systemPromptHash).toBe(duelistRecord.systemPromptHash);
-    expect(ratRecord.systemPromptText).toContain("<Player Name>");
+    expect(ratRecord.systemPromptHash).toBe(hashHex(systemPrompt));
+    expect(ratRecord).not.toHaveProperty("systemPromptText");
+    expect(ratRecord).not.toHaveProperty("personaPromptText");
+    expect(ratRecord).not.toHaveProperty("composedUserMessage");
+    expect(ratRecord.status).toEqual(status);
+    expect(ratRecord.aliveCount).toBe(8);
+  });
+
+  it("builds state, persists a slim input shape, and recomposes byte-equal", () => {
+    const matchRow = {
+      _id: "m1" as Doc<"matches">["_id"],
+      _creationTime: 0,
+      status: "running" as const,
+      turn: 11,
+      startedAt: 0,
+      completedAt: null,
+      mapId: "reference",
+      rngSeed: "seed-test",
+      outcome: { extracted: [], pointsByCharacter: [] },
+    } as unknown as Doc<"matches">;
+    const charRow = {
+      _id: "c_duelist" as Doc<"characters">["_id"],
+      _creationTime: 0,
+      matchId: matchRow._id,
+      personaId: "duelist" as const,
+      spawnIndex: 0,
+      displayName: "Duelist",
+      hp: 35,
+      pos: { x: 44, y: 53 },
+      equipped: {
+        weapon: { category: "weapon", name: "rusty_blade" },
+        armour: { category: "armour", name: "leather" },
+      },
+      scratchpad: "Pressure Vulture now.",
+      hidden: false,
+      alive: true,
+      lastKnown: [],
+    } as unknown as Doc<"characters">;
+    const worldRow = {
+      _id: "w1",
+      _creationTime: 0,
+      matchId: matchRow._id,
+      chests: [],
+      corpses: [],
+      evac: { centre: { x: 48, y: 48 }, revealedAtTurn: null },
+    } as unknown as Doc<"worldState">;
+    const worldStaticRow = {
+      _id: "ws1",
+      _creationTime: 0,
+      matchId: matchRow._id,
+      walls: [],
+      coverClusters: [],
+      coverTiles: [],
+    } as unknown as Doc<"worldStatic">;
+
+    const state = buildMatchState(
+      matchRow,
+      [charRow],
+      worldRow,
+      worldStaticRow,
+      { w: 100, h: 100 },
+    );
+    const personaPromptText = "Win direct fights.";
+    const built = buildAgentInput(
+      state,
+      charRow._id as string,
+      personaPromptText,
+      null,
+      1,
+    );
+    const input = buildAgentInputRecord({
+      systemPrompt: built.systemPrompt,
+      personaPromptText,
+      visibleStateDigest: built.visibleStateDigest,
+      scratchpadBefore: charRow.scratchpad,
+      useVariant: "null_only",
+      status: built.status,
+      narrativeLines: built.narrativeLines,
+      aliveCount: built.aliveCount,
+    });
+
+    expect(input).not.toHaveProperty("systemPromptText");
+    expect(input).not.toHaveProperty("personaPromptText");
+    expect(input).not.toHaveProperty("composedUserMessage");
+    expect(input.systemPromptHash).toBe(hashHex(built.systemPrompt));
+    expect(input.personaPromptHash).toBe(hashHex(personaPromptText));
+    expect(
+      recomposeUserMessage({
+        input,
+        turn: 11,
+        displayName: "Duelist",
+        prompts: {
+          systemText: (hash) => {
+            expect(hash).toBe(input.systemPromptHash);
+            return built.systemPrompt;
+          },
+          personaText: (hash) => {
+            expect(hash).toBe(input.personaPromptHash);
+            return personaPromptText;
+          },
+        },
+      }),
+    ).toBe(built.composedUserMessage);
   });
 });
 
@@ -438,22 +553,33 @@ describe("Gate-2.5 Path A — CHARACTER_MAX_HP shared-source-of-truth invariant"
       lastKnown: [],
     } as unknown as Doc<"characters">;
 
-    const worldRow = {
-      _id: "w1",
-      _creationTime: 0,
-      matchId: matchRow._id,
-      walls: [],
-      coverClusters: [],
-      coverTiles: [],
-      chests: [],
-      corpses: [],
-      evac: { centre: { x: 48, y: 48 }, revealedAtTurn: null },
-    } as unknown as Doc<"worldState">;
-
-    const state = buildMatchState(matchRow, [charRow], worldRow, {
-      w: 100,
-      h: 100,
-    });
+          const worldRow = {
+            _id: "w1",
+            _creationTime: 0,
+            matchId: matchRow._id,
+            chests: [],
+            corpses: [],
+            evac: { centre: { x: 48, y: 48 }, revealedAtTurn: null },
+          } as unknown as Doc<"worldState">;
+          const worldStaticRow = {
+            _id: "ws1",
+            _creationTime: 0,
+            matchId: matchRow._id,
+            walls: [],
+            coverClusters: [],
+            coverTiles: [],
+          } as unknown as Doc<"worldStatic">;
+      
+          const state = buildMatchState(
+            matchRow,
+            [charRow],
+            worldRow,
+            worldStaticRow,
+            {
+              w: 100,
+              h: 100,
+            },
+          );
 
     expect(state.characters).toHaveLength(1);
     const c = state.characters[0]!;
@@ -461,5 +587,73 @@ describe("Gate-2.5 Path A — CHARACTER_MAX_HP shared-source-of-truth invariant"
     expect(c.hp).toBe(CHARACTER_MAX_HP);
     expect(c.maxHp).toBe(CHARACTER_MAX_HP);
     expect(c.hp).toBe(c.maxHp);
-  });
-});
+        });
+
+        it("merges static terrain and dynamic world rows into the engine MatchState", () => {
+          const matchRow = {
+            _id: "m1" as Doc<"matches">["_id"],
+            _creationTime: 0,
+            status: "running" as const,
+            turn: 9,
+            startedAt: 0,
+            completedAt: null,
+            mapId: "reference",
+            rngSeed: "seed-test",
+            outcome: { extracted: [], pointsByCharacter: [] },
+          } as unknown as Doc<"matches">;
+          const charRow = {
+            _id: "c1" as Doc<"characters">["_id"],
+            _creationTime: 0,
+            matchId: matchRow._id,
+            personaId: "rat" as const,
+            spawnIndex: 0,
+            displayName: "Rat",
+            hp: CHARACTER_MAX_HP,
+            pos: { x: 28, y: 28 },
+            equipped: {},
+            scratchpad: "",
+            hidden: false,
+            alive: true,
+            lastKnown: [],
+          } as unknown as Doc<"characters">;
+          const worldRow = {
+            _id: "w1",
+            _creationTime: 0,
+            matchId: matchRow._id,
+            chests: [
+              {
+                id: "Chest_2_3",
+                pos: { x: 2, y: 3 },
+                contents: null,
+                opened: false,
+              },
+            ],
+            corpses: [],
+            evac: { centre: { x: 48, y: 48 }, revealedAtTurn: null },
+          } as unknown as Doc<"worldState">;
+          const worldStaticRow = {
+            _id: "ws1",
+            _creationTime: 0,
+            matchId: matchRow._id,
+            walls: [{ x: 10, y: 10, w: 3, h: 1 }],
+            coverClusters: [{ x: 20, y: 20, w: 2, h: 2 }],
+            coverTiles: [{ x: 20, y: 20 }],
+          } as unknown as Doc<"worldStatic">;
+
+          const state = buildMatchState(
+            matchRow,
+            [charRow],
+            worldRow,
+            worldStaticRow,
+            { w: 100, h: 100 },
+          );
+
+          expect(state.world.walls).toEqual(worldStaticRow.walls);
+          expect(state.world.coverClusters).toEqual(worldStaticRow.coverClusters);
+          expect(state.world.coverTiles).toEqual(worldStaticRow.coverTiles);
+          expect(state.world.chests).toMatchObject([
+            { id: "Chest_2_3", pos: { x: 2, y: 3 }, opened: false },
+          ]);
+          expect(state.world.evac).toEqual(worldRow.evac);
+        });
+      });
