@@ -69,25 +69,44 @@ export type ConsumableName = "heal" | "speed";
 
 /**
  * Weapon stat table — locked per ADR §6. WP7 combat tests assert these
- * values directly (`damage`, `range`). All weapons are range 2 in v0
+ * values directly (`dps`, `range`). All weapons are range 2 in v0
  * per concept-spec §14.
+ *
+ * `dps` is the DPS value (attack speed pre-factored in). `tempo` is a
+ * render-only cosmetic attribute ("slow" | "med" | "fast") consumed ONLY
+ * by the replay renderer — never by the LLM input, combat math, or any
+ * agent-facing surface. Equal DPS is mechanically identical regardless
+ * of tempo; tempo is never an initiative or turn-order axis.
  */
-export const WEAPONS: Record<WeaponName, { damage: number; range: number }> = {
-  rusty_blade: { damage: 10, range: 2 },
-  dagger: { damage: 8, range: 2 },
-  sword: { damage: 15, range: 2 },
-  axe: { damage: 20, range: 2 },
-  greatsword: { damage: 25, range: 2 },
-  warhammer: { damage: 30, range: 2 },
+export const WEAPONS: Record<
+  WeaponName,
+  { dps: number; range: number; tempo: "slow" | "med" | "fast" }
+> = {
+  rusty_blade: { dps: 10, range: 2, tempo: "med" },
+  dagger:      { dps: 8,  range: 2, tempo: "fast" },
+  sword:       { dps: 15, range: 2, tempo: "med" },
+  axe:         { dps: 20, range: 2, tempo: "med" },
+  greatsword:  { dps: 25, range: 2, tempo: "slow" },
+  warhammer:   { dps: 30, range: 2, tempo: "slow" },
 };
 
-/** Armour reduction table — locked per ADR §6. */
-export const ARMOUR: Record<ArmourName, { reduction: number }> = {
-  cloth: { reduction: 0 },
-  leather: { reduction: 3 },
-  chain: { reduction: 6 },
-  plate: { reduction: 10 },
-  riot_plate: { reduction: 14 },
+/**
+ * Armour percentage-reduction table — locked per ADR §6.
+ *
+ * `reductionPct` is a damage-reduction multiplier in [0, 1). The hard
+ * contract: NO tier reaches or exceeds 1.0 (no invincible agents).
+ * Damage formula (concept-spec §12):
+ *   damage = max(MIN_DAMAGE_FLOOR, round(base_dps * (1 - reductionPct)))
+ *
+ * Tier values (§10 tuning, hard-capped below 100%):
+ *   cloth 5%, leather 10%, chain 20%, plate 30%, riot_plate 40%.
+ */
+export const ARMOUR: Record<ArmourName, { reductionPct: number }> = {
+  cloth:      { reductionPct: 0.05 },
+  leather:    { reductionPct: 0.10 },
+  chain:      { reductionPct: 0.20 },
+  plate:      { reductionPct: 0.30 },
+  riot_plate: { reductionPct: 0.40 },
 };
 
 /** Consumable effect table — locked per ADR §6.
@@ -103,7 +122,7 @@ export const CONSUMABLES: Record<
 
 /**
  * Combat damage floor — locked per ADR §6. WP7 must assert
- * `damage = max(MIN_DAMAGE_FLOOR, weapon.damage - armour.reduction)`.
+ * `damage = max(MIN_DAMAGE_FLOOR, round(base_dps * (1 - reductionPct)))`.
  */
 export const MIN_DAMAGE_FLOOR = 5;
 
@@ -332,6 +351,13 @@ export type MatchState = {
 /**
  * Per-action trace entry emitted by resolution. `weapon` is the phase-4
  * strike-time equipped weapon name for attack/overwatch damage entries.
+ *
+ * `discardedWeaker` is `true` when a loot action opened the source (crate,
+ * corpse, or airdrop) but the looted item was NOT equipped because the
+ * actor already held a strictly-better item in that slot. The source is
+ * still consumed/marked spent. `lootedItem` carries the discarded item
+ * name so consumers can render the truth. When `discardedWeaker` is absent
+ * or false, the item was equipped normally.
  */
 export type ActionTraceEntry = {
   characterId: string;
@@ -341,6 +367,7 @@ export type ActionTraceEntry = {
   weapon?: string;
   lootedItem?: string;
   triggeredByMovement?: boolean;
+  discardedWeaker?: boolean;
 };
 
 // ─── Visible entities + heard speech (ADR §6 / concept-spec §7,§16) ──────────

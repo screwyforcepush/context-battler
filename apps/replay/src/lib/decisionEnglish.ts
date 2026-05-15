@@ -335,10 +335,25 @@ function renderActionOutcome(
   }
 
   if (kind === "loot") {
-    if (result === "opened") return "opened";
+    // Check discardedWeaker before checking result, since result is still
+    // "opened" / "looted" but the item was NOT equipped.
+    const discardedWeaker = (entry as { discardedWeaker?: boolean }).discardedWeaker === true;
+    if (result === "opened") {
+      if (discardedWeaker) {
+        const item = (entry as { lootedItem?: string }).lootedItem ?? "item";
+        return `opened — discarded ${item} (downgrade, kept existing)`;
+      }
+      return "opened";
+    }
+    if (result === "looted") {
+      if (discardedWeaker) {
+        const item = (entry as { lootedItem?: string }).lootedItem ?? "item";
+        return `looted — discarded ${item} (downgrade, kept existing)`;
+      }
+      return "looted";
+    }
     if (result === "already_opened") return "already opened";
     if (result === "no_crate") return "crate not found";
-    if (result === "looted") return "looted";
     if (result === "no_corpse") return "corpse not found";
     if (result === "empty") return "corpse already drained";
     if (result === "no_target") return "target not found";

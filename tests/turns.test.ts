@@ -788,6 +788,35 @@ describe("turns derived helper functions", () => {
       { result: "looted", item: "axe", target: "Corpse_Rat" },
     ]);
   });
+
+  it("extractLootOutcomes preserves discardedWeaker=true on opened/looted outcomes when item was weaker", () => {
+    expect(
+      extractLootOutcomes(
+        [
+          {
+            characterId: "self",
+            kind: "loot",
+            target: "Crate_1_2",
+            result: "opened",
+            lootedItem: "rusty_blade",
+            discardedWeaker: true,
+          },
+          {
+            characterId: "self",
+            kind: "loot",
+            target: "Corpse_Rat",
+            result: "looted",
+            lootedItem: "dagger",
+            discardedWeaker: true,
+          },
+        ],
+        "self",
+      ),
+    ).toEqual([
+      { result: "opened", item: "rusty_blade", target: "Crate_1_2", discardedWeaker: true },
+      { result: "looted", item: "dagger", target: "Corpse_Rat", discardedWeaker: true },
+    ]);
+  });
 });
 
 describe("diagnostics slim fan-out", () => {

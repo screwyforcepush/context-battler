@@ -90,6 +90,8 @@ export type LootOutcomeFeedEntry = {
   item?: string;
   target?: string;
   delivered?: boolean;
+  /** True when source was consumed but the item was NOT equipped (strictly-better rule). */
+  discardedWeaker?: boolean;
 };
 
 export type SlimAgentRecord = {

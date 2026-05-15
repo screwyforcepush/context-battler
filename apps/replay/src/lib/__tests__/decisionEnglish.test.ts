@@ -421,6 +421,59 @@ describe("summariseDecision — Phase 6 action and reactive outcomes", () => {
     expect(out.oneLine).toContain("Opened Crate_53_54.");
     expect(out.oneLine).not.toContain("Opened Crate_53_54 — opened");
   });
+
+  it("renders discarded-weaker crate loot as 'opened (downgrade discarded)' not as successful equip", () => {
+    const me = makeChar("c1", "Camper");
+    const ar = makeAgentRecord(me._id, {
+      action: { kind: "loot", targetId: "Crate_53_54" },
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      actions: [
+        {
+          characterId: me._id,
+          kind: "loot",
+          target: "Crate_53_54",
+          result: "opened",
+          lootedItem: "rusty_blade",
+          discardedWeaker: true,
+        } as TurnResolution["actions"][number] & { discardedWeaker?: boolean },
+      ],
+    };
+
+    const out = summariseDecision(ar, res, characterMap(me));
+
+    // Must NOT render as a plain successful equip
+    expect(out.oneLine).not.toContain("Opened Crate_53_54.");
+    // Must indicate discard happened
+    expect(out.oneLine).toContain("discarded");
+  });
+
+  it("renders discarded-weaker corpse loot as 'looted ... (downgrade discarded)' not as successful equip", () => {
+    const me = makeChar("c1", "Camper");
+    const ar = makeAgentRecord(me._id, {
+      action: { kind: "loot", targetId: "Corpse_Duelist" },
+    });
+    const res: TurnResolution = {
+      ...emptyResolution(),
+      actions: [
+        {
+          characterId: me._id,
+          kind: "loot",
+          target: "Corpse_Duelist",
+          result: "looted",
+          lootedItem: "dagger",
+          discardedWeaker: true,
+        } as TurnResolution["actions"][number] & { discardedWeaker?: boolean },
+      ],
+    };
+
+    const out = summariseDecision(ar, res, characterMap(me));
+
+    // Must indicate discard and not render as normal loot success
+    expect(out.oneLine).toContain("discarded");
+    expect(out.oneLine).not.toMatch(/^Looted from Corpse_Duelist\.$/);
+  });
 });
 
 describe("summariseDecision — Phase 6 use, say, and scratchpad axes", () => {

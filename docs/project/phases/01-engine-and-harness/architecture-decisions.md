@@ -501,7 +501,7 @@ const MIN_DAMAGE_FLOOR = 5;
 //   axe (20) vs leather (3)  => 17
 //   sword (15) vs plate (10) => 5  (floor binds)
 //   rusty_blade (10) vs plate (10) => 5 (floor binds)
-//   greatsword (25) vs cloth (0) => 25
+//   greatsword (25) vs cloth (5%) => round(25*0.95)=24
 ```
 
 **Rationale.**

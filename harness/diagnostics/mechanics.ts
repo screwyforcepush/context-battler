@@ -232,7 +232,11 @@ export function computeMechanicsDiagnostics(
         if (isCrateTarget(target)) {
           if (outcome.result === "opened") {
             crateOpened += 1;
-            if (outcome.item !== undefined) crateEquipped += 1;
+            // Only count as equipped when the item was actually adopted
+            // (not discarded as a weaker downgrade).
+            if (outcome.item !== undefined && outcome.discardedWeaker !== true) {
+              crateEquipped += 1;
+            }
           } else if (outcome.result === "empty") crateEmpty += 1;
           else if (outcome.result === "already_opened") {
             crateSameTurnCollision += 1;

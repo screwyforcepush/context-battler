@@ -63,6 +63,7 @@ import {
 import type {
   ActionDecision,
   ActionTraceEntry,
+  ArmourName,
   CharacterState,
   ConsumableName,
   CorpseState,
@@ -72,7 +73,7 @@ import type {
   Tile,
   WeaponName,
 } from "./types.js";
-import { CONSUMABLES } from "./types.js";
+import { ARMOUR, CONSUMABLES, WEAPONS } from "./types.js";
 import { computeVisibleEntities } from "./vision.js";
 
 // ─── ResolutionTrace shape ──────────────────────────────────────────────
@@ -792,8 +793,11 @@ export function resolveTurn(
       continue;
     }
     const item: ItemRef = crate.contents;
-    working = equipIntoSlot(working, ev.actorId, item);
-    // Mutate crates array immutably.
+    const equipResult = equipIntoSlot(working, ev.actorId, item);
+    working = equipResult.state;
+    // Consume the source (crate/airdrop) regardless of whether the item was
+    // equipped or discarded as weaker — "looting uses up the source; you just
+    // don't pick up a downgrade." (concept-spec §13 gear-mechanics refinement)
     if (crate.source === "static") {
       const newCrates = working.world.crates.map((c) =>
         c.id === ev.crateId ? { ...c, opened: true, contents: null } : c,
@@ -811,13 +815,17 @@ export function resolveTurn(
         world: { ...working.world, airdrops: newAirdrops },
       };
     }
-    trace.actions.push({
+    const crateTraceEntry: ActionTraceEntry = {
       characterId: ev.actorId,
       kind: "loot",
       target: ev.crateId,
       result: "opened",
       lootedItem: item.name,
-    });
+    };
+    if (equipResult.discardedWeaker) {
+      crateTraceEntry.discardedWeaker = true;
+    }
+    trace.actions.push(crateTraceEntry);
     const looter = working.characters.find((c) => c.characterId === ev.actorId);
     if (looter) {
       recordRevealCause(ev.actorId, "loot");
@@ -872,9 +880,13 @@ export function resolveTurn(
     }
 
     const picked = corpse.contents[pickedSlot]!;
-    working = equipIntoSlot(working, ev.actorId, picked);
+    const corpseEquipResult = equipIntoSlot(working, ev.actorId, picked);
+    working = corpseEquipResult.state;
 
-    // Remove looted slot from corpse.
+    // Remove the priority-picked slot from the corpse regardless of whether
+    // the item was equipped or discarded as weaker. No fall-through to the
+    // next slot — one item per loot, discard-or-equip, source item leaves
+    // the corpse either way. (concept-spec §13 gear-mechanics refinement)
     const newContents = { ...corpse.contents };
     delete newContents[pickedSlot];
     const newCorpses = working.world.corpses.map((c) =>
@@ -885,13 +897,17 @@ export function resolveTurn(
       world: { ...working.world, corpses: newCorpses },
     };
 
-    trace.actions.push({
+    const corpseTraceEntry: ActionTraceEntry = {
       characterId: ev.actorId,
       kind: "loot",
       target: ev.traceTarget,
       result: "looted",
       lootedItem: picked.name,
-    });
+    };
+    if (corpseEquipResult.discardedWeaker) {
+      corpseTraceEntry.discardedWeaker = true;
+    }
+    trace.actions.push(corpseTraceEntry);
 
     // Reveal looter.
     const looter = working.characters.find((c) => c.characterId === ev.actorId);
@@ -1088,26 +1104,90 @@ export function resolveTurn(
 // ─── Equipment helpers ───────────────────────────────────────────────────
 
 /**
- * Equip `item` into the matching slot for the named actor, replacing any
- * existing slot value (discarded per concept-spec §13). Returns NEW state.
+ * Returns the DPS value for a weapon ItemRef, or 0 if unarmed/no weapon.
+ * Used for strictly-better comparison during loot equip.
+ */
+function weaponDps(item: ItemRef | undefined): number {
+  if (!item || item.category !== "weapon") return 0;
+  return WEAPONS[item.name as WeaponName]?.dps ?? 0;
+}
+
+/**
+ * Returns the reductionPct value for an armour ItemRef. No armour / a
+ * non-armour ItemRef returns 0. Cloth is now 0.05, which is strictly
+ * greater than 0, so the first armour pickup (cloth or better) equips
+ * naturally under the existing strictly-greater gate.
+ * Used for strictly-better comparison during loot equip.
+ */
+function armourReductionPct(item: ItemRef | undefined): number {
+  if (!item || item.category !== "armour") return 0;
+  return ARMOUR[item.name as ArmourName]?.reductionPct ?? 0;
+}
+
+/**
+ * Equip `item` into the matching slot for the named actor.
+ *
+ * Strictly-better rule (concept-spec §13 gear-mechanics refinement):
+ *   - Weapon: equip only if item.dps > currently held weapon dps
+ *     (unarmed = 0, so any weapon beats bare hands).
+ *   - Armour: equip only if item.reductionPct > currently held reductionPct
+ *     (no armour = 0, cloth = 0.05, so cloth strictly beats bare).
+ *   - Consumable: always equip unconditionally (unchanged rule).
+ *   - Ties / weaker = NOT strictly better = keep current, discard looted.
+ *
+ * Returns `{ state: MatchState; discardedWeaker: boolean }`.
+ * `discardedWeaker=true` means the source was consumed/opened but the item
+ * was NOT equipped because actor already held an equal-or-better item.
+ * Callers must still consume/mark the source spent regardless of this flag.
  */
 function equipIntoSlot(
   state: MatchState,
   actorId: string,
   item: ItemRef,
-): MatchState {
+): { state: MatchState; discardedWeaker: boolean } {
   const idx = state.characters.findIndex((c) => c.characterId === actorId);
-  if (idx < 0) return state;
+  if (idx < 0) return { state, discardedWeaker: false };
   const actor = state.characters[idx]!;
-  const equipped = { ...actor.equipped };
-  if (item.category === "weapon") {
-    equipped.weapon = { category: "weapon", name: item.name as WeaponName };
-  } else if (item.category === "armour") {
-    equipped.armour = { category: "armour", name: item.name };
-  } else if (item.category === "consumable") {
+
+  // Consumable: unconditional equip.
+  if (item.category === "consumable") {
+    const equipped = { ...actor.equipped };
     equipped.consumable = { category: "consumable", name: item.name };
+    const arr = state.characters.slice();
+    arr[idx] = { ...actor, equipped };
+    return { state: { ...state, characters: arr }, discardedWeaker: false };
   }
-  const arr = state.characters.slice();
-  arr[idx] = { ...actor, equipped };
-  return { ...state, characters: arr };
+
+  // Weapon: equip only if strictly greater dps.
+  if (item.category === "weapon") {
+    const currentDps = weaponDps(actor.equipped.weapon);
+    const newDps = weaponDps(item);
+    if (newDps <= currentDps) {
+      // Weaker or equal — discard without changing equipment.
+      return { state, discardedWeaker: true };
+    }
+    const equipped = { ...actor.equipped };
+    equipped.weapon = { category: "weapon", name: item.name as WeaponName };
+    const arr = state.characters.slice();
+    arr[idx] = { ...actor, equipped };
+    return { state: { ...state, characters: arr }, discardedWeaker: false };
+  }
+
+  // Armour: equip only if strictly greater reductionPct.
+  if (item.category === "armour") {
+    const currentPct = armourReductionPct(actor.equipped.armour);
+    const newPct = armourReductionPct(item);
+    if (newPct <= currentPct) {
+      // Weaker or equal — discard without changing equipment.
+      return { state, discardedWeaker: true };
+    }
+    const equipped = { ...actor.equipped };
+    equipped.armour = { category: "armour", name: item.name as ArmourName };
+    const arr = state.characters.slice();
+    arr[idx] = { ...actor, equipped };
+    return { state: { ...state, characters: arr }, discardedWeaker: false };
+  }
+
+  // Defensive fallback — unknown category, no-op.
+  return { state, discardedWeaker: false };
 }

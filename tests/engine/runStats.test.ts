@@ -107,13 +107,11 @@ describe("WP12 — runs.aggregate top-level counts", () => {
   });
 
   it("counts equips from crate-equip + corpse-loot-equip trace actions (WP12: 3 crate opens + 1 crate opens-without-equip → equips=3)", () => {
-    // The resolver emits result="opened" ONLY when the equip side-effect
-    // succeeded (crates with null contents short-circuit before the trace
-    // push at convex/engine/resolution.ts:455-461). For aggregation we
-    // therefore treat every (kind="interact", result="opened") as an equip.
-    // The "+1 crate opens without equip" half of the WP12 acceptance is
-    // exercised by the trace omitting that interact entirely (it surfaces
-    // as result="already_opened" or doesn't reach the push).
+    // The resolver emits result="opened" when the loot side-effect ran; for
+    // aggregation we treat every (kind="loot", result="opened") WITHOUT
+    // discardedWeaker=true as an equip. The "+1 crate opens without equip"
+    // half of the WP12 acceptance is exercised by the trace emitting
+    // result="already_opened" (same-turn collision) or result="empty".
     const roster = defaultRoster();
     const turns: AggregatorTurnRow[] = [
       turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
@@ -126,6 +124,25 @@ describe("WP12 — runs.aggregate top-level counts", () => {
     ];
     const result = aggregateRunStats(turns, roster);
     expect(result.equips).toBe(3);
+  });
+
+  it("discardedWeaker=true: opened/looted actions with discardedWeaker are NOT counted as equips", () => {
+    // Strictly-better equip rule: source consumed but item not equipped.
+    const roster = defaultRoster();
+    const turns: AggregatorTurnRow[] = [
+      turn({ turn: 1, resolution: { consumed: [], speech: [], moves: [], visibilityUpdates: [], deaths: [], actions: [
+        // Normal equip — counts
+        { characterId: "c0", kind: "loot", target: "Crate_1_1", result: "opened" },
+        // Discarded as weaker — does NOT count
+        { characterId: "c1", kind: "loot", target: "Crate_2_1", result: "opened", discardedWeaker: true },
+        // Normal corpse loot — counts
+        { characterId: "c2", kind: "loot", target: "Corpse_Duelist", result: "looted" },
+        // Discarded corpse — does NOT count
+        { characterId: "c3", kind: "loot", target: "Corpse_Camper", result: "looted", discardedWeaker: true },
+      ] } }),
+    ];
+    const result = aggregateRunStats(turns, roster);
+    expect(result.equips).toBe(2);
   });
 
   it("counts corpse loot as equips (kind=loot result=looted)", () => {

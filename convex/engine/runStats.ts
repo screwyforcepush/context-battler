@@ -73,6 +73,9 @@ export type AggregatorAction = {
   kind: string;
   target: string;
   result: string;
+  /** Present when the item was NOT equipped because actor held an equal-or-better
+   *  item (strictly-better equip rule). equips counter must NOT increment. */
+  discardedWeaker?: boolean;
 };
 
 /** A single trace speech entry — only `characterId` (speaker) + `text` are
@@ -264,7 +267,12 @@ export function aggregateRunStats(
     // Crates and corpses share `kind="loot"` but are disambiguated by
     // target namespace. Corpse loot success must come from Corpse_<PersonaName>
     // so malformed crate rows cannot inflate equip counts.
+    //
+    // Strictly-better rule: `discardedWeaker=true` means the source was opened
+    // but the item was NOT equipped (actor held an equal-or-better item). Do NOT
+    // count discarded-weaker actions as equips.
     for (const a of t.resolution.actions) {
+      if (a.discardedWeaker === true) continue;
       const isCrateEquip =
         a.kind === "loot" &&
         a.result === "opened" &&

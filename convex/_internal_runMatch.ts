@@ -240,6 +240,8 @@ const resolutionValidator = v.object({
       weapon: v.optional(v.string()),
       // Phase 7 WP-A1 mirror — item name for successful loot traces.
       lootedItem: v.optional(v.string()),
+      // Phase 7 WP-B mirror — discard flag when a weaker item is not equipped.
+      discardedWeaker: v.optional(v.boolean()),
     }),
   ),
   deaths: v.array(v.id("characters")),

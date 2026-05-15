@@ -58,6 +58,7 @@ export type PrevTurnRow = {
       triggeredByMovement?: boolean;
       weapon?: string;
       lootedItem?: string;
+      discardedWeaker?: boolean;
     }>;
     deaths: ReadonlyArray<string>;
     environmentalDeaths: ReadonlyArray<string>;
@@ -137,14 +138,14 @@ function renderWeaponSlot(equipped: EquippedSlots): string {
     return `unarmed [dmg ${MIN_DAMAGE_FLOOR}]`;
   }
   const stats = WEAPONS[weapon.name];
-  return `${weapon.name} [dmg ${stats.damage}]`;
+  return `${weapon.name} [dmg ${stats.dps}]`;
 }
 
 function renderArmourSlot(equipped: EquippedSlots): string {
   const armour = equipped.armour;
   if (!armour || armour.category !== "armour") return "none";
   const stats = ARMOUR[armour.name];
-  return `${armour.name} [-${stats.reduction} dmg]`;
+  return `${armour.name} [-${Math.round(stats.reductionPct * 100)}% dmg]`;
 }
 
 function renderConsumableSlot(equipped: EquippedSlots): string {
@@ -273,6 +274,9 @@ function renderActionFragment(prev: PrevTurnRow, characterId: string): string | 
     entry.lootedItem &&
     entry.lootedItem.trim().length > 0
   ) {
+    if (entry.discardedWeaker === true) {
+      return `discarded ${entry.lootedItem} from ${target} (downgrade — kept existing)`;
+    }
     return `looted ${entry.lootedItem} from ${target}`;
   }
   return result ? `looted ${target} (${result})` : `looted ${target}`;

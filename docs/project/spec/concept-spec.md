@@ -693,18 +693,21 @@ If a target is visible and in range:
 Attack hits.
 ```
 
-Damage:
+Damage formula (percentage-reduction model):
 
 ```text
-Damage = weapon damage - armour reduction
+damage = max(MIN_DAMAGE_FLOOR, round(base_dps × (1 − reductionPct)))
 ```
 
-Use a minimum damage floor.
-
-Example:
+Where:
+- `base_dps` is the attacker's weapon `dps` value; unarmed = `MIN_DAMAGE_FLOOR` (5).
+- `reductionPct` is the defender's armour `reductionPct` in `[0, 1)`; no armour = 0.
+- `Math.round()` gives integer damage; the floor then prevents zero/negative results.
+- Armour `reductionPct` is strictly `< 1.0` by table contract, so no agent is ever
+  immune (every weapon always deals at least `MIN_DAMAGE_FLOOR`).
 
 ```text
-Minimum damage: 5
+Minimum damage floor: 5
 ```
 
 This keeps combat legible. If the agent dies, the player can reason about behaviour rather than probability.
@@ -774,21 +777,42 @@ or bare `Player_*` corpse form — those are
 dispatch-side internals only. Trace `kind` for crate opens is `"loot"`
 with `result: "opened"`. See phase-3 ADR §1.
 
-Equipping replaces the current item in that slot.
+## Strictly-better equip rule
 
-Initial simple rule:
-
-```text
-Replaced gear is discarded.
-```
-
-Alternative later:
+Looted gear equips only when it is **strictly better** than whatever the
+agent currently holds. "Better" is defined per slot:
 
 ```text
-Replaced gear drops onto the tile.
+Weapon:  new.dps  > current.dps   (unarmed = 0, so any weapon beats bare hands)
+Armour:  new.reductionPct > current.reductionPct  (no armour = 0, cloth = 0.05,
+         so cloth strictly beats unarmoured under the existing gate)
 ```
 
-Discarding is simpler for v0.
+Equal or weaker gear is **discarded without equipping**. The source (crate,
+corpse, airdrop) is always consumed/opened regardless of the discard outcome.
+
+Consumables are **unconditional**: they always fill the consumable slot
+(replacing whatever was there) and are never subject to the strictly-better
+rule.
+
+On a corpse, the engine picks the **highest-priority available slot**
+(weapon → armour → consumable) and evaluates that single item. There is
+**no fall-through**: if the picked item is weaker it is discarded and no
+further slot is tried. The item leaves the corpse either way.
+
+### Trace honesty
+
+When gear is discarded as weaker, the action trace keeps the truthful
+`result: "opened" | "looted"` (source was spent) but adds:
+
+```text
+discardedWeaker: true
+```
+
+This flag propagates through every consumer — engine trace, schema,
+`turnsDerived.ts` loot-outcome feed, `inputBuilder.ts` digest narrative,
+`decisionEnglish.ts` replay renderer, and diagnostics — so no layer lies
+about what happened.
 
 ## Crates
 
@@ -829,14 +853,23 @@ Optional later ranged/lower damage, range 6–8
 
 For the first version, keeping all weapons at range 2 is acceptable.
 
-Possible v0 weapon tiers:
+Weapon stats use `dps` (damage-per-strike, attack speed pre-factored in) and
+`range`. A cosmetic `tempo` field (`"slow" | "med" | "fast"`) exists for the
+replay renderer only — it never enters the LLM context or engine math.
+
+v0 weapon tiers:
 
 ```text
-Rusty Blade: 10 damage
-Sword: 15 damage
-Axe: 20 damage
-Greatsword: 25 damage
+Rusty Blade: dps 10, range 2, tempo med
+Dagger:      dps  8, range 2, tempo fast
+Sword:       dps 15, range 2, tempo med
+Axe:         dps 20, range 2, tempo med
+Greatsword:  dps 25, range 2, tempo slow
+Warhammer:   dps 30, range 2, tempo slow
 ```
+
+The strictly-better equip rule uses `dps` for weapon comparison. Unarmed = 0,
+so any weapon beats bare hands.
 
 Prompt-injection item names can be game-generated.
 
@@ -848,16 +881,23 @@ Greatsword of Use Your Consumable Now
 
 ## Armour
 
-Damage reduction.
+Percentage damage reduction. Armour reduces incoming `base_dps` by a
+`reductionPct` multiplier before the `MIN_DAMAGE_FLOOR` is applied (see §12
+formula). `reductionPct` is strictly `< 1.0` — no agent is ever immune.
 
-Possible v0 armour tiers:
+v0 armour tiers:
 
 ```text
-Cloth: 0 reduction
-Leather: 3 reduction
-Chain: 6 reduction
-Plate: 10 reduction
+Cloth:      reductionPct 0.05  (5 %)
+Leather:    reductionPct 0.10  (10 %)
+Chain:      reductionPct 0.20  (20 %)
+Plate:      reductionPct 0.30  (30 %)
+Riot Plate: reductionPct 0.40  (40 %)
 ```
+
+The strictly-better equip rule uses `reductionPct` for armour comparison. No
+armour is represented as 0 internally; cloth (0.05) is strictly greater than 0,
+so the first armour pickup always equips naturally under the existing gate.
 
 ## Consumables
 

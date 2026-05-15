@@ -14,6 +14,10 @@ import {
   damageFor,
   weaponRange,
 } from "../../convex/engine/combat.js";
+import {
+  WEAPONS,
+  ARMOUR,
+} from "../../convex/engine/types.js";
 import type {
   CharacterState,
   ItemRef,
@@ -95,88 +99,89 @@ function nullDecision(overrides: Partial<ParsedDecision> = {}): ParsedDecision {
 // ─── damageFor — deterministic damage formula (§12 / ADR §6) ─────────────
 
 describe("WP7 combat — damageFor (concept-spec §12, ADR §6)", () => {
-  it("§12 — axe (20) vs leather (3) deals 17", () => {
+  it("§12 — axe (20 dps) vs leather (10%) → round(20*0.9)=18", () => {
     expect(
       damageFor(
         { category: "weapon", name: "axe" },
         { category: "armour", name: "leather" },
       ),
-    ).toBe(17);
+    ).toBe(18);
   });
 
-  it("§12 — sword (15) vs plate (10) → floor binds at 5", () => {
+  it("§12 — sword (15 dps) vs plate (30%) → round(15*0.7)=round(10.5)=11", () => {
     expect(
       damageFor(
         { category: "weapon", name: "sword" },
         { category: "armour", name: "plate" },
       ),
-    ).toBe(5);
+    ).toBe(11);
   });
 
-  it("§12 — rusty_blade (10) vs plate (10) → floor binds at 5", () => {
+  it("§12 — rusty_blade (10 dps) vs plate (30%) → round(10*0.7)=7 (above floor)", () => {
     expect(
       damageFor(
         { category: "weapon", name: "rusty_blade" },
         { category: "armour", name: "plate" },
       ),
-    ).toBe(5);
+    ).toBe(7);
   });
 
-  it("§12 — greatsword (25) vs cloth (0) → 25", () => {
+  it("§12 — greatsword (25 dps) vs cloth (5%) → round(25*0.95)=round(23.75)=24", () => {
     expect(
       damageFor(
         { category: "weapon", name: "greatsword" },
         { category: "armour", name: "cloth" },
       ),
-    ).toBe(25);
+    ).toBe(24);
   });
 
-  it("§12 — minimum damage floor is 5 even when negative gross", () => {
-    // 10 - 10 = 0; floor binds → 5
+  it("§12 — minimum damage floor is 5 even when percentage-reduced result would be below it", () => {
+    // dagger (8) * 0.6 = 4.8 → round → 5 → floor binds → 5
     expect(
       damageFor(
-        { category: "weapon", name: "rusty_blade" },
-        { category: "armour", name: "plate" },
+        { category: "weapon", name: "dagger" },
+        { category: "armour", name: "riot_plate" },
       ),
     ).toBeGreaterThanOrEqual(5);
   });
 
   it("§12 — unarmed attacker vs no-armour defender hits at floor (5)", () => {
     // Unarmed default damage chosen so floor binds — engine documents
-    // unarmed = 5 base. Defender with cloth (0) still takes floor=5.
+    // unarmed = MIN_DAMAGE_FLOOR base. Defender with cloth (5%) still takes floor=5.
+    // round(5 * 0.95) = round(4.75) = 5 → floor binds → 5.
     expect(damageFor(undefined, undefined)).toBe(5);
     expect(damageFor(undefined, { category: "armour", name: "cloth" })).toBe(5);
   });
 
-  it("§12 — no-armour defender takes full weapon damage", () => {
+  it("§12 — no-armour defender takes full weapon dps", () => {
     expect(damageFor({ category: "weapon", name: "sword" }, undefined)).toBe(15);
   });
 
-  it("§12 — sword (15) vs leather (3) → 12", () => {
+  it("§12 — sword (15 dps) vs leather (10%) → round(15*0.9)=round(13.5)=14", () => {
     expect(
       damageFor(
         { category: "weapon", name: "sword" },
         { category: "armour", name: "leather" },
       ),
-    ).toBe(12);
+    ).toBe(14);
   });
 
-  it("§12 — sword (15) vs chain (6) → 9", () => {
+  it("§12 — sword (15 dps) vs chain (20%) → round(15*0.8)=12", () => {
     expect(
       damageFor(
         { category: "weapon", name: "sword" },
         { category: "armour", name: "chain" },
       ),
-    ).toBe(9);
+    ).toBe(12);
   });
 
-  it("§12 — axe (20) vs plate (10) → 10 (above floor)", () => {
+  it("§12 — axe (20 dps) vs plate (30%) → round(20*0.7)=14 (above floor)", () => {
     expect(
       damageFor(
         { category: "weapon", name: "axe" },
         { category: "armour", name: "plate" },
       ),
-    ).toBe(10);
+    ).toBe(14);
   });
 
   it("§12 — damageFor is pure: same input → same output (twice)", () => {
@@ -189,10 +194,10 @@ describe("WP7 combat — damageFor (concept-spec §12, ADR §6)", () => {
       { category: "armour", name: "leather" },
     );
     expect(a).toBe(b);
-    expect(a).toBe(17);
+    expect(a).toBe(18);
   });
 
-  it("WP-B — dagger deals 8 and warhammer deals 30 before armour", () => {
+  it("WP-B — dagger deals 8 dps and warhammer deals 30 dps before armour", () => {
     expect(damageFor({ category: "weapon", name: "dagger" }, undefined)).toBe(
       8,
     );
@@ -201,19 +206,19 @@ describe("WP7 combat — damageFor (concept-spec §12, ADR §6)", () => {
     ).toBe(30);
   });
 
-  it("WP-B — riot_plate reduces damage by 14, with the existing floor still binding", () => {
+  it("WP-B — riot_plate (40%): warhammer (30 dps) → round(30*0.6)=18; sword (15 dps) → round(15*0.6)=9", () => {
     expect(
       damageFor(
         { category: "weapon", name: "warhammer" },
         { category: "armour", name: "riot_plate" },
       ),
-    ).toBe(16);
+    ).toBe(18);
     expect(
       damageFor(
         { category: "weapon", name: "sword" },
         { category: "armour", name: "riot_plate" },
       ),
-    ).toBe(5);
+    ).toBe(9);
   });
 
   it("§12 — non-weapon ItemRef in weapon slot is treated as unarmed", () => {
@@ -222,6 +227,121 @@ describe("WP7 combat — damageFor (concept-spec §12, ADR §6)", () => {
     expect(damageFor({ category: "consumable", name: "heal" }, undefined)).toBe(
       5,
     );
+  });
+});
+
+// ─── damageFor — percentage-reduction formula (new contract) ─────────────
+
+describe("WP7 combat — percentage armour reduction (new contract, concept-spec §12)", () => {
+  it("§12 pct — cloth (5%) reduces damage: warhammer (30) vs cloth = round(30*0.95)=round(28.5)=29", () => {
+    expect(
+      damageFor(
+        { category: "weapon", name: "warhammer" },
+        { category: "armour", name: "cloth" },
+      ),
+    ).toBe(29);
+  });
+
+  it("§12 pct — leather (10%): sword (15) * 0.9 = 13.5 → round → 14", () => {
+    expect(
+      damageFor(
+        { category: "weapon", name: "sword" },
+        { category: "armour", name: "leather" },
+      ),
+    ).toBe(14);
+  });
+
+  it("§12 pct — chain (20%): axe (20) * 0.8 = 16", () => {
+    expect(
+      damageFor(
+        { category: "weapon", name: "axe" },
+        { category: "armour", name: "chain" },
+      ),
+    ).toBe(16);
+  });
+
+  it("§12 pct — plate (30%): greatsword (25) * 0.7 = 17.5 → round → 18", () => {
+    expect(
+      damageFor(
+        { category: "weapon", name: "greatsword" },
+        { category: "armour", name: "plate" },
+      ),
+    ).toBe(18);
+  });
+
+  it("§12 pct — riot_plate (40%): warhammer (30) * 0.6 = 18", () => {
+    expect(
+      damageFor(
+        { category: "weapon", name: "warhammer" },
+        { category: "armour", name: "riot_plate" },
+      ),
+    ).toBe(18);
+  });
+
+  it("§12 pct — no-invincibility: highest armour (riot_plate 40%) vs lowest dps (dagger 8) → ≥ MIN_DAMAGE_FLOOR and > 0", () => {
+    // dagger (8) * 0.6 = 4.8 → round → 5 → clamp to floor(5) → 5
+    const dmg = damageFor(
+      { category: "weapon", name: "dagger" },
+      { category: "armour", name: "riot_plate" },
+    );
+    expect(dmg).toBeGreaterThanOrEqual(5);
+    expect(dmg).toBeGreaterThan(0);
+  });
+
+  it("§12 pct — no-invincibility: riot_plate never makes any weapon deal 0 damage", () => {
+    const weapons = ["rusty_blade", "dagger", "sword", "axe", "greatsword", "warhammer"] as const;
+    for (const w of weapons) {
+      const dmg = damageFor(
+        { category: "weapon", name: w },
+        { category: "armour", name: "riot_plate" },
+      );
+      expect(dmg, `${w} vs riot_plate must deal > 0`).toBeGreaterThan(0);
+      expect(dmg, `${w} vs riot_plate must be ≥ MIN_DAMAGE_FLOOR`).toBeGreaterThanOrEqual(5);
+    }
+  });
+
+  it("§12 pct — unarmed (MIN_DAMAGE_FLOOR base) vs any armour always ≥ floor", () => {
+    const armours = ["cloth", "leather", "chain", "plate", "riot_plate"] as const;
+    for (const a of armours) {
+      const dmg = damageFor(undefined, { category: "armour", name: a });
+      expect(dmg, `unarmed vs ${a} must be ≥ 5`).toBeGreaterThanOrEqual(5);
+    }
+  });
+
+  it("§12 pct — no armour takes full weapon dps: rusty_blade (10) vs no armour = 10", () => {
+    expect(damageFor({ category: "weapon", name: "rusty_blade" }, undefined)).toBe(10);
+  });
+
+  it("§12 pct — dps field on WEAPONS (not damage): warhammer.dps = 30", () => {
+    // The rename: WEAPONS[x].dps replaces WEAPONS[x].damage
+    expect((WEAPONS.warhammer as { dps?: number }).dps).toBe(30);
+    expect((WEAPONS.warhammer as { damage?: number }).damage).toBeUndefined();
+  });
+
+  it("§12 pct — WEAPONS entries have tempo attribute (render-only, no dps effect)", () => {
+    for (const [name, entry] of Object.entries(WEAPONS)) {
+      expect(
+        (entry as { tempo?: string }).tempo,
+        `${name} must have tempo attribute`,
+      ).toMatch(/^(slow|med|fast)$/);
+    }
+  });
+
+  it("§12 pct — ARMOUR uses reductionPct field (not reduction)", () => {
+    expect((ARMOUR.riot_plate as { reductionPct?: number }).reductionPct).toBe(0.40);
+    expect((ARMOUR.plate as { reductionPct?: number }).reductionPct).toBe(0.30);
+    expect((ARMOUR.chain as { reductionPct?: number }).reductionPct).toBe(0.20);
+    expect((ARMOUR.leather as { reductionPct?: number }).reductionPct).toBe(0.10);
+    expect((ARMOUR.cloth as { reductionPct?: number }).reductionPct).toBe(0.05);
+    // Old field must be gone
+    expect((ARMOUR.plate as { reduction?: number }).reduction).toBeUndefined();
+  });
+
+  it("§12 pct — reductionPct is strictly < 1.0 for all armour tiers (no invincibility)", () => {
+    for (const [name, entry] of Object.entries(ARMOUR)) {
+      const pct = (entry as { reductionPct: number }).reductionPct;
+      expect(pct, `${name}.reductionPct must be < 1.0`).toBeLessThan(1.0);
+    }
   });
 });
 

@@ -543,6 +543,7 @@ export function adaptResolutionForSchema(
         : {}),
       ...(a.weapon !== undefined ? { weapon: a.weapon } : {}),
       ...(a.lootedItem !== undefined ? { lootedItem: a.lootedItem } : {}),
+      ...(a.discardedWeaker === true ? { discardedWeaker: true } : {}),
     })),
     deaths: trace.deaths.map((d) => d as Id<"characters">),
     environmentalDeaths: trace.environmentalDeaths.map(
@@ -593,6 +594,7 @@ type PersistedPriorTurnRow = {
       triggeredByMovement?: boolean;
       weapon?: string;
       lootedItem?: string;
+      discardedWeaker?: boolean;
     }>;
     deaths: ReadonlyArray<string>;
     environmentalDeaths?: ReadonlyArray<string>;
@@ -643,6 +645,7 @@ export function adaptPriorTurnRowForBuilder(
           : {}),
         ...(a.weapon !== undefined ? { weapon: a.weapon } : {}),
         ...(a.lootedItem !== undefined ? { lootedItem: a.lootedItem } : {}),
+        ...(a.discardedWeaker === true ? { discardedWeaker: true } : {}),
       })),
       deaths: priorTurnRow.resolution.deaths.map((d) => d as string),
       environmentalDeaths: (

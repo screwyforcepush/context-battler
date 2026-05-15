@@ -206,7 +206,7 @@ describe("WP7 resolution — concept-spec §9 turn economy", () => {
     const { state: next, trace } = resolveTurn(state, decisions);
     // A moved to (2,0) — confirms move phase resolved.
     expect(findChar(next, "A").pos).toEqual({ x: 2, y: 0 });
-    // sword(15) - cloth(0) = 15 damage → B at 100-15 = 85.
+    // sword(15) vs no-armour (0 reduction) = 15 damage → B at 100-15 = 85.
     expect(findChar(next, "B").hp).toBe(85);
     // Trace contains both the move and the attack action.
     expect(trace.moves.find((m) => m.characterId === "A")).toBeTruthy();
@@ -644,8 +644,8 @@ describe("WP7 resolution — concept-spec §11 overwatch", () => {
       ],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
-    // axe (20) - leather (3) = 17 damage; B was 100 → 83.
-    expect(findChar(next, "B").hp).toBe(83);
+    // axe dps=20 vs leather reductionPct=10% → round(20*0.9)=18 damage; B was 100 → 82.
+    expect(findChar(next, "B").hp).toBe(82);
     expect(
       trace.actions.some(
         (a) =>
@@ -757,7 +757,7 @@ describe("WP7 resolution — concept-spec §11 overwatch", () => {
       ],
     ]);
     const { state: next } = resolveTurn(state, decisions);
-    // sword (15) - 0 = 15 damage. B was 50 → 35.
+    // sword (15) vs no-armour (0 reduction) = 15 damage. B was 50 → 35.
     expect(findChar(next, "B").hp).toBe(35);
   });
 });
@@ -1583,22 +1583,22 @@ describe("WP7 resolution — concept-spec §12 simultaneous combat", () => {
       id: "T",
       pos: { x: 5, y: 5 },
       hp: 100,
-      armour: { category: "armour", name: "leather" }, // -3 reduction
+      armour: { category: "armour", name: "leather" }, // 10% reduction
     });
     const a = makeCharacter({
       id: "A",
       pos: { x: 4, y: 5 },
-      weapon: { category: "weapon", name: "axe" }, // 20-3=17
+      weapon: { category: "weapon", name: "axe" }, // round(20*0.9)=18
     });
     const b = makeCharacter({
       id: "B",
       pos: { x: 6, y: 5 },
-      weapon: { category: "weapon", name: "sword" }, // 15-3=12
+      weapon: { category: "weapon", name: "sword" }, // round(15*0.9)=round(13.5)=14
     });
     const c = makeCharacter({
       id: "C",
       pos: { x: 5, y: 4 },
-      weapon: { category: "weapon", name: "rusty_blade" }, // 10-3=7
+      weapon: { category: "weapon", name: "rusty_blade" }, // round(10*0.9)=9
     });
     const state = makeState({ characters: [t, a, b, c] });
     const decisions = new Map<string, ParsedDecision>([
@@ -1623,8 +1623,8 @@ describe("WP7 resolution — concept-spec §12 simultaneous combat", () => {
       ],
     ]);
     const { state: next } = resolveTurn(state, decisions);
-    // 100 - 17 - 12 - 7 = 64
-    expect(findChar(next, "T").hp).toBe(64);
+    // 100 - 18 - 14 - 9 = 59
+    expect(findChar(next, "T").hp).toBe(59);
   });
 
   it("WP-A — lethal attack trace records killer weapon, not the victim corpse contents", () => {
@@ -1700,7 +1700,7 @@ describe("WP7 resolution — concept-spec §23 phase ordering", () => {
   it("§23 — phase ordering: speech (3) BEFORE movement (4) BEFORE actions (5) BEFORE deaths (6) BEFORE visibility (7)", () => {
     // Setup: A says "hi" while hidden in cover (phase 3 reveal). B has overwatch
     // (phase 5). B's overwatch fires on A (because A was revealed in phase 3).
-    // A's HP=5, B's axe (20) - cloth (0) = 20 — A dies. Phase 6: A becomes corpse.
+    // A's HP=5, B's axe (20) vs no-armour (0 reduction) = 20 — A dies. Phase 6: A becomes corpse.
     // Phase 7: visibility recompute; A is dead.
     const a = makeCharacter({
       id: "A",
@@ -2039,9 +2039,9 @@ describe("WP-B.4 defensive overwatch counter-fire — ADR §3 + D-P3-2", () => {
       ],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
-    // D took sword damage from A (15 - 0 = 15) → 100-15=85.
+    // D took sword damage from A (15 vs no-armour = 15) → 100-15=85.
     expect(findChar(next, "D").hp).toBe(85);
-    // A took axe damage from D's counter-fire (20 - 0 = 20) → 100-20=80.
+    // A took axe damage from D's counter-fire (20 vs no-armour = 20) → 100-20=80.
     expect(findChar(next, "A").hp).toBe(80);
     // Trace contains the counter-fire entry tagged correctly.
     const counter = trace.actions.find(
@@ -2901,7 +2901,7 @@ describe("WP-F.2 persona display-id target resolution — ADR §1", () => {
       ["char_opaque_b", nullDecision()],
     ]);
     const { state: next, trace } = resolveTurn(state, decisions);
-    // sword (15) - 0 = 15 damage; B was 100 → 85.
+    // sword (15) vs no-armour (0 reduction) = 15 damage; B was 100 → 85.
     expect(findChar(next, "char_opaque_b").hp).toBe(85);
     // Trace target is canonicalised to the persona displayName.
     const attackEntry = trace.actions.find(
@@ -3159,5 +3159,408 @@ describe("WP-G.1 Corpse_<PersonaName> corpse-loot dispatch — D38", () => {
         act.result === "no_corpse",
     );
     expect(noCorpse).toBeDefined();
+  });
+});
+
+// ─── Strictly-better equip (gear-mechanics refinement) ───────────────────
+//
+// Decision: looted weapons equip only if strictly better dps; looted armour
+// equips only if strictly better reductionPct. Weaker-or-equal is discarded.
+// Consumables are unconditional (unchanged). Source is still consumed/marked
+// spent even when item is discarded as weaker.
+// Trace: result stays "opened"/"looted" but adds discardedWeaker: true when
+// discarded.
+
+describe("WP7 gear — strictly-better equip (gear-mechanics refinement)", () => {
+  // ── Crate path ──────────────────────────────────────────────────────────
+
+  it("§13 better — crate weapon strictly better (axe > rusty_blade): equips, trace has no discardedWeaker", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "rusty_blade" }, // dps 10
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        crates: [
+          {
+            id: "Crate_1_0",
+            pos: { x: 1, y: 0 },
+            contents: { category: "weapon", name: "axe" }, // dps 20
+            opened: false,
+          },
+        ],
+      },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })]]),
+    );
+    expect(findChar(next, "A").equipped.weapon?.name).toBe("axe");
+    const entry = trace.actions.find((a) => a.kind === "loot" && a.target === "Crate_1_0")!;
+    expect(entry.result).toBe("opened");
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBeFalsy();
+    // Crate is still consumed
+    expect(next.world.crates[0]!.opened).toBe(true);
+  });
+
+  it("§13 weaker weapon — crate weapon weaker (rusty_blade < axe): keeps axe, discards rusty_blade, crate still consumed", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "axe" }, // dps 20
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        crates: [
+          {
+            id: "Crate_1_0",
+            pos: { x: 1, y: 0 },
+            contents: { category: "weapon", name: "rusty_blade" }, // dps 10
+            opened: false,
+          },
+        ],
+      },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })]]),
+    );
+    // Weapon unchanged
+    expect(findChar(next, "A").equipped.weapon?.name).toBe("axe");
+    // Crate still consumed (source used up even though item discarded)
+    expect(next.world.crates[0]!.opened).toBe(true);
+    expect(next.world.crates[0]!.contents).toBeNull();
+    // Trace entry is honest: result "opened" + discardedWeaker flag
+    const entry = trace.actions.find((a) => a.kind === "loot" && a.target === "Crate_1_0")!;
+    expect(entry.result).toBe("opened");
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBe(true);
+    expect(entry.lootedItem).toBe("rusty_blade");
+  });
+
+  it("§13 equal weapon — equal dps (rusty_blade = rusty_blade): keeps current, discards looted, crate consumed", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "rusty_blade" }, // dps 10
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        crates: [
+          {
+            id: "Crate_1_0",
+            pos: { x: 1, y: 0 },
+            contents: { category: "weapon", name: "rusty_blade" },
+            opened: false,
+          },
+        ],
+      },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })]]),
+    );
+    expect(findChar(next, "A").equipped.weapon?.name).toBe("rusty_blade");
+    expect(next.world.crates[0]!.opened).toBe(true);
+    const entry = trace.actions.find((a) => a.kind === "loot" && a.target === "Crate_1_0")!;
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBe(true);
+  });
+
+  it("§13 unarmed → any weapon: bare-hands equips any weapon since any > unarmed", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } }); // no weapon
+    const state = makeState({
+      characters: [a],
+      world: {
+        crates: [
+          {
+            id: "Crate_1_0",
+            pos: { x: 1, y: 0 },
+            contents: { category: "weapon", name: "rusty_blade" },
+            opened: false,
+          },
+        ],
+      },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })]]),
+    );
+    expect(findChar(next, "A").equipped.weapon?.name).toBe("rusty_blade");
+    const entry = trace.actions.find((a) => a.kind === "loot" && a.target === "Crate_1_0")!;
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBeFalsy();
+  });
+
+  it("§13 better armour — crate armour strictly better (plate > cloth): equips", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      armour: { category: "armour", name: "cloth" }, // 5%
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        crates: [
+          {
+            id: "Crate_1_0",
+            pos: { x: 1, y: 0 },
+            contents: { category: "armour", name: "plate" }, // 30%
+            opened: false,
+          },
+        ],
+      },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })]]),
+    );
+    expect(findChar(next, "A").equipped.armour?.name).toBe("plate");
+    const entry = trace.actions.find((a) => a.kind === "loot" && a.target === "Crate_1_0")!;
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBeFalsy();
+  });
+
+  it("§13 weaker armour — crate armour weaker (leather vs plate): keeps plate, discards leather, crate consumed", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      armour: { category: "armour", name: "plate" }, // 30%
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        crates: [
+          {
+            id: "Crate_1_0",
+            pos: { x: 1, y: 0 },
+            contents: { category: "armour", name: "leather" }, // 10%
+            opened: false,
+          },
+        ],
+      },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })]]),
+    );
+    expect(findChar(next, "A").equipped.armour?.name).toBe("plate");
+    expect(next.world.crates[0]!.opened).toBe(true);
+    const entry = trace.actions.find((a) => a.kind === "loot" && a.target === "Crate_1_0")!;
+    expect(entry.result).toBe("opened");
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBe(true);
+    expect(entry.lootedItem).toBe("leather");
+  });
+
+  it("§13 no-armour → any armour: unarmoured equips any armour since cloth (0.05) > no-armour (0)", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } }); // no armour
+    const state = makeState({
+      characters: [a],
+      world: {
+        crates: [
+          {
+            id: "Crate_1_0",
+            pos: { x: 1, y: 0 },
+            contents: { category: "armour", name: "cloth" }, // 5%
+            opened: false,
+          },
+        ],
+      },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })]]),
+    );
+    // cloth (5%) is strictly greater than no armour (0), so it equips naturally.
+    expect(findChar(next, "A").equipped.armour?.name).toBe("cloth");
+    const entry = trace.actions.find((a) => a.kind === "loot" && a.target === "Crate_1_0")!;
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBeFalsy();
+  });
+
+  it("§13 consumable unconditional — consumable always equips even when holding one (unchanged rule)", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      consumable: { category: "consumable", name: "heal" },
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        crates: [
+          {
+            id: "Crate_1_0",
+            pos: { x: 1, y: 0 },
+            contents: { category: "consumable", name: "speed" },
+            opened: false,
+          },
+        ],
+      },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Crate_1_0" } })]]),
+    );
+    // Consumable always swaps unconditionally
+    expect(findChar(next, "A").equipped.consumable?.name).toBe("speed");
+    const entry = trace.actions.find((a) => a.kind === "loot" && a.target === "Crate_1_0")!;
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBeFalsy();
+  });
+
+  // ── Corpse path ─────────────────────────────────────────────────────────
+
+  it("§13 corpse better — corpse weapon strictly better (greatsword > rusty_blade): equips, item removed from corpse", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "rusty_blade" },
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        corpses: [
+          {
+            characterId: "Camper",
+            pos: { x: 1, y: 0 },
+            contents: { weapon: { category: "weapon", name: "greatsword" } },
+          },
+        ],
+      },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Corpse_Camper" } })]]),
+    );
+    expect(findChar(next, "A").equipped.weapon?.name).toBe("greatsword");
+    const corpse = next.world.corpses.find((c) => c.characterId === "Camper")!;
+    expect(corpse.contents.weapon).toBeUndefined();
+    const entry = trace.actions.find((a) => a.kind === "loot" && a.target === "Corpse_Camper")!;
+    expect(entry.result).toBe("looted");
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBeFalsy();
+  });
+
+  it("§13 corpse weaker — corpse weapon weaker (rusty_blade < axe): keeps axe, item removed from corpse, trace honest", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "axe" },
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        corpses: [
+          {
+            characterId: "Camper",
+            pos: { x: 1, y: 0 },
+            contents: { weapon: { category: "weapon", name: "rusty_blade" } },
+          },
+        ],
+      },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Corpse_Camper" } })]]),
+    );
+    // Weapon unchanged
+    expect(findChar(next, "A").equipped.weapon?.name).toBe("axe");
+    // Item is removed from the corpse even though discarded (drained-corpse diagnostic must see it leave)
+    const corpse = next.world.corpses.find((c) => c.characterId === "Camper")!;
+    expect(corpse.contents.weapon).toBeUndefined();
+    // Trace is honest
+    const entry = trace.actions.find((a) => a.kind === "loot" && a.target === "Corpse_Camper")!;
+    expect(entry.result).toBe("looted");
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBe(true);
+    expect(entry.lootedItem).toBe("rusty_blade");
+  });
+
+  it("§13 corpse no-fallthrough — if priority-picked item is weaker, it is discarded with no fall-through to next slot", () => {
+    // Corpse has weaker weapon + stronger armour; agent has good weapon, no armour.
+    // Priority picks weapon (weaker → discard). Does NOT fall through to armour.
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 0, y: 0 },
+      weapon: { category: "weapon", name: "greatsword" }, // dps 25
+      // no armour
+    });
+    const state = makeState({
+      characters: [a],
+      world: {
+        corpses: [
+          {
+            characterId: "Camper",
+            pos: { x: 1, y: 0 },
+            contents: {
+              weapon: { category: "weapon", name: "dagger" }, // dps 8, weaker
+              armour: { category: "armour", name: "riot_plate" },  // better than none
+            },
+          },
+        ],
+      },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Corpse_Camper" } })]]),
+    );
+    // No fall-through: armour NOT equipped despite being better
+    expect(findChar(next, "A").equipped.armour).toBeUndefined();
+    // Weapon discarded (weaker)
+    expect(findChar(next, "A").equipped.weapon?.name).toBe("greatsword");
+    // Dagger removed from corpse
+    const corpse = next.world.corpses.find((c) => c.characterId === "Camper")!;
+    expect(corpse.contents.weapon).toBeUndefined();
+    // Armour stays on corpse (no fallthrough)
+    expect(corpse.contents.armour?.name).toBe("riot_plate");
+    // Trace shows discarded
+    const entry = trace.actions.find((a) => a.kind === "loot" && a.target === "Corpse_Camper")!;
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBe(true);
+  });
+
+  // ── Airdrop path ─────────────────────────────────────────────────────────
+
+  it("§13 airdrop weaker — airdrop weapon weaker than held: keeps held, airdrop still spent, trace honest", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 49, y: 50 },
+      weapon: { category: "weapon", name: "warhammer" }, // dps 30
+    });
+    const drop = makeAirdrop(10, { x: 50, y: 50 }, false, { category: "weapon", name: "dagger" } as ItemRef);
+    const state = makeState({
+      characters: [a],
+      turn: 11,
+      world: { airdrops: [drop] },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Crate_50_50" } })]]),
+    );
+    expect(findChar(next, "A").equipped.weapon?.name).toBe("warhammer");
+    // Airdrop still marked spent
+    expect(next.world.airdrops[0]!.looted).toBe(true);
+    const entry = trace.actions.find((a) => a.target === "Crate_50_50")!;
+    expect(entry.result).toBe("opened");
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBe(true);
+    expect(entry.lootedItem).toBe("dagger");
+  });
+
+  it("§13 airdrop better — airdrop weapon strictly better than held: equips, airdrop spent", () => {
+    const a = makeCharacter({
+      id: "A",
+      pos: { x: 49, y: 50 },
+      weapon: { category: "weapon", name: "dagger" }, // dps 8
+    });
+    const drop = makeAirdrop(10, { x: 50, y: 50 }, false, { category: "weapon", name: "warhammer" } as ItemRef);
+    const state = makeState({
+      characters: [a],
+      turn: 11,
+      world: { airdrops: [drop] },
+    });
+    const { state: next, trace } = resolveTurn(
+      state,
+      new Map([["A", nullDecision({ action: { kind: "loot", targetId: "Crate_50_50" } })]]),
+    );
+    expect(findChar(next, "A").equipped.weapon?.name).toBe("warhammer");
+    expect(next.world.airdrops[0]!.looted).toBe(true);
+    const entry = trace.actions.find((a) => a.target === "Crate_50_50")!;
+    expect(entry.result).toBe("opened");
+    expect((entry as { discardedWeaker?: boolean }).discardedWeaker).toBeFalsy();
   });
 });

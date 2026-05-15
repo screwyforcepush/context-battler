@@ -108,6 +108,7 @@ type ResolutionActionLike = {
   triggeredByMovement?: boolean;
   weapon?: string;
   lootedItem?: unknown;
+  discardedWeaker?: boolean;
 };
 
 type ResolutionSpeechLike = {
@@ -164,6 +165,9 @@ type LootOutcome = {
   item?: string;
   target?: string;
   delivered?: boolean;
+  /** True when the source was consumed but the item was discarded as weaker
+   *  than what the actor already held (strictly-better equip rule). */
+  discardedWeaker?: boolean;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -511,7 +515,11 @@ export function extractLootOutcomes(
         typeof action.lootedItem === "string" &&
         action.lootedItem.trim().length > 0
       ) {
-        return { ...base, item: action.lootedItem };
+        const withItem: LootOutcome = { ...base, item: action.lootedItem };
+        if (action.discardedWeaker === true) {
+          withItem.discardedWeaker = true;
+        }
+        return withItem;
       }
       return base;
     });
@@ -581,6 +589,9 @@ function expectedLootFragment(action: ResolutionActionLike): string | null {
     typeof action.lootedItem === "string" &&
     action.lootedItem.trim().length > 0
   ) {
+    if (action.discardedWeaker === true) {
+      return `discarded ${action.lootedItem} from ${action.target} (downgrade — kept existing)`;
+    }
     return `looted ${action.lootedItem} from ${action.target}`;
   }
   return action.result ? `looted ${action.target} (${action.result})` : `looted ${action.target}`;

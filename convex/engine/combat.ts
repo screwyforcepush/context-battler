@@ -5,12 +5,19 @@
 //   - concept-spec.md §14 (weapon stat tiers; v0 range 2 across all weapons)
 //   - architecture-decisions.md §6 (locked WEAPONS / ARMOUR / MIN_DAMAGE_FLOOR)
 //
-// Damage formula (§12): `max(MIN_DAMAGE_FLOOR, weapon.damage - armour.reduction)`.
+// Damage formula (§12):
+//   `max(MIN_DAMAGE_FLOOR, round(base_dps * (1 - reductionPct)))`
+//
+// `base_dps` = weapon.dps number; unarmed base = MIN_DAMAGE_FLOOR (5).
+// `reductionPct` = armour.reductionPct in [0, 0.40]; no armour = 0.
+// Armour is percentage-based (never flat subtraction), capped strictly
+// below 1.0 so no agent is ever invincible. Integer damage via Math.round,
+// then clamped to MIN_DAMAGE_FLOOR.
 //
 // Unarmed default (§12 silence): the spec doesn't explicitly state unarmed
 // damage. Engine choice: unarmed base damage = MIN_DAMAGE_FLOOR (5). This
 // makes the floor binding for unarmed and keeps the math legible: a fistfight
-// always deals exactly the minimum even against cloth (0 reduction).
+// always deals exactly the minimum even against any armour.
 //
 // Simultaneous resolution (§12): the resolver collects damage events in
 // phase 5 with a snapshot of HPs, then applies them in a single batch at
@@ -39,13 +46,15 @@ const UNARMED_BASE_DAMAGE = MIN_DAMAGE_FLOOR;
 /**
  * Pure damage formula per concept-spec §12.
  *
- *   damage = max(MIN_DAMAGE_FLOOR, weapon.damage - armour.reduction)
+ *   damage = max(MIN_DAMAGE_FLOOR, round(base_dps * (1 - reductionPct)))
  *
  * - Missing weapon → unarmed base damage (= MIN_DAMAGE_FLOOR by engine choice).
- * - Missing armour → reduction = 0.
+ * - Missing armour → reductionPct = 0.
  * - Non-weapon ItemRef in the weapon slot → treated as unarmed (defensive;
  *   should never happen with a well-typed `equipped.weapon` slot).
- * - Non-armour ItemRef in the armour slot → treated as 0 reduction.
+ * - Non-armour ItemRef in the armour slot → treated as 0% reduction.
+ * - Armour reductionPct is strictly < 1.0 by table contract, so no agent
+ *   is ever invincible; floor ensures minimum > 0 always.
  */
 export function damageFor(
   weapon: ItemRef | undefined,
@@ -53,13 +62,13 @@ export function damageFor(
 ): number {
   const base =
     weapon && weapon.category === "weapon"
-      ? WEAPONS[weapon.name as WeaponName]?.damage ?? UNARMED_BASE_DAMAGE
+      ? WEAPONS[weapon.name as WeaponName]?.dps ?? UNARMED_BASE_DAMAGE
       : UNARMED_BASE_DAMAGE;
-  const reduction =
+  const reductionPct =
     armour && armour.category === "armour"
-      ? ARMOUR[armour.name as ArmourName]?.reduction ?? 0
+      ? ARMOUR[armour.name as ArmourName]?.reductionPct ?? 0
       : 0;
-  const gross = base - reduction;
+  const gross = Math.round(base * (1 - reductionPct));
   return gross > MIN_DAMAGE_FLOOR ? gross : MIN_DAMAGE_FLOOR;
 }
 

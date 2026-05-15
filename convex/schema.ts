@@ -365,6 +365,12 @@ const resolutionValidator = v.object({
       // Phase 7 WP-A1 — item name carried by successful crate/corpse loot
       // traces so the next-turn feed can name the reward.
       lootedItem: v.optional(v.string()),
+      // Gear-mechanics refinement — strictly-better equip rule. True when the
+      // source (crate/corpse/airdrop) was opened/looted but the item was NOT
+      // equipped because the actor already held an equal-or-better item.
+      // Absent (or false) = item was equipped normally. Source is consumed
+      // regardless.
+      discardedWeaker: v.optional(v.boolean()),
     }),
   ),
   deaths: v.array(v.id("characters")),

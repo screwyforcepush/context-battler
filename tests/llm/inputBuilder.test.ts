@@ -295,7 +295,7 @@ describe("Phase 6 input builder — composed user message", () => {
     expect(built.composedUserMessage).toContain("📍(44,53) Outside Evac");
     expect(built.composedUserMessage).toContain("❤️HP: 35/50 HP");
     expect(built.composedUserMessage).toContain("⚔️weapon: rusty_blade [dmg 10]");
-    expect(built.composedUserMessage).toContain("🛡️armour: leather [-3 dmg]");
+    expect(built.composedUserMessage).toContain("🛡️armour: leather [-10% dmg]");
     expect(built.composedUserMessage).toContain(
       "🧪consumable: speed [+4 move range max dist]",
     );
