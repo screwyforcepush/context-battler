@@ -10,8 +10,9 @@
 //   - Two-column body: square Grid + hover-listener wrapper, TurnFeed takes
 //     the remaining widescreen width.
 //   - Hover-target dispatch via React event delegation on the Grid wrapper —
-//     reads `data-token-kind` / `data-character-id` / `data-crate-id` from
-//     Grid.tsx (WP-B) and constructs a HoverTarget for WP-D's HoverCard.
+//     reads `data-token-kind` / `data-character-id` / `data-crate-id` /
+//     `data-airdrop-id` from Grid.tsx (WP-B) and constructs a HoverTarget for
+//     WP-D's HoverCard.
 //   - Modal state (`modalTarget`) — fed to WP-D's ExpandModal; opened by
 //     TurnFeed's "..." button.
 //
@@ -118,10 +119,10 @@ export function Replay(props: {
   }, [bundle, currentTurn, hasVintageAgentRecords]);
 
   // ── Hover listener: delegated event handlers on the Grid wrapper. ───
-  // Grid.tsx emits `data-token-kind` (background/wall/cover/evac/crate/
-  // corpse/agent) plus `data-character-id` / `data-crate-id` on tokens
-  // that need them. We read those + the hovered SVG tile's local x/y
-  // attributes to construct the HoverTarget union.
+  // Grid.tsx emits `data-token-kind` (background/wall/cover/evac/airdrop/
+  // crate/corpse/agent) plus `data-character-id` / `data-crate-id` /
+  // `data-airdrop-id` on tokens that need them. We read those + the hovered
+  // SVG tile's local x/y attributes to construct the HoverTarget union.
   //
   // TODO (Grid.tsx is WP-D's territory): emit `data-px` / `data-py` on
   // each per-tile <rect> so the hover position is always the GRID-LOCAL
@@ -136,6 +137,7 @@ export function Replay(props: {
     const kind = el.dataset.tokenKind;
     const characterId = el.dataset.characterId;
     const crateId = el.dataset.crateId;
+    const airdropId = el.dataset.airdropId;
 
     // Try to read px/py from data-* (preferred) then fall back to SVG x/y.
     const px = parseLocalCoord(el, "px") ?? parseLocalCoord(el, "x") ?? 0;
@@ -164,6 +166,18 @@ export function Replay(props: {
         next = {
           kind: "crate",
           crateId,
+          pos: fromSnap ? fromSnap.pos : pos,
+        };
+        break;
+      }
+      case "airdrop": {
+        if (!airdropId) break;
+        const fromSnap = snapshot?.airdrops.find(
+          (drop) => drop.id === airdropId,
+        );
+        next = {
+          kind: "airdrop",
+          airdropId,
           pos: fromSnap ? fromSnap.pos : pos,
         };
         break;

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { ParsedDecision, PersonaId } from "../../convex/engine/types.js";
+import {
+  PERSONA_IDS,
+  type ParsedDecision,
+  type PersonaId,
+} from "../../convex/engine/types.js";
 import {
   computePhase12Metrics,
   type Phase12RunInput,
@@ -24,6 +28,20 @@ const AIRDROPS = [
   { id: "Crate_75_25", landsAtTurn: 30 },
   { id: "Crate_48_48", landsAtTurn: 40 },
 ] as const;
+
+type PerPersonaRunRow = NonNullable<
+  Phase12RunInput["run"]
+>["perPersona"][number];
+
+function perPersonaKills(
+  overrides: Partial<Record<PersonaId, number>> = {},
+): PerPersonaRunRow[] {
+  return PERSONA_IDS.map((personaId) => ({
+    personaId,
+    kills: overrides[personaId] ?? 1,
+    extracted: personaId === "duelist" ? 1 : 0,
+  }));
+}
 
 function record(
   overrides: Partial<SlimAgentRecord> & { characterId: string },
@@ -163,18 +181,7 @@ function runInput(overrides: Partial<Phase12RunInput> = {}): Phase12RunInput {
         kills: 1,
         equips: 1,
         speechEvents: 1,
-        perPersona: [
-          {
-            personaId: "duelist" as PersonaId,
-            kills: 1,
-            extracted: 1,
-          },
-          {
-            personaId: "rat" as PersonaId,
-            kills: 0,
-            extracted: 0,
-          },
-        ],
+        perPersona: perPersonaKills(),
       },
     turns:
       overrides.turns ??
@@ -226,9 +233,9 @@ describe("computePhase12Metrics", () => {
       countdown0: 1,
     });
     expect(out.airdropLootedSpent).toBe(1);
-    expect(out.perPersonaKillTotal).toBe(1);
+    expect(out.perPersonaKillTotal).toBe(PERSONA_IDS.length);
     expect(out.perPersonaKills).toEqual(
-      expect.arrayContaining([{ personaId: "duelist", kills: 1 }]),
+      PERSONA_IDS.map((personaId) => ({ personaId, kills: 1 })),
     );
     expect(out.referenceCrateCount).toBe(12);
     expect(out.referenceAirdropCount).toBe(4);
@@ -251,6 +258,28 @@ describe("computePhase12Metrics", () => {
 
     expect(out.environmentalDeaths).toBe(0);
     expect(out.meetsTelefragThreshold).toBe(false);
+    expect(out.meetsAllThresholds).toBe(false);
+  });
+
+  it("fails the per-persona kill attribution gate when one locked persona has zero kills", () => {
+    const out = computePhase12Metrics([
+      runInput({
+        run: {
+          extractions: 1,
+          kills: 1,
+          equips: 1,
+          speechEvents: 1,
+          perPersona: perPersonaKills({ sprinter: 0 }),
+        },
+      }),
+    ]);
+
+    expect(out.perPersonaKillTotal).toBe(PERSONA_IDS.length - 1);
+    expect(out.perPersonaKills).toContainEqual({
+      personaId: "sprinter",
+      kills: 0,
+    });
+    expect(out.meetsPerPersonaKillAttributionThreshold).toBe(false);
     expect(out.meetsAllThresholds).toBe(false);
   });
 
@@ -305,7 +334,7 @@ describe("phase12 closing CLI", () => {
       persistReport: async (_client, args) => {
         expect(args.matchIds).toEqual(["M1"]);
         expect(args.payload.reportType).toBe("phase-12-closing-20");
-        expect(args.payload.perPersonaKillTotal).toBe(1);
+        expect(args.payload.perPersonaKillTotal).toBe(PERSONA_IDS.length);
         return {
           _id: "report-12",
           existed: false,

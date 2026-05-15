@@ -1,16 +1,17 @@
 // Phase 02 / WP-B — SVG bird's-eye grid renderer.
 //
 // 100×100 viewBox; one `<g>` group per layer (z-order bottom→top):
-//   walls → cover tiles → evac zone → crates → corpses → agents.
+//   walls → cover tiles → evac zone → airdrops → crates → corpses → agents.
 //
 // Per ADR §1: SVG over canvas for v0. ~28 walls + ~60 cover tiles + 12 crates
 // + ≤8 corpses + 8 agents = ~120 nodes — well within DOM-event hover-test
 // performance. Persona colours are 8 distinct high-contrast hex values
 // (d3 category10 inlined; no library).
 //
-// `data-token-kind` and `data-character-id` / `data-crate-id` attributes
-// are wired so WP-D's HoverCard can attach a delegated mouseenter listener
-// on the SVG root and identify the hovered token without per-node refs.
+// `data-token-kind` and `data-character-id` / `data-crate-id` /
+// `data-airdrop-id` attributes are wired so WP-D's HoverCard can attach a
+// delegated mouseenter listener on the SVG root and identify the hovered token
+// without per-node refs.
 //
 // Per D-P2-11/D-P2-12: equipped/HP and crate contents render as null in the
 // snapshot. The hover card (WP-D) handles the "see expand panel" / "contents
@@ -54,6 +55,12 @@ export type GridProps = {
 export function Grid({ snapshot, worldState }: GridProps): React.ReactElement {
   const evacCentre = worldState?.evac.centre ?? { x: 50, y: 50 };
   const evacReveal = snapshot.evacRevealed;
+  const telegraphedAirdrops = snapshot.airdrops.filter(
+    (drop) =>
+      drop.state === "telegraphed" &&
+      airdropCountdown(drop, snapshot.turn) > 0,
+  );
+  const crates = withLandedAirdropCrates(snapshot);
 
   return (
     <svg
@@ -118,9 +125,76 @@ export function Grid({ snapshot, worldState }: GridProps): React.ReactElement {
         />
       </g>
 
-      {/* ── Layer 4: crates (closed=brown filled, open=lighter w/ X). ── */}
+      {/* ── Layer 4: telegraphed airdrops (public marker + countdown). ─ */}
+      <g data-layer="airdrops">
+        {telegraphedAirdrops.map((drop) => {
+          const countdown =
+            drop.countdown ?? Math.max(0, drop.landsAtTurn - snapshot.turn);
+          const countdownTitle = formatAirdropCountdownTitle(countdown);
+          return (
+            <g
+              key={`airdrop-${drop.id}`}
+              data-token-kind="airdrop"
+              data-airdrop-id={drop.id}
+              data-px={drop.pos.x}
+              data-py={drop.pos.y}
+            >
+              <rect
+                x={drop.pos.x + 0.08}
+                y={drop.pos.y + 0.08}
+                width={0.84}
+                height={0.84}
+                fill="rgba(255, 193, 7, 0.18)"
+                stroke="#b45309"
+                strokeWidth={0.08}
+                strokeDasharray="0.16 0.1"
+              />
+              <line
+                x1={drop.pos.x + 0.18}
+                y1={drop.pos.y + 0.5}
+                x2={drop.pos.x + 0.82}
+                y2={drop.pos.y + 0.5}
+                stroke="#b45309"
+                strokeWidth={0.07}
+              />
+              <line
+                x1={drop.pos.x + 0.5}
+                y1={drop.pos.y + 0.18}
+                x2={drop.pos.x + 0.5}
+                y2={drop.pos.y + 0.82}
+                stroke="#b45309"
+                strokeWidth={0.07}
+              />
+              <circle
+                cx={drop.pos.x + 0.5}
+                cy={drop.pos.y + 0.5}
+                r={0.28}
+                fill="none"
+                stroke="#7c2d12"
+                strokeWidth={0.06}
+              />
+              <text
+                x={drop.pos.x + 0.5}
+                y={drop.pos.y + 0.55}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize={0.55}
+                fontFamily="ui-monospace, SFMono-Regular, Consolas, monospace"
+                fontWeight={800}
+                fill="#7c2d12"
+                style={{ pointerEvents: "none" }}
+              >
+                {countdown}
+              </text>
+              <title>{`Airdrop ${drop.id} - ${countdownTitle}`}</title>
+            </g>
+          );
+        })}
+      </g>
+
+      {/* ── Layer 5: crates (closed=brown filled, open=lighter w/ X). ── */}
       <g data-layer="crates">
-        {snapshot.crates.map((c) => (
+        {crates.map((c) => (
           <g key={`crate-${c.id}`} data-token-kind="crate" data-crate-id={c.id}>
             <rect
               x={c.pos.x + 0.1}
@@ -153,13 +227,13 @@ export function Grid({ snapshot, worldState }: GridProps): React.ReactElement {
               </>
             ) : null}
             <title>
-              {c.opened ? "Crate (opened)" : "Crate (closed)"} — {c.id}
+              {`${c.opened ? "Crate (opened)" : "Crate (closed)"} - ${c.id}`}
             </title>
           </g>
         ))}
       </g>
 
-      {/* ── Layer 5: corpses (dark grey circle with cross). ──────────── */}
+      {/* ── Layer 6: corpses (dark grey circle with cross). ──────────── */}
       <g data-layer="corpses">
         {snapshot.corpses.map((corpse) => (
           <g
@@ -197,7 +271,7 @@ export function Grid({ snapshot, worldState }: GridProps): React.ReactElement {
         ))}
       </g>
 
-      {/* ── Layer 6: agents (persona-coloured circle + glyph). ───────── */}
+      {/* ── Layer 7: agents (persona-coloured circle + glyph). ───────── */}
       <g data-layer="agents">
         {snapshot.characters.map((c) => {
           // Hide dead and extracted agents from the live grid (corpse layer
@@ -251,6 +325,38 @@ export function Grid({ snapshot, worldState }: GridProps): React.ReactElement {
       </g>
     </svg>
   );
+}
+
+function formatAirdropCountdownTitle(countdown: number): string {
+  if (countdown <= 0) return "lands this turn";
+  return countdown === 1 ? "lands in 1 turn" : `lands in ${countdown} turns`;
+}
+
+function airdropCountdown(
+  drop: EntitySnapshot["airdrops"][number],
+  turn: number,
+): number {
+  return drop.countdown ?? Math.max(0, drop.landsAtTurn - turn);
+}
+
+function withLandedAirdropCrates(
+  snapshot: EntitySnapshot,
+): EntitySnapshot["crates"] {
+  const crates = [...snapshot.crates];
+  const existing = new Set(crates.map((crate) => crate.id));
+  for (const drop of snapshot.airdrops) {
+    const countdown = airdropCountdown(drop, snapshot.turn);
+    if (
+      (drop.state === "landed" ||
+        (drop.state === "telegraphed" && countdown <= 0)) &&
+      !drop.looted &&
+      !existing.has(drop.id)
+    ) {
+      crates.push({ id: drop.id, pos: drop.pos, opened: false });
+      existing.add(drop.id);
+    }
+  }
+  return crates;
 }
 
 // Fit-to-viewport: SVG fills its parent container's box. The square

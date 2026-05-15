@@ -232,8 +232,9 @@ function synthesiseTurnZero(bundle: ReplayBundle): EntitySnapshot {
 //   2. actions       — loot/opened/Crate_<x>_<y> flips crates; corpse-loot and
 //                      attack are no-ops (per D-P2-11/D-P2-12; HP &
 //                      equipment not snapshot-tracked)
-//   3. deaths        — flip alive=false, set diedAtTurn=t, push corpse at
-//                      character's CURRENT pos (post-movement; §1.2)
+//   3. deaths        — flip alive=false, set diedAtTurn=t. Ordinary deaths
+//                      push a corpse at the character's CURRENT pos
+//                      (post-movement; §1.2); environmental deaths do not.
 //   4. visibilityUpdates — applied LAST (§1.4)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -294,17 +295,31 @@ function applyTurn(
   // ── 3) Deaths ─────────────────────────────────────────────────────────
   // Order: deaths AFTER moves (post-movement corpse position; §1.2).
   let corpses = prev.corpses;
+  const environmentalDeathIds = new Set<Id<"characters">>(
+    resolution.environmentalDeaths ?? [],
+  );
   if (resolution.deaths.length > 0) {
     const deadIds = new Set<Id<"characters">>(resolution.deaths);
     const newCorpses: SnapshotCorpse[] = [];
     characters = characters.map((c) => {
-      if (deadIds.has(c.characterId) && c.alive) {
+      if (
+        deadIds.has(c.characterId) &&
+        !environmentalDeathIds.has(c.characterId) &&
+        c.alive
+      ) {
         newCorpses.push({ characterId: c.characterId, pos: { ...c.pos } });
         return { ...c, alive: false, diedAtTurn: t };
       }
       return c;
     });
     if (newCorpses.length > 0) corpses = [...corpses, ...newCorpses];
+  }
+  if (environmentalDeathIds.size > 0) {
+    characters = characters.map((c) =>
+      environmentalDeathIds.has(c.characterId) && c.alive
+        ? { ...c, alive: false, diedAtTurn: t }
+        : c,
+    );
   }
 
   // ── 4) visibilityUpdates ──────────────────────────────────────────────

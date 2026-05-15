@@ -460,7 +460,9 @@ export function computePhase12Metrics(runs: Phase12RunInput[]): Phase12Payload {
     mechanics.airdrop.lootedSpent > 0 &&
     lifecycle.firstLootableViolations === 0 &&
     lifecycle.spentVisibilityViolations === 0;
-  const meetsPerPersonaKillAttributionThreshold = personaKills.total > 0;
+  const meetsPerPersonaKillAttributionThreshold = personaKills.rows.every(
+    (row) => row.kills > 0,
+  );
   const meetsDeterminismThreshold =
     deterministic.cratesAcrossSeeds && deterministic.airdropsAcrossSeeds;
   const thresholdFlags = [

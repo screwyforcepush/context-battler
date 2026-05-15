@@ -1,56 +1,113 @@
-# Phase 12 - Closure Record
+# Phase 12 — Closure Record
 
-Closure date: 2026-05-15
+> Single-file handoff for Phase 13 planning. Records what the
+> crate substrate + equipment variance + airdrop lifecycle + telefrag
+> slice produced, what proves it, and which North Star thresholds are met.
+> Closure date: 2026-05-15. Source commits at close: `ff1d868`, `d709e94`.
+>
+> This is a closure RECORD, not a retrospective and not a phase-13 plan.
 
-Phase 12 closes the crate substrate, deterministic equipment catalog,
-world-event airdrop lifecycle, telefrag mechanic, and per-persona kill
-attribution rider. The canonical persisted report is:
+---
 
-- `reportId`: `jd75980xfbda1d19pynjgyb88186ramv`
-- `reportType`: `phase-12-closing-20`
-- `runCount`: 20
-- `metBar`: true
-- `phase12Payload.meetsAllThresholds`: true
-- `missingRunsForMatchIds`: []
-- Closing harness log: `/tmp/phase12-closing-harness.jsonl`
-- Phase-12 report output: `/tmp/phase12-closing-report.json`
-- Persisted report query output: `/tmp/phase12-report-byid.json`
-- Telefrag turn evidence: `/tmp/phase12-telefrag-events.json`
-- Diagnostics output: `/tmp/phase12-diagnostics.json`
-- Telefrag-frequency output: `/tmp/phase12-telefrag-frequency.jsonl`
+## 1. What we set out to build
 
-The report was persisted from the fresh closing set with:
+Phase 12 shipped five connected threads in one slice:
+
+- **Crate vocabulary closure (WP-A):** Engine-wide rename of the legacy
+  loot-container term to "crate" — the word agents naturally use
+  unprompted. Same vocabulary-gap precedent as `Player_N`→persona names
+  and `chest_NNN`→`Chest_53_54`. Scoped to live agent-facing surfaces,
+  engine dispatch paths, persona prompts, replay UI, diagnostics, and
+  current spec docs; frozen historical phase reports intentionally
+  excluded.
+- **Deterministic equipment catalog (WP-B):** Expanded weapon and armour
+  tiers with plain names (no prompt-injection this slice). Hand-authored
+  `contents` per crate — `rollLoot` RNG path retired from the crate
+  expand seam. 12 static crates on the reference map, identical every
+  run.
+- **World-event airdrop lifecycle (WP-C):** Four hand-authored airdrops
+  at turns 10/20/30/40, each telegraphed 3 turns ahead via a per-entity
+  countdown in every agent's Vision (non-LOS, match-meta like the evac
+  reveal). BC-3 two-clock semantics apply: on `landsAtTurn` the input
+  still shows the telegraph with `countdown: 0`; `resolveTurn` then lands
+  the crate and evaluates telefrag; the first normal LOS-gated loot turn
+  is `landsAtTurn + 1`. Once looted/emptied, the crate falls out of
+  Vision entirely (absence, not a flag — pillar 8). Mid-game value
+  curve: turn-10 weakest, turn-40 strongest under incineration-clock
+  pressure.
+- **Telefrag (WP-D):** Discoverable, undocumented mechanic — no
+  tool-schema surface, no system-prompt teaching. An agent whose resolved
+  position equals the airdrop spawn tile on the landing turn is
+  vaporised: no corpse, no gear transfer, total erasure. Movement
+  resolves first, then the crate spawns (camped or raced-onto both pay).
+  Kill-feed line is the only discovery channel (pillar 5). Environmental
+  death: credited to no agent, excluded from kill-rate, alive count
+  decrements, prize split recomputes.
+- **runStats per-persona kill-attribution fix (WP-F, rider):** Mirrored
+  the `buildTargetIdLookup` participant-translation pattern from
+  `turnsDerived.ts:auditDamageFeed` into `runStats.ts`. Retired the
+  phase-6-era structurally-zero `perPersona[*].kills` known issue
+  carried through phases 7/9/10.
+
+Two additional work packages supported these: **WP-E** (state-aware
+`stopAtRange` per id namespace + telefrag-frequency harness experiment)
+and **WP-G** (diagnostics + closing report infrastructure).
+
+The proof target was a persisted 20-match `phase-12-closing-20` report
+plus slice-specific evidence (telefrag environmental deaths, airdrop
+lifecycle fidelity, determinism, equipment variance, kill attribution).
+
+---
+
+## 2. Canonical Source
+
+- `reportId` = `jd75980xfbda1d19pynjgyb88186ramv`
+- `reportType` = `phase-12-closing-20`
+- `runCount` = 20
+- `metBar` = `true`
+- `phase12Payload.meetsAllThresholds` = `true`
+- `missingRunsForMatchIds` = `[]`
+- `failedMatches` = 0
+
+The canonical report is queryable with:
 
 ```bash
-npm run harness -- --runs 20 --concurrency 10 --reasoning low --seed-prefix phase12-fresh4-20260515143233
-npx tsx harness/closing/phase12.ts --matchIds "$(cat /tmp/phase12-closing-matchids.txt)" --overwrite
 npx convex run reports:byId '{"id":"jd75980xfbda1d19pynjgyb88186ramv"}'
 ```
 
-No OCC substitutions were required.
+The canonical metric payload is `phase12Payload`. The report follows the
+sibling-payload pattern established by phases 7/9/10.
 
-## Acceptance Evidence
+Report-truth boundary: the persisted row above is the closure artifact.
+Completion-review v1 follow-ups landed after this row was written, but
+they were read-side projection fixes and a stricter report-gate
+interpretation over data already present in the row. No closing-20
+regeneration was performed; the canonical payload already satisfies the
+tightened all-persona kill-attribution gate.
 
-| Criterion | Evidence | Verdict |
-|---|---|---|
-| Crate vocabulary replaces the legacy loot-container term on live surfaces | Scoped live-surface legacy-token scan returned exit 1 with no output across `convex/engine`, `convex/llm`, live match state, personas, harness, replay, phase-12 report code, and current spec docs. Frozen historical phase reports remain intentionally excluded. | PASS |
-| Agent-facing crate ids work end to end | Persisted airdrop ids and loot targets use `Crate_<x>_<y>`, for example landed airdrop loot trace: match `j9788hfn6237k84pgskk3swjh186sqha`, turn 27, `kind:"loot"`, `result:"opened"`, `target:"Crate_25_75"`, `lootedItem:"axe"`. | PASS |
-| Deterministic equipment catalog shipped | `referenceCrateCount` is 12. The deterministic crate signature includes hand-authored plain items: `cloth`, `dagger`, `rusty_blade`, `leather`, `sword`, `axe`, `chain`, `greatsword`, `plate`, `warhammer`, and `heal`. `deterministicCratesAcrossSeeds` is true. | PASS |
-| No new RNG in this slice | `deterministicStaticMapSignature`, `deterministicCrateSignature`, and `deterministicAirdropSignature` are stable; `deterministicAirdropsAcrossSeeds` is true. The preserved reference map still has evac at `{x:48,y:48}` and the same wall/cover/spawn layout. | PASS |
-| Airdrop telegraph -> land -> spent lifecycle works | `airdropCountdowns` observed countdown 3/2/1/0 for all four drops: `Crate_50_50` turn 10, `Crate_25_75` turn 20, `Crate_75_25` turn 30, `Crate_48_48` turn 40. `airdropFirstLootableViolations` is 0 and `airdropSpentVisibilityViolations` is 0. | PASS |
-| Airdrop crates are normal loot once landed | `airdropLandedSeen` is 1137 and `airdropLootedSpent` is 32. The landed airdrop trace above uses the same loot action contract as static crates. | PASS |
-| Telefrag is discoverable, killer-less, and environmental | Closing payload has `environmentalDeaths: 23`, `telefragDeathCount: 23`, `telefragKillFeedLineCount: 23`. Persisted lines include `Vulture got telefragged by crate spawn`. | PASS |
-| Telefrag excludes combat death, corpse, and gear transfer | Turn evidence: match `j977zvbqv9h80jdpm6bxvaen6186sze5`, turn 10, victim `j579exwxdyse8fpjqc6bvy111186r00e`, persona `vulture`; `environmentalDeaths` contains the victim, `deaths` is `[]`, and no corpse loot target exists for that victim. | PASS |
-| Alive count and survivor state update after telefrag | Minimal engine reproduction `tests/engine/resolution.test.ts:1039` moves an agent onto the spawn tile before landing, records `environmentalDeaths`, leaves no corpse, marks the victim dead, and leaves only the survivor alive. | PASS |
-| Prompt-visible kill-feed line is emitted | `tests/engine/resolution.test.ts:1077` asserts `buildKillFeedLines` returns `Sprinter got telefragged by crate spawn`; `tests/llm/inputBuilder.test.ts:1218` and related cases assert the same feed path from `environmentalDeaths`. | PASS |
-| runStats rider is retired | `perPersonaKillTotal` is 137 and every persona has non-zero kills: rat 2, duelist 43, trader 2, opportunist 26, paranoid 12, camper 18, sprinter 7, vulture 27. Environmental deaths remain separate from combat deaths. | PASS |
-| Telefrag-frequency experiment delivered | 10 runs at telegraphed stopAtRange 0 produced 12 environmental/telefrag deaths. 10 runs at stopAtRange 2 produced 3 environmental/telefrag deaths. Both cohorts completed with 0 failed runs. | PASS |
-| Diagnostics and replay expose the slice | CLI diagnostics against the closing set show `Environmental deaths: 23; telefrags: 23` and `Airdrop funnel: telegraphed-seen 1942, landed 1137, looted/spent 32, telefrags 23`. Replay Diagnostics uses `api.turns.byMatchSlim`, `computeMechanicsDiagnostics`, and renders environmental deaths plus the airdrop funnel. | PASS |
-| Standard validation gates are green | `npm run lint`, `npm run ts:check`, `npm test`, `npm run build`, `npm run build:replay`, and `git diff --check` all exited 0. Full suite: 44 files passed, 1 skipped; 767 tests passed, 2 skipped. | PASS |
+Harness invocation:
 
-## Thresholds
+```bash
+npm run harness -- --runs 20 --concurrency 10 --reasoning low --seed-prefix phase12-fresh4-20260515143233
+```
 
-### Preserved Phase 7 / Phase 9 Gates
+Report driver:
+
+```bash
+npx tsx harness/closing/phase12.ts --matchIds "$(cat /tmp/phase12-closing-matchids.txt)" --overwrite
+```
+
+### 2.1 OCC Substitution Policy
+
+**Policy:** No OCC substitutions were required. All 20 matches completed
+successfully with zero Convex optimistic-concurrency storage-layer
+failures. `failedMatches: 0`, `missingRunsForMatchIds: []`.
+
+---
+
+## 3. Threshold Verdict
+
+### 3.1 Preserved Phase-7 Thresholds
 
 | Gate | Threshold | Measured | Verdict |
 |---|---:|---:|---|
@@ -60,12 +117,15 @@ No OCC substitutions were required.
 | Runs with speech | >= 50% | 100% (20/20) | PASS |
 | Persona extraction spread | >= 15 pp | 55 pp | PASS |
 | Failed matches in canonical set | 0 | 0 | PASS |
-| Raw `null_only` `use:"consumable"` emissions | 0 | 0 | PASS |
+| `null_only` raw `use:"consumable"` emissions | 0 | 0 | PASS |
 | `Player_N` surfaced literals | 0 | 0 | PASS |
 | Whole-turn validator zeroes | 0 | 0 | PASS |
 | Per-field rejection rate | <= 10% | 0.4821% (136/28209 fields, 133 records) | PASS |
 
-### Phase 12 Slice Gates
+**10 / 10 preserved threshold checks pass.** All phase-7 gates
+preserved without regression.
+
+### 3.2 Phase-12 Slice-Specific Evidence
 
 | Gate | Expected | Measured | Verdict |
 |---|---:|---:|---|
@@ -83,9 +143,16 @@ No OCC substitutions were required.
 | `referenceCrateCount` | 12 | 12 | PASS |
 | `referenceAirdropCount` | 4 | 4 | PASS |
 
-`phase12Payload.meetsAllThresholds` is true.
+**13 / 13 slice-specific checks pass.** `phase12Payload.meetsAllThresholds`
+is true.
 
-### Data-Only Counters
+BC-3 lifecycle evidence is interpreted on the input/projection clock:
+each airdrop is telegraphed through `landsAtTurn` with countdown
+`3, 2, 1, 0`; the landing/telefrag occurs during
+`resolveTurn(landsAtTurn)`; the first normal landed-crate loot
+opportunity is `landsAtTurn + 1`.
+
+Additional data-only counters:
 
 | Counter | Measured |
 |---|---:|
@@ -96,9 +163,11 @@ No OCC substitutions were required.
 | Telefrag-frequency stopAtRange 0 | 12 telefrags / 10 runs |
 | Telefrag-frequency stopAtRange 2 | 3 telefrags / 10 runs |
 
-## Telefrag Evidence
+### 3.3 Telefrag Evidence
 
-Report-reconstructed kill-feed lines from the canonical payload:
+Report-reconstructed kill-feed sample from the canonical payload
+(6 distinct-persona examples from 23 total persisted telefrag kill-feed
+lines; `telefragKillFeedLineCount: 23`):
 
 ```text
 Camper got telefragged by crate spawn
@@ -109,7 +178,7 @@ Sprinter got telefragged by crate spawn
 Trader got telefragged by crate spawn
 ```
 
-The first persisted event in `/tmp/phase12-telefrag-events.json` is:
+Turn-level evidence (first persisted event):
 
 ```json
 {
@@ -126,60 +195,28 @@ The first persisted event in `/tmp/phase12-telefrag-events.json` is:
 
 Discoverability remains constrained to the feed line. There is no new
 tool-schema action for telefrag, no system-prompt teaching for agents,
-and no loot transfer surface from the victim. The reproduction and
-input-builder tests assert the line is created from turn resolution
-state, not from a prompt rule.
+and no loot transfer surface from the victim. The same discoverable-
+mechanic pattern as Phase 10 body-collision.
 
-## Telefrag-Frequency Experiment
-
-Command:
+### 3.4 Telefrag-Frequency Experiment (WP-E)
 
 ```bash
 npx tsx harness/telefrag-frequency.ts --runs-per-cohort 10 --concurrency 10 --reasoning low --seed-prefix phase12-telefrag-frequency-20260515144256
 ```
-
-Results:
 
 | Telegraph stopAtRange | Completed | Failed | Environmental deaths | Telefrag deaths |
 |---:|---:|---:|---:|---:|
 | 0 | 10 | 0 | 12 | 12 |
 | 2 | 10 | 0 | 3 | 3 |
 
-The prior stall mode was addressed in the experiment harness before the
-run: a match whose status and turn stop advancing for 90 seconds now
-emits `stale_match_advance`, invokes `runMatch:advanceTurn`, and fails
-loudly after three unsuccessful recovery attempts. This completed run
-needed no stale-match recovery events and exited 0.
+At stopAtRange 0 (ship default), telefrag is ~1.2 per match — "rare,
+funny" per North Star intent. At stopAtRange 2, frequency drops to ~0.3
+per match, confirming the knob is effective. The experiment harness
+includes stale-match detection and bounded `advanceTurn` recovery; this
+run needed no recovery events and exited 0. `TELEGRAPHED_CRATE_STOP_AT_RANGE`
+was restored to `0` after both cohorts.
 
-The experiment restored `TELEGRAPHED_CRATE_STOP_AT_RANGE` to `0` after
-both cohorts.
-
-## Diagnostics Evidence
-
-CLI diagnostics were captured immediately after the fresh closing set,
-before the experiment matches changed the latest-run window:
-
-```bash
-npx tsx harness/diagnostics.ts --last 20 --format json --out /tmp/phase12-diagnostics.json
-```
-
-Summary:
-
-```text
-Crate loot: seen 5615, actions 228, opened 206, equipped 206
-Airdrop funnel: telegraphed-seen 1942, landed 1137, looted/spent 32, telefrags 23
-Environmental deaths: 23; telefrags: 23
-```
-
-Replay Diagnostics evidence:
-
-- `apps/replay/src/lib/diagnosticsFanout.ts` queries `api.turns.byMatchSlim`.
-- `apps/replay/src/routes/Diagnostics.tsx` computes mechanics diagnostics
-  from slim turns and renders environmental deaths.
-- The same route renders the `Airdrop funnel` panel and lists
-  `turn.resolution.environmentalDeaths` entries.
-
-## Determinism Evidence
+### 3.5 Determinism Evidence
 
 The canonical payload reports:
 
@@ -201,33 +238,276 @@ Static crate contents remain hand-authored and plain-named. The reference
 map signature preserves the existing size, walls, cover clusters, evac
 tile, and spawn coordinates.
 
-## Known Issues Retired
+---
 
-- `runStats` per-persona kills are no longer structurally zero. The
-  closing payload attributes 137 kills across all eight personas.
-- Lethal counter-fire remains part of combat kill attribution, while
-  telefrag deaths are tracked only as environmental deaths.
-- The stale report-type issue is retired for this evidence set: the
-  persisted report row and `phase12Payload.reportType` are both
-  `phase-12-closing-20`.
+## 4. Schema Wipe and Report Pipeline
 
-## Out of Scope Carried Forward
+The schema break (`environmentalDeaths` on `resolutionValidator`,
+`airdrops`/`airdropWaves` on `worldState`/`worldStatic`,
+`phase12Payload` on `reports`, `crateValidator` replacing
+`chestValidator`) was exercised under POC posture
+(`project_poc_schema_wipe_acceptable`). Dev DB wiped before phase-12
+schema push.
 
-- OUT OF SCOPE: new RNG for loot, crate positions, player positions,
-  walls, cover, evac, or daily-seed mode.
-- OUT OF SCOPE: multi-item crates and agent choice among loot items.
-- OUT OF SCOPE: prompt-injection or cursed item names. The Phase-12
-  catalog uses plain names only.
+The report pipeline used the same Path-2 pattern as phases 7/9/10:
 
-## Final Validation
+1. Harness completed 20 live matches at `--reasoning low`.
+2. `harness/closing/phase12.ts` fanned out one `turns.byMatchSlim` read
+   per match id.
+3. The CLI computed metrics locally via `computePhase12Metrics`.
+4. The CLI persisted only the small computed payload through
+   `reports/phase12:persistComputedPhase12Report`.
 
-All final gates passed after the closure record was filled:
+---
 
-| Command | Result | Log |
-|---|---|---|
-| `npm run lint` | PASS | `/tmp/phase12-validate-lint.log` |
-| `npm run ts:check` | PASS | `/tmp/phase12-validate-ts-check.log` |
-| `npm test` | PASS, 44 files passed / 1 skipped; 767 tests passed / 2 skipped | `/tmp/phase12-validate-test.log` |
-| `npm run build` | PASS | `/tmp/phase12-validate-build.log` |
-| `npm run build:replay` | PASS, Vite production build completed | `/tmp/phase12-validate-build-replay.log` |
-| `git diff --check` | PASS | `/tmp/phase12-validate-diff-check.log` |
+## 5. Implementation Summary
+
+Landed across commits `6e6c5e0`, `91c6e89`, `ff1d868`, `d709e94`
+(72 files, 5,501 insertions, 876 deletions).
+
+### 5.1 Crate Vocabulary Closure (WP-A)
+
+Engine-wide rename of `chest`/`Chest_`/`chest_` → `crate`/`Crate_`/`crate_`
+across 72 files. Blast-radius inventory re-derived from a fresh full-repo
+grep (BC-1); post-WP-A re-grep gate confirmed zero live-surface hits.
+Frozen historical phase reports (`phase{3,6,7,9,10}`) and the schema's
+`legacyChestLiteralCount`/`meetsChestLiteralThreshold` fields (phase-7
+payload) intentionally excluded.
+
+### 5.2 Deterministic Equipment Catalog (WP-B)
+
+- **`convex/engine/map.ts`** — `rollLoot` RNG path retired from
+  `expandMap`; crate entries carry hand-authored `contents: ItemRef`.
+- **`convex/matches.ts`** — parallel `expandMapInline` seam updated
+  (BC-1 key miss).
+- Expanded `WeaponName`/`ArmourName` unions + `WEAPONS`/`ARMOUR` stat
+  tables with plain-named tiers: `dagger`, `rusty_blade`, `sword`,
+  `axe`, `greatsword`, `warhammer` (weapons); `cloth`, `leather`,
+  `chain`, `plate` (armour); `heal` (consumable).
+
+### 5.3 Airdrop Entity State Machine (WP-C)
+
+- **`convex/engine/airdrops.ts`** (NEW) — `airdropProjectionState`,
+  `airdropCountdown`, `findCrateById`, `findNavigableCrateById`,
+  `worldAirdrops`. Three-state lifecycle: `TELEGRAPHED` → `LANDED` →
+  `SPENT`.
+- **`convex/engine/vision.ts`** — airdrop telegraph emission (non-LOS,
+  every agent) with per-entity countdown; landed airdrop emits as normal
+  LOS-gated crate.
+- **`convex/llm/idNormalisation.ts`** — Crate namespace + airdrop
+  state-aware resolution; `ResolvedEntity` extended for airdrop crates.
+- **`convex/llm/inputBuilder.ts`** — Airdrop countdown rendering in
+  Vision; kill-feed `buildKillFeedLines` extended for telefrag lines.
+- **`convex/engine/loot.ts`** — Shared `findCrateById` helper for both
+  static and airdrop crate loot dispatch; SPENT-flip on loot;
+  `result:"opened"` + `lootedItem` trace contract (BC-2).
+
+### 5.4 Telefrag (WP-D)
+
+- **`convex/engine/resolution.ts:907-930`** — New sub-phase after
+  movement: checks each living agent's resolved position against
+  airdrop spawn tiles on the landing turn. Victim is removed entirely
+  (no death trace, no corpse, no gear transfer).
+  `trace.environmentalDeaths` populated; alive count decremented; prize
+  split recomputed.
+- **`convex/llm/inputBuilder.ts`** — `buildKillFeedLines` emits
+  `"<Persona> got telefragged by crate spawn"` from
+  `environmentalDeaths`.
+- **`convex/runMatch.ts`** — `adaptPriorTurnRowForBuilder` carries
+  `environmentalDeaths` for next-turn input projection.
+
+### 5.5 stopAtRange + Experiment (WP-E)
+
+- **`convex/llm/idNormalisation.ts`** — State-aware `stopAtRange` per
+  id namespace: telegraphed crate = 0 (race onto tile), landed crate = 2
+  (normal loot range). Controlled by `TELEGRAPHED_CRATE_STOP_AT_RANGE`
+  env knob.
+- **`harness/telefrag-frequency.ts`** (NEW) — Two-cohort experiment
+  harness with stale-match detection, bounded recovery, and env-knob
+  toggle. Outputs per-cohort telefrag counts.
+
+### 5.6 runStats Kill-Attribution Fix (WP-F)
+
+- **`convex/engine/runStats.ts`** — `buildTargetIdLookup` pattern
+  mirrored from `turnsDerived.ts:auditDamageFeed`. Per-persona kills
+  now attributed via characterId↔displayName translation. Lethal
+  `kind:"counter"` credited. Environmental deaths (telefrag) handled
+  gracefully without corrupting attribution.
+
+### 5.7 Closing Infrastructure (WP-G)
+
+- **`convex/reports/phase12.ts`** (675 lines) — `computePhase12Metrics`,
+  `phase12PayloadValidator`, `persistComputedPhase12Report` mutation.
+  23 threshold gates + `meetsAllThresholds` rollup.
+- **`harness/closing/phase12.ts`** (398 lines) — CLI driver (mirrors
+  phase-7/9/10 drivers).
+- **`harness/diagnostics/mechanics.ts`** — Environmental death +
+  airdrop funnel metrics added.
+- **`apps/replay/src/routes/Diagnostics.tsx`** — Environmental deaths
+  + airdrop funnel panels rendered.
+
+### 5.8 Persona Scrub
+
+Mechanical `chest`→`crate` scrub of 4 persona prompts
+(`duelist`, `vulture`, `opportunist`, `camper`) and their inlined copies
+in `convex/_data/personas.ts`. No behaviour tuning.
+
+---
+
+## 6. Decision Rollup
+
+All decisions D1–D21 from the spec, review rounds, and implementation
+were honoured. Key decisions:
+
+- **D2 (Q3):** Turn-40 airdrop at evac bullseye `(48,48)` is
+  intentional — North Star wants late-loot-vs-incineration tension +
+  canonical camp-the-bullseye telefrag.
+- **D3 (Q4):** Full deletion of `rollLoot`/`LOOT_TABLES` from crate
+  path — single forward shape, POC posture. Deferred-RNG slice brings
+  its own mechanism.
+- **D5 (Q1/Q2):** Plain-name catalog + wave→coords→contents table
+  ratified as reversible POC working default.
+- **D6:** Plan-v1 reviewed by 3 architects → unanimous
+  APPROVE-WITH-BINDING-CONDITIONS. Core architecture code-verified sound.
+- **D8:** Plan-v2 folds all binding conditions (BC-1/2/3/4/7).
+- **D20:** Tail closed — telefrag env-death in persisted closing-20
+  confirmed real (was absent in earlier cycles per D13/D16).
+
+---
+
+## 7. Validation Gates
+
+- `npm run lint` — PASS
+- `npm run ts:check` — PASS
+- `npm test` — PASS (44 files passed, 1 skipped; 767 tests passed, 2 skipped)
+- `npm run build` — PASS
+- `npm run build:replay` — PASS
+- `git diff --check` — PASS
+
+Working tree clean at close.
+
+---
+
+## 8. Test Coverage
+
+| File | Phase-12 tests | Coverage |
+|---|---:|---|
+| `tests/engine/resolution.test.ts` | ~8 | Telefrag on camped tile, telefrag on move-onto-tile, telefrag vs same-turn lethal attack, environmentalDeaths trace, buildKillFeedLines telefrag line, no corpse/gear transfer |
+| `tests/engine/map.test.ts` | ~6 | Deterministic crate expansion, expanded equipment catalog, airdrop wave table, rollLoot retirement |
+| `tests/engine/vision.test.ts` | ~5 | Airdrop telegraph emission (non-LOS), landed-crate LOS gating, spent-crate absence, countdown rendering |
+| `tests/engine/loot.test.ts` | ~4 | Static crate loot, airdrop crate loot dispatch, SPENT-flip, shared findCrateById |
+| `tests/engine/runStats.test.ts` | ~6 | buildTargetIdLookup, per-persona kill attribution, counter-fire credit, telefrag environmental exclusion |
+| `tests/engine/validation.test.ts` | ~4 | Crate-vocabulary rejection text, namespace dispatch |
+| `tests/llm/inputBuilder.test.ts` | ~8 | Telefrag kill-feed line, weapon/charge/telefrag ordering, telefraged-character Vision exclusion, airdrop countdown in Vision |
+| `tests/llm/idNormalisation.test.ts` | ~6 | Crate namespace, airdrop state-aware resolution, stopAtRange per namespace |
+| `tests/llm/schemaMirror.test.ts` | ~2 | environmentalDeaths schema-mirror parity |
+| `tests/reports/phase12.test.ts` | ~15 | Metric computation, all 23 threshold gates, telefrag gate, determinism gate, airdrop lifecycle fidelity |
+| `tests/harness/telefrag-frequency.test.ts` | ~8 | Two-cohort experiment, stale-match recovery, env-knob toggle |
+| `tests/harness/diagnostics.test.ts` | ~4 | Environmental death + airdrop funnel diagnostic metrics |
+| `tests/runMatch.test.ts` | ~3 | environmentalDeaths persistence roundtrip, adaptPriorTurnRowForBuilder |
+| `tests/turns.test.ts` | ~3 | environmentalDeaths slim projection |
+
+All tests are unit-level (pure-function engine + projection logic).
+Integration exercised by the closing-20 end-to-end.
+
+---
+
+## 9. Diagnostics Evidence
+
+CLI diagnostics captured against the closing set:
+
+```bash
+npx tsx harness/diagnostics.ts --last 20 --format json --out /tmp/phase12-diagnostics.json
+```
+
+```text
+Crate loot: seen 5615, actions 228, opened 206, equipped 206
+Airdrop funnel: telegraphed-seen 1942, landed 1137, looted/spent 32, telefrags 23
+Environmental deaths: 23; telefrags: 23
+```
+
+Replay Diagnostics tab (`#/diagnostics?last=N`) renders environmental
+deaths and the airdrop funnel panel using the same `byMatchSlim` fan-out
+and `computeMechanicsDiagnostics` computation as the CLI.
+
+---
+
+## 10. Deferred Items
+
+1. **RNG slice** — OUT OF SCOPE. New RNG for loot, crate positions,
+   player positions, walls, cover, evac, or daily-seed mode. Deliberately
+   sequenced as its own slice *after* mechanics settle, *before* the
+   consumer render phase (mental-model §10).
+2. **Multi-item crates / agent loot choice** — OUT OF SCOPE. Requires
+   richer equipment stats (not just dmg) so the choice has real
+   trade-offs. Near-future direction noted in mental-model §12.
+3. **Prompt-injection / cursed item names** — OUT OF SCOPE. The phase-12
+   catalog uses plain names only. The catalog is the future seam for
+   pillar-5 cursed-item flavour text (mental-model §11).
+4. **Telefrag frequency calibration** — The experiment delivered
+   stopAtRange 0 → ~1.2/match, stopAtRange 2 → ~0.3/match. Whether the
+   ship default (0) is at "rare, funny" or needs tuning is a future
+   observation question, not a phase-12 blocker.
+5. **Persona behaviour-tuning for airdrop/crate/telefrag** — Substrate
+   slice; behaviour tuning is a later loop. Diagnostics expose the
+   airdrop funnel and environmental death distribution for a future
+   tuning pass.
+6. **Legacy payload per-persona speech/equip structural-zero** — Carry
+   forward. This is the same translation-namespace family as the retired
+   WP-F per-persona kills bug (characterId / personaId / display-name
+   attribution drift), but applies to legacy payload/read surfaces and is
+   out of Phase-12 scope. Do not treat the WP-F kill-attribution fix as
+   proof that legacy per-persona speech/equip rows were repaired.
+
+---
+
+## 11. Known Issues / Review Carry-Forward
+
+### 11.1 Retired in Phase 12
+
+- **`runStats` per-persona kills structurally zero (phase 6 → 12).**
+  The closing payload attributes 137 kills across all eight personas:
+  duelist 43, vulture 27, opportunist 26, camper 18, paranoid 12,
+  sprinter 7, rat 2, trader 2. Phase-7/9/10 closure docs' deferred
+  item retired.
+- **Lethal counter-fire attribution.** Counter-fire (`kind:"counter"`)
+  is credited as combat kill attribution. Environmental deaths (telefrag)
+  are tracked separately and excluded from kill-rate.
+- **Stale report-type string.** Earlier closing runs persisted
+  `reportType: "closing-20"`; reconciled to `"phase-12-closing-20"` in
+  the canonical evidence set.
+
+### 11.2 Completion-Review v1 Disposition
+
+- **Replay reconstruction environmental deaths.** Fixed after
+  completion-review v1: replay `applyTurn` now applies
+  `resolution.environmentalDeaths` by marking the victim dead at the
+  spawn turn without creating a corpse, matching telefrag "vanishes
+  entirely" semantics.
+- **Replay grid airdrop visibility.** Fixed after completion-review v1:
+  the grid now renders inbound telegraphed airdrops with countdown and
+  hover details; landed airdrops render through the normal crate layer;
+  spent airdrops remain absent.
+- **Phase-12 report gate.** Tightened after completion-review v1:
+  `meetsPerPersonaKillAttributionThreshold` now requires every locked
+  persona to have `kills > 0`. The canonical persisted row already
+  satisfies this stricter interpretation (rat 2, duelist 43, trader 2,
+  opportunist 26, paranoid 12, camper 18, sprinter 7, vulture 27), so no
+  closing-20 regeneration was needed.
+- **Legacy payload per-persona speech/equip structural-zero.** Carry
+  forward to the next report-compatibility/read-side slice. Same root
+  namespace-translation family as the WP-F kills bug, but not fixed by
+  Phase 12 and not a blocker for the Phase-12 crate/airdrop/telefrag
+  substrate closure.
+
+---
+
+## 12. Cross-references
+
+- Canonical intent: [`mental-model.md` §11](../../spec/mental-model.md#11-current-vision--equipment-variance--contested-public-objectives)
+- Predecessor: [Phase 10 — Body-Collision + Overseer v0](../10-body-collision-overseer/PHASE-10-CLOSURE.md)
+- Phase spec: [Phase 12 README](./README.md) (plan-v2 + 7 WPs)
+- Phase 7 closure: [PHASE-7-CLOSURE.md](../07-context-payload-iter-3/PHASE-7-CLOSURE.md) (threshold baseline)
+- Phase 9 closure: [PHASE-9-CLOSURE.md](../09-walls-vision-rect-grained/PHASE-9-CLOSURE.md) (wall-slide + rect-Vision predecessor)
+- Phase 10 closure: [PHASE-10-CLOSURE.md](../10-body-collision-overseer/PHASE-10-CLOSURE.md) (discoverable-mechanic pattern precedent)
+- Discoverable-mechanic precedent: Phase 10 body-collision (no schema surface, no system-prompt teaching, kill-feed-only discovery)

@@ -443,6 +443,66 @@ describe("reconstruct — §1.2 death timing (post-movement, pre-visibilityUpdat
 });
 
 // ───────────────────────────────────────────────────────────────────────────
+// Phase 12 — environmental deaths / telefrag replay reconstruction
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("reconstruct — phase-12 environmental deaths (telefrag)", () => {
+  it("marks an environmental-death victim dead on the spawn turn without appending a corpse", () => {
+    const A = makeCharacter("a", 0); // spawn (28,28)
+    const B = makeCharacter("b", 1); // unaffected
+    const bundle: ReplayBundle = {
+      match: makeMatch({ turn: 10 }),
+      turns: [
+        ...Array.from({ length: 9 }, (_, i) =>
+          makeTurn(i + 1, emptyResolution()),
+        ),
+        makeTurn(10, {
+          ...emptyResolution(),
+          moves: [
+            {
+              characterId: A._id,
+              from: { x: 28, y: 28 },
+              to: { x: 50, y: 50 },
+            },
+          ],
+          deaths: [],
+          environmentalDeaths: [A._id],
+        }),
+      ],
+      characters: [A, B],
+      worldState: makeWorld({
+        airdrops: [
+          {
+            id: "Crate_50_50",
+            pos: { x: 50, y: 50 },
+            landsAtTurn: 10,
+            contents: { category: "weapon", name: "axe" },
+            looted: false,
+          },
+        ],
+      }),
+    };
+
+    const snap = reconstruct(bundle, 10);
+    const aSnap = snap.characters.find((c) => c.characterId === A._id)!;
+
+    expect(aSnap).toMatchObject({
+      alive: false,
+      diedAtTurn: 10,
+      pos: { x: 50, y: 50 },
+    });
+    expect(snap.corpses).toEqual([]);
+    expect(
+      snap.characters.filter(
+        (c) =>
+          c.alive &&
+          (c.extractedAtTurn === null || c.extractedAtTurn > snap.turn),
+      ),
+    ).toEqual([expect.objectContaining({ characterId: B._id })]);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
 // §1.3 — Crate open / loot timing (open carries forward across turns)
 // ───────────────────────────────────────────────────────────────────────────
 

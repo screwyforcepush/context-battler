@@ -39,7 +39,7 @@ npm run dev:replay
 - `#/` — match picker (paginated, completed-only, reverse-chronological).
 - `#/match/<matchId>` — replay view: bird's-eye SVG grid, turn stepper
   (slider + Next + arrow keys), per-turn side-panel feed with
-  decisions in English, hover details on agents/chests/corpses, and a
+  decisions in English, hover details on agents/crates/corpses, and a
   click-to-expand raw-pane modal with three sections: full LLM input
   (system + user role), reasoning text (when Azure surfaces it), and
   the parsed tool-call JSON. (Phase-3 collapsed the previous 5-tab

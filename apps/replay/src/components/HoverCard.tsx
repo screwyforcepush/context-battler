@@ -3,8 +3,9 @@
 // Renders a position-pinned card near the cursor with per-kind details for
 // the currently-hovered token on the grid. The dispatcher in Replay.tsx
 // (WP-C territory) reads `data-token-kind` / `data-character-id` /
-// `data-crate-id` from the SVG (emitted by Grid.tsx — WP-B territory),
-// resolves the DOM target → `HoverTarget`, and passes it here as a prop.
+// `data-crate-id` / `data-airdrop-id` from the SVG (emitted by Grid.tsx —
+// WP-B territory), resolves the DOM target → `HoverTarget`, and passes it here
+// as a prop.
 //
 // Render contract (per `work-packages.md` WP-D + ADR §9 D-P2-11 / §10 D-P2-12):
 //   - agent (live): persona, displayName, start-of-turn position,
@@ -19,6 +20,7 @@
 //   - crate (opened): id, position, "opened (turn N)" + literal
 //     "contents not persisted" line — engine clears
 //     `worldState.crates[i].contents` on open (`resolution.ts:537`).
+//   - airdrop: id, position, lifecycle state, and countdown when telegraphed.
 //   - corpse: deceased displayName + persona + death turn + remaining loot
 //     from `worldState.corpses[]` (engine-authored truth — only ledger-free
 //     fallback per ADR §4).
@@ -111,7 +113,7 @@ export function HoverCard(props: HoverCardProps): React.ReactElement | null {
 // Per-kind body dispatch.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function renderHoverBody(
+export function renderHoverBody(
   target: HoverTarget,
   bundle: ReplayBundle,
   snapshot: EntitySnapshot,
@@ -136,6 +138,14 @@ function renderHoverBody(
           snapshot={snapshot}
         />
       );
+    case "airdrop":
+      return (
+        <AirdropHover
+          airdropId={target.airdropId}
+          pos={target.pos}
+          snapshot={snapshot}
+        />
+      );
     case "corpse":
       return (
         <CorpseHover
@@ -151,6 +161,53 @@ function renderHoverBody(
     case "evac":
       return <SimpleHover label="Evac zone" pos={target.pos} />;
   }
+  return unreachableHoverTarget(target);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Airdrop body. Telegraphed tokens are grid-visible; landed airdrops are normal
+// crates and spent/pre airdrops should not create a grid token.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AirdropHover(props: {
+  airdropId: string;
+  pos: { x: number; y: number };
+  snapshot: EntitySnapshot;
+}): React.ReactElement {
+  const { airdropId, pos, snapshot } = props;
+  const drop = snapshot.airdrops.find((candidate) => candidate.id === airdropId);
+  const state = drop?.state ?? "unknown";
+  const countdown =
+    drop?.state === "telegraphed"
+      ? drop.countdown ?? Math.max(0, drop.landsAtTurn - snapshot.turn)
+      : null;
+
+  return (
+    <Block
+      title={`Airdrop ${airdropId}`}
+      body={
+        <>
+          <Row label="position" value={`(${pos.x}, ${pos.y})`} />
+          <Row label="state" value={state} />
+          {drop ? (
+            <Row label="lands" value={`turn ${drop.landsAtTurn}`} />
+          ) : null}
+          <Row
+            label="countdown"
+            value={countdown !== null ? formatTurnCountdown(countdown) : "—"}
+          />
+        </>
+      }
+    />
+  );
+}
+
+function formatTurnCountdown(countdown: number): string {
+  return countdown === 1 ? "1 turn" : `${countdown} turns`;
+}
+
+function unreachableHoverTarget(target: never): React.ReactElement {
+  throw new Error(`Unhandled hover target: ${JSON.stringify(target)}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

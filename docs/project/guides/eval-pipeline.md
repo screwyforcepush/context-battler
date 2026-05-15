@@ -2,9 +2,9 @@
 
 > Practical recipe: tweak a prompt / value / config → 10 runs → metric +
 > verbose-failure report. Reflects the actual state of harness + Convex
-> aggregators as of phase 11 (DB bandwidth substrate — prompt dedup,
-> slim persisted input, worldStatic split). Keep this current;
-> future shifts in the report contract belong here.
+> aggregators as of phase 12 (crate substrate, equipment variance,
+> airdrop lifecycle, telefrag, per-persona kill-attribution fix). Keep
+> this current; future shifts in the report contract belong here.
 
 ---
 
@@ -86,7 +86,7 @@ All located in `harness/`. All take a single `matchId` as argv.
 | Script | Phase | Status | What it prints |
 |---|---|---|---|
 | `analyze-match.ts` | 1 (extended phase 6) | ✅ Works | Per-match fallback rate; failureReason histogram; field-error histograms; use/position/action kind histograms; move direction kind histogram; per-persona fallback breakdown; sample raw rawArguments per persona. **This is the right tool for a quick per-match sanity check after a prompt tweak.** |
-| `cluster-failures.ts` | 1 (extended WP10.5 B.3) | ✅ Works | Schema-validation samples; validator-rejection cluster grouped by `validatorReason` text (top reasons + 3 raw samples each); HTTP-failure per-turn distribution. **This is the tool that produced D1's "510 already-opened-chest re-loots" clusters.** Run it per-match; aggregate by hand for cohort views. |
+| `cluster-failures.ts` | 1 (extended WP10.5 B.3) | ✅ Works | Schema-validation samples; validator-rejection cluster grouped by `validatorReason` text (top reasons + 3 raw samples each); HTTP-failure per-turn distribution. **This is the tool that produced D1's "510 already-opened-crate re-loots" clusters.** Run it per-match; aggregate by hand for cohort views. |
 | `inspect-attacks.ts` | 1 | ✅ Works | Attack/overwatch result histograms; per-persona attack counts; damage distribution. Useful when combat outcomes look off. |
 | `inspect-http.ts` | 1 | ✅ Works | HTTP failure bucket counts + retried-call rate + per-persona HTTP error rate. Useful when you suspect transient Azure rate-limiting. |
 | `inspect-equipped.ts` | 1 | ⚠️ **INCOMPATIBLE** | Greps `/Equipped:\s*([^\n]+)/` out of `visibleStateDigest`. The phase-3 digest dropped the literal `Equipped:` label; loadout is now in the `You: at (X,Y), HP/maxHP, weapon / armour / consumable` line. The regex never matches → the script silently produces an empty report. Either skip it or rewrite the regex against the new digest shape. |
@@ -249,11 +249,12 @@ Three metric families:
    `output_tokens` proximity to cap, per-field validator-rejection
    breakdown, persona × failure-reason cross-tab.
 2. **Game-mechanic sanity** — attack outcomes, overwatch fires split by
-   `triggeredByMovement`, counter retaliations, chest/corpse loot funnels,
+   `triggeredByMovement`, counter retaliations, crate/corpse loot funnels,
    consume waste (including `consume:heal at full HP`), speech metrics,
    damage-feed delivery audit (evidence-backed: audits next-turn
    `narrativeLines` entries before projection), wall-blocked moves,
-   declared-vs-actual move distance.
+   declared-vs-actual move distance, environmental deaths / telefrags,
+   airdrop funnel (telegraphed-seen → landed → looted/spent → telefrags).
 3. **Behavioural distribution** — totals by persona × turn-phase,
    contextual combos (`counter + attack`, `overwatch + loot`,
    `move:dist=0 + action≠none`, `consume:heal at full HP`, etc.),
@@ -302,6 +303,45 @@ npx tsx harness/closing/phase10.ts --matchIds "id1,id2,..." --overwrite
 
 The persisted row has `reportType: "phase-10-closing-20"` and is
 queryable via `npx convex run reports:byId '{"id":"<reportId>"}'`.
+
+### 4.5f. Phase-12 closing driver (`harness/closing/phase12.ts`)
+
+Runs the Phase-12 gate evaluation (preserved phase-7 thresholds plus
+23 slice-specific gates: environmental deaths, telefrag counts,
+kill-feed lines, airdrop lifecycle fidelity — countdown/violations/
+landed/looted — per-persona kill attribution, determinism checks for
+crates and airdrops, reference crate/airdrop counts). Same Path-2
+architecture as phases 7/9/10.
+
+```bash
+# Close over explicit match ids:
+npx tsx harness/closing/phase12.ts --matchIds "id1,id2,..."
+
+# Close over the last 20 matches:
+npx tsx harness/closing/phase12.ts --last 20
+
+# Overwrite an existing report:
+npx tsx harness/closing/phase12.ts --matchIds "id1,id2,..." --overwrite
+```
+
+The persisted row has `reportType: "phase-12-closing-20"` and is
+queryable via `npx convex run reports:byId '{"id":"<reportId>"}'`.
+
+### 4.5f-exp. Telefrag-frequency experiment (`harness/telefrag-frequency.ts`)
+
+Two-cohort experiment harness: runs N matches at telegraphed-crate
+stopAtRange 0 (ship default — agents race onto the airdrop tile),
+then N at stopAtRange 2 (agents stop at loot range). Reports per-cohort
+telefrag / environmental-death counts.
+
+```bash
+npx tsx harness/telefrag-frequency.ts --runs-per-cohort 10 --concurrency 10 --reasoning low --seed-prefix <tag>
+```
+
+Outputs JSONL to stdout. Includes stale-match detection and bounded
+`advanceTurn` recovery. Restores `TELEGRAPHED_CRATE_STOP_AT_RANGE` to
+the ship default after both cohorts. Not a closing gate — in-loop
+measurement only.
 
 ### 4.5g. Diagnostics dashboard (`#/diagnostics`)
 
@@ -389,31 +429,35 @@ report mirroring the D1 artifact's shape (cohorts table → metrics table
 
 ## 7. Compatibility matrix (TL;DR)
 
-| Surface | Phase 1 | Phase 3 | Phase 6 | Phase 7 | Phase 9 | Phase 10 | Phase 11 (current) |
-|---|---|---|---|---|---|---|---|
-| `harness/run.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/analyze-match.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/cluster-failures.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/inspect-attacks.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/inspect-http.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/inspect-equipped.ts` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| `harness/diagnostics.ts` | — | — | — | ✅ | ✅ | ✅ | ✅ (narrativeLines + input.status sources) |
-| `harness/closing/phase7.ts` | — | — | — | ✅ | ✅ | ✅ | ✅ (Path 2 local compute + thin persist) |
-| `harness/closing/phase9.ts` | — | — | — | — | ✅ | ✅ | ✅ (reads joined worldStatic) |
-| `harness/closing/phase10.ts` | — | — | — | — | — | ✅ | ✅ (Path 2; charge/bump/counter/feed counters) |
-| `closing-N` report (phase-1 metrics) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `computePhase3Report` action | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `computePhase6Metrics` + persist | — | — | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `computePhase7Metrics` + persist | — | — | — | ✅ | ✅ | ✅ | ✅ |
-| `computePhase9Metrics` + persist | — | — | — | — | ✅ | ✅ | ✅ (local compute + Convex persist) |
-| `computePhase10Metrics` + persist | — | — | — | — | — | ✅ | ✅ (local compute + Convex persist) |
-| `phase-7-closing-20` persisted row | — | — | — | ✅ | wiped | wiped | wiped (POC posture) |
-| `phase-9-closing-20` persisted row | — | — | — | — | ✅ | wiped | wiped (POC posture) |
-| `phase-10-closing-20` persisted row | — | — | — | — | — | ✅ | wiped (POC posture) |
-| `turns.byMatchSlim` query | — | — | — | ✅ | ✅ | ✅ | ✅ (delivery via narrativeLines; status via input.status) |
-| no-op rate aggregator | — | — | ✅ | superseded | superseded | superseded | superseded (→ armedStancePause / trueStationary) |
-| Replay UI — Matches tab | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (prompt recomposition; structured Status card) |
-| Replay UI — Diagnostics tab | — | — | — | ✅ | ✅ | ✅ | ✅ (`#/diagnostics?last=N`) |
+| Surface | Phase 1 | Phase 3 | Phase 6 | Phase 7 | Phase 9 | Phase 10 | Phase 11 | Phase 12 (current) |
+|---|---|---|---|---|---|---|---|---|
+| `harness/run.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/analyze-match.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/cluster-failures.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/inspect-attacks.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/inspect-http.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/inspect-equipped.ts` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `harness/diagnostics.ts` | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (env-death + airdrop funnel metrics) |
+| `harness/closing/phase7.ts` | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (Path 2 local compute + thin persist) |
+| `harness/closing/phase9.ts` | — | — | — | — | ✅ | ✅ | ✅ | ✅ (reads joined worldStatic) |
+| `harness/closing/phase10.ts` | — | — | — | — | — | ✅ | ✅ | ✅ (Path 2; charge/bump/counter/feed counters) |
+| `harness/closing/phase12.ts` | — | — | — | — | — | — | — | ✅ (Path 2; env-death/telefrag/airdrop/determinism/kill-attrib gates) |
+| `harness/telefrag-frequency.ts` | — | — | — | — | — | — | — | ✅ (two-cohort stopAtRange experiment) |
+| `closing-N` report (phase-1 metrics) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `computePhase3Report` action | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `computePhase6Metrics` + persist | — | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `computePhase7Metrics` + persist | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `computePhase9Metrics` + persist | — | — | — | — | ✅ | ✅ | ✅ | ✅ (local compute + Convex persist) |
+| `computePhase10Metrics` + persist | — | — | — | — | — | ✅ | ✅ | ✅ (local compute + Convex persist) |
+| `computePhase12Metrics` + persist | — | — | — | — | — | — | — | ✅ (local compute + Convex persist) |
+| `phase-7-closing-20` persisted row | — | — | — | ✅ | wiped | wiped | wiped | wiped (POC posture) |
+| `phase-9-closing-20` persisted row | — | — | — | — | ✅ | wiped | wiped | wiped (POC posture) |
+| `phase-10-closing-20` persisted row | — | — | — | — | — | ✅ | wiped | wiped (POC posture) |
+| `phase-12-closing-20` persisted row | — | — | — | — | — | — | — | ✅ (jd75980xfbda1d19pynjgyb88186ramv) |
+| `turns.byMatchSlim` query | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (+ environmentalDeaths in slim projection) |
+| no-op rate aggregator | — | — | ✅ | superseded | superseded | superseded | superseded | superseded (→ armedStancePause / trueStationary) |
+| Replay UI — Matches tab | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (crate vocabulary; airdrop lifecycle in grid) |
+| Replay UI — Diagnostics tab | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (env-death + airdrop funnel panels) |
 
-Phase-11 data only lives in the current Convex deployment. Pre-phase-11
+Phase-12 data only lives in the current Convex deployment. Pre-phase-12
 match data was wiped per POC posture; old matchIds will not resolve.
