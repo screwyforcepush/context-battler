@@ -1,6 +1,6 @@
 // WP11 Stage-1 — Harness CLI driver.
 //
-// Per ADR §3 the harness is a thin orchestrator: it triggers `matches.start`,
+// Per ADR §3 the harness is a thin coordinator: it triggers `matches.start`,
 // polls `matches.status` until terminal, and prints machine-readable JSONL so
 // reviewing agents can grep. Stage-1 scope is `--runs 1 --concurrency 1`
 // (single-match smoke). Stage-2/3 layer fan-out and `reports.aggregate` on top
@@ -40,7 +40,7 @@
 //     an aggregate row (silent partial summaries are unsafe for Gate-3).
 //
 // Testability seam:
-//   The orchestrator body is exported as `runHarness(args, deps)` — a pure-
+//   The coordinator body is exported as `runHarness(args, deps)` — a pure-
 //   ish function returning `{ exitCode, ... }`. The CLI entry point `main()`
 //   wires real deps (Convex client, real stdout/stderr) and forwards the
 //   exit code to `process.exitCode`. Tests inject a fake `client`,
@@ -502,7 +502,7 @@ async function waitForRunRow(
 // ─────────────────────────────────────────────────────────────────────────────
 // Dependency-injection seam.
 //
-// `runHarness` is the orchestrator body without process I/O concerns. The
+// `runHarness` is the coordinator body without process I/O concerns. The
 // CLI entry point (`main()`) wires real deps; tests inject fakes. Each
 // dep is small and orthogonal:
 //
@@ -512,7 +512,7 @@ async function waitForRunRow(
 //   - `sleep`      — `setTimeout`-based sleep (collapsed to 0ms in tests).
 //
 // Returning `{ exitCode }` rather than calling `process.exit` is what makes
-// the orchestrator unit-testable in-process: the caller is responsible for
+// the coordinator unit-testable in-process: the caller is responsible for
 // translating the result to a process exit. This also means a future
 // embedder (e.g. a long-running watcher) can call `runHarness` repeatedly
 // without crashing the host.

@@ -31,6 +31,28 @@ export type VisibleSummary = {
   evacSeen: boolean;
 };
 
+export type AirdropTelegraphEvent = {
+  id: string;
+  countdown: number;
+};
+
+export type AirdropLandedEvent = {
+  id: string;
+};
+
+export type AirdropVisionSummary = {
+  telegraphed: number;
+  landed: number;
+  telegraphedIds: string[];
+  landedIds: string[];
+  telegraphedEvents?: AirdropTelegraphEvent[];
+};
+
+export type AirdropVisionEventSummary = {
+  telegraphed?: AirdropTelegraphEvent[];
+  landed?: AirdropLandedEvent[];
+};
+
 export type SelfEquipment = {
   weapon: string | null;
   armour: string | null;
@@ -77,6 +99,8 @@ export type SlimAgentRecord = {
   scratchpadAfter: string;
   scratchpadChanged: boolean;
   visibleSummary: VisibleSummary;
+  airdropVision?: AirdropVisionSummary;
+  airdropVisionSummary?: AirdropVisionEventSummary;
   visibleRectKeys: string[];
   insideBearingHere: boolean;
   observerPos: Tile;

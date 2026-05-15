@@ -38,6 +38,12 @@ export type MechanicsDiagnostics = {
       noCorpse: number;
     };
   };
+  airdrop: {
+    telegraphedSeen: number;
+    landedSeen: number;
+    lootedSpent: number;
+    telefrags: number;
+  };
   consume: {
     byItem: CountMap;
     wastedSpeedWithoutMovement: number;
@@ -56,6 +62,7 @@ export type MechanicsDiagnostics = {
     dealtKills: number;
   };
   deaths: number;
+  environmentalDeaths: number;
   wallBlockedMoves: number;
   movement: {
     declaredVsActual: {
@@ -87,6 +94,10 @@ export function computeMechanicsDiagnostics(
   let crateEquipped = 0;
   let crateEmpty = 0;
   let crateSameTurnCollision = 0;
+  let airdropTelegraphedSeen = 0;
+  let airdropLandedSeen = 0;
+  let airdropLootedSpent = 0;
+  const airdropIdsByMatch = new Map<string, Set<string>>();
   let corpseSeen = 0;
   let corpseLootActions = 0;
   let corpseLooted = 0;
@@ -103,6 +114,7 @@ export function computeMechanicsDiagnostics(
   let outgoingDamageFeed = 0;
   let dealtKills = 0;
   let deaths = 0;
+  let environmentalDeaths = 0;
   let wallBlockedMoves = 0;
   let movementCompared = 0;
   let movementExact = 0;
@@ -113,10 +125,21 @@ export function computeMechanicsDiagnostics(
 
   for (const turn of rows) {
     deaths += turn.resolution.deaths.length;
+    environmentalDeaths += turn.resolution.environmentalDeaths?.length ?? 0;
     const movesByCharacter = new Map(
       turn.resolution.moves.map((move) => [move.characterId, move]),
     );
     const counterFires = new Set<string>();
+    const airdropIds = airdropIdsForMatch(airdropIdsByMatch, turn.matchId);
+
+    for (const record of turn.agentRecords) {
+      for (const id of record.airdropVision?.telegraphedIds ?? []) {
+        airdropIds.add(id);
+      }
+      for (const id of record.airdropVision?.landedIds ?? []) {
+        airdropIds.add(id);
+      }
+    }
 
     for (const move of turn.resolution.moves) {
       if (move.blockedBy === "wall") wallBlockedMoves += 1;
@@ -133,6 +156,12 @@ export function computeMechanicsDiagnostics(
           counterFired += 1;
           counterFires.add(action.characterId);
         }
+      } else if (
+        action.kind === "loot" &&
+        action.result === "opened" &&
+        airdropIds.has(action.target)
+      ) {
+        airdropLootedSpent += 1;
       }
     }
 
@@ -156,6 +185,8 @@ export function computeMechanicsDiagnostics(
     for (const record of turn.agentRecords) {
       crateSeen += record.visibleSummary.crates;
       corpseSeen += record.visibleSummary.corpses;
+      airdropTelegraphedSeen += record.airdropVision?.telegraphed ?? 0;
+      airdropLandedSeen += record.airdropVision?.landed ?? 0;
       inboundDelivered += record.inboundSpeechCount;
       incomingDamageFeed += record.damageFeedAudit.incoming;
       outgoingDamageFeed += record.damageFeedAudit.outgoing;
@@ -248,6 +279,12 @@ export function computeMechanicsDiagnostics(
         noCorpse: corpseNoCorpse,
       },
     },
+    airdrop: {
+      telegraphedSeen: airdropTelegraphedSeen,
+      landedSeen: airdropLandedSeen,
+      lootedSpent: airdropLootedSpent,
+      telefrags: environmentalDeaths,
+    },
     consume: {
       byItem: sortedCountMap(consumeByItem),
       wastedSpeedWithoutMovement,
@@ -266,6 +303,7 @@ export function computeMechanicsDiagnostics(
       dealtKills,
     },
     deaths,
+    environmentalDeaths,
     wallBlockedMoves,
     movement: {
       declaredVsActual: {
@@ -277,6 +315,17 @@ export function computeMechanicsDiagnostics(
       },
     },
   };
+}
+
+function airdropIdsForMatch(
+  byMatch: Map<string, Set<string>>,
+  matchId: string,
+): Set<string> {
+  const existing = byMatch.get(matchId);
+  if (existing) return existing;
+  const created = new Set<string>();
+  byMatch.set(matchId, created);
+  return created;
 }
 
 function attackOutcomeBucket(result: string): string {

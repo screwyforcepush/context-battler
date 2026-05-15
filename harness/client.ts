@@ -1,6 +1,6 @@
 // WP11 — Convex client wrapper for the harness CLI.
 //
-// Per ADR §3 the CLI is a thin orchestrator + waiter. It connects to Convex
+// Per ADR §3 the CLI is a thin coordinator + waiter. It connects to Convex
 // over HTTP (NOT a WebSocket) because:
 //   - HTTP is request/response, which matches the harness's polling model.
 //   - It avoids the long-lived subscription bookkeeping ConvexClient implies.

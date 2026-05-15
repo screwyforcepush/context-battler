@@ -12,7 +12,7 @@
 //   - Public-domain reference implementation; straightforward to audit.
 //
 // Why xmur3 for seed mixing?
-//   - Converts arbitrary string seeds (`rngSeed + chestId`) into a 32-bit
+//   - Converts arbitrary string seeds (`rngSeed + streamId`) into a 32-bit
 //     integer with good avalanche behaviour, so neighbouring seeds
 //     (`"seed1"` vs `"seed2"`) produce decorrelated rng streams.
 //

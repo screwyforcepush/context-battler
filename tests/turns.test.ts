@@ -165,6 +165,7 @@ describe("turns.byMatchSlim projection contract", () => {
               },
               Camper: { dist: 2, bearing: "E", hp: "mid", armed: true },
               Crate_53_54: { dist: 1, bearing: "N" },
+              Crate_50_50: { dist: 30, bearing: "SE", countdown: 3 },
               Corpse_Rat: { dist: 3, bearing: "W" },
             },
             null,
@@ -234,9 +235,20 @@ describe("turns.byMatchSlim projection contract", () => {
     expect(record.scratchpadChanged).toBe(true);
     expect(record.visibleSummary).toEqual({
       enemies: 1,
-      crates: 1,
+      crates: 2,
       corpses: 1,
       evacSeen: true,
+    });
+    expect(record.airdropVision).toEqual({
+      telegraphed: 1,
+      landed: 0,
+      telegraphedIds: ["Crate_50_50"],
+      landedIds: [],
+      telegraphedEvents: [{ id: "Crate_50_50", countdown: 3 }],
+    });
+    expect(record.airdropVisionSummary).toEqual({
+      telegraphed: [{ id: "Crate_50_50", countdown: 3 }],
+      landed: [],
     });
     expect(record.visibleRectKeys).toEqual([
       "Wall_10_10_to_12_10",
@@ -269,6 +281,70 @@ describe("turns.byMatchSlim projection contract", () => {
     });
     expect(record.inboundSpeechCount).toBe(0);
     expect(record.lootOutcomeFeed).toEqual([]);
+  });
+
+  it("derives airdrop countdowns and landed vision from earlier telegraph entries", () => {
+    const telegraphTurns = [7, 8, 9, 10].map((turn) => ({
+      _id: `turn_${turn}`,
+      matchId: "match_1",
+      turn,
+      resolution: {
+        consumed: [],
+        speech: [],
+        moves: [],
+        actions: [],
+        deaths: [],
+        visibilityUpdates: [],
+      },
+      agentRecords: [
+        makeAgentRecord({
+          characterId: "char_duelist",
+          personaId: "duelist",
+          visibleStateDigest: `Vision:\n${JSON.stringify({
+            Crate_50_50: { dist: 30, bearing: "SE", countdown: 10 - turn },
+          })}`,
+        }),
+      ],
+    }));
+    const landedTurn = {
+      ...telegraphTurns[0]!,
+      _id: "turn_11",
+      turn: 11,
+      agentRecords: [
+        makeAgentRecord({
+          characterId: "char_duelist",
+          personaId: "duelist",
+          visibleStateDigest: `Vision:\n${JSON.stringify({
+            Crate_50_50: { dist: 2, bearing: "here" },
+            Crate_53_54: { dist: 1, bearing: "N" },
+          })}`,
+        }),
+      ],
+    };
+
+    const slim = projectSlimTurnRows([...telegraphTurns, landedTurn]);
+
+    expect(
+      slim
+        .slice(0, 4)
+        .map((row) => row.agentRecords[0]!.airdropVision.telegraphedEvents[0]),
+    ).toEqual([
+      { id: "Crate_50_50", countdown: 3 },
+      { id: "Crate_50_50", countdown: 2 },
+      { id: "Crate_50_50", countdown: 1 },
+      { id: "Crate_50_50", countdown: 0 },
+    ]);
+    expect(slim[4]!.agentRecords[0]!.airdropVision).toEqual({
+      telegraphed: 0,
+      landed: 1,
+      telegraphedIds: [],
+      landedIds: ["Crate_50_50"],
+      telegraphedEvents: [],
+    });
+    expect(slim[4]!.agentRecords[0]!.airdropVisionSummary).toEqual({
+      telegraphed: [],
+      landed: [{ id: "Crate_50_50" }],
+    });
   });
 
   it("audits speech, loot, and damage delivery from the previous turn feed", () => {

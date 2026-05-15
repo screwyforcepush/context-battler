@@ -1,9 +1,9 @@
 // WP14 — Convex `reports.create` mutation tests (RED phase per AOP).
 //
-// Tests-first per `.agents/AGENTS.md` AOP. The mutation orchestrator is
+// Tests-first per `.agents/AGENTS.md` AOP. The mutation coordinator is
 // extracted as a pure helper `runReportCreate(deps, args)` (mirroring
 // the `runHarness` / `buildAgentLlmRecord` DI pattern in tests/harness/run.test.ts
-// and tests/runMatch.test.ts) so the orchestration logic is unit-testable
+// and tests/runMatch.test.ts) so the coordination logic is unit-testable
 // without Convex runtime. The Convex mutation `reports.create` is then a
 // thin wrapper that wires `ctx.db` reads/writes into the same helper.
 //

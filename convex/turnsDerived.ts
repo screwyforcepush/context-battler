@@ -7,6 +7,27 @@ type VisibleSummary = {
   evacSeen: boolean;
 };
 
+type AirdropVisionSummary = {
+  telegraphed: number;
+  landed: number;
+  telegraphedIds: string[];
+  landedIds: string[];
+  telegraphedEvents: Array<{
+    id: string;
+    countdown: number;
+  }>;
+};
+
+type AirdropVisionEventSummary = {
+  telegraphed: Array<{
+    id: string;
+    countdown: number;
+  }>;
+  landed: Array<{
+    id: string;
+  }>;
+};
+
 type SelfEquipment = {
   weapon: string | null;
   armour: string | null;
@@ -176,6 +197,10 @@ function isCrateEntry(key: string, value: unknown): boolean {
   );
 }
 
+function isCrateKey(key: string): boolean {
+  return /^Crate_-?\d+_-?\d+$/.test(key);
+}
+
 function isCorpseEntry(key: string, value: unknown): boolean {
   return (
     key.startsWith("Corpse_") ||
@@ -250,6 +275,61 @@ export function summariseVisible(visibleStateDigest: string): VisibleSummary {
   }
 
   return { enemies, crates, corpses, evacSeen };
+}
+
+function summariseAirdropVision(
+  visibleStateDigest: string,
+  knownAirdropIds: ReadonlySet<string>,
+): AirdropVisionSummary {
+  const visible = parseVisibleObject(visibleStateDigest);
+  if (!visible) {
+    return {
+      telegraphed: 0,
+      landed: 0,
+      telegraphedIds: [],
+      landedIds: [],
+      telegraphedEvents: [],
+    };
+  }
+
+  const telegraphedIds = new Set<string>();
+  const landedIds = new Set<string>();
+  const telegraphedEvents: AirdropVisionSummary["telegraphedEvents"] = [];
+
+  for (const [key, value] of Object.entries(visible)) {
+    if (!isCrateKey(key) || !isCrateEntry(key, value)) continue;
+    if (
+      isRecord(value) &&
+      typeof value.countdown === "number" &&
+      Number.isFinite(value.countdown)
+    ) {
+      telegraphedIds.add(key);
+      telegraphedEvents.push({ id: key, countdown: value.countdown });
+    } else if (knownAirdropIds.has(key)) {
+      landedIds.add(key);
+    }
+  }
+
+  const telegraphed = [...telegraphedIds].sort();
+  const landed = [...landedIds].sort();
+  return {
+    telegraphed: telegraphed.length,
+    landed: landed.length,
+    telegraphedIds: telegraphed,
+    landedIds: landed,
+    telegraphedEvents: telegraphedEvents.sort((a, b) =>
+      a.id === b.id ? a.countdown - b.countdown : a.id.localeCompare(b.id),
+    ),
+  };
+}
+
+function airdropVisionEventSummary(
+  summary: AirdropVisionSummary,
+): AirdropVisionEventSummary {
+  return {
+    telegraphed: summary.telegraphedEvents,
+    landed: summary.landedIds.map((id) => ({ id })),
+  };
 }
 
 function selfEquipmentFromStatus(equipped: EquippedSlots): SelfEquipment {
@@ -723,6 +803,7 @@ function slimLlm(llm: AgentLlmLike) {
 export function projectSlimTurnRow<Row extends TurnRowLike>(
   row: Row,
   deliverySignalsByCharacter?: ReadonlyMap<string, DeliverySignals>,
+  knownAirdropIds: ReadonlySet<string> = new Set(),
 ) {
   const fallbackSignals = deliverySignalsByCharacter ?? buildDeliverySignals(null, row);
 
@@ -739,6 +820,10 @@ export function projectSlimTurnRow<Row extends TurnRowLike>(
         hp: record.input.status.hp,
         maxHp: CHARACTER_MAX_HP,
       };
+      const airdropVision = summariseAirdropVision(
+        record.input.visibleStateDigest,
+        knownAirdropIds,
+      );
 
       return {
         characterId: record.characterId,
@@ -748,6 +833,8 @@ export function projectSlimTurnRow<Row extends TurnRowLike>(
         scratchpadChanged:
           record.input.scratchpadBefore !== record.scratchpadAfter,
         visibleSummary: summariseVisible(record.input.visibleStateDigest),
+        airdropVision,
+        airdropVisionSummary: airdropVisionEventSummary(airdropVision),
         visibleRectKeys: visibleRectKeys(record.input.visibleStateDigest),
         insideBearingHere: insideBearingHere(record.input.visibleStateDigest),
         observerPos: { ...record.input.status.pos },
@@ -764,15 +851,27 @@ export function projectSlimTurnRow<Row extends TurnRowLike>(
 export function projectSlimTurnRows<Row extends TurnRowLike>(
   rows: readonly Row[],
 ) {
+  const knownAirdropIds = new Set<string>();
   return rows.map((row, index) => {
     const previousRow: Row | null = index > 0 ? rows[index - 1]! : null;
-    return projectSlimTurnRow(row, buildDeliverySignals(previousRow, row));
+    const projected = projectSlimTurnRow(
+      row,
+      buildDeliverySignals(previousRow, row),
+      knownAirdropIds,
+    );
+    for (const record of projected.agentRecords) {
+      for (const id of record.airdropVision.telegraphedIds) {
+        knownAirdropIds.add(id);
+      }
+    }
+    return projected;
   });
 }
 
 export type {
   DamageFeedAudit,
   DamageParticipant,
+  AirdropVisionSummary,
   LootOutcome,
   SelfEquipment,
   SelfHp,

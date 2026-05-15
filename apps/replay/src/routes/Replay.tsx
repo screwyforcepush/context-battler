@@ -1,7 +1,7 @@
 // Phase 02 / WP-C — Replay route (full layout).
 //
 // Replaces the temporary range-input stepper from WP-B. The Replay route is
-// now the orchestrator that wires:
+// now the coordinator that wires:
 //
 //   - One-shot bundle fetch (`api.replay.getReplayBundle`) — kept from WP-B
 //     because completed matches are terminal (no subscription needed; ADR §3).

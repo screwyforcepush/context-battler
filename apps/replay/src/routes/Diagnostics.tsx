@@ -42,6 +42,7 @@ type DashboardExamples = {
   attackOutcomes: ExampleBuckets;
   consumeItems: ExampleBuckets;
   loot: ExampleBuckets;
+  airdrop: ExampleBuckets;
   validatorFields: ExampleBuckets;
 };
 
@@ -267,6 +268,20 @@ function MechanicsSection(props: {
           )}`}
           detail="incoming / outgoing"
         />
+        <MetricCard
+          label="environment"
+          value={`${formatInt(report.environmentalDeaths)} / ${formatInt(
+            report.airdrop.telefrags,
+          )}`}
+          detail="deaths / telefrags"
+        />
+        <MetricCard
+          label="airdrop"
+          value={`${formatInt(report.airdrop.telegraphedSeen)} / ${formatInt(
+            report.airdrop.landedSeen,
+          )}`}
+          detail="telegraphed / landed"
+        />
       </section>
       <TwoColumn>
         <CountTable
@@ -325,6 +340,31 @@ function MechanicsSection(props: {
           ]}
         />
         <CountTable
+          title="Airdrop funnel"
+          rows={[
+            {
+              label: "telegraphed-seen",
+              count: report.airdrop.telegraphedSeen,
+              examples: examples.airdrop["telegraphedSeen"],
+            },
+            {
+              label: "landed",
+              count: report.airdrop.landedSeen,
+              examples: examples.airdrop["landedSeen"],
+            },
+            {
+              label: "looted/spent",
+              count: report.airdrop.lootedSpent,
+              examples: examples.airdrop["lootedSpent"],
+            },
+            {
+              label: "telefrag",
+              count: report.airdrop.telefrags,
+              examples: examples.airdrop["telefrag"],
+            },
+          ]}
+        />
+        <CountTable
           title="Corpse funnel"
           rows={[
             {
@@ -376,7 +416,12 @@ function MechanicsSection(props: {
             count: report.movement.declaredVsActual.overMoved,
           },
           { label: "wall-blocked", count: report.wallBlockedMoves },
-          { label: "deaths", count: report.deaths },
+          { label: "combat deaths", count: report.deaths },
+          {
+            label: "environmental deaths",
+            count: report.environmentalDeaths,
+            examples: examples.airdrop["telefrag"],
+          },
         ]}
       />
     </Section>
@@ -458,8 +503,10 @@ function collectExamples(rows: SlimTurnRow[]): DashboardExamples {
     attackOutcomes: {},
     consumeItems: {},
     loot: {},
+    airdrop: {},
     validatorFields: {},
   };
+  const airdropIdsByMatch = collectAirdropIdsByMatch(rows);
 
   for (const turn of rows) {
     for (const record of turn.agentRecords) {
@@ -471,6 +518,12 @@ function collectExamples(rows: SlimTurnRow[]): DashboardExamples {
       }
       if (record.visibleSummary.corpses > 0) {
         pushBucketExample(buckets.loot, "corpse:seen", turn, record);
+      }
+      if ((record.airdropVision?.telegraphed ?? 0) > 0) {
+        pushBucketExample(buckets.airdrop, "telegraphedSeen", turn, record);
+      }
+      if ((record.airdropVision?.landed ?? 0) > 0) {
+        pushBucketExample(buckets.airdrop, "landedSeen", turn, record);
       }
       if (record.decision.action.kind === "loot") {
         const target = record.decision.action.targetId;
@@ -486,6 +539,8 @@ function collectExamples(rows: SlimTurnRow[]): DashboardExamples {
       }
     }
 
+    const matchAirdropIds =
+      airdropIdsByMatch.get(String(turn.matchId)) ?? new Set<string>();
     for (const action of turn.resolution.actions) {
       const record = turn.agentRecords.find(
         (candidate) => candidate.characterId === action.characterId,
@@ -507,6 +562,9 @@ function collectExamples(rows: SlimTurnRow[]): DashboardExamples {
           ) {
             pushBucketExample(buckets.loot, "crate:equipped", turn, record);
           }
+          if (action.result === "opened" && matchAirdropIds.has(action.target)) {
+            pushBucketExample(buckets.airdrop, "lootedSpent", turn, record);
+          }
         } else if (isCorpseTarget(action.target)) {
           pushBucketExample(
             buckets.loot,
@@ -517,9 +575,37 @@ function collectExamples(rows: SlimTurnRow[]): DashboardExamples {
         }
       }
     }
+
+    for (const victimId of turn.resolution.environmentalDeaths ?? []) {
+      const record = turn.agentRecords.find(
+        (candidate) => candidate.characterId === victimId,
+      );
+      if (record) pushBucketExample(buckets.airdrop, "telefrag", turn, record);
+    }
   }
 
   return buckets;
+}
+
+function collectAirdropIdsByMatch(rows: SlimTurnRow[]): Map<string, Set<string>> {
+  const byMatch = new Map<string, Set<string>>();
+  for (const turn of rows) {
+    const matchId = String(turn.matchId);
+    let ids = byMatch.get(matchId);
+    if (!ids) {
+      ids = new Set<string>();
+      byMatch.set(matchId, ids);
+    }
+    for (const record of turn.agentRecords) {
+      for (const id of record.airdropVision?.telegraphedIds ?? []) {
+        ids.add(id);
+      }
+      for (const id of record.airdropVision?.landedIds ?? []) {
+        ids.add(id);
+      }
+    }
+  }
+  return byMatch;
 }
 
 function pushBucketExample(

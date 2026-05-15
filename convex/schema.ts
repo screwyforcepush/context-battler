@@ -714,6 +714,20 @@ const phase10ChargePerPersonaValidator = v.object({
   count: v.number(),
 });
 
+const phase12PersonaKillValidator = v.object({
+  personaId: personaIdValidator,
+  kills: v.number(),
+});
+
+const phase12CountdownValidator = v.object({
+  id: v.string(),
+  landsAtTurn: v.number(),
+  countdown3: v.number(),
+  countdown2: v.number(),
+  countdown1: v.number(),
+  countdown0: v.number(),
+});
+
 const phase9PayloadValidator = v.object({
   reportType: v.literal("phase-9-closing-20"),
   runCount: v.number(),
@@ -833,6 +847,72 @@ const phase10PayloadValidator = v.object({
   meetsWallBumpSelfDamageThreshold: v.boolean(),
   meetsPartialDistanceWallBumpThreshold: v.boolean(),
   meetsChargeFeedDeliveryThreshold: v.boolean(),
+  meetsAllThresholds: v.boolean(),
+});
+
+const phase12PayloadValidator = v.object({
+  reportType: v.literal("phase-12-closing-20"),
+  runCount: v.number(),
+  matchIds: v.array(v.string()),
+  failedMatches: v.number(),
+
+  runsWithExtraction: v.number(),
+  runsWithKill: v.number(),
+  runsWithEquip: v.number(),
+  runsWithSpeech: v.number(),
+  extractionRate: v.number(),
+  killRate: v.number(),
+  equipRate: v.number(),
+  speechRate: v.number(),
+  personaSpread: v.number(),
+  totalAgentRecords: v.number(),
+  nullOnlyUseViolations: v.number(),
+  zeroCrashes: v.boolean(),
+  zeroIllegalConsumableUse: v.boolean(),
+  zeroPlayerNLiterals: v.boolean(),
+  zeroWholeTurnValidatorZeroes: v.boolean(),
+  validatorRecords: v.number(),
+  validatorFieldErrors: v.number(),
+  perFieldRejectionRate: v.number(),
+  wholeTurnZeroedValidatorRecords: v.number(),
+  playerNLiteralCount: v.number(),
+
+  environmentalDeaths: v.number(),
+  telefragDeathCount: v.number(),
+  telefragKillFeedLineCount: v.number(),
+  telefragKillFeedLines: v.array(v.string()),
+  combatDeathCount: v.number(),
+  airdropTelegraphedSeen: v.number(),
+  airdropLandedSeen: v.number(),
+  airdropLootedSpent: v.number(),
+  airdropCountdowns: v.array(phase12CountdownValidator),
+  airdropFirstLootableViolations: v.number(),
+  airdropSpentVisibilityViolations: v.number(),
+  perPersonaKillTotal: v.number(),
+  perPersonaKills: v.array(phase12PersonaKillValidator),
+  deterministicCrateSignature: v.string(),
+  deterministicAirdropSignature: v.string(),
+  deterministicStaticMapSignature: v.string(),
+  deterministicCratesAcrossSeeds: v.boolean(),
+  deterministicAirdropsAcrossSeeds: v.boolean(),
+  referenceCrateCount: v.number(),
+  referenceAirdropCount: v.number(),
+
+  meetsExtractionThreshold: v.boolean(),
+  meetsKillThreshold: v.boolean(),
+  meetsEquipThreshold: v.boolean(),
+  meetsSpeechThreshold: v.boolean(),
+  meetsPersonaSpreadThreshold: v.boolean(),
+  meetsZeroCrashThreshold: v.boolean(),
+  meetsZeroIllegalConsumableThreshold: v.boolean(),
+  meetsZeroPlayerNLiteralThreshold: v.boolean(),
+  meetsZeroWholeTurnValidatorThreshold: v.boolean(),
+  meetsPerFieldRejectionThreshold: v.boolean(),
+  meetsTelefragThreshold: v.boolean(),
+  meetsAirdropCountdownThreshold: v.boolean(),
+  meetsAirdropLifecycleThreshold: v.boolean(),
+  meetsPerPersonaKillAttributionThreshold: v.boolean(),
+  meetsDeterminismThreshold: v.boolean(),
   meetsAllThresholds: v.boolean(),
 });
 
@@ -1059,6 +1139,7 @@ export default defineSchema({
     phase7Payload: v.optional(phase7PayloadValidator),
     phase9Payload: v.optional(phase9PayloadValidator),
     phase10Payload: v.optional(phase10PayloadValidator),
+    phase12Payload: v.optional(phase12PayloadValidator),
   })
     .index("by_generatedAt", ["generatedAt"])
     // WP14 idempotency index: `reports.create` reads by this tuple before

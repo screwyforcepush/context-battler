@@ -23,7 +23,7 @@
 // inspect the structured event stream directly. The exit-code semantics are
 // captured via `runHarness` returning `{ exitCode }` (the entry-point
 // `main()` is the only thing that touches `process.exitCode` in real use;
-// `runHarness` is the pure orchestrator).
+// `runHarness` is the pure coordinator).
 
 import { describe, expect, it } from "vitest";
 import { getFunctionName } from "convex/server";

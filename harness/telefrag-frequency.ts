@@ -1,5 +1,6 @@
 import "dotenv/config";
-import { parseArgs } from "node:util";
+import { execFile } from "node:child_process";
+import { parseArgs, promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import { makeFunctionReference } from "convex/server";
 import { makeConvexClient } from "./client.js";
@@ -69,6 +70,10 @@ type TelefragFrequencyDeps = {
   writeStderr: (line: string) => void;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
+  configureTelegraphedStopAtRange?: (
+    value: TelegraphedCrateStopAtRange,
+  ) => Promise<void>;
+  restoreTelegraphedStopAtRange?: () => Promise<void>;
 };
 
 type TelefragFrequencyEvent =
@@ -123,6 +128,7 @@ const REASONING_LEVELS = ["low", "medium", "high"] as const;
 const DEFAULT_COHORTS: TelegraphedCrateStopAtRange[] = [0, 2];
 const POLL_INTERVAL_MS = 2_000;
 const MATCH_WALL_CLOCK_CAP_MS = 10 * 60 * 1_000;
+const execFileAsync = promisify(execFile);
 
 const matchesStart = makeFunctionReference<
   "mutation",
@@ -198,24 +204,29 @@ export async function runTelefragFrequencyExperiment(
     seedPrefix,
     envVar: TELEGRAPHED_CRATE_STOP_AT_RANGE_ENV,
     note:
-      "The resolver reads this override from its process environment; for remote Convex runs it must be present in the server-side function environment.",
+      "The resolver reads this override from the Convex function environment; CLI runs set the deployment env before each cohort.",
   });
 
   const cohorts: CohortSummary[] = [];
-  for (const telegraphedStopAtRange of args.cohorts) {
-    const summary = await withTelegraphedStopAtRange(
-      telegraphedStopAtRange,
-      () =>
-        runCohort(
-          {
-            ...args,
-            seedPrefix,
-          },
-          telegraphedStopAtRange,
-          deps,
-        ),
-    );
-    cohorts.push(summary);
+  try {
+    for (const telegraphedStopAtRange of args.cohorts) {
+      await deps.configureTelegraphedStopAtRange?.(telegraphedStopAtRange);
+      const summary = await withTelegraphedStopAtRange(
+        telegraphedStopAtRange,
+        () =>
+          runCohort(
+            {
+              ...args,
+              seedPrefix,
+            },
+            telegraphedStopAtRange,
+            deps,
+          ),
+      );
+      cohorts.push(summary);
+    }
+  } finally {
+    await deps.restoreTelegraphedStopAtRange?.();
   }
 
   deps.emitEvent({ event: "telefrag_frequency_summary", cohorts });
@@ -436,6 +447,63 @@ function usage(): string {
   ].join("\n");
 }
 
+type ConvexEnvController = {
+  set: (value: TelegraphedCrateStopAtRange) => Promise<void>;
+  restore: () => Promise<void>;
+};
+
+async function makeConvexEnvController(): Promise<ConvexEnvController> {
+  const previous = await readConvexEnvValue();
+  return {
+    set: (value) =>
+      runConvexEnvCommand([
+        "set",
+        TELEGRAPHED_CRATE_STOP_AT_RANGE_ENV,
+        String(value),
+      ]),
+    restore: () =>
+      previous === null
+        ? runConvexEnvCommand([
+            "remove",
+            TELEGRAPHED_CRATE_STOP_AT_RANGE_ENV,
+          ])
+        : runConvexEnvCommand([
+            "set",
+            TELEGRAPHED_CRATE_STOP_AT_RANGE_ENV,
+            previous,
+          ]),
+  };
+}
+
+async function readConvexEnvValue(): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("npx", [
+      "convex",
+      "env",
+      "get",
+      TELEGRAPHED_CRATE_STOP_AT_RANGE_ENV,
+    ]);
+    const trimmed = String(stdout).trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch (error) {
+    if (isMissingConvexEnvVar(error)) return null;
+    throw error;
+  }
+}
+
+async function runConvexEnvCommand(args: string[]): Promise<void> {
+  await execFileAsync("npx", ["convex", "env", ...args]);
+}
+
+function isMissingConvexEnvVar(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const stderr =
+    "stderr" in error
+      ? String((error as { stderr?: unknown }).stderr ?? "")
+      : "";
+  return stderr.includes("Environment variable") && stderr.includes("not found");
+}
+
 async function main(): Promise<void> {
   const args = parseTelefragFrequencyArgs(process.argv.slice(2));
   if (args.help) {
@@ -444,12 +512,15 @@ async function main(): Promise<void> {
   }
 
   const client = makeConvexClient() as unknown as TelefragClient;
+  const envController = await makeConvexEnvController();
   const result = await runTelefragFrequencyExperiment(args, {
     client,
     emitEvent: (event) => process.stdout.write(`${JSON.stringify(event)}\n`),
     writeStderr: (line) => process.stderr.write(line),
     sleep: (ms) => sleep(ms),
     now: () => Date.now(),
+    configureTelegraphedStopAtRange: (value) => envController.set(value),
+    restoreTelegraphedStopAtRange: () => envController.restore(),
   });
   process.exitCode = result.exitCode;
 }

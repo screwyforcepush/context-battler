@@ -52,6 +52,7 @@ function record(
       corpses: 0,
       evacSeen: false,
     },
+    airdropVision: overrides.airdropVision,
     visibleRectKeys: overrides.visibleRectKeys ?? [],
     insideBearingHere: overrides.insideBearingHere ?? false,
     observerPos: overrides.observerPos ?? { x: 0, y: 0 },
@@ -250,8 +251,16 @@ describe("diagnostics mechanics", () => {
               result: "opened",
               lootedItem: "speed",
             },
+            {
+              characterId: "c_drop_looter",
+              kind: "loot",
+              target: "Crate_50_50",
+              result: "opened",
+              lootedItem: "rifle",
+            },
           ],
           deaths: ["c_dead"],
+          environmentalDeaths: ["c_camped"],
           visibilityUpdates: [],
         },
         agentRecords: [
@@ -301,6 +310,47 @@ describe("diagnostics mechanics", () => {
             ],
           }),
           record({
+            characterId: "c_drop_scout",
+            visibleSummary: {
+              enemies: 0,
+              crates: 1,
+              corpses: 0,
+              evacSeen: false,
+            },
+            airdropVision: {
+              telegraphed: 1,
+              landed: 0,
+              telegraphedIds: ["Crate_50_50"],
+              landedIds: [],
+            },
+          }),
+          record({
+            characterId: "c_drop_looter",
+            decision: moveDecision(1, {
+              kind: "loot",
+              targetId: "Crate_50_50",
+            }),
+            visibleSummary: {
+              enemies: 0,
+              crates: 1,
+              corpses: 0,
+              evacSeen: false,
+            },
+            airdropVision: {
+              telegraphed: 0,
+              landed: 1,
+              telegraphedIds: [],
+              landedIds: ["Crate_50_50"],
+            },
+            lootOutcomeFeed: [
+              { result: "opened", item: "rifle", target: "Crate_50_50" },
+            ],
+          }),
+          record({
+            characterId: "c_camped",
+            personaId: "camper",
+          }),
+          record({
             characterId: "c_vulture",
             decision: moveDecision(1, {
               kind: "loot",
@@ -331,11 +381,18 @@ describe("diagnostics mechanics", () => {
     expect(out.overwatch).toEqual({ movementTriggered: 1, defensive: 1 });
     expect(out.counter).toEqual({ fired: 1, primedWithoutIncomingAttack: 1 });
     expect(out.loot.crate).toMatchObject({
-      seen: 1,
-      lootActions: 1,
-      opened: 1,
-      equipped: 1,
+      seen: 3,
+      lootActions: 2,
+      opened: 2,
+      equipped: 2,
     });
+    expect(out.airdrop).toEqual({
+      telegraphedSeen: 1,
+      landedSeen: 1,
+      lootedSpent: 1,
+      telefrags: 1,
+    });
+    expect(out.environmentalDeaths).toBe(1);
     expect(out.loot.corpse).toMatchObject({
       seen: 1,
       lootActions: 1,
@@ -354,6 +411,7 @@ describe("diagnostics mechanics", () => {
       outgoing: 2,
       dealtKills: 1,
     });
+    expect(out.deaths).toBe(1);
     expect(out.wallBlockedMoves).toBe(1);
     expect(out.movement.declaredVsActual.capped).toBe(1);
     expect(out.movement.declaredVsActual.examples[0]).toMatchObject({
@@ -416,6 +474,7 @@ describe("diagnostics mechanics", () => {
       looted: 1,
       drainedRepeat: 1,
     });
+    expect(out.airdrop.lootedSpent).toBe(0);
   });
 });
 
@@ -489,12 +548,29 @@ describe("diagnostics behaviour", () => {
   });
 });
 
-describe("diagnostics renderers and CLI orchestration", () => {
+describe("diagnostics renderers and CLI coordination", () => {
   it("emits well-formed JSON and markdown with drill-down links", () => {
     const rows = [
       turn({
         matchId: "M1",
         turn: 1,
+        resolution: {
+          consumed: [],
+          speech: [],
+          moves: [],
+          actions: [
+            {
+              characterId: "c_duelist",
+              kind: "loot",
+              target: "Crate_50_50",
+              result: "opened",
+              lootedItem: "rifle",
+            },
+          ],
+          deaths: [],
+          environmentalDeaths: ["c_duelist"],
+          visibilityUpdates: [],
+        },
         agentRecords: [
           record({
             characterId: "c_duelist",
@@ -503,6 +579,12 @@ describe("diagnostics renderers and CLI orchestration", () => {
               kind: "attack",
               targetId: "Trader",
             }),
+            airdropVision: {
+              telegraphed: 1,
+              landed: 1,
+              telegraphedIds: ["Crate_50_50"],
+              landedIds: ["Crate_50_50"],
+            },
           }),
         ],
       }),
@@ -519,6 +601,8 @@ describe("diagnostics renderers and CLI orchestration", () => {
 
     const markdown = renderDiagnosticsMarkdown(report);
     expect(markdown).toContain("## Behaviour");
+    expect(markdown).toContain("Airdrop funnel");
+    expect(markdown).toContain("Environmental deaths: 1; telefrags: 1");
     expect(markdown).toContain("#/match/M1?turn=1&character=Duelist");
   });
 

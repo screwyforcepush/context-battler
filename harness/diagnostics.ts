@@ -181,6 +181,12 @@ export function renderDiagnosticsMarkdown(report: DiagnosticsReport): string {
     `Crate loot: seen ${report.mechanics.loot.crate.seen}, actions ${report.mechanics.loot.crate.lootActions}, opened ${report.mechanics.loot.crate.opened}, equipped ${report.mechanics.loot.crate.equipped}`,
   );
   lines.push(
+    `Airdrop funnel: telegraphed-seen ${report.mechanics.airdrop.telegraphedSeen}, landed ${report.mechanics.airdrop.landedSeen}, looted/spent ${report.mechanics.airdrop.lootedSpent}, telefrags ${report.mechanics.airdrop.telefrags}`,
+  );
+  lines.push(
+    `Environmental deaths: ${report.mechanics.environmentalDeaths}; telefrags: ${report.mechanics.airdrop.telefrags}`,
+  );
+  lines.push(
     `Corpse loot: seen ${report.mechanics.loot.corpse.seen}, actions ${report.mechanics.loot.corpse.lootActions}, looted ${report.mechanics.loot.corpse.looted}, drained-repeat ${report.mechanics.loot.corpse.drainedRepeat}`,
   );
   lines.push(
