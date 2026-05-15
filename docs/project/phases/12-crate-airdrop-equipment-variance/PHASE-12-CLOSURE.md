@@ -3,7 +3,7 @@
 > Single-file handoff for Phase 13 planning. Records what the
 > crate substrate + equipment variance + airdrop lifecycle + telefrag
 > slice produced, what proves it, and which North Star thresholds are met.
-> Closure date: 2026-05-15. Source commits at close: `ff1d868`, `d709e94`.
+> Closure date: 2026-05-15. Source commits at close: `ff1d868`, `d709e94`, `c146f99`.
 >
 > This is a closure RECORD, not a retrospective and not a phase-13 plan.
 
@@ -262,8 +262,8 @@ The report pipeline used the same Path-2 pattern as phases 7/9/10:
 
 ## 5. Implementation Summary
 
-Landed across commits `6e6c5e0`, `91c6e89`, `ff1d868`, `d709e94`
-(72 files, 5,501 insertions, 876 deletions).
+Landed across commits `6e6c5e0`, `91c6e89`, `ff1d868`, `d709e94`,
+`c146f99` (88 files, 6,638 insertions, 989 deletions).
 
 ### 5.1 Crate Vocabulary Closure (WP-A)
 
@@ -352,12 +352,36 @@ Mechanical `chest`→`crate` scrub of 4 persona prompts
 (`duelist`, `vulture`, `opportunist`, `camper`) and their inlined copies
 in `convex/_data/personas.ts`. No behaviour tuning.
 
+### 5.9 Completion-Review Read-Side Fixes (`c146f99`)
+
+Read-side projection fixes and report-gate tightening landed after
+completion-review v1 (D22–D27). No engine or harness changes; no
+closing-20 re-run. The persisted canonical report was unaffected.
+
+- **`apps/replay/src/lib/reconstruct.ts:295-323`** — `applyTurn` now
+  applies `resolution.environmentalDeaths`: victim marked `alive: false`
+  + `diedAtTurn`, explicitly excluded from corpse creation (no gear
+  transfer), matching telefrag "vanishes entirely" semantics.
+- **`apps/replay/src/components/Grid.tsx:55+`** — Telegraphed-airdrop
+  grid layer: `countdown > 0` renders as an inbound marker with turn
+  countdown; `countdown === 0` / landed renders through the normal crate
+  layer; spent drops stay absent. Hover support across `hoverTypes.ts`,
+  `Replay.tsx`, `HoverCard.tsx`.
+- **`convex/reports/phase12.ts:463`** — Gate tightened:
+  `meetsPerPersonaKillAttributionThreshold` requires every locked
+  persona to have `kills > 0` (was `total > 0`).
+- **Contract tests** — 4 new tests (`Grid.test.tsx`, `reconstruct.test.ts`,
+  `phase12.test.ts`) covering the three fixes (771 pass / 2 skip).
+- **Dev docs** — BC-3 landing-semantics wording corrected in closure doc;
+  residual `chest` scrubbed from `apps/replay/README.md`,
+  `eval-pipeline.md`, `convex-backend.md`.
+
 ---
 
 ## 6. Decision Rollup
 
-All decisions D1–D21 from the spec, review rounds, and implementation
-were honoured. Key decisions:
+All decisions D1–D29 from the spec, review rounds, implementation, and
+completion-review arc were honoured. Key decisions:
 
 - **D2 (Q3):** Turn-40 airdrop at evac bullseye `(48,48)` is
   intentional — North Star wants late-loot-vs-incineration tension +
@@ -372,19 +396,34 @@ were honoured. Key decisions:
 - **D8:** Plan-v2 folds all binding conditions (BC-1/2/3/4/7).
 - **D20:** Tail closed — telefrag env-death in persisted closing-20
   confirmed real (was absent in earlier cycles per D13/D16).
+- **D22:** Completion-review v1 not accepted — replay `reconstruct.ts`
+  ignores `environmentalDeaths` (HIGH-1), confirmed as a genuine
+  substrate defect (telefrag victim stays `alive:true` in snapshot).
+- **D23:** Telegraphed-airdrop grid layer included (PM judgment,
+  over-delivery toward "wants to SEE the contested objective in
+  replays").
+- **D24:** Phase-12 report gate tightened to every-locked-persona
+  `kills > 0`.
+- **D26:** Legacy-payload per-persona speech/equip structural-zero
+  carried forward as explicit out-of-scope known issue, not fixed this
+  slice.
+- **D27:** Tightly-scoped read-side + docs fix job (`c146f99`) — no
+  engine, no harness re-run, no closing-20 regeneration.
+- **D29:** Completion-review v2 dispatched for final acceptance of the
+  v1-identified fixes.
 
 ---
 
 ## 7. Validation Gates
 
+All gates validated at final commit `c146f99` (clean working tree):
+
 - `npm run lint` — PASS
 - `npm run ts:check` — PASS
-- `npm test` — PASS (44 files passed, 1 skipped; 767 tests passed, 2 skipped)
+- `npm test` — PASS (771 tests passed, 2 skipped)
 - `npm run build` — PASS
 - `npm run build:replay` — PASS
 - `git diff --check` — PASS
-
-Working tree clean at close.
 
 ---
 
@@ -401,11 +440,14 @@ Working tree clean at close.
 | `tests/llm/inputBuilder.test.ts` | ~8 | Telefrag kill-feed line, weapon/charge/telefrag ordering, telefraged-character Vision exclusion, airdrop countdown in Vision |
 | `tests/llm/idNormalisation.test.ts` | ~6 | Crate namespace, airdrop state-aware resolution, stopAtRange per namespace |
 | `tests/llm/schemaMirror.test.ts` | ~2 | environmentalDeaths schema-mirror parity |
-| `tests/reports/phase12.test.ts` | ~15 | Metric computation, all 23 threshold gates, telefrag gate, determinism gate, airdrop lifecycle fidelity |
+| `tests/reports/phase12.test.ts` | ~18 | Metric computation, all 23 threshold gates, telefrag gate, determinism gate, airdrop lifecycle fidelity, every-persona kills gate (c146f99) |
 | `tests/harness/telefrag-frequency.test.ts` | ~8 | Two-cohort experiment, stale-match recovery, env-knob toggle |
 | `tests/harness/diagnostics.test.ts` | ~4 | Environmental death + airdrop funnel diagnostic metrics |
 | `tests/runMatch.test.ts` | ~3 | environmentalDeaths persistence roundtrip, adaptPriorTurnRowForBuilder |
 | `tests/turns.test.ts` | ~3 | environmentalDeaths slim projection |
+
+| `apps/replay/src/components/__tests__/Grid.test.tsx` | ~3 | Telegraphed-airdrop marker render, landed-crate render, spent-absent (c146f99) |
+| `apps/replay/src/lib/__tests__/reconstruct.test.ts` | ~2 | environmentalDeaths victim marked dead, no corpse created (c146f99) |
 
 All tests are unit-level (pure-function engine + projection logic).
 Integration exercised by the closing-20 end-to-end.
@@ -477,28 +519,55 @@ and `computeMechanicsDiagnostics` computation as the CLI.
   `reportType: "closing-20"`; reconciled to `"phase-12-closing-20"` in
   the canonical evidence set.
 
-### 11.2 Completion-Review v1 Disposition
+### 11.2 Completion-Review Trajectory (v1 → v2)
 
-- **Replay reconstruction environmental deaths.** Fixed after
-  completion-review v1: replay `applyTurn` now applies
-  `resolution.environmentalDeaths` by marking the victim dead at the
-  spawn turn without creating a corpse, matching telefrag "vanishes
-  entirely" semantics.
-- **Replay grid airdrop visibility.** Fixed after completion-review v1:
-  the grid now renders inbound telegraphed airdrops with countdown and
-  hover details; landed airdrops render through the normal crate layer;
-  spent airdrops remain absent.
-- **Phase-12 report gate.** Tightened after completion-review v1:
-  `meetsPerPersonaKillAttributionThreshold` now requires every locked
-  persona to have `kills > 0`. The canonical persisted row already
-  satisfies this stricter interpretation (rat 2, duelist 43, trader 2,
-  opportunist 26, paranoid 12, camper 18, sprinter 7, vulture 27), so no
-  closing-20 regeneration was needed.
-- **Legacy payload per-persona speech/equip structural-zero.** Carry
-  forward to the next report-compatibility/read-side slice. Same root
-  namespace-translation family as the WP-F kills bug, but not fixed by
-  Phase 12 and not a blocker for the Phase-12 crate/airdrop/telefrag
-  substrate closure.
+Completion-review v1 (3 reviewers + UAT, assessed at `d709e94`)
+returned **FAIL-for-acceptance**: 2 HIGH, 1 MED, 3 Low. Engine, report,
+and persisted data were independently confirmed solid by all reviewers
+and UAT; the findings were read-side projection and gate-strictness
+issues only. All fixed by `c146f99` (D27: read-side + docs, no engine
+change, no closing-20 re-run). Completion-review v2 dispatched at D29
+for final acceptance.
+
+**HIGH-1 — Replay reconstruction ignores `environmentalDeaths`** (Review
+B, PM-confirmed). `reconstruct.ts:applyTurn` step-3 applied only
+`resolution.deaths`; telefrag victims stayed `alive: true` in the
+snapshot. UAT visual pass was masked (victim rendered at last position,
+not visually contradictory). **Fixed:** `applyTurn` now applies
+`environmentalDeaths` — victim marked dead at spawn turn, explicitly
+excluded from corpse creation, no gear transfer. Contract test added.
+
+**HIGH-2 — No telegraphed-airdrop grid layer** (Review B, PM judgment
+D23). `Grid.tsx` rendered `snapshot.crates` only; landed airdrops
+rendered correctly (they ARE crates), but the 3-turn telegraph countdown
+was invisible on the grid. UAT confirmed landed-crate render but could
+not verify telegraph visibility. **Fixed:** Inbound drops render with
+countdown marker and hover; landed drops via crate layer; spent absent.
+Contract test added.
+
+**MED — Report gate too weak for per-persona kills** (Review B). Gate
+was `personaKills.total > 0`, weaker than North Star wording
+`perPersona[*].kills non-zero`. The canonical persisted row already
+satisfies the stricter bar (all 8 personas non-zero: rat 2, trader 2,
+sprinter 7, paranoid 12, camper 18, opportunist 26, vulture 27,
+duelist 43). **Fixed:** Gate tightened to require every locked persona
+`kills > 0`. No closing-20 regeneration needed. Contract test added.
+
+**Low — BC-3 landing-semantics wording** (Review A). Closure doc
+corrected: first normal loot opportunity is `landsAtTurn + 1`, not the
+landing turn.
+
+**Low — Telefrag kill-feed annotation** (Review C). Closure §3.3
+annotated: 6 of 23 kill-feed lines show distinct personas.
+
+**Low — Dev-doc residual `chest` literals** (Review A). Scrubbed from
+`apps/replay/README.md`, `eval-pipeline.md`, `convex-backend.md`.
+
+**Carry-forward — Legacy payload per-persona speech/equip structural-zero.**
+Same root namespace-translation family as the retired WP-F kills bug,
+but applies to legacy payload/read surfaces and is out of Phase-12
+scope (§10 item 6). Do not treat the WP-F kill-attribution fix as proof
+that legacy per-persona speech/equip rows were repaired.
 
 ---
 
