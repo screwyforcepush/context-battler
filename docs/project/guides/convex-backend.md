@@ -17,12 +17,12 @@ CONVEX_DEPLOY_KEY=dev:calculating-meerkat-923|<token>
 - `dev:` prefix = **dev deployment key**. Allows deploy + invoke + read. For prod, the prefix is `prod:` and you'd typically use it only in CI.
 - `.env` is gitignored. Never commit these.
 
-## 2. Deployment state (as of 2026-05-14)
+## 2. Deployment state (as of 2026-05-15)
 
-- Project: **active** — full Convex schema (`convex/schema.ts`), functions deployed (`matches`, `runMatch`, `turns`, `turnsDerived`, `reports`, `reports/phase7`, `reports/phase9`, `reports/phase10`, `replay`, `spike`), active tables (`matches`, `characters`, `turns`, `worldState`, `runs`, `reports`).
+- Project: **active** — full Convex schema (`convex/schema.ts`), functions deployed (`matches`, `runMatch`, `turns`, `turnsDerived`, `reports`, `reports/phase7`, `reports/phase9`, `reports/phase10`, `replay`, `spike`), active tables (`matches`, `characters`, `turns`, `worldState`, `worldStatic`, `prompts`, `runs`, `reports`).
 - Current data: 10 phase-11 smoke matches + associated turns/characters/runs/reports. Previous data was wiped per POC posture before the phase-11 smoke. Canonical smoke report: `jd7f82nezegb6wdy13n0h73r8x86r6w9` (`closing-10`). Phase-9 compatibility report over the same set: `jd70eegy9e668rke07a1p80jwx86r43t`.
-- Schema additions (phase 11): `prompts` table keyed by `(hash, kind)` for prompt-text dedup; `worldStatic` table for immutable terrain; `worldState` now stores dynamic fields only; `turns.agentRecords[].input` stores prompt hashes plus structured `status`, `narrativeLines`, and `aliveCount` rather than prompt text or `composedUserMessage`.
-- Notable query: `turns.byMatchSlim` — slim per-match trace projection that audits speech/loot/damage delivery against next-turn `narrativeLines` before stripping heavy LLM text fields. Projects `selfHp`, `selfEquipment.consumable`, slide, and bodyCollision evidence for diagnostics. Used by the diagnostics CLI, dashboard, and closing drivers to stay under the 16 MB per-function read budget.
+- Schema additions (phase 11): `prompts` table keyed by `(hash, kind)` for prompt-text dedup with collision guard; `worldStatic` table for immutable terrain (walls, coverClusters, coverTiles — written once at match spawn); `worldState` now stores dynamic fields only (chests, corpses, evac); `turns.agentRecords[].input` stores prompt hashes plus structured `status`, `narrativeLines`, and `aliveCount` rather than prompt text or `composedUserMessage`. Read-side prompt recomposition via `recomposeUserMessage` in `convex/llm/inputBuilder.ts`.
+- Notable query: `turns.byMatchSlim` — slim per-match trace projection that audits speech/loot/damage delivery against next-turn `narrativeLines` (via `narrativeLines.some(line => line.includes(...))`) before stripping heavy LLM text fields. Projects `selfHp`, `selfEquipment.consumable`, slide, and bodyCollision evidence from structured `input.status` for diagnostics. Used by the diagnostics CLI, dashboard, and closing drivers to stay under the 16 MB per-function read budget.
 - `package.json` includes `convex` as a devDependency.
 
 ## 3. Smoke tests (no functions required)

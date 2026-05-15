@@ -164,6 +164,36 @@ target is incompatible with the locked per-turn double-read scope.
 True combined world-read reduction requires a separately scoped
 action-chain/cache refactor or revised benchmark target.
 
+### AC3 Adjudication (D17 — completion review)
+
+North Star AC3 names `worldByMatch(read)` as a bandwidth target and
+requires static terrain to be read once per match. The shipped
+implementation net-regresses combined per-turn world-read bandwidth
+by ~3%. Ruling: **ACCEPTED principled deferral**, not an open
+North-Star gap.
+
+Rationale:
+
+- AC3's structural split ("When" clause) is complete: immutable
+  terrain lives in `worldStatic`, mutable state in `worldState`.
+- AC3's per-turn payload ("Then" clause) IS met: `worldByMatch`
+  returns only `chests` + `corpses` + `evac`.
+- The unmet clause is "static terrain read once per match" — this
+  conflicts with locked D5/D14 (Convex action chain is stateless
+  across `scheduler.runAfter`; each `advanceTurn` invocation is
+  independent).
+- The North Star scope caps ("no overfit", "no back-into-a-corner",
+  "substrate is mid-iteration") explicitly prohibit the chain
+  refactor needed to achieve once-per-match reads.
+- Mental-model §19 done-bar was intentionally set at WRITE-size
+  proof, not combined-read proof.
+
+The structural split is the correct foundation for the deferred
+follow-up (once-per-chain static terrain caching via in-action turn
+loop or equivalent). The ~3% combined-read regression is a known
+cost of the D5/D14 per-turn double-read scope, not an architectural
+deficiency.
+
 ## 6. Manual Replay UAT
 
 UAT match: `j9774e8eewhb54qj0ze8rdvx7d86s0km`
@@ -181,9 +211,15 @@ Only observed browser console warning was the existing `/favicon.ico`
 
 ## 7. Deferred / Open
 
-- Combined world-read bandwidth reduction remains open. The next
-  principled move is either true once-per-chain static terrain caching
-  or a chain refactor; that was explicitly out of scope for Phase 11.
+- **Combined world-read bandwidth (ACCEPTED DEFERRAL — see §5 AC3
+  adjudication).** The per-turn `worldByMatch` payload is slim
+  (chests+corpses+evac only), satisfying AC3's structural and
+  payload clauses. The combined read (`worldByMatch` +
+  `worldStaticByMatch`) net-regresses ~3% because D5/D14 locked
+  per-turn double-read. This is an accepted principled deferral,
+  not an open North-Star gap. Deferred follow-up: once-per-chain
+  static terrain caching via in-action turn loop or Convex action
+  chain refactor (out of scope under NS no-overfit/no-corner caps).
 - No persona tuning was done.
 - No partial chest/corpse patching, sidecar LLM tables, materialized
   rollups, or replay redesign were picked up.
