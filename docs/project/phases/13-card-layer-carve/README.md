@@ -1,7 +1,9 @@
 # Phase 13 — Card Layer Carve
 
-> **Status:** ✅ Implemented 2026-05-16 (commit `4dda736`). All 5 WPs
-> delivered; lint/typecheck/test/build green; harness parity verified.
+> **Status:** ✅ Implemented 2026-05-16 (commits `4dda736` +
+> `277b4b8` — the latter discharges the D15 kill-attribution
+> alias-collision fix, see §3.6.1). All 5 WPs delivered;
+> lint/typecheck/test/build green; harness parity verified.
 > Deliberately thin foundation: **Cards, NOT accounts**. The substrate-
 > proof harness and its locked 8-persona union stay UNTOUCHED — the Card
 > path is strictly parallel. POC posture applies (schema break + Convex
@@ -430,6 +432,33 @@ prize-per-match). The spec **explicitly forbids** any implementer
 to balance. State this in the WP3 implementation notes and as a test
 assertion (an env-death fixture: victim `deaths` +1, total `kills`
 unchanged).
+
+### 3.6.1 Kill-attribution alias-collision safety (D15 fix — shipped `277b4b8`)
+
+Completion review (Review B) reproduced a real defect in the shared
+per-`characterId` kill-attribution helper: a free Card `displayName`
+could collide with a *different* Card's `lineagePersonaId` /
+title-case-persona alias. Under last-write-wins aliasing the foreign
+lineage alias silently shadowed the free name, zeroing the rightful
+Card's kill credit (North Star criterion 6 — ranked-unit kills).
+
+**Fix (attribution layer only, not name validation — honours D16 /
+player-perspective-substrate principle):** `killAttribution.ts`
+introduces `ALIAS_PRECEDENCE { persona: 1, displayName: 2,
+characterId: 3 }`. `addAlias` skips an overwrite only when an existing
+mapping has *strictly higher* precedence, so a free Card `displayName`
+(2) always beats a foreign Card's `persona`/title-case alias (1)
+regardless of roster insertion order. A direct-`characterId` target
+shortcut resolves before alias lookup. Regression
+`cardStats.test.ts:146` reproduces the exact D15 scenario (victim
+`displayName:"rat"` vs foreign `personaId:"rat"`).
+
+**D17 substrate invariant (preserved by construction + empirically
+confirmed):** the locked 8-persona union has persona-only characters,
+distinct personas, no `displayName`, and no foreign-lineage
+collisions, so the precedence guard and the `deathSet` shortcut are
+inert on the substrate path. `runStats` per-persona output is
+byte-identical pre/post fix (A4 regression suites green).
 
 ### 3.7 `hashHex` extraction — one hash function, both runtimes (MED fix)
 
