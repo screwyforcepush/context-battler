@@ -30,9 +30,9 @@ import {
   buildAgentInputRecord,
   buildAgentLlmRecord,
   buildMatchState,
-  hashHex,
   MAX_HP,
 } from "../convex/runMatch.js";
+import { hashHex } from "../convex/engine/hash.js";
 import { callDecisionTool } from "../convex/llm/azure.js";
 import { CHARACTER_MAX_HP } from "../convex/engine/types.js";
 import {

@@ -975,6 +975,26 @@ export default defineSchema({
     text: v.string(),
   }).index("by_hash_kind", ["hash", "kind"]),
 
+  // ── cards: persistent prompt-authored agent unit ─────────────────────────
+  cards: defineTable({
+    agentName: v.string(),
+    promptHash: v.string(),
+    lineagePersonaId: personaIdValidator,
+    progression: v.object({ level: v.number(), xp: v.number() }),
+    prizeUnitsWon: v.number(),
+    matchesPlayed: v.number(),
+    kills: v.number(),
+    deaths: v.number(),
+    wallFaceSlams: v.number(),
+    isPreset: v.boolean(),
+    createdAt: v.number(),
+  }).index("by_lineage", ["lineagePersonaId"]),
+
+  // ── cardAccruals: per-match accrual idempotency sentinel ─────────────────
+  cardAccruals: defineTable({
+    matchId: v.id("matches"),
+  }).index("by_match", ["matchId"]),
+
   // ── matches: one row per match ────────────────────────────────────────────
   matches: defineTable({
     status: matchStatusValidator,
@@ -1008,6 +1028,8 @@ export default defineSchema({
     // by WP3's seeded permutation per ADR §6.
     spawnIndex: v.number(),
     displayName: v.string(), // Persona display name, e.g. "Duelist".
+    cardId: v.optional(v.id("cards")),
+    cardPromptHash: v.optional(v.string()),
     hp: v.number(),
     pos: tileValidator,
     equipped: equippedValidator,

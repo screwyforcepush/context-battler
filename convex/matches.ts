@@ -24,9 +24,16 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server.js";
 import { api } from "./_generated/api.js";
+import type { Doc, Id } from "./_generated/dataModel.js";
+import type { MutationCtx } from "./_generated/server.js";
 import { reasoningEffortValidator } from "./schema.js";
 // loot.ts is fs-free; safe to import from default-runtime module.
 import { makeRng } from "./engine/loot.js";
+import {
+  CARD_MATCH_AGENT_COUNT,
+  validateCardMatchAgentNames,
+  type CardMatchAgentNameValidationError,
+} from "./engine/cardMatchAgentNames.js";
 import { CHARACTER_MAX_HP, PERSONA_IDS, titleCase } from "./engine/types.js";
 import type {
   AirdropState,
@@ -147,11 +154,11 @@ export function expandMapInline(
  * shuffle on `[0..N)` driven by `makeRng(seed + ":spawnAssign")`.
  * Determinism: same `seed` + same `personas` ordering → identical mapping.
  */
-function assignPersonasToSpawnsInline(
+export function assignItemsToSpawnsInline<T>(
   rngSeed: string,
-  personas: readonly PersonaId[],
-): Array<{ personaId: PersonaId; spawnIndex: number }> {
-  const n = personas.length;
+  items: readonly T[],
+): Array<{ item: T; spawnIndex: number }> {
+  const n = items.length;
   const indices = Array.from({ length: n }, (_, i) => i);
   const rng = makeRng(`${rngSeed}:spawnAssign`);
   for (let i = n - 1; i > 0; i--) {
@@ -161,10 +168,180 @@ function assignPersonasToSpawnsInline(
     indices[i] = indices[safeJ] as number;
     indices[safeJ] = tmp;
   }
-  return personas.map((personaId, i) => ({
-    personaId,
+  return items.map((item, i) => ({
+    item,
     spawnIndex: indices[i] as number,
   }));
+}
+
+function assignPersonasToSpawnsInline(
+  rngSeed: string,
+  personas: readonly PersonaId[],
+): Array<{ personaId: PersonaId; spawnIndex: number }> {
+  return assignItemsToSpawnsInline(rngSeed, personas).map(
+    ({ item: personaId, spawnIndex }) => ({
+      personaId,
+      spawnIndex,
+    }),
+  );
+}
+
+type MatchStartArgs = {
+  rngSeed?: string;
+  reasoningEffort?: "low" | "medium" | "high";
+};
+
+async function insertMatchScaffold(
+  ctx: MutationCtx,
+  args: { rngSeed: string; reasoningEffort?: "low" | "medium" | "high" },
+): Promise<Id<"matches">> {
+  return await ctx.db.insert("matches", {
+    status: "pending",
+    turn: 0,
+    startedAt: Date.now(),
+    completedAt: null,
+    mapId: "reference",
+    rngSeed: args.rngSeed,
+    // Persist reasoning effort if supplied; absent → runMatch defaults
+    // to "low". We only set the field when the caller passed a value so
+    // historical rows (and absent-arg callers) stay sparse — the schema
+    // marks the field optional for the same reason.
+    ...(args.reasoningEffort !== undefined
+      ? { reasoningEffort: args.reasoningEffort }
+      : {}),
+    outcome: {
+      extracted: [],
+      pointsByCharacter: [],
+    },
+  });
+}
+
+async function insertWorldRows(
+  ctx: MutationCtx,
+  matchId: Id<"matches">,
+  world: WorldState,
+): Promise<void> {
+  // Static terrain is immutable post-spawn and lives outside the per-turn
+  // worldState read path.
+  await ctx.db.insert("worldStatic", {
+    matchId,
+    walls: world.walls,
+    coverClusters: world.coverClusters,
+    coverTiles: world.coverTiles,
+  });
+  // CrateState already matches the schema's `{id, pos, contents, opened}`
+  // shape; contents are copied from the descriptor, not rolled.
+  await ctx.db.insert("worldState", {
+    matchId,
+    crates: world.crates.map((c) => ({
+      id: c.id,
+      pos: c.pos,
+      contents: c.contents,
+      opened: c.opened,
+    })),
+    airdrops: world.airdrops.map((drop) => ({
+      id: drop.id,
+      pos: drop.pos,
+      landsAtTurn: drop.landsAtTurn,
+      contents: drop.contents,
+      looted: drop.looted,
+    })),
+    corpses: [],
+    evac: {
+      centre: world.evac.centre,
+      revealedAtTurn: world.evac.revealedAtTurn,
+    },
+  });
+}
+
+function validateCardIds(cardIds: readonly string[]): void {
+  if (cardIds.length !== CARD_MATCH_AGENT_COUNT) {
+    throw new Error(
+      `matches.startFromCards: expected exactly ${CARD_MATCH_AGENT_COUNT} cardIds, received ${cardIds.length}`,
+    );
+  }
+
+  if (new Set(cardIds).size !== cardIds.length) {
+    throw new Error("matches.startFromCards: duplicate cardIds are not allowed");
+  }
+}
+
+async function loadCardsForMatch(
+  ctx: MutationCtx,
+  cardIds: readonly Id<"cards">[],
+): Promise<Doc<"cards">[]> {
+  const cards: Doc<"cards">[] = [];
+  for (const cardId of cardIds) {
+    const card = await ctx.db.get(cardId);
+    if (!card) {
+      throw new Error(`matches.startFromCards: unknown card id ${cardId}`);
+    }
+    cards.push(card);
+  }
+  return cards;
+}
+
+function validateCardDisplayNames(
+  cards: readonly Doc<"cards">[],
+): Map<Id<"cards">, string> {
+  const result = validateCardMatchAgentNames(
+    cards.map((card) => ({
+      cardId: card._id,
+      agentName: card.agentName,
+    })),
+  );
+
+  if (!result.ok) {
+    throw new Error(
+      `matches.startFromCards: invalid agentName(s): ${result.errors
+        .map(formatAgentNameError)
+        .join("; ")}`,
+    );
+  }
+
+  return new Map(
+    result.entries.map((entry) => [
+      entry.cardId as Id<"cards">,
+      entry.displayName,
+    ]),
+  );
+}
+
+function formatAgentNameError(
+  error: CardMatchAgentNameValidationError,
+): string {
+  if (error.reason === "invalid_count") {
+    return `${error.reason} expected=${error.expected} actual=${error.actual}`;
+  }
+  if (error.reason === "duplicate_agent_name") {
+    return `${error.reason} normalised=${error.normalisedAgentName} cardIds=${error.cardIds.join(",")}`;
+  }
+  return `${error.reason} cardId=${error.cardId} agentName=${JSON.stringify(
+    error.agentName,
+  )}`;
+}
+
+async function ensureCardPromptRowsExist(
+  ctx: MutationCtx,
+  cards: readonly Doc<"cards">[],
+): Promise<void> {
+  const checked = new Set<string>();
+  for (const card of cards) {
+    if (checked.has(card.promptHash)) continue;
+    checked.add(card.promptHash);
+
+    const row = await ctx.db
+      .query("prompts")
+      .withIndex("by_hash_kind", (q) =>
+        q.eq("hash", card.promptHash).eq("kind", "persona"),
+      )
+      .unique();
+    if (!row) {
+      throw new Error(
+        `matches.startFromCards: prompt row missing for card ${card._id} hash ${card.promptHash}`,
+      );
+    }
+  }
 }
 
 /**
@@ -206,57 +383,11 @@ export const start = mutation({
     const world = expandMapInline(descriptor, rngSeed);
 
     // 1. Insert matches row.
-    const matchId = await ctx.db.insert("matches", {
-      status: "pending",
-      turn: 0,
-      startedAt: Date.now(),
-      completedAt: null,
-      mapId: "reference",
-      rngSeed,
-      // Persist reasoning effort if supplied; absent → runMatch defaults
-      // to "low". We only set the field when the caller passed a value so
-      // historical rows (and absent-arg callers) stay sparse — the schema
-      // marks the field optional for the same reason.
-      ...(args.reasoningEffort !== undefined
-        ? { reasoningEffort: args.reasoningEffort }
-        : {}),
-      outcome: {
-        extracted: [],
-        pointsByCharacter: [],
-      },
-    });
+    const matchId = await insertMatchScaffold(ctx, { ...args, rngSeed });
 
     // 2. Insert world rows. Static terrain is immutable post-spawn and lives
     //    outside the per-turn worldState read path.
-    await ctx.db.insert("worldStatic", {
-      matchId,
-      walls: world.walls,
-      coverClusters: world.coverClusters,
-      coverTiles: world.coverTiles,
-    });
-    //    CrateState already matches the schema's `{id, pos, contents, opened}`
-    //    shape; contents are copied from the descriptor, not rolled.
-    await ctx.db.insert("worldState", {
-      matchId,
-      crates: world.crates.map((c) => ({
-        id: c.id,
-        pos: c.pos,
-        contents: c.contents,
-        opened: c.opened,
-      })),
-      airdrops: world.airdrops.map((drop) => ({
-        id: drop.id,
-        pos: drop.pos,
-        landsAtTurn: drop.landsAtTurn,
-        contents: drop.contents,
-        looted: drop.looted,
-      })),
-      corpses: [],
-      evac: {
-        centre: world.evac.centre,
-        revealedAtTurn: world.evac.revealedAtTurn,
-      },
-    });
+    await insertWorldRows(ctx, matchId, world);
 
     // 3. + 4. Insert 8 characters using the seeded persona-to-spawn map.
     const assignment = assignPersonasToSpawnsInline(rngSeed, PERSONA_IDS);
@@ -290,6 +421,71 @@ export const start = mutation({
     // 5. Schedule the first turn. Per ADR §3 the per-turn action chains via
     //    `runAfter(0, ...)` so each call is one turn — well within the
     //    Convex action timeout.
+    await ctx.scheduler.runAfter(0, api.runMatch.advanceTurn, { matchId });
+
+    return matchId;
+  },
+});
+
+/**
+ * `matches.startFromCards` — public Card-triggered mutation.
+ *
+ * Parallel to `matches.start`: callers must provide exactly 8 distinct Card
+ * ids. The selected Cards are validated, their current prompt hashes are
+ * verified against the `prompts` table, then pinned onto inserted characters.
+ */
+export const startFromCards = mutation({
+  args: {
+    cardIds: v.array(v.id("cards")),
+    rngSeed: v.optional(v.string()),
+    reasoningEffort: v.optional(reasoningEffortValidator),
+  },
+  returns: v.id("matches"),
+  handler: async (ctx, args: MatchStartArgs & { cardIds: Id<"cards">[] }) => {
+    validateCardIds(args.cardIds);
+    const cards = await loadCardsForMatch(ctx, args.cardIds);
+    const displayNamesByCardId = validateCardDisplayNames(cards);
+    await ensureCardPromptRowsExist(ctx, cards);
+
+    const rngSeed = args.rngSeed ?? defaultRngSeed();
+    const descriptor = getReferenceMapDescriptor();
+    const world = expandMapInline(descriptor, rngSeed);
+    const matchId = await insertMatchScaffold(ctx, { ...args, rngSeed });
+    await insertWorldRows(ctx, matchId, world);
+
+    const assignment = assignItemsToSpawnsInline(rngSeed, cards);
+    const spawns = descriptor.spawns;
+    for (const { item: card, spawnIndex } of assignment) {
+      const spawn = spawns[spawnIndex];
+      if (!spawn) {
+        throw new Error(
+          `matches.startFromCards: spawn index ${spawnIndex} missing from descriptor`,
+        );
+      }
+      const displayName = displayNamesByCardId.get(card._id);
+      if (!displayName) {
+        throw new Error(
+          `matches.startFromCards: displayName missing for card ${card._id}`,
+        );
+      }
+
+      await ctx.db.insert("characters", {
+        matchId,
+        personaId: card.lineagePersonaId,
+        spawnIndex,
+        displayName,
+        cardId: card._id,
+        cardPromptHash: card.promptHash,
+        hp: CHARACTER_MAX_HP,
+        pos: { x: spawn.x, y: spawn.y },
+        equipped: {},
+        scratchpad: "",
+        hidden: false,
+        alive: true,
+        lastKnown: [],
+      });
+    }
+
     await ctx.scheduler.runAfter(0, api.runMatch.advanceTurn, { matchId });
 
     return matchId;

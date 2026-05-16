@@ -476,6 +476,40 @@ export const turnByMatchTurn = query({
   },
 });
 
+/**
+ * Read pinned Card persona prompt text by content hash for `advanceTurn`.
+ * The action dedupes first; this query enforces the same bounded contract
+ * and fails clearly if the match references a prompt row that is missing.
+ */
+export const personaPromptsByHashes = query({
+  args: { hashes: v.array(v.string()) },
+  handler: async (ctx, { hashes }) => {
+    const distinctHashes = [...new Set(hashes)];
+    if (distinctHashes.length > 8) {
+      throw new Error(
+        `runMatch.advanceTurn: expected at most 8 distinct cardPromptHash values, received ${distinctHashes.length}`,
+      );
+    }
+
+    const rows: Array<{ hash: string; text: string }> = [];
+    for (const hash of distinctHashes) {
+      const row = await ctx.db
+        .query("prompts")
+        .withIndex("by_hash_kind", (q) =>
+          q.eq("hash", hash).eq("kind", "persona"),
+        )
+        .unique();
+      if (!row) {
+        throw new Error(
+          `runMatch.advanceTurn: persona prompt missing for cardPromptHash ${hash}`,
+        );
+      }
+      rows.push({ hash: row.hash, text: row.text });
+    }
+    return rows;
+  },
+});
+
 // ─── Internal mutations ────────────────────────────────────────────────────
 
 /**

@@ -326,6 +326,7 @@ export type CharacterState = {
   personaId: PersonaId;
   spawnIndex: number;
   displayName: string; // Persona display name, e.g. "Duelist".
+  cardPromptHash?: string;
   hp: number;
   maxHp: number;
   pos: Tile;

@@ -76,6 +76,7 @@ import {
 } from "./llm/inputBuilder.js";
 import { callDecisionTool, type AzureUsage } from "./llm/azure.js";
 import { loadPersonas } from "./llm/personas.js";
+import { hashHex } from "./engine/hash.js";
 
 // ─── Tunables (locked) ─────────────────────────────────────────────────────
 
@@ -101,31 +102,6 @@ const CALL_ABORT_TIMEOUT_MS = 60_000;
 /** Turn-50 sole-survivor / extraction prize pool. Equally split among
  *  extracted set; sole survivor takes 100 if last alive. (Phase-1 simple. */
 const PRIZE_POOL = 100;
-
-// ─── Lightweight 32-bit hash (DJB2 → hex) ─────────────────────────────────
-//
-// Why not `node:crypto` SHA-256? Convex `"use node"` actions support node
-// imports, but using a tiny inline hash keeps this module bundler-friendly
-// and removes a dep on a heavier API for what is, per ADR §7, just a
-// "cheap diff key" across runs. The hash isn't cryptographic — it's an
-// audit identity for prompt text. WP15 prompt edits will produce a
-// different hex value; that's all that's required.
-
-/**
- * DJB2-style 32-bit hash → 8-char hex string. Stable across calls, same
- * input always produces the same output. Used to populate
- * `agentRecords[].input.{systemPromptHash,personaPromptHash}` (ADR §7).
- */
-export function hashHex(text: string): string {
-  let h = 5381;
-  for (let i = 0; i < text.length; i++) {
-    // h = h * 33 + char — xor variant for slightly better distribution.
-    h = ((h << 5) + h) ^ text.charCodeAt(i);
-    // Coerce to unsigned 32-bit each iteration.
-    h = h >>> 0;
-  }
-  return h.toString(16).padStart(8, "0");
-}
 
 // ─── Slot narrowing helpers ────────────────────────────────────────────────
 //
@@ -211,6 +187,9 @@ export function buildMatchState(
     personaId: c.personaId,
     spawnIndex: c.spawnIndex,
     displayName: c.displayName,
+    ...(c.cardPromptHash !== undefined
+      ? { cardPromptHash: c.cardPromptHash }
+      : {}),
     hp: c.hp,
     maxHp: MAX_HP,
     pos: { x: c.pos.x, y: c.pos.y },
@@ -424,6 +403,38 @@ export function buildAgentInputRecord(r: {
     narrativeLines: r.narrativeLines,
     aliveCount: r.aliveCount,
   };
+}
+
+function collectDistinctCardPromptHashes(
+  actors: Array<Pick<CharacterState, "cardPromptHash">>,
+): string[] {
+  const hashes = [
+    ...new Set(
+      actors
+        .map((actor) => actor.cardPromptHash)
+        .filter((hash): hash is string => hash !== undefined),
+    ),
+  ];
+  if (hashes.length > 8) {
+    throw new Error(
+      `runMatch.advanceTurn: expected at most 8 distinct cardPromptHash values, received ${hashes.length}`,
+    );
+  }
+  return hashes;
+}
+
+function requireCardPromptText(
+  promptTextByHash: ReadonlyMap<string, string>,
+  hash: string,
+  characterId: string,
+): string {
+  const text = promptTextByHash.get(hash);
+  if (text === undefined) {
+    throw new Error(
+      `runMatch.advanceTurn: persona prompt missing for cardPromptHash ${hash} on character ${characterId}`,
+    );
+  }
+  return text;
 }
 
 // ─── Schema-conformant adapters for resolution trace ───────────────────────
@@ -783,8 +794,34 @@ export const advanceTurn = action({
         useVariant: UseVariant;
       };
 
+      const cardPromptHashes = collectDistinctCardPromptHashes(livingActors);
+      const cardPromptRows =
+        cardPromptHashes.length === 0
+          ? []
+          : ((await ctx.runQuery(
+              api._internal_runMatch.personaPromptsByHashes,
+              { hashes: cardPromptHashes },
+            )) as Array<{ hash: string; text: string }>);
+      const cardPromptTextByHash = new Map<string, string>(
+        cardPromptRows.map((row) => [row.hash, row.text]),
+      );
+      for (const hash of cardPromptHashes) {
+        if (!cardPromptTextByHash.has(hash)) {
+          throw new Error(
+            `runMatch.advanceTurn: persona prompt missing for cardPromptHash ${hash}`,
+          );
+        }
+      }
+
       const perAgent: PerAgent[] = livingActors.map((actor) => {
-        const personaText = personas[actor.personaId as PersonaId] ?? "";
+        const personaText =
+          actor.cardPromptHash !== undefined
+            ? requireCardPromptText(
+                cardPromptTextByHash,
+                actor.cardPromptHash,
+                actor.characterId,
+              )
+            : (personas[actor.personaId as PersonaId] ?? "");
         const heard = buildHeardForObserver(actor, priorSpeech, state.characters);
         const built = buildAgentInput(
           state,
@@ -1114,6 +1151,9 @@ export const advanceTurn = action({
         // the chain without entering this branch, and `runs.aggregate`
         // also defensively bails on non-completed status).
         await ctx.scheduler.runAfter(0, api.runs.aggregate, { matchId });
+        await ctx.scheduler.runAfter(0, api.cards.accrueFromMatch, {
+          matchId,
+        });
       }
       return null;
     } catch (e) {

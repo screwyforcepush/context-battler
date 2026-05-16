@@ -59,7 +59,8 @@
 //   - mental-model.md §10 — Gate-3 done-bar consumes the per-persona
 //     extraction-rate spread that builds on top of these per-persona counts.
 
-import { PERSONA_IDS, titleCase, type PersonaId } from "./types.js";
+import { attributeKillsByCharacter } from "./killAttribution.js";
+import { PERSONA_IDS, type PersonaId } from "./types.js";
 
 function isCrateId(id: string): boolean {
   return /^Crate_-?\d+_-?\d+$/.test(id);
@@ -167,50 +168,6 @@ function buildPersonaIndex(
   return idx;
 }
 
-function addTargetAliases(
-  lookup: Map<string, string>,
-  participant: { characterId: string; personaId: PersonaId; displayName?: string },
-): void {
-  lookup.set(participant.characterId, participant.characterId);
-  lookup.set(participant.personaId, participant.characterId);
-  lookup.set(titleCase(participant.personaId), participant.characterId);
-  if (participant.displayName && participant.displayName.trim().length > 0) {
-    lookup.set(participant.displayName, participant.characterId);
-  }
-}
-
-function buildTargetIdLookup(
-  turns: readonly AggregatorTurnRow[],
-  characters: readonly AggregatorCharacterRow[],
-): Map<string, string> {
-  const lookup = new Map<string, string>();
-  for (const c of characters) {
-    addTargetAliases(lookup, {
-      characterId: c._id,
-      personaId: c.personaId,
-      ...(c.displayName !== undefined ? { displayName: c.displayName } : {}),
-    });
-  }
-  for (const t of turns) {
-    for (const record of t.agentRecords) {
-      addTargetAliases(lookup, {
-        characterId: record.characterId,
-        personaId: record.personaId,
-      });
-    }
-  }
-  return lookup;
-}
-
-function isDamageAction(action: AggregatorAction): boolean {
-  return (
-    (action.kind === "attack" ||
-      action.kind === "overwatch" ||
-      action.kind === "counter") &&
-    /^dmg\s+\d+/i.test(action.result)
-  );
-}
-
 // ─── Public aggregator ────────────────────────────────────────────────────
 
 /**
@@ -232,8 +189,15 @@ export function aggregateRunStats(
   characters: AggregatorCharacterRow[],
 ): RunSummary {
   const personaIndex = buildPersonaIndex(characters);
-  const targetIdLookup = buildTargetIdLookup(turns, characters);
   const perPersona = emptyPerPersona();
+  const killsByCharacter = attributeKillsByCharacter(turns, characters);
+
+  for (const [characterId, creditedKills] of killsByCharacter) {
+    const attackerPersona = personaIndex.get(characterId);
+    if (!attackerPersona) continue;
+    const bucket = perPersona.get(attackerPersona);
+    if (bucket) bucket.kills += creditedKills;
+  }
 
   let kills = 0;
   let equips = 0;
@@ -241,27 +205,7 @@ export function aggregateRunStats(
 
   for (const t of turns) {
     // ── deaths → kills + per-attacker credit ───────────────────────────
-    const deathSet = new Set(t.resolution.deaths);
     kills += t.resolution.deaths.length;
-
-    if (deathSet.size > 0) {
-      // For each landed damage action against a dead character this turn, credit
-      // the attacker's persona with one kill. Multi-attacker scenarios
-      // share credit (concept-spec §12: "if three agents attack one
-      // target, all valid attacks land"). Stationary attacks, overwatch,
-      // and counter-fire qualify; resolver traces may target display names
-      // or persona ids, so normalise to engine characterId before checking
-      // `trace.deaths`.
-      for (const a of t.resolution.actions) {
-        if (!isDamageAction(a)) continue;
-        const targetId = targetIdLookup.get(a.target) ?? a.target;
-        if (!deathSet.has(targetId)) continue;
-        const attackerPersona = personaIndex.get(a.characterId);
-        if (!attackerPersona) continue;
-        const bucket = perPersona.get(attackerPersona);
-        if (bucket) bucket.kills += 1;
-      }
-    }
 
     // ── equips: crate-equip + corpse-loot-equip ────────────────────────
     // Crates and corpses share `kind="loot"` but are disambiguated by

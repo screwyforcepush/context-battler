@@ -41,6 +41,8 @@ export const checkEnv = action({
 // chunk per-table and let the caller loop the small ones at the end.)
 type WipeTable =
   | "prompts"
+  | "cards"
+  | "cardAccruals"
   | "turns"
   | "characters"
   | "matches"
@@ -58,6 +60,8 @@ export const wipeOneTable = mutation({
       v.literal("characters"),
       v.literal("matches"),
       v.literal("prompts"),
+      v.literal("cards"),
+      v.literal("cardAccruals"),
       v.literal("worldStatic"),
       v.literal("worldState"),
       v.literal("runs"),

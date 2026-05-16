@@ -10,10 +10,15 @@
 
 import type * as _data_personas from "../_data/personas.js";
 import type * as _internal_runMatch from "../_internal_runMatch.js";
+import type * as cards from "../cards.js";
 import type * as engine_airdrops from "../engine/airdrops.js";
+import type * as engine_cardMatchAgentNames from "../engine/cardMatchAgentNames.js";
+import type * as engine_cardStats from "../engine/cardStats.js";
 import type * as engine_combat from "../engine/combat.js";
 import type * as engine_distance from "../engine/distance.js";
+import type * as engine_hash from "../engine/hash.js";
 import type * as engine_hiding from "../engine/hiding.js";
+import type * as engine_killAttribution from "../engine/killAttribution.js";
 import type * as engine_lastKnown from "../engine/lastKnown.js";
 import type * as engine_loot from "../engine/loot.js";
 import type * as engine_map from "../engine/map.js";
@@ -31,6 +36,7 @@ import type * as llm_inputBuilder from "../llm/inputBuilder.js";
 import type * as llm_personas from "../llm/personas.js";
 import type * as llm_systemPrompt from "../llm/systemPrompt.js";
 import type * as matches from "../matches.js";
+import type * as promptHelpers from "../promptHelpers.js";
 import type * as replay from "../replay.js";
 import type * as reports from "../reports.js";
 import type * as reports_phase10 from "../reports/phase10.js";
@@ -55,10 +61,15 @@ import type {
 declare const fullApi: ApiFromModules<{
   "_data/personas": typeof _data_personas;
   _internal_runMatch: typeof _internal_runMatch;
+  cards: typeof cards;
   "engine/airdrops": typeof engine_airdrops;
+  "engine/cardMatchAgentNames": typeof engine_cardMatchAgentNames;
+  "engine/cardStats": typeof engine_cardStats;
   "engine/combat": typeof engine_combat;
   "engine/distance": typeof engine_distance;
+  "engine/hash": typeof engine_hash;
   "engine/hiding": typeof engine_hiding;
+  "engine/killAttribution": typeof engine_killAttribution;
   "engine/lastKnown": typeof engine_lastKnown;
   "engine/loot": typeof engine_loot;
   "engine/map": typeof engine_map;
@@ -76,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   "llm/personas": typeof llm_personas;
   "llm/systemPrompt": typeof llm_systemPrompt;
   matches: typeof matches;
+  promptHelpers: typeof promptHelpers;
   replay: typeof replay;
   reports: typeof reports;
   "reports/phase10": typeof reports_phase10;
