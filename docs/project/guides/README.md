@@ -18,4 +18,4 @@ Process docs, conventions, ways of working. Living documents, expected to evolve
 
 - [`convex-backend.md`](convex-backend.md) — Convex deployment, auth, smoke tests, useful commands.
 - [`azure-llm.md`](azure-llm.md) — Azure Responses API endpoint, auth, tool use, strict-mode gotchas.
-- [`eval-pipeline.md`](eval-pipeline.md) — End-to-end eval recipe: harness → metrics → diagnostics → replay UI. Current as of phase 12.
+- [`eval-pipeline.md`](eval-pipeline.md) — End-to-end eval recipe: harness → metrics → diagnostics → replay UI. Current as of phase 13 (Card-triggered match path documented).

@@ -55,9 +55,13 @@ For phase 1, running the engine as Convex actions is the highest-fit answer, not
 The schema is the contract, so it deserves naming up front. Concrete shape evolves in the codebase; the high-level entities are:
 
 - **`matches`** — match metadata: settings, current turn, status, winners, prize-split outcome.
-- **`characters`** — agent records: display name, owner, behavioural prompt, equipped gear, HP, position, scratchpad, hidden state, alive/dead.
+- **`characters`** — agent records: display name, owner, behavioural prompt, equipped gear, HP, position, scratchpad, hidden state, alive/dead. Optionally linked to a Card via `cardId` + `cardPromptHash` (trace integrity — the hash is pinned at match time, never a live pointer).
 - **`turns`** (the turn ledger) — one record per (match, turn). Captures the visible-state shown to each agent, the decision returned, the resolved diff. The ledger *is* the replay.
 - **`worldState`** — terrain, cover, crates, corpses; whatever isn't agent-local.
+- **`cards`** — the persistent, account-optional agent unit: agent name, prompt (by content hash), lineage persona, progression placeholder, and accumulator stats (prizeUnitsWon, matchesPlayed, kills, deaths, wallFaceSlams). The ranked unit. Decoupled from the locked 8-persona substrate.
+- **`cardAccruals`** — per-match idempotency sentinel preventing duplicate accrual on scheduler replay.
+
+Two trigger paths exist: `matches.start` (the substrate-proof harness path, locked 8-persona union, no Card writes) and `matches.startFromCards` (explicit array of exactly 8 Card ids, pins prompt hashes, enables post-match Card accrual). Both paths share the same engine loop.
 
 Two non-obvious properties:
 - **The turn ledger is the replay.** The renderer doesn't "render the engine" — it renders the ledger. This is what makes engine/renderer decoupling work.
@@ -78,11 +82,12 @@ Tech choice (React, Svelte, plain Canvas, etc.) is deferred until phase 2 is bei
 Calling these out so they don't get argued prematurely:
 
 - **Renderer framework.** Deferred to phase 2.
-- **Auth, accounts, leaderboards.** Convex has primitives; not phase 1.
+- **Auth, accounts, matchmaking lobby.** Convex has primitives; Cards exist without accounts. Lobby/auto-draw/backfill deferred.
 - **Multi-region, scaling.** N/A until there's traffic.
 - **Monitoring / observability.** Convex logs are sufficient for phase 1. Revisit if/when the engine moves out of Convex.
 - **Determinism / replay-equivalence under engine rewrites.** Stated as a future-proofing claim, not a phase-1 requirement.
 - **Prompt caching.** The Azure Responses API supports caching; treat it as future optimization, not a load-bearing assumption (`concept-spec.md` §2A.5).
+- **Leaderboard/seasons UI.** Per-Card stats accumulate; derivable metrics (prize-per-match, K/D) are not stored. No UI, no seasons reset tooling.
 
 ## 7. When this document changes
 

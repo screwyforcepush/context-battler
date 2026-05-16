@@ -1,7 +1,7 @@
 # Phase 13 — Card Layer Carve
 
-> **Status:** Spec re-spun 2026-05-16 (3-reviewer convergent fix-set
-> applied; PM ratifications baked in). Planning architect artifact.
+> **Status:** ✅ Implemented 2026-05-16 (commit `4dda736`). All 5 WPs
+> delivered; lint/typecheck/test/build green; harness parity verified.
 > Deliberately thin foundation: **Cards, NOT accounts**. The substrate-
 > proof harness and its locked 8-persona union stay UNTOUCHED — the Card
 > path is strictly parallel. POC posture applies (schema break + Convex

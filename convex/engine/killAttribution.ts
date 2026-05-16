@@ -37,22 +37,68 @@ function titleCaseAlias(id: string): string {
   return id.slice(0, 1).toUpperCase() + id.slice(1);
 }
 
-function addAlias(lookup: Map<string, string>, alias: string | undefined, id: string): void {
+const ALIAS_PRECEDENCE = {
+  persona: 1,
+  displayName: 2,
+  characterId: 3,
+} as const;
+
+type AliasPrecedence =
+  (typeof ALIAS_PRECEDENCE)[keyof typeof ALIAS_PRECEDENCE];
+
+function addAlias(
+  lookup: Map<string, string>,
+  aliasPrecedence: Map<string, AliasPrecedence>,
+  alias: string | undefined,
+  id: string,
+  precedence: AliasPrecedence,
+): void {
   if (alias === undefined) return;
   if (alias.trim().length === 0) return;
+  const existingPrecedence = aliasPrecedence.get(alias);
+  if (existingPrecedence !== undefined && existingPrecedence > precedence) {
+    return;
+  }
   lookup.set(alias, id);
+  aliasPrecedence.set(alias, precedence);
 }
 
 function addParticipantAliases(
   lookup: Map<string, string>,
+  aliasPrecedence: Map<string, AliasPrecedence>,
   participant: KillAttributionAgentRecord,
 ): void {
-  addAlias(lookup, participant.characterId, participant.characterId);
+  addAlias(
+    lookup,
+    aliasPrecedence,
+    participant.characterId,
+    participant.characterId,
+    ALIAS_PRECEDENCE.characterId,
+  );
   if (participant.personaId !== undefined) {
-    addAlias(lookup, participant.personaId, participant.characterId);
-    addAlias(lookup, titleCaseAlias(participant.personaId), participant.characterId);
+    addAlias(
+      lookup,
+      aliasPrecedence,
+      participant.personaId,
+      participant.characterId,
+      ALIAS_PRECEDENCE.persona,
+    );
+    addAlias(
+      lookup,
+      aliasPrecedence,
+      titleCaseAlias(participant.personaId),
+      participant.characterId,
+      ALIAS_PRECEDENCE.persona,
+    );
   }
-  addAlias(lookup, participant.displayName, participant.characterId);
+  // Card agent names are free-form; they must beat legacy persona aliases.
+  addAlias(
+    lookup,
+    aliasPrecedence,
+    participant.displayName,
+    participant.characterId,
+    ALIAS_PRECEDENCE.displayName,
+  );
 }
 
 function buildTargetIdLookup(
@@ -60,8 +106,9 @@ function buildTargetIdLookup(
   characters: readonly KillAttributionCharacterRow[],
 ): Map<string, string> {
   const lookup = new Map<string, string>();
+  const aliasPrecedence = new Map<string, AliasPrecedence>();
   for (const c of characters) {
-    addParticipantAliases(lookup, {
+    addParticipantAliases(lookup, aliasPrecedence, {
       characterId: c._id,
       personaId: c.personaId,
       displayName: c.displayName,
@@ -69,7 +116,7 @@ function buildTargetIdLookup(
   }
   for (const t of turns) {
     for (const record of t.agentRecords ?? []) {
-      addParticipantAliases(lookup, record);
+      addParticipantAliases(lookup, aliasPrecedence, record);
     }
   }
   return lookup;
@@ -97,7 +144,9 @@ export function attributeKillsByCharacter(
 
     for (const action of t.resolution.actions) {
       if (!isDamageAction(action)) continue;
-      const targetId = targetIdLookup.get(action.target) ?? action.target;
+      const targetId = deathSet.has(action.target)
+        ? action.target
+        : targetIdLookup.get(action.target) ?? action.target;
       if (!deathSet.has(targetId)) continue;
       killsByCharacter.set(
         action.characterId,

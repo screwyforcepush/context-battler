@@ -143,6 +143,54 @@ describe("aggregateCardStats", () => {
     expect(deltas["card-1"]!.kills).toBe(0);
   });
 
+  it("credits a Card kill when the victim displayName collides with a different Card lineage alias", () => {
+    const characters: CardStatsCharacterRow[] = [
+      cardCharacter({
+        _id: "killer",
+        cardId: "killer-card",
+        personaId: "vulture",
+        displayName: "Killer",
+      }),
+      cardCharacter({
+        _id: "victim",
+        cardId: "victim-card",
+        personaId: "duelist",
+        displayName: "rat",
+        diedAtTurn: 7,
+      }),
+      cardCharacter({
+        _id: "foreign-rat-lineage",
+        cardId: "foreign-rat-card",
+        personaId: "rat",
+        displayName: "Burrower",
+      }),
+    ];
+    const turns = [
+      turn({
+        turn: 7,
+        resolution: {
+          moves: [],
+          deaths: ["victim"],
+          actions: [
+            {
+              characterId: "killer",
+              kind: "attack",
+              target: "rat",
+              result: "dmg 100",
+            },
+          ],
+        },
+      }),
+    ];
+
+    const deltas = byCard(aggregateCardStats(turns, characters, outcome([])));
+
+    expect(deltas["killer-card"]!.kills).toBe(1);
+    expect(deltas["victim-card"]!.deaths).toBe(1);
+    expect(deltas["foreign-rat-card"]!.kills).toBe(0);
+    expect(deltas["foreign-rat-card"]!.deaths).toBe(0);
+  });
+
   it("A5 is intentional: environmental deaths increment victim deaths but produce no killer kills", () => {
     const characters = roster();
     characters[4] = { ...characters[4]!, diedAtTurn: 10 };

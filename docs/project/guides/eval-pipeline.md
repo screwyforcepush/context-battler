@@ -2,9 +2,11 @@
 
 > Practical recipe: tweak a prompt / value / config → 10 runs → metric +
 > verbose-failure report. Reflects the actual state of harness + Convex
-> aggregators as of phase 12 (crate substrate, equipment variance,
-> airdrop lifecycle, telefrag, per-persona kill-attribution fix). Keep
-> this current; future shifts in the report contract belong here.
+> aggregators as of phase 13 (Card layer adds `matches.startFromCards`
+> parallel trigger; harness path unchanged; crate substrate, equipment
+> variance, airdrop lifecycle, telefrag, per-persona kill-attribution
+> from prior phases remain). Keep this current; future shifts in the
+> report contract belong here.
 
 ---
 
@@ -63,8 +65,10 @@ use the phase-7 closing driver instead — see §4.5.
 Lifecycle per match:
 1. `matches.start` mutation creates the row (seed pinned, `reasoningEffort` field set).
 2. `runMatch.advanceTurn` is called in a loop (Convex action; one LLM call per living agent per turn, parallel; engine resolves; persists `turns` row).
-3. On `match.status === "completed"`, the scheduler fires `runs.aggregate(matchId)` which writes a per-match summary row.
+3. On `match.status === "completed"`, the scheduler fires `runs.aggregate(matchId)` which writes a per-match summary row. For Card-triggered matches, `cards.accrueFromMatch(matchId)` is also scheduled (self-guards to no-op for non-Card matches).
 4. After all matches finish, the harness calls `reports.create({matchIds, reportType: "closing-${runs}"})` which inserts the `reports` row (idempotent — re-firing the same set is a no-op).
+
+**Card-triggered matches** (phase 13): `matches.startFromCards({ cardIds, rngSeed?, reasoningEffort? })` is a parallel trigger that accepts exactly 8 distinct Card ids, pins each character's `cardPromptHash` at match time, and uses the Card's `agentName` as the character `displayName`. The per-turn loop loads prompt text from the pinned hash (not the live Card). On completion, per-Card accumulators (prizeUnitsWon, matchesPlayed, kills, deaths, wallFaceSlams) are patched idempotently. The harness (`harness/run.ts`) still uses `matches.start` exclusively — Card-triggered matches are an independent code path.
 
 Output to stdout (JSONL — grep-friendly):
 - `run_start`, `poll`, `run_end` — lifecycle per match.
