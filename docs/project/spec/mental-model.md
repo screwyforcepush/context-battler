@@ -152,15 +152,67 @@ Where the substrate is heading next, as intent (not an assignment record):
 
 - **Honest attribution is a precondition.** A contested-objective mechanic that kills agents is only legible if the report says *who died how and to whom* — or to no one, for an environmental death. Per-persona kill credit and environmental deaths must be counted truthfully before any behaviour-tuning pass reads them.
 
-## 12. Open questions / live tensions
+## 12. Player-facing meta — the card, the matchmaking facade, seasons
+
+The substrate's first life keys everything to 8 fixed personas (§10). The product's
+real persistent unit is different. This section is the why for the player-facing layer.
+
+- **The card is the unit, not the account.** A card is *more than a saved prompt*:
+  an agent name, a prompt, and a build — level/progression and (coming soon)
+  unlockable prompt segments — that **evolves as it plays**. A user/account is an
+  optional ownership-and-evolution wrapper around cards; a card *may or may not*
+  carry a user ref. **The ranked unit is the card.** Ownerless cards (guest cards,
+  forkable presets, handcrafted backfill) are first-class — the card substrate must
+  be coherent with no account attached. Accounts come *after* cards; the card stands
+  alone first.
+
+- **Presets are forkable on-ramps, deliberately vanilla.** The current 8 personas are
+  throwaway scaffolding — fine to start, expected to change. Their product role is
+  the guest entry point and a fork base, not a balance target. The closed 8-persona
+  substrate harness (§10) and the open card pool are two different consumers of the
+  same engine; growing the card layer must not break the substrate-proof harness.
+
+- **The matchmaking lobby is theatre.** Final-form UX: pick a card, refine, start
+  matchmaking, a ≤30s "searching" loader, lobby fills with 8, a ~10s countdown with
+  agents trash-talking, match starts. None of that reflects what happens. On commit
+  the backend draws cards from the pool and runs the match *immediately*; the
+  searching/fill/countdown exists to (a) mask backend compute so the replay streams
+  without a buffer race, and (b) sell live-multiplayer fantasy over an **asynchronous
+  card draw**. The honesty underneath the trick: the opponents *are* real other
+  users' cards — just not live. This is *passive multiplayer*. Genuine concurrent
+  matchmaking is deferred until there is concurrent-user scale to justify it; the
+  facade is what makes single-player-shaped traffic feel populated until then.
+
+- **Everyone is a card; difficulty is curated, not human-vs-bot.** There is no
+  integrity axis between "human" and "bot" opponents — every competitor is an
+  autonomous prompt-creature regardless of authorship, which is the whole premise
+  (§1, §3). The lever is *curated difficulty*: handcrafted "unhinged" challenge
+  cards backfill empty pool slots; vanilla presets are gentle on-ramps. Opponent
+  strength is a content/curation knob, not a matchmaking-fairness problem.
+
+- **The leaderboard is disposable; seasons are the reset valve.** Scoring keeps the
+  §5 model (fixed prize pool, equal split among extractors, 100 to last-agent-
+  standing) and ranks on prize-per-match — the denominator counts *every* match the
+  card was drawn into, win or turn-2 death, because that ratio *is* prompt quality
+  and can't be out-grinded (pillar 1). But the formula is an experiment, not a
+  contract: when it's gamed or corrupted, wipe and rebalance under a new **season**.
+  The design is freed from getting scoring perfect up front (consistent with §10's
+  POC posture).
+
+- **Ranked metric vs. vanity.** Prize-per-match is the one ladder that defines skill.
+  K/D is a play-style signal that may graduate to a *parallel* ladder. Wall
+  face-slams and their kin are shareable comedy stats (pillar 5; the §5 best-failure
+  shareability), never progression.
+
+## 13. Open questions / live tensions
 
 Tracked here because they shape the why, not the how:
 
 - **How much prompt-injection is fun vs. frustrating?** Cursed item names are great; player-authored item names risk passive spam.
 - **Should the agent choose *what* to loot? — Resolved: no.** Considered and rejected by simplification. Multi-axis gear stats (range vs. damage vs. weight) were the only thing that would make a loot-pick interesting; they were cut as tactical-optimization noise on the wrong surface (it failed the §7 filter the same way crits and AP systems do). With graded single-scalar gear that the engine auto-applies, the choice collapses back to "always take the upgrade" — a no-brainer — so no agent loot-pick tool surface is built. The only loot-related decisions left are *whether a crate is worth the spatial risk* and *when to spend the single held consumable* (the §5 anchor). Consumables remain the recurring scarce currency and the one genuinely prompt-authored loot decision.
 - **Does formal trade belong eventually?** Speech alone may be sufficient. Adding trade earns depth; loses minimalism.
-- **Daily-seed mode as the sticky hook?** Possibly the leaderboard format that converts curiosity into return visits — and the natural home for the deferred RNG slice's seeding.
-- **Guest → account conversion trigger.** "Save this idiot" is a candidate; not yet validated.
+- **Daily-seed mode as a sticky hook? — reframed.** The §12 matchmaking facade is now the primary stickiness mechanism (pick a card, "find a match", watch the replay). Daily-seed becomes a possible *mode* and a natural home for the deferred RNG slice's seeding, not the core hook.
+- **Guest → account conversion trigger. — reframed.** Cards exist ownerless (§12); the account is the evolution/ownership wrapper, not a prerequisite to play. The conversion moment is therefore "keep evolving this card" rather than "save this idiot"; the exact trigger is still unvalidated.
 - **Content moderation vs. deception language.** Aggressive in-world text (threats, lies, corpse notes, prompt-injection inscriptions) is core to pillar 5, but the moderation layer is a real constraint on shippable content (the original "betrayer" archetype tripped Azure moderation and was swapped to "opportunist"). Worth a deliberate design pass before the cursed-item naming layer is authored.
 
 ---
