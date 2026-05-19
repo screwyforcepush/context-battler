@@ -10,14 +10,21 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_MAP_ID,
+  MAP_IDS,
+  assignItemsToSpawns,
   expandMap,
+  getMapDescriptor,
   loadReferenceMap,
   assignPersonasToSpawns,
 } from "../../convex/engine/map.js";
-import { expandMapInline } from "../../convex/matches.js";
 import {
+  ARMOUR,
+  CONSUMABLES,
   PERSONA_IDS,
+  WEAPONS,
   type ItemRef,
+  type MapDescriptor,
   type Tile,
   type WorldState,
   type Wall,
@@ -173,7 +180,225 @@ function crateContentsSnapshot(world: WorldState) {
   }));
 }
 
+function coordKey(tile: Tile): string {
+  return `${tile.x},${tile.y}`;
+}
+
+function assertInBounds(
+  tile: Tile,
+  size: { w: number; h: number },
+  label: string,
+): void {
+  expect(tile.x, `${label} x out of bounds`).toBeGreaterThanOrEqual(0);
+  expect(tile.x, `${label} x out of bounds`).toBeLessThan(size.w);
+  expect(tile.y, `${label} y out of bounds`).toBeGreaterThanOrEqual(0);
+  expect(tile.y, `${label} y out of bounds`).toBeLessThan(size.h);
+}
+
+function assertRectInBounds(
+  rect: Wall,
+  size: { w: number; h: number },
+  label: string,
+): void {
+  expect(rect.w, `${label} width must be positive`).toBeGreaterThan(0);
+  expect(rect.h, `${label} height must be positive`).toBeGreaterThan(0);
+  assertInBounds({ x: rect.x, y: rect.y }, size, `${label} origin`);
+  expect(rect.x + rect.w, `${label} right edge out of bounds`).toBeLessThanOrEqual(
+    size.w,
+  );
+  expect(rect.y + rect.h, `${label} bottom edge out of bounds`).toBeLessThanOrEqual(
+    size.h,
+  );
+}
+
+function isLockedItemRef(item: ItemRef): boolean {
+  switch (item.category) {
+    case "weapon":
+      return Object.prototype.hasOwnProperty.call(WEAPONS, item.name);
+    case "armour":
+      return Object.prototype.hasOwnProperty.call(ARMOUR, item.name);
+    case "consumable":
+      return Object.prototype.hasOwnProperty.call(CONSUMABLES, item.name);
+  }
+}
+
+function topologySignature(descriptor: MapDescriptor): string {
+  return JSON.stringify({
+    size: descriptor.size,
+    walls: descriptor.walls,
+    coverClusters: descriptor.coverClusters,
+    spawns: descriptor.spawns,
+    evac: descriptor.evac,
+    crates: descriptor.crates.map(({ x, y }) => ({ x, y })),
+    airdrops: descriptor.airdrops.map(({ x, y, landsAtTurn }) => ({
+      x,
+      y,
+      landsAtTurn,
+    })),
+  });
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
+
+describe("WP14 — map registry", () => {
+  it("pins the forward-only curated map id set and default", () => {
+    expect(DEFAULT_MAP_ID).toBe("reference");
+    expect(MAP_IDS).toEqual([
+      "reference",
+      "split-basin",
+      "crosswind",
+      "market-maze",
+      "faultline",
+    ]);
+  });
+
+  it("loads the reference descriptor through the same normalised registry path", () => {
+    expect(getMapDescriptor("reference")).toEqual(loadReferenceMap());
+  });
+
+  it("returns mutate-safe descriptors and strips JSON-only _comment fields", () => {
+    const first = getMapDescriptor("reference");
+    const second = getMapDescriptor("reference");
+
+    expect(first).not.toBe(second);
+    expect("_comment" in first).toBe(false);
+    first.size.w = 1;
+    expect(second.size.w).toBe(100);
+    expect(getMapDescriptor("reference").size.w).toBe(100);
+  });
+
+  it("throws a clear error for unknown map ids", () => {
+    expect(() => getMapDescriptor("missing-map")).toThrow(
+      'Unknown map id "missing-map"',
+    );
+  });
+
+  it("keeps generic item-to-spawn assignment byte-aligned with persona assignment", () => {
+    const seed = "phase14-spawn-assignment";
+
+    expect(assignItemsToSpawns(seed, PERSONA_IDS)).toEqual(
+      assignPersonasToSpawns(seed, PERSONA_IDS).map(
+        ({ personaId: item, spawnIndex }) => ({ item, spawnIndex }),
+      ),
+    );
+  });
+});
+
+describe("WP14 — all registered map descriptors satisfy structural invariants", () => {
+  it.each(MAP_IDS)("%s is a valid 100x100 descriptor", (mapId) => {
+    const descriptor = getMapDescriptor(mapId);
+    const world = expandMap(descriptor, "phase14-validity");
+
+    expect(descriptor.size).toEqual({ w: 100, h: 100 });
+    expect(world.size).toEqual(descriptor.size);
+    expect(descriptor.crates.length, `${mapId} must include static crates`).toBeGreaterThan(0);
+    expect(descriptor.airdrops, `${mapId} must include four airdrop waves`).toHaveLength(4);
+
+    descriptor.walls.forEach((wall, i) => {
+      assertRectInBounds(wall, descriptor.size, `${mapId} wall ${i}`);
+    });
+    descriptor.coverClusters.forEach((cover, i) => {
+      assertRectInBounds(cover, descriptor.size, `${mapId} cover ${i}`);
+    });
+
+    expect(descriptor.spawns).toHaveLength(8);
+    const spawnCoords = new Set<string>();
+    descriptor.spawns.forEach((spawn, i) => {
+      assertInBounds(spawn, descriptor.size, `${mapId} spawn ${i}`);
+      expect(
+        isWall(spawn.x, spawn.y, descriptor.walls),
+        `${mapId} spawn ${i} is inside a wall`,
+      ).toBe(false);
+      spawnCoords.add(coordKey(spawn));
+    });
+    expect(spawnCoords.size).toBe(8);
+  });
+
+  it.each(MAP_IDS)("%s has reachable crates and evac", (mapId) => {
+    const descriptor = getMapDescriptor(mapId);
+    const world = expandMap(descriptor, "phase14-reachability");
+    const walkable = buildWalkable(world);
+
+    for (const crate of world.crates) {
+      assertInBounds(crate.pos, world.size, `${mapId} crate ${crate.id}`);
+      const reachableFromAny = descriptor.spawns.some((spawn) =>
+        reachable(spawn, crate.pos, walkable, world.size),
+      );
+      expect(
+        reachableFromAny,
+        `${mapId} crate ${crate.id} at (${crate.pos.x},${crate.pos.y}) ` +
+          "is unreachable from every spawn",
+      ).toBe(true);
+    }
+
+    assertInBounds(world.evac.centre, world.size, `${mapId} evac`);
+    for (let i = 0; i < descriptor.spawns.length; i++) {
+      const spawn = descriptor.spawns[i] as Tile;
+      const ok = reachable(spawn, world.evac.centre, walkable, world.size);
+      expect(
+        ok,
+        `${mapId} spawn ${i} at (${spawn.x},${spawn.y}) cannot reach evac ` +
+          `at (${world.evac.centre.x},${world.evac.centre.y})`,
+      ).toBe(true);
+    }
+  });
+
+  it.each(MAP_IDS)("%s has valid crate and airdrop identities", (mapId) => {
+    const descriptor = getMapDescriptor(mapId);
+    const world = expandMap(descriptor, "phase14-crate-airdrop-validity");
+    const staticCrateCoords = new Set<string>();
+
+    for (const crate of world.crates) {
+      const key = coordKey(crate.pos);
+      expect(
+        staticCrateCoords.has(key),
+        `${mapId} has duplicate static crate coordinate ${key}`,
+      ).toBe(false);
+      staticCrateCoords.add(key);
+      expect(crate.id).toBe(`Crate_${crate.pos.x}_${crate.pos.y}`);
+      if (crate.contents === null) {
+        throw new Error(`${mapId} ${crate.id} has null initial contents`);
+      }
+      expect(isLockedItemRef(crate.contents)).toBe(true);
+    }
+
+    for (const drop of world.airdrops) {
+      const key = coordKey(drop.pos);
+      assertInBounds(drop.pos, world.size, `${mapId} airdrop ${drop.id}`);
+      expect(
+        staticCrateCoords.has(key),
+        `${mapId} ${drop.id} collides with a static crate`,
+      ).toBe(false);
+      expect(
+        isWall(drop.pos.x, drop.pos.y, world.walls),
+        `${mapId} ${drop.id} lands inside a wall`,
+      ).toBe(false);
+      expect(drop.id).toBe(`Crate_${drop.pos.x}_${drop.pos.y}`);
+      expect(Number.isInteger(drop.landsAtTurn)).toBe(true);
+      expect(drop.landsAtTurn).toBeGreaterThan(0);
+      expect(drop.landsAtTurn).toBeLessThan(50);
+      expect(isLockedItemRef(drop.contents)).toBe(true);
+    }
+  });
+
+  it.each(MAP_IDS)("%s expands deterministically and seed-independently", (mapId) => {
+    const descriptor = getMapDescriptor(mapId);
+    const seedA = expandMap(descriptor, "phase14-seed-a");
+    const seedARepeat = expandMap(getMapDescriptor(mapId), "phase14-seed-a");
+    const seedB = expandMap(getMapDescriptor(mapId), "phase14-seed-b");
+
+    expect(seedA).toEqual(seedARepeat);
+    expect(seedA).toEqual(seedB);
+  });
+
+  it("keeps every registered topology structurally distinct", () => {
+    const signatures = MAP_IDS.map((mapId) =>
+      topologySignature(getMapDescriptor(mapId)),
+    );
+
+    expect(new Set(signatures).size).toBe(MAP_IDS.length);
+  });
+});
 
 describe("WP3 — expandMap returns a valid 100x100 WorldState", () => {
   it("Test 1: WorldState has size.w === 100 && size.h === 100", () => {
@@ -299,29 +524,6 @@ describe("WP3/WP-B — deterministic hand-authored crate contents", () => {
     }
   });
 
-  it("WP-B: expandMapInline crate contents are seed-independent", () => {
-    const descriptor = loadReferenceMap();
-    const a = expandMapInline(descriptor, "seed1");
-    const b = expandMapInline(descriptor, "seed2");
-
-    expect(a).toEqual(b);
-    expect(crateContentsSnapshot(a)).toEqual(crateContentsSnapshot(b));
-  });
-
-  it("WP-B: engine expandMap and matches expandMapInline produce byte-identical reference worlds", () => {
-    const descriptor = loadReferenceMap();
-    const engineWorld = expandMap(descriptor, "seed1");
-    const liveWorld = expandMapInline(descriptor, "seed1");
-
-    expect(liveWorld).toEqual(engineWorld);
-    expect(liveWorld.crates.map((crate) => crate.id)).toEqual(
-      engineWorld.crates.map((crate) => crate.id),
-    );
-    expect(liveWorld.crates.every((crate) => crate.id.startsWith("Crate_"))).toBe(
-      true,
-    );
-  });
-
   it("WP-C: reference descriptor pins the four deterministic airdrop waves", () => {
     const descriptor = loadReferenceMap();
 
@@ -336,10 +538,9 @@ describe("WP3/WP-B — deterministic hand-authored crate contents", () => {
     }
   });
 
-  it("WP-C: expandMap and expandMapInline carry byte-identical airdrops", () => {
+  it("WP-C: expandMap carries deterministic reference airdrops", () => {
     const descriptor = loadReferenceMap();
     const engineWorld = expandMap(descriptor, "seed1");
-    const liveWorld = expandMapInline(descriptor, "seed2");
 
     expect(engineWorld.airdrops).toEqual(
       EXPECTED_REFERENCE_AIRDROPS.map((drop) => ({
@@ -350,7 +551,6 @@ describe("WP3/WP-B — deterministic hand-authored crate contents", () => {
         looted: false,
       })),
     );
-    expect(liveWorld.airdrops).toEqual(engineWorld.airdrops);
   });
 
   it("WP-C: airdrop coordinates avoid walls and static crate coordinates", () => {

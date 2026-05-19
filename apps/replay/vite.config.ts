@@ -1,10 +1,11 @@
 // Phase 02 / WP-A — Vite config for the replay overseer renderer.
 //
-// `server.fs.allow` is REQUIRED: WP-B will `import '../../maps/reference.json'`
-// from `reconstruct.ts` to resolve spawn coordinates, and Vite's default fs
-// policy confines reads to the project root (`apps/replay/`). Allowing `..`
-// (the workspace root via apps/) and `../..` (the repo root) keeps the
-// cross-package JSON import working without disabling the policy.
+// `server.fs.allow` is REQUIRED: `reconstruct.ts` imports the canonical
+// `maps/*.json` descriptors to resolve turn-0 spawn coordinates by `mapId`,
+// and Vite's default fs policy confines reads to the project root
+// (`apps/replay/`). Allowing `..` (the workspace root via apps/) and
+// `../..` (the repo root) keeps the cross-package JSON imports working
+// without disabling the policy.
 //
 // Hash routing (`#/match/<id>`) means we don't need an SPA fallback — the
 // browser only ever requests `/`. No middleware required.
@@ -23,9 +24,8 @@ export default defineConfig({
     port: 5173,
     fs: {
       // Allow imports from the parent `apps/` directory and the repo root.
-      // Required so `apps/replay/src/lib/reconstruct.ts` (WP-B) can do
-      // `import '../../../maps/reference.json'` without Vite denying the
-      // read for crossing the project root boundary.
+      // Required so `apps/replay/src/lib/reconstruct.ts` can import
+      // `maps/*.json` without Vite denying reads across the project root.
       allow: ["..", "../.."],
     },
   },

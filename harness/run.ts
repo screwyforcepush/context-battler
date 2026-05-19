@@ -89,7 +89,7 @@ type StatusResponse = {
 
 const matchesStart = makeFunctionReference<
   "mutation",
-  { rngSeed?: string; reasoningEffort?: ReasoningEffort },
+  { rngSeed?: string; reasoningEffort?: ReasoningEffort; mapId?: string },
   MatchId
 >("matches:start");
 
@@ -175,6 +175,7 @@ export type CliArgs = {
   concurrency: number;
   reasoning: ReasoningEffort;
   seedPrefix?: string;
+  mapId?: string;
 };
 
 function parseCliArgs(argv: readonly string[]): CliArgs {
@@ -185,6 +186,7 @@ function parseCliArgs(argv: readonly string[]): CliArgs {
       concurrency: { type: "string", default: "1" },
       reasoning: { type: "string", default: "low" },
       "seed-prefix": { type: "string" },
+      map: { type: "string" },
     },
     strict: true,
     allowPositionals: false,
@@ -216,7 +218,17 @@ function parseCliArgs(argv: readonly string[]): CliArgs {
     ...(values["seed-prefix"] !== undefined
       ? { seedPrefix: values["seed-prefix"] }
       : {}),
+    ...(values.map !== undefined ? { mapId: parseMapId(values.map) } : {}),
   };
+}
+
+function parseMapId(raw: string): string {
+  const value = raw.trim();
+  if (value.length === 0) {
+    process.stderr.write("--map must be a non-empty map id.\n");
+    process.exit(2);
+  }
+  return value;
 }
 
 function parsePositiveInt(raw: string | undefined, label: string): number {
@@ -393,6 +405,7 @@ async function runOne(
   totalRuns: number,
   reasoningEffort: ReasoningEffort,
   seedPrefix: string | undefined,
+  mapId: string | undefined,
   emitEvent: (ev: HarnessEvent) => void,
   sleepImpl: (ms: number) => Promise<void>,
 ): Promise<RunOutcome> {
@@ -405,6 +418,7 @@ async function runOne(
     ...(seedPrefix !== undefined
       ? { rngSeed: `${seedPrefix}-${String(runIndex + 1).padStart(2, "0")}` }
       : {}),
+    ...(mapId !== undefined ? { mapId } : {}),
   });
   emitEvent({
     event: "run_start",
@@ -440,6 +454,7 @@ async function runAll(
   concurrency: number,
   reasoningEffort: ReasoningEffort,
   seedPrefix: string | undefined,
+  mapId: string | undefined,
   emitEvent: (ev: HarnessEvent) => void,
   sleepImpl: (ms: number) => Promise<void>,
 ): Promise<RunOutcome[]> {
@@ -456,6 +471,7 @@ async function runAll(
         totalRuns,
         reasoningEffort,
         seedPrefix,
+        mapId,
         emitEvent,
         sleepImpl,
       );
@@ -598,6 +614,7 @@ export async function runHarness(
     args.concurrency,
     args.reasoning,
     args.seedPrefix,
+    args.mapId,
     emitEvent,
     sleepImpl,
   );
@@ -807,6 +824,7 @@ async function main(): Promise<void> {
       concurrency: args.concurrency,
       reasoning: args.reasoning,
       ...(args.seedPrefix !== undefined ? { seedPrefix: args.seedPrefix } : {}),
+      ...(args.mapId !== undefined ? { mapId: args.mapId } : {}),
     }) + "\n",
   );
 

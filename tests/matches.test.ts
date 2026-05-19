@@ -5,7 +5,21 @@ import {
   startFromCards,
 } from "../convex/matches.js";
 import { hashHex } from "../convex/engine/hash.js";
-import { CHARACTER_MAX_HP, PERSONA_IDS, type PersonaId } from "../convex/engine/types.js";
+import { makeRng } from "../convex/engine/loot.js";
+import {
+  assignPersonasToSpawns,
+  expandMap,
+  getMapDescriptor,
+} from "../convex/engine/map.js";
+import {
+  CHARACTER_MAX_HP,
+  PERSONA_IDS,
+  type MapDescriptor,
+  type PersonaId,
+  type Tile,
+  type Wall,
+} from "../convex/engine/types.js";
+import referenceMapJson from "../maps/reference.json" with { type: "json" };
 
 type TableName =
   | "cards"
@@ -122,9 +136,21 @@ function handler<TArgs, TResult>(fn: unknown) {
     ._handler;
 }
 
-const startHandler = handler<{ rngSeed?: string; reasoningEffort?: "low" | "medium" | "high" }, string>(start);
+const startHandler = handler<
+  {
+    rngSeed?: string;
+    reasoningEffort?: "low" | "medium" | "high";
+    mapId?: string;
+  },
+  string
+>(start);
 const startFromCardsHandler = handler<
-  { cardIds: string[]; rngSeed?: string; reasoningEffort?: "low" | "medium" | "high" },
+  {
+    cardIds: string[];
+    rngSeed?: string;
+    reasoningEffort?: "low" | "medium" | "high";
+    mapId?: string;
+  },
   string
 >(startFromCards);
 
@@ -223,7 +249,236 @@ async function expectRejectsWithMessage(
   await expect(promise).rejects.toThrow(message);
 }
 
+function expectedWorldRows(descriptor: MapDescriptor, rngSeed: string) {
+  const world = expandMap(descriptor, rngSeed);
+  return {
+    worldStatic: {
+      walls: world.walls,
+      coverClusters: world.coverClusters,
+      coverTiles: world.coverTiles,
+    },
+    worldState: {
+      crates: world.crates.map((crate) => ({
+        id: crate.id,
+        pos: crate.pos,
+        contents: crate.contents,
+        opened: crate.opened,
+      })),
+      airdrops: world.airdrops.map((drop) => ({
+        id: drop.id,
+        pos: drop.pos,
+        landsAtTurn: drop.landsAtTurn,
+        contents: drop.contents,
+        looted: drop.looted,
+      })),
+      corpses: [],
+      evac: {
+        centre: world.evac.centre,
+        revealedAtTurn: world.evac.revealedAtTurn,
+      },
+    },
+    characters: assignPersonasToSpawns(rngSeed, PERSONA_IDS).map(
+      ({ personaId, spawnIndex }) => {
+        const spawn = descriptor.spawns[spawnIndex];
+        if (!spawn) {
+          throw new Error(`missing spawn ${spawnIndex} in reference descriptor`);
+        }
+        return {
+          personaId,
+          spawnIndex,
+          displayName: personaId.slice(0, 1).toUpperCase() + personaId.slice(1),
+          hp: CHARACTER_MAX_HP,
+          pos: { x: spawn.x, y: spawn.y },
+          equipped: {},
+          scratchpad: "",
+          hidden: false,
+          alive: true,
+          lastKnown: [],
+        };
+      },
+    ),
+  };
+}
+
+function expectedReferenceWorldRows(rngSeed: string) {
+  return legacyReferenceWorldRows(rngSeed);
+}
+
+type RawMapDescriptor = MapDescriptor & { _comment?: string };
+
+function legacyReferenceDescriptor(): MapDescriptor {
+  const parsed = JSON.parse(JSON.stringify(referenceMapJson)) as RawMapDescriptor;
+  return {
+    size: parsed.size,
+    walls: parsed.walls,
+    coverClusters: parsed.coverClusters,
+    crates: parsed.crates,
+    airdrops: parsed.airdrops,
+    spawns: parsed.spawns,
+    evac: parsed.evac,
+  };
+}
+
+function legacyRectToTiles(rect: Wall): Tile[] {
+  const tiles: Tile[] = [];
+  for (let dx = 0; dx < rect.w; dx++) {
+    for (let dy = 0; dy < rect.h; dy++) {
+      tiles.push({ x: rect.x + dx, y: rect.y + dy });
+    }
+  }
+  return tiles;
+}
+
+function legacyAssignPersonasToSpawns(
+  rngSeed: string,
+): Array<{ personaId: PersonaId; spawnIndex: number }> {
+  const indices = Array.from({ length: PERSONA_IDS.length }, (_, i) => i);
+  const rng = makeRng(`${rngSeed}:spawnAssign`);
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const safeJ = j > i ? i : j;
+    const tmp = indices[i] as number;
+    indices[i] = indices[safeJ] as number;
+    indices[safeJ] = tmp;
+  }
+  return PERSONA_IDS.map((personaId, i) => ({
+    personaId,
+    spawnIndex: indices[i] as number,
+  }));
+}
+
+function legacyReferenceWorldRows(rngSeed: string) {
+  const descriptor = legacyReferenceDescriptor();
+  const coverTiles = descriptor.coverClusters.flatMap(legacyRectToTiles);
+  const crates = descriptor.crates.map((crate) => ({
+    id: `Crate_${crate.x}_${crate.y}`,
+    pos: { x: crate.x, y: crate.y },
+    contents: { ...crate.contents },
+    opened: false,
+  }));
+  const airdrops = descriptor.airdrops.map((drop) => ({
+    id: `Crate_${drop.x}_${drop.y}`,
+    pos: { x: drop.x, y: drop.y },
+    landsAtTurn: drop.landsAtTurn,
+    contents: { ...drop.contents },
+    looted: false,
+  }));
+
+  return {
+    worldStatic: {
+      walls: descriptor.walls,
+      coverClusters: descriptor.coverClusters,
+      coverTiles,
+    },
+    worldState: {
+      crates,
+      airdrops,
+      corpses: [],
+      evac: {
+        centre: { x: descriptor.evac.x, y: descriptor.evac.y },
+        revealedAtTurn: null,
+      },
+    },
+    characters: legacyAssignPersonasToSpawns(rngSeed).map(
+      ({ personaId, spawnIndex }) => {
+        const spawn = descriptor.spawns[spawnIndex];
+        if (!spawn) {
+          throw new Error(`missing spawn ${spawnIndex} in legacy descriptor`);
+        }
+        return {
+          personaId,
+          spawnIndex,
+          displayName: personaId.slice(0, 1).toUpperCase() + personaId.slice(1),
+          hp: CHARACTER_MAX_HP,
+          pos: { x: spawn.x, y: spawn.y },
+          equipped: {},
+          scratchpad: "",
+          hidden: false,
+          alive: true,
+          lastKnown: [],
+        };
+      },
+    ),
+  };
+}
+
 describe("matches.start harness path", () => {
+  it("defaults absent mapId to the byte-identical reference scaffold", async () => {
+    const rngSeed = "phase14-default-reference-parity";
+    const expected = expectedReferenceWorldRows(rngSeed);
+    const ctx = fakeCtx();
+
+    const matchId = await startHandler(ctx, { rngSeed });
+
+    expect(matchId).toBe("matches_1");
+    expect(rows(ctx, "matches")).toMatchObject([
+      {
+        _id: matchId,
+        status: "pending",
+        turn: 0,
+        mapId: "reference",
+        rngSeed,
+        outcome: { extracted: [], pointsByCharacter: [] },
+      },
+    ]);
+    expect(rowWithoutMetadata(rows(ctx, "worldStatic")[0])).toEqual(
+      expected.worldStatic,
+    );
+    expect(rowWithoutMetadata(rows(ctx, "worldState")[0])).toEqual(
+      expected.worldState,
+    );
+    expect(characters(ctx).map(rowWithoutMetadata)).toEqual(
+      expected.characters,
+    );
+  });
+
+  it("rejects unknown map ids before writing match rows", async () => {
+    const ctx = fakeCtx();
+
+    await expectRejectsWithMessage(
+      startHandler(ctx, {
+        rngSeed: "phase14-unknown-map",
+        mapId: "missing-map",
+      }),
+      'Unknown map id "missing-map"',
+    );
+
+    expect(rows(ctx, "matches")).toEqual([]);
+    expect(rows(ctx, "worldStatic")).toEqual([]);
+    expect(rows(ctx, "worldState")).toEqual([]);
+    expect(characters(ctx)).toEqual([]);
+    expect(ctx.scheduler.calls).toEqual([]);
+  });
+
+  it("expands and records an explicit non-reference map id", async () => {
+    const rngSeed = "phase14-explicit-split-basin";
+    const descriptor = getMapDescriptor("split-basin");
+    const expected = expectedWorldRows(descriptor, rngSeed);
+    const ctx = fakeCtx();
+
+    const matchId = await startHandler(ctx, {
+      rngSeed,
+      mapId: "split-basin",
+    });
+
+    expect(rows(ctx, "matches")).toMatchObject([
+      {
+        _id: matchId,
+        mapId: "split-basin",
+        rngSeed,
+      },
+    ]);
+    expect(rowWithoutMetadata(rows(ctx, "worldStatic")[0])).toEqual(
+      expected.worldStatic,
+    );
+    expect(rowWithoutMetadata(rows(ctx, "worldState")[0])).toEqual(
+      expected.worldState,
+    );
+    expect(characters(ctx).map(rowWithoutMetadata)).toEqual(
+      expected.characters,
+    );
+  });
+
   it("preserves the existing seeded persona-to-spawn mapping and character shape", async () => {
     const ctx = fakeCtx();
 
@@ -322,6 +577,24 @@ describe("matches.start harness path", () => {
 });
 
 describe("matches.startFromCards", () => {
+  it("rejects unknown map ids before writing Card-backed match rows", async () => {
+    const ctx = fakeCtx();
+    const cardIds = await seedCards(ctx);
+
+    await expectRejectsWithMessage(
+      startFromCardsHandler(ctx, {
+        cardIds,
+        rngSeed: "phase14-card-unknown-map",
+        mapId: "missing-map",
+      }),
+      'Unknown map id "missing-map"',
+    );
+
+    expect(rows(ctx, "matches")).toEqual([]);
+    expect(characters(ctx)).toEqual([]);
+    expect(ctx.scheduler.calls).toEqual([]);
+  });
+
   it("rejects card selections that are not exactly 8 distinct ids", async () => {
     const ctx = fakeCtx();
     const cardIds = await seedCards(ctx);

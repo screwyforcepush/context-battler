@@ -34,8 +34,12 @@
 //   - Schema field shapes: convex/schema.ts.
 //   - First-ledger-row invariant: convex/runMatch.ts:461.
 
-import mapRef from "../../../../maps/reference.json";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
+import crosswindMap from "../../../../maps/crosswind.json";
+import faultlineMap from "../../../../maps/faultline.json";
+import marketMazeMap from "../../../../maps/market-maze.json";
+import referenceMap from "../../../../maps/reference.json";
+import splitBasinMap from "../../../../maps/split-basin.json";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -106,10 +110,30 @@ export type EntitySnapshot = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Map reference — spawns[] used for synthetic turn 0
+// Spawn lookup over canonical map JSON descriptors. The replay renderer's
+// lint boundary forbids runtime imports from `convex/engine`, so this keeps
+// turn-0 reconstruction layout-aware without duplicating descriptor content.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SPAWNS: ReadonlyArray<Tile> = mapRef.spawns;
+const MAP_SPAWNS_BY_ID = {
+  reference: referenceMap.spawns,
+  "split-basin": splitBasinMap.spawns,
+  crosswind: crosswindMap.spawns,
+  "market-maze": marketMazeMap.spawns,
+  faultline: faultlineMap.spawns,
+} satisfies Record<string, ReadonlyArray<Tile>>;
+
+function getSpawnsForMap(mapId: string): ReadonlyArray<Tile> {
+  const spawns = MAP_SPAWNS_BY_ID[mapId as keyof typeof MAP_SPAWNS_BY_ID];
+  if (!spawns) {
+    throw new Error(
+      `reconstruct: unknown map id "${mapId}". Expected one of: ${Object.keys(
+        MAP_SPAWNS_BY_ID,
+      ).join(", ")}`,
+    );
+  }
+  return spawns;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Walk
@@ -170,6 +194,9 @@ export function reconstruct(
 // ─────────────────────────────────────────────────────────────────────────────
 
 function synthesiseTurnZero(bundle: ReplayBundle): EntitySnapshot {
+  const mapId = bundle.match.mapId;
+  const spawns = getSpawnsForMap(mapId);
+
   const characters: SnapshotCharacter[] = bundle.characters.map((c) => {
     const idx = c.spawnIndex;
     if (idx === undefined || idx === null) {
@@ -177,12 +204,12 @@ function synthesiseTurnZero(bundle: ReplayBundle): EntitySnapshot {
         `reconstruct: character "${c.displayName}" (id=${c._id}) is missing spawnIndex; cannot synthesise turn-0 position.`,
       );
     }
-    if (idx < 0 || idx >= SPAWNS.length) {
+    if (idx < 0 || idx >= spawns.length) {
       throw new Error(
-        `reconstruct: character "${c.displayName}" (id=${c._id}) has spawnIndex=${idx} which is out of range for maps/reference.json spawns[] (length ${SPAWNS.length}).`,
+        `reconstruct: character "${c.displayName}" (id=${c._id}) has spawnIndex=${idx} which is out of range for map "${mapId}" spawns[] (length ${spawns.length}).`,
       );
     }
-    const spawn = SPAWNS[idx]!;
+    const spawn = spawns[idx]!;
     return {
       characterId: c._id,
       personaId: c.personaId,

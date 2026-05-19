@@ -1,0 +1,96 @@
+{
+  "_comment": "Phase-14 curated pool map: market-maze. 100x100 arena. Hand-authored asymmetric layout built from small stall-like blockers and uneven corridors. Coordinate system: (0,0) top-left, x→east, y→south. Walls + cover are axis-aligned rectangles {x,y,w,h}. Topology intent: denser than the reference map while leaving every objective reachable through open market lanes. Balance is deliberately not tuned; validity and layout variety are the goal.",
+  "size": { "w": 100, "h": 100 },
+  "walls": [
+    { "x": 0, "y": 0, "w": 100, "h": 1 },
+    { "x": 0, "y": 99, "w": 100, "h": 1 },
+    { "x": 0, "y": 1, "w": 1, "h": 98 },
+    { "x": 99, "y": 1, "w": 1, "h": 98 },
+    { "x": 14, "y": 14, "w": 10, "h": 2 },
+    { "x": 14, "y": 16, "w": 2, "h": 8 },
+    { "x": 31, "y": 10, "w": 2, "h": 13 },
+    { "x": 33, "y": 21, "w": 12, "h": 2 },
+    { "x": 59, "y": 13, "w": 14, "h": 2 },
+    { "x": 71, "y": 15, "w": 2, "h": 9 },
+    { "x": 82, "y": 24, "w": 10, "h": 2 },
+    { "x": 19, "y": 34, "w": 14, "h": 2 },
+    { "x": 31, "y": 36, "w": 2, "h": 10 },
+    { "x": 43, "y": 29, "w": 2, "h": 17 },
+    { "x": 45, "y": 29, "w": 13, "h": 2 },
+    { "x": 63, "y": 36, "w": 16, "h": 2 },
+    { "x": 77, "y": 38, "w": 2, "h": 12 },
+    { "x": 25, "y": 55, "w": 2, "h": 15 },
+    { "x": 27, "y": 67, "w": 15, "h": 2 },
+    { "x": 52, "y": 55, "w": 17, "h": 2 },
+    { "x": 52, "y": 57, "w": 2, "h": 13 },
+    { "x": 75, "y": 64, "w": 2, "h": 16 },
+    { "x": 77, "y": 78, "w": 12, "h": 2 },
+    { "x": 9, "y": 74, "w": 12, "h": 2 },
+    { "x": 20, "y": 76, "w": 2, "h": 10 },
+    { "x": 38, "y": 82, "w": 15, "h": 2 },
+    { "x": 60, "y": 83, "w": 2, "h": 10 }
+  ],
+  "coverClusters": [
+    { "x": 58, "y": 40, "w": 3, "h": 3 },
+    { "x": 65, "y": 44, "w": 4, "h": 2 },
+    { "x": 34, "y": 30, "w": 4, "h": 3 },
+    { "x": 48, "y": 49, "w": 3, "h": 5 },
+    { "x": 81, "y": 34, "w": 3, "h": 3 },
+    { "x": 12, "y": 57, "w": 4, "h": 3 },
+    { "x": 43, "y": 62, "w": 4, "h": 2 },
+    { "x": 68, "y": 60, "w": 3, "h": 3 },
+    { "x": 28, "y": 80, "w": 3, "h": 4 },
+    { "x": 73, "y": 87, "w": 4, "h": 2 }
+  ],
+  "crates": [
+    { "x": 11, "y": 23, "contents": { "category": "armour", "name": "cloth" } },
+    { "x": 28, "y": 15, "contents": { "category": "weapon", "name": "dagger" } },
+    { "x": 53, "y": 12, "contents": { "category": "armour", "name": "leather" } },
+    { "x": 86, "y": 17, "contents": { "category": "consumable", "name": "speed" } },
+    { "x": 12, "y": 43, "contents": { "category": "weapon", "name": "rusty_blade" } },
+    { "x": 36, "y": 39, "contents": { "category": "armour", "name": "chain" } },
+    { "x": 59, "y": 45, "contents": { "category": "weapon", "name": "axe" } },
+    { "x": 83, "y": 49, "contents": { "category": "consumable", "name": "heal" } },
+    { "x": 17, "y": 64, "contents": { "category": "weapon", "name": "sword" } },
+    { "x": 45, "y": 73, "contents": { "category": "armour", "name": "plate" } },
+    { "x": 65, "y": 68, "contents": { "category": "weapon", "name": "greatsword" } },
+    { "x": 87, "y": 86, "contents": { "category": "weapon", "name": "warhammer" } }
+  ],
+  "airdrops": [
+    {
+      "x": 49,
+      "y": 24,
+      "landsAtTurn": 10,
+      "contents": { "category": "armour", "name": "leather" }
+    },
+    {
+      "x": 22,
+      "y": 58,
+      "landsAtTurn": 22,
+      "contents": { "category": "weapon", "name": "sword" }
+    },
+    {
+      "x": 70,
+      "y": 70,
+      "landsAtTurn": 34,
+      "contents": { "category": "armour", "name": "plate" }
+    },
+    {
+      "x": 61,
+      "y": 43,
+      "landsAtTurn": 44,
+      "contents": { "category": "weapon", "name": "warhammer" }
+    }
+  ],
+  "spawns": [
+    { "x": 11, "y": 8 },
+    { "x": 40, "y": 6 },
+    { "x": 78, "y": 9 },
+    { "x": 93, "y": 35 },
+    { "x": 86, "y": 88 },
+    { "x": 54, "y": 94 },
+    { "x": 18, "y": 91 },
+    { "x": 6, "y": 52 }
+  ],
+  "evac": { "x": 61, "y": 43 }
+}

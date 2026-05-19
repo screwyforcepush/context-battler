@@ -22,8 +22,10 @@
 // integration test and via UAT.
 
 import { describe, expect, it } from "vitest";
-import { reconstruct, type ReplayBundle } from "../reconstruct";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
+import referenceMap from "../../../../../maps/reference.json";
+import splitBasinMap from "../../../../../maps/split-basin.json";
+import { reconstruct, type ReplayBundle } from "../reconstruct";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Fixture builders — small, eyeball-debuggable bundles. We `as`-cast through
@@ -89,6 +91,28 @@ function makeWorld(overrides: Partial<WorldStateDoc> = {}): WorldStateDoc {
     evac: { centre: { x: 5, y: 5 }, revealedAtTurn: null },
     ...overrides,
   } as WorldStateDoc;
+}
+
+function makeWorldFromSplitBasin(): WorldStateDoc {
+  return makeWorld({
+    crates: splitBasinMap.crates.map((crate) => ({
+      id: `Crate_${crate.x}_${crate.y}`,
+      pos: { x: crate.x, y: crate.y },
+      contents: crate.contents,
+      opened: false,
+    })) as WorldStateDoc["crates"],
+    airdrops: splitBasinMap.airdrops.map((drop) => ({
+      id: `Crate_${drop.x}_${drop.y}`,
+      pos: { x: drop.x, y: drop.y },
+      landsAtTurn: drop.landsAtTurn,
+      contents: drop.contents,
+      looted: false,
+    })) as WorldStateDoc["airdrops"],
+    evac: {
+      centre: { x: splitBasinMap.evac.x, y: splitBasinMap.evac.y },
+      revealedAtTurn: null,
+    },
+  });
 }
 
 function makeCharacter(
@@ -261,6 +285,31 @@ describe("reconstruct — §1.5 spawnIndex lookup", () => {
     }
   });
 
+  it("uses match.mapId to synthesize turn-0 positions for non-reference maps", () => {
+    const mapId = "split-basin";
+    expect(splitBasinMap.spawns[0]).not.toEqual(referenceMap.spawns[0]);
+
+    const charA = makeCharacter("split-a", 0);
+    const charB = makeCharacter("split-b", 7);
+    const bundle: ReplayBundle = {
+      match: makeMatch({ mapId }),
+      turns: [],
+      characters: [charA, charB],
+      worldState: makeWorldFromSplitBasin(),
+    };
+
+    const snap = reconstruct(bundle, 0);
+
+    expect(snap.characters.find((c) => c.characterId === charA._id)!.pos).toEqual(
+      splitBasinMap.spawns[0],
+    );
+    expect(snap.characters.find((c) => c.characterId === charB._id)!.pos).toEqual(
+      splitBasinMap.spawns[7],
+    );
+    expect(snap.crates).toHaveLength(splitBasinMap.crates.length);
+    expect(snap.airdrops).toHaveLength(splitBasinMap.airdrops.length);
+  });
+
   it("throws with a clear error message naming the offending character when spawnIndex is undefined", () => {
     // Synthetic invariant violation: a character row with spawnIndex stripped
     // out. The walk MUST throw rather than silently anchor at (0,0).
@@ -280,7 +329,7 @@ describe("reconstruct — §1.5 spawnIndex lookup", () => {
     expect(() => reconstruct(bundle, 0)).toThrowError(/MissingSpawn/);
   });
 
-  it("throws when spawnIndex is out of range against maps/reference.json spawns[]", () => {
+  it("throws when spawnIndex is out of range against the match map spawns[]", () => {
     const charBad = makeCharacter("a", 99, { displayName: "BadSpawn" });
     const bundle: ReplayBundle = {
       match: makeMatch(),

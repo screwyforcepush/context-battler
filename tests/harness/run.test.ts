@@ -107,6 +107,7 @@ type ReportsCreateCall = {
 type MatchesStartCall = {
   rngSeed?: string;
   reasoningEffort?: string;
+  mapId?: string;
 };
 
 function makeFakeClient(args: {
@@ -508,6 +509,44 @@ describe("harness Stage-3 wiring — reports.create persistence (D45)", () => {
       { reasoningEffort: "low", rngSeed: "phase4-d1-02" },
       { reasoningEffort: "low", rngSeed: "phase4-d1-03" },
     ]);
+  });
+
+  it("mapId: forwards explicit map selection while omitting the default path", async () => {
+    const explicitCalls: MatchesStartCall[] = [];
+    const { deps } = makeCapture();
+    const explicitClient = makeFakeClient({
+      status: { match_1: [COMPLETED_STATUS()] },
+      runs: { match_1: [RUN_ROW("match_1")] },
+      matchesStartCalls: explicitCalls,
+    });
+
+    await runHarness(
+      {
+        runs: 1,
+        concurrency: 1,
+        reasoning: "low",
+        mapId: "split-basin",
+      },
+      { ...deps, client: explicitClient } as HarnessDeps,
+    );
+
+    expect(explicitCalls).toEqual([
+      { reasoningEffort: "low", mapId: "split-basin" },
+    ]);
+
+    const defaultCalls: MatchesStartCall[] = [];
+    const defaultClient = makeFakeClient({
+      status: { match_1: [COMPLETED_STATUS()] },
+      runs: { match_1: [RUN_ROW("match_1")] },
+      matchesStartCalls: defaultCalls,
+    });
+
+    await runHarness(
+      { runs: 1, concurrency: 1, reasoning: "low" },
+      { ...deps, client: defaultClient } as HarnessDeps,
+    );
+
+    expect(defaultCalls).toEqual([{ reasoningEffort: "low" }]);
   });
 
   it("missing-runs-row partial: 2 completed-with-row + 1 completed-without-row → reports:create called with 2 matchIds (the present-rows set)", async () => {

@@ -1,15 +1,9 @@
 // WP10 — match lifecycle public surface (default Convex runtime).
 //
 // Three exports: `start` (mutation), `get` (query), `status` (query).
-// All use the default Convex runtime — no `"use node"` directive — which
-// means **no fs access** in this module. The map descriptor is therefore
-// loaded via an `import` of `maps/reference.json` (resolved by `tsconfig`'s
-// `resolveJsonModule: true`); the pure expansion + persona-spawn-assignment
-// helpers are reimplemented INLINE here rather than imported from
-// `convex/engine/map.ts`, because that module's top-level `node:fs` import
-// is not resolvable by Convex's default-runtime bundler. The inline
-// implementations are byte-equivalent to the engine module so they
-// round-trip with the engine's tests.
+// All use the default Convex runtime — no `"use node"` directive. Map
+// descriptors, world expansion, and spawn assignment resolve through the
+// fs-free registry in `convex/engine/map.ts`.
 //
 // `runMatch.ts` is the per-turn action and lives in the node runtime
 // (`"use node"`) so it can call `loadPersonas()` per turn (WP9 contract).
@@ -18,8 +12,8 @@
 //   - ADR §6 — locks the schema rows this module writes/reads.
 //   - ADR §7 — the trace-introspection contract `status` exposes for harness.
 //   - work-packages.md WP10 — defines the public surface (start/get/status).
-//   - convex/engine/loot.ts — `makeRng` (pure, fs-free).
-//   - convex/engine/types.ts — `PERSONA_IDS`, `MapDescriptor`.
+//   - convex/engine/map.ts — descriptor registry, expander, spawn assignment.
+//   - convex/engine/types.ts — `PERSONA_IDS`.
 
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server.js";
@@ -27,29 +21,20 @@ import { api } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import { reasoningEffortValidator } from "./schema.js";
-// loot.ts is fs-free; safe to import from default-runtime module.
-import { makeRng } from "./engine/loot.js";
+import {
+  DEFAULT_MAP_ID,
+  assignItemsToSpawns,
+  assignPersonasToSpawns,
+  expandMap,
+  getMapDescriptor,
+} from "./engine/map.js";
 import {
   CARD_MATCH_AGENT_COUNT,
   validateCardMatchAgentNames,
   type CardMatchAgentNameValidationError,
 } from "./engine/cardMatchAgentNames.js";
 import { CHARACTER_MAX_HP, PERSONA_IDS, titleCase } from "./engine/types.js";
-import type {
-  AirdropState,
-  CrateState,
-  EvacZone,
-  MapDescriptor,
-  PersonaId,
-  Tile,
-  Wall,
-  WorldState,
-} from "./engine/types.js";
-// Inline JSON import of the reference map descriptor. tsconfig has
-// `resolveJsonModule: true`; Convex's esbuild-based bundler also handles
-// JSON imports natively, so this works in the default runtime without
-// needing fs (which is unavailable outside `"use node"` files).
-import referenceMapJson from "../maps/reference.json" with { type: "json" };
+import type { WorldState } from "./engine/types.js";
 
 /**
  * Generate a fresh rng seed string when the caller doesn't supply one.
@@ -61,146 +46,26 @@ function defaultRngSeed(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/**
- * Load the reference map descriptor from the inline JSON import. Strips
- * the `_comment` doc field if present so the returned shape matches
- * `MapDescriptor` exactly (mirrors `loadReferenceMap()`'s normalisation).
- */
-function getReferenceMapDescriptor(): MapDescriptor {
-  const parsed = referenceMapJson as MapDescriptor & { _comment?: string };
-  return {
-    size: parsed.size,
-    walls: parsed.walls,
-    coverClusters: parsed.coverClusters,
-    crates: parsed.crates,
-    airdrops: parsed.airdrops,
-    spawns: parsed.spawns,
-    evac: parsed.evac,
-  };
-}
-
-// ─── Inline reimplementation of pure helpers from convex/engine/map.ts ────
-//
-// These are byte-equivalent to the engine module. They live here only
-// because Convex's default-runtime bundler cannot resolve `node:fs` —
-// which `convex/engine/map.ts` imports at module top-level for the
-// `loadReferenceMap()` helper, even though we don't call that one. The
-// `loot.ts`'s `makeRng` primitive IS fs-free and we re-use it directly
-// for spawn assignment. WP15 / future engine refactors that move
-// `loadReferenceMap` out of `engine/map.ts` can collapse this back into
-// a direct import.
-
-/** Unroll an axis-aligned rectangle into the list of `Tile`s it covers. */
-function rectToTiles(rect: Wall): Tile[] {
-  const tiles: Tile[] = [];
-  for (let dx = 0; dx < rect.w; dx++) {
-    for (let dy = 0; dy < rect.h; dy++) {
-      tiles.push({ x: rect.x + dx, y: rect.y + dy });
-    }
-  }
-  return tiles;
-}
-
-/**
- * Mirror of `convex/engine/map.ts` `expandMap`. Pure; crate ids are
- * coord-encoded (`Crate_<x>_<y>`) and contents are hand-authored.
- */
-export function expandMapInline(
-  descriptor: MapDescriptor,
-  _rngSeed: string,
-): WorldState {
-  const coverTiles: Tile[] = [];
-  for (const cluster of descriptor.coverClusters) {
-    coverTiles.push(...rectToTiles(cluster));
-  }
-
-  const crates: CrateState[] = descriptor.crates.map((c) => {
-    const crateId = `Crate_${c.x}_${c.y}`;
-    return {
-      id: crateId,
-      pos: { x: c.x, y: c.y },
-      contents: { ...c.contents },
-      opened: false,
-    };
-  });
-
-  const airdrops: AirdropState[] = descriptor.airdrops.map((drop) => ({
-    id: `Crate_${drop.x}_${drop.y}`,
-    pos: { x: drop.x, y: drop.y },
-    landsAtTurn: drop.landsAtTurn,
-    contents: { ...drop.contents },
-    looted: false,
-  }));
-
-  const evac: EvacZone = {
-    centre: { x: descriptor.evac.x, y: descriptor.evac.y },
-    revealedAtTurn: null,
-  };
-
-  return {
-    size: descriptor.size,
-    walls: descriptor.walls,
-    coverClusters: descriptor.coverClusters,
-    coverTiles,
-    crates,
-    airdrops,
-    corpses: [],
-    evac,
-  };
-}
-
-/**
- * Mirror of `convex/engine/map.ts` `assignPersonasToSpawns`. Fisher–Yates
- * shuffle on `[0..N)` driven by `makeRng(seed + ":spawnAssign")`.
- * Determinism: same `seed` + same `personas` ordering → identical mapping.
- */
-export function assignItemsToSpawnsInline<T>(
-  rngSeed: string,
-  items: readonly T[],
-): Array<{ item: T; spawnIndex: number }> {
-  const n = items.length;
-  const indices = Array.from({ length: n }, (_, i) => i);
-  const rng = makeRng(`${rngSeed}:spawnAssign`);
-  for (let i = n - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    const safeJ = j > i ? i : j;
-    const tmp = indices[i] as number;
-    indices[i] = indices[safeJ] as number;
-    indices[safeJ] = tmp;
-  }
-  return items.map((item, i) => ({
-    item,
-    spawnIndex: indices[i] as number,
-  }));
-}
-
-function assignPersonasToSpawnsInline(
-  rngSeed: string,
-  personas: readonly PersonaId[],
-): Array<{ personaId: PersonaId; spawnIndex: number }> {
-  return assignItemsToSpawnsInline(rngSeed, personas).map(
-    ({ item: personaId, spawnIndex }) => ({
-      personaId,
-      spawnIndex,
-    }),
-  );
-}
-
 type MatchStartArgs = {
   rngSeed?: string;
   reasoningEffort?: "low" | "medium" | "high";
+  mapId?: string;
 };
 
 async function insertMatchScaffold(
   ctx: MutationCtx,
-  args: { rngSeed: string; reasoningEffort?: "low" | "medium" | "high" },
+  args: {
+    rngSeed: string;
+    mapId: string;
+    reasoningEffort?: "low" | "medium" | "high";
+  },
 ): Promise<Id<"matches">> {
   return await ctx.db.insert("matches", {
     status: "pending",
     turn: 0,
     startedAt: Date.now(),
     completedAt: null,
-    mapId: "reference",
+    mapId: args.mapId,
     rngSeed: args.rngSeed,
     // Persist reasoning effort if supplied; absent → runMatch defaults
     // to "low". We only set the field when the caller passed a value so
@@ -349,12 +214,12 @@ async function ensureCardPromptRowsExist(
  *
  * Steps:
  *   1. Insert `matches` row with `status="pending"`, `turn=0`,
- *      `mapId="reference"`, the resolved (or generated) `rngSeed`, and
+ *      the resolved `mapId`, the resolved (or generated) `rngSeed`, and
  *      empty `outcome` / no `failure`.
- *   2. Build the world rows by expanding the reference descriptor
- *      with `rngSeed` (deterministic per ADR §5): static terrain goes to
+ *   2. Build the world rows by expanding the selected descriptor with
+ *      `rngSeed` (deterministic per ADR §5): static terrain goes to
  *      `worldStatic`, dynamic match entities go to `worldState`.
- *   3. Compute persona-to-spawn permutation via the inline mirror of
+ *   3. Compute persona-to-spawn permutation via
  *      `assignPersonasToSpawns(rngSeed, PERSONA_IDS)`.
  *   4. Insert 8 `characters` rows (one per persona), seeded with HP =
  *      `CHARACTER_MAX_HP` (the shared phase-1 tuning constant; see
@@ -370,6 +235,7 @@ async function ensureCardPromptRowsExist(
 export const start = mutation({
   args: {
     rngSeed: v.optional(v.string()),
+    mapId: v.optional(v.string()),
     // WP10.5 A5 — Azure `reasoning.effort` knob, plumbed end-to-end from the
     // harness CLI. Optional; defaults to "low" (de-risking.md "Reasoning
     // policy"). `runMatch.advanceTurn` reads this back from the matches row
@@ -379,18 +245,25 @@ export const start = mutation({
   returns: v.id("matches"),
   handler: async (ctx, args) => {
     const rngSeed = args.rngSeed ?? defaultRngSeed();
-    const descriptor = getReferenceMapDescriptor();
-    const world = expandMapInline(descriptor, rngSeed);
+    const mapId = args.mapId ?? DEFAULT_MAP_ID;
+    const descriptor = getMapDescriptor(mapId);
+    const world = expandMap(descriptor, rngSeed);
 
     // 1. Insert matches row.
-    const matchId = await insertMatchScaffold(ctx, { ...args, rngSeed });
+    const matchId = await insertMatchScaffold(ctx, {
+      rngSeed,
+      mapId,
+      ...(args.reasoningEffort !== undefined
+        ? { reasoningEffort: args.reasoningEffort }
+        : {}),
+    });
 
     // 2. Insert world rows. Static terrain is immutable post-spawn and lives
     //    outside the per-turn worldState read path.
     await insertWorldRows(ctx, matchId, world);
 
     // 3. + 4. Insert 8 characters using the seeded persona-to-spawn map.
-    const assignment = assignPersonasToSpawnsInline(rngSeed, PERSONA_IDS);
+    const assignment = assignPersonasToSpawns(rngSeed, PERSONA_IDS);
     const spawns = descriptor.spawns;
     for (const { personaId, spawnIndex } of assignment) {
       const spawn = spawns[spawnIndex];
@@ -438,22 +311,31 @@ export const startFromCards = mutation({
   args: {
     cardIds: v.array(v.id("cards")),
     rngSeed: v.optional(v.string()),
+    mapId: v.optional(v.string()),
     reasoningEffort: v.optional(reasoningEffortValidator),
   },
   returns: v.id("matches"),
   handler: async (ctx, args: MatchStartArgs & { cardIds: Id<"cards">[] }) => {
     validateCardIds(args.cardIds);
+    const rngSeed = args.rngSeed ?? defaultRngSeed();
+    const mapId = args.mapId ?? DEFAULT_MAP_ID;
+    const descriptor = getMapDescriptor(mapId);
+    const world = expandMap(descriptor, rngSeed);
+
     const cards = await loadCardsForMatch(ctx, args.cardIds);
     const displayNamesByCardId = validateCardDisplayNames(cards);
     await ensureCardPromptRowsExist(ctx, cards);
 
-    const rngSeed = args.rngSeed ?? defaultRngSeed();
-    const descriptor = getReferenceMapDescriptor();
-    const world = expandMapInline(descriptor, rngSeed);
-    const matchId = await insertMatchScaffold(ctx, { ...args, rngSeed });
+    const matchId = await insertMatchScaffold(ctx, {
+      rngSeed,
+      mapId,
+      ...(args.reasoningEffort !== undefined
+        ? { reasoningEffort: args.reasoningEffort }
+        : {}),
+    });
     await insertWorldRows(ctx, matchId, world);
 
-    const assignment = assignItemsToSpawnsInline(rngSeed, cards);
+    const assignment = assignItemsToSpawns(rngSeed, cards);
     const spawns = descriptor.spawns;
     for (const { item: card, spawnIndex } of assignment) {
       const spawn = spawns[spawnIndex];

@@ -1,0 +1,89 @@
+{
+  "_comment": "Phase-14 curated pool map: split-basin. 100x100 arena. Hand-authored asymmetric layout with two uneven basin lanes divided by broken retaining walls and off-centre dam fragments. Coordinate system: (0,0) top-left, x→east, y→south. Walls + cover are axis-aligned rectangles {x,y,w,h}. Topology intent: left/right traversal is pressured through staggered northern, central, and southern gaps rather than a mirrored centre room. Balance is deliberately not tuned; validity and layout variety are the goal.",
+  "size": { "w": 100, "h": 100 },
+  "walls": [
+    { "x": 0, "y": 0, "w": 100, "h": 1 },
+    { "x": 0, "y": 99, "w": 100, "h": 1 },
+    { "x": 0, "y": 1, "w": 1, "h": 98 },
+    { "x": 99, "y": 1, "w": 1, "h": 98 },
+    { "x": 46, "y": 8, "w": 3, "h": 24 },
+    { "x": 52, "y": 37, "w": 2, "h": 18 },
+    { "x": 43, "y": 61, "w": 3, "h": 27 },
+    { "x": 55, "y": 70, "w": 2, "h": 16 },
+    { "x": 13, "y": 28, "w": 25, "h": 2 },
+    { "x": 61, "y": 20, "w": 26, "h": 2 },
+    { "x": 8, "y": 66, "w": 30, "h": 2 },
+    { "x": 62, "y": 57, "w": 28, "h": 2 },
+    { "x": 25, "y": 42, "w": 2, "h": 17 },
+    { "x": 27, "y": 42, "w": 15, "h": 2 },
+    { "x": 70, "y": 35, "w": 2, "h": 18 },
+    { "x": 57, "y": 51, "w": 15, "h": 2 },
+    { "x": 34, "y": 12, "w": 5, "h": 3 },
+    { "x": 72, "y": 76, "w": 9, "h": 2 },
+    { "x": 18, "y": 8, "w": 2, "h": 9 },
+    { "x": 82, "y": 82, "w": 2, "h": 10 }
+  ],
+  "coverClusters": [
+    { "x": 54, "y": 47, "w": 3, "h": 2 },
+    { "x": 60, "y": 53, "w": 2, "h": 3 },
+    { "x": 17, "y": 31, "w": 4, "h": 3 },
+    { "x": 33, "y": 56, "w": 3, "h": 4 },
+    { "x": 72, "y": 27, "w": 5, "h": 2 },
+    { "x": 84, "y": 50, "w": 3, "h": 4 },
+    { "x": 12, "y": 78, "w": 3, "h": 5 },
+    { "x": 64, "y": 76, "w": 4, "h": 3 },
+    { "x": 40, "y": 22, "w": 2, "h": 4 },
+    { "x": 25, "y": 11, "w": 4, "h": 2 }
+  ],
+  "crates": [
+    { "x": 9, "y": 20, "contents": { "category": "armour", "name": "cloth" } },
+    { "x": 30, "y": 15, "contents": { "category": "weapon", "name": "dagger" } },
+    { "x": 67, "y": 14, "contents": { "category": "armour", "name": "leather" } },
+    { "x": 90, "y": 27, "contents": { "category": "consumable", "name": "speed" } },
+    { "x": 15, "y": 55, "contents": { "category": "weapon", "name": "rusty_blade" } },
+    { "x": 37, "y": 47, "contents": { "category": "armour", "name": "chain" } },
+    { "x": 58, "y": 42, "contents": { "category": "weapon", "name": "axe" } },
+    { "x": 77, "y": 47, "contents": { "category": "consumable", "name": "heal" } },
+    { "x": 24, "y": 76, "contents": { "category": "weapon", "name": "sword" } },
+    { "x": 53, "y": 66, "contents": { "category": "armour", "name": "plate" } },
+    { "x": 68, "y": 85, "contents": { "category": "weapon", "name": "greatsword" } },
+    { "x": 88, "y": 71, "contents": { "category": "weapon", "name": "warhammer" } }
+  ],
+  "airdrops": [
+    {
+      "x": 49,
+      "y": 35,
+      "landsAtTurn": 9,
+      "contents": { "category": "armour", "name": "leather" }
+    },
+    {
+      "x": 18,
+      "y": 72,
+      "landsAtTurn": 21,
+      "contents": { "category": "weapon", "name": "axe" }
+    },
+    {
+      "x": 83,
+      "y": 63,
+      "landsAtTurn": 33,
+      "contents": { "category": "armour", "name": "plate" }
+    },
+    {
+      "x": 58,
+      "y": 50,
+      "landsAtTurn": 43,
+      "contents": { "category": "weapon", "name": "warhammer" }
+    }
+  ],
+  "spawns": [
+    { "x": 10, "y": 8 },
+    { "x": 38, "y": 8 },
+    { "x": 76, "y": 10 },
+    { "x": 91, "y": 39 },
+    { "x": 84, "y": 88 },
+    { "x": 57, "y": 91 },
+    { "x": 21, "y": 82 },
+    { "x": 8, "y": 49 }
+  ],
+  "evac": { "x": 58, "y": 50 }
+}
