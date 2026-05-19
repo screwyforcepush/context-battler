@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>Context Battler - PlayCanvas Telefrag Prototype</title>
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="renderCanvas" aria-label="PlayCanvas telefrag prototype scene"></canvas>
+      <section id="statusOverlay" aria-live="polite">
+        <div id="backendLabel">Backend: starting</div>
+        <div id="snapshotLabel">Snapshot: loading</div>
+      </section>
+      <button id="cameraToggle" type="button" title="Release follow anchor">
+        [*] Follow
+      </button>
+      <section id="errorPanel" aria-live="assertive" hidden></section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

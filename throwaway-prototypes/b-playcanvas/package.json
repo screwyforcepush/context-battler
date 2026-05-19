@@ -1,0 +1,23 @@
+{
+  "name": "@context-battler/throwaway-b-playcanvas",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway PlayCanvas telefrag renderer prototype.",
+  "scripts": {
+    "sync:harness": "node scripts/sync-shared-harness.mjs",
+    "predev": "npm run sync:harness",
+    "dev": "vite",
+    "prebuild": "npm run sync:harness",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "playcanvas": "2.18.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vite": "^5.4.11"
+  }
+}
