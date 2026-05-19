@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "kitName": "prototype-1-fixed-art-kit",
+  "purpose": "Minimal fixed GLB kit shared by throwaway replay-render prototypes for the airdrop-telefrag money shot.",
+  "source": {
+    "title": "Ultimate Space Kit by Quaternius",
+    "creator": "Quaternius",
+    "repository": "OpenGameArt",
+    "openGameArtPage": "https://opengameart.org/content/ultimate-space-kit-by-quaternius",
+    "downloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
+    "upstreamPackPage": "https://quaternius.com/packs/ultimatespacekit.html"
+  },
+  "license": {
+    "spdx": "CC0-1.0",
+    "name": "CC0 1.0 Universal / Public Domain",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "attributionRequired": false,
+    "notes": "OpenGameArt lists the pack license as CC0. Quaternius also lists Ultimate Space Kit as CC0. Credit is still documented here for provenance."
+  },
+  "extraction": {
+    "sourceArchive": "/tmp/context-battler-assets/ultimate_space_kit-glb.zip",
+    "fallbackDownloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
+    "selectedOnly": true
+  },
+  "assets": [
+    {
+      "id": "agent.astronaut",
+      "file": "Astronaut.glb",
+      "sourceArchivePath": "Astronaut.glb",
+      "role": "animated agent",
+      "sizeBytes": 701328,
+      "sha256": "0ff4594de44e0cd3339373f80cc734e69fd139c4457812efe9a761a72c8a541d"
+    },
+    {
+      "id": "objective.airdrop_crate",
+      "file": "Pickup Crate.glb",
+      "sourceArchivePath": "Pickup Crate.glb",
+      "role": "airdrop crate",
+      "sizeBytes": 75296,
+      "sha256": "3428e5339fe362eebf463f12ec7321951e4972e501fc953c02e4dd74c3e77b52"
+    },
+    {
+      "id": "environment.base_large",
+      "file": "Base Large.glb",
+      "sourceArchivePath": "Base Large.glb",
+      "role": "environment prop",
+      "sizeBytes": 124868,
+      "sha256": "7da734f2c43a3bee511a94e00ec45826d153ba8182bda64e96409ca9d946d5b1"
+    },
+    {
+      "id": "environment.building_l",
+      "file": "Building L.glb",
+      "sourceArchivePath": "Building L.glb",
+      "role": "environment prop",
+      "sizeBytes": 109256,
+      "sha256": "7351519a381d23ca29f32167206a5c277b7aca286be8a568c962d6db7710609f"
+    }
+  ],
+  "notes": [
+    "This is a throwaway sourced art kit for prototype substrate comparison, not production art.",
+    "Keep the file set fixed so every prototype renders against the same shared baseline."
+  ]
+}

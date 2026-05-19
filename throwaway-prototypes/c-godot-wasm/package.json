@@ -1,0 +1,15 @@
+{
+  "name": "@context-battler/throwaway-c-godot-wasm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway Godot 4 WASM telefrag renderer prototype.",
+  "scripts": {
+    "sync:harness": "node scripts/sync-shared-harness.mjs",
+    "prebuild": "npm run sync:harness",
+    "build": "node scripts/export-web.mjs",
+    "serve": "node scripts/serve.mjs",
+    "measure": "node scripts/measure-scorecard.mjs --out scorecard-measurement.json",
+    "capture": "node scripts/capture-telefrag.mjs"
+  }
+}
