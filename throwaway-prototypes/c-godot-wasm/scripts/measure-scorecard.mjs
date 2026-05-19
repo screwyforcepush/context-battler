@@ -30,7 +30,7 @@ const PROFILE = {
 const DEFAULT_READY_EXPRESSION = [
   "window.__telefragReady === true",
   "window.__prototypeReady === true",
-  'typeof window.__telefragReadyAt === "number"',
+  'typeof window.__telefragReadyAt === "number" && window.__telefragReadyAt > 0',
   'document.documentElement.dataset.ready === "true"',
   'document.body && document.body.dataset.ready === "true"',
   'document.querySelector("#cameraToggle")?.textContent?.includes("Follow")',
@@ -320,6 +320,7 @@ async function launchChrome(opts) {
     "--headless=new",
     "--no-sandbox",
     "--disable-dev-shm-usage",
+    "--enable-unsafe-swiftshader",
     "--hide-scrollbars",
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${userDataDir}`,

@@ -1,5 +1,6 @@
 node_modules/
 *.tmp
+scorecard-measurement.json
 .godot/
 src/*.gd.uid
 shared-harness/art-kit/*.import

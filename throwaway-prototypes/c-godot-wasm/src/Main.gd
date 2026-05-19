@@ -578,7 +578,7 @@ func _interpolate_frames(a: Dictionary, b: Dictionary, t: float) -> Dictionary:
 		var char_b: Dictionary = b_by_id.get(id, char_a)
 		var pos_a: Dictionary = char_a.get("pos", {"x": 0, "y": 0})
 		var pos_b: Dictionary = char_b.get("pos", pos_a)
-			var merged: Dictionary = char_a.duplicate(true)
+		var merged: Dictionary = char_a.duplicate(true)
 		merged["alive"] = bool(char_a.get("alive", true)) and bool(char_b.get("alive", true))
 		merged["pos"] = {
 			"x": lerp(float(pos_a.get("x", 0)), float(pos_b.get("x", 0)), t),
