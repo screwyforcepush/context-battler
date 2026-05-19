@@ -4,6 +4,13 @@ import { createPlayCanvasApp } from "./engine";
 import { createTelefragScene } from "./scene";
 import { loadReplaySnapshot } from "./snapshot";
 
+declare global {
+  interface Window {
+    __telefragReady?: boolean;
+    __telefragReadyAt?: number;
+  }
+}
+
 const canvas = document.querySelector<HTMLCanvasElement>("#renderCanvas");
 const backendLabel = document.querySelector<HTMLElement>("#backendLabel");
 const snapshotLabel = document.querySelector<HTMLElement>("#snapshotLabel");
@@ -22,7 +29,15 @@ const dom = {
   cameraToggle,
 };
 
+function getPlaybackSpeed(): number {
+  const raw = new URLSearchParams(window.location.search).get("speed");
+  const parsed = raw === null ? 1 : Number(raw);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(6, Math.max(0.25, parsed));
+}
+
 async function boot(): Promise<void> {
+  const playbackSpeed = getPlaybackSpeed();
   const loadResult = await loadReplaySnapshot();
   dom.snapshotLabel.textContent =
     loadResult.source === "shared-harness"
@@ -52,13 +67,17 @@ async function boot(): Promise<void> {
   syncCameraButton();
 
   app.on("update", (dt: number) => {
-    controller.update(Math.min(dt, 0.05));
+    controller.update(Math.min(dt, 0.18) * playbackSpeed);
   });
 
   window.addEventListener("resize", () => {
     app.resizeCanvas();
     app.updateCanvasSize();
   });
+
+  window.__telefragReady = true;
+  window.__telefragReadyAt = performance.now();
+  document.documentElement.dataset.ready = "true";
 
   app.start();
 }

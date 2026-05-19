@@ -101,6 +101,8 @@ export async function createTelefragScene(
   const mist = createMist(app, materials.mist);
   const shockwave = addPrimitive(app, app.root, "impact-shockwave", "torus", materials.shock);
   shockwave.enabled = false;
+  const impactCloud = addPrimitive(app, app.root, "impact-red-cloud", "sphere", materials.red);
+  impactCloud.enabled = false;
 
   const impactLight = new Entity("impact-light", app);
   impactLight.addComponent("light", {
@@ -135,9 +137,21 @@ export async function createTelefragScene(
         mist.trigger(toScenePosition(snapshot.map, drop.pos, 0.72));
         impactPulse = 1;
       }
+      const impactWindow = virtualTurn - drop.landsAtTurn;
+      if (impactWindow >= 0 && impactWindow <= 0.75) {
+        impactPulse = Math.max(impactPulse, 1 - impactWindow / 0.75);
+      }
 
-      impactPulse = Math.max(0, impactPulse - dt * 0.9);
-      updateImpact(shockwave, materials.shock, impactLight, snapshot.map, drop.pos, impactPulse);
+      impactPulse = Math.max(0, impactPulse - dt * 0.32);
+      updateImpact(
+        shockwave,
+        impactCloud,
+        materials.shock,
+        impactLight,
+        snapshot.map,
+        drop.pos,
+        impactPulse,
+      );
       mist.update(dt);
       orbit.update(dt);
       if (postFrame) postFrame.update();
@@ -601,6 +615,7 @@ function updateAirdrop(
 
 function updateImpact(
   ring: Entity,
+  cloud: Entity,
   shockMaterial: StandardMaterial,
   light: Entity,
   map: MapDescriptor,
@@ -609,6 +624,7 @@ function updateImpact(
 ): void {
   if (pulse <= 0) {
     ring.enabled = false;
+    cloud.enabled = false;
     shockMaterial.opacity = 0;
     shockMaterial.update();
     setLightIntensity(light, 0);
@@ -616,10 +632,13 @@ function updateImpact(
   }
 
   ring.enabled = true;
+  cloud.enabled = true;
   const inverse = 1 - pulse;
   const scale = 1.2 + inverse * 8.4;
   ring.setPosition(toScenePosition(map, pos, 0.12));
   ring.setLocalScale(scale, 0.1, scale);
+  cloud.setPosition(toScenePosition(map, pos, 0.62 + pulse * 0.35));
+  cloud.setLocalScale(1.2 + inverse * 2.8, 0.42 + pulse * 0.32, 1.2 + inverse * 2.8);
   shockMaterial.opacity = 0.82 * pulse;
   shockMaterial.emissiveIntensity = 4 + pulse * 8;
   shockMaterial.update();
@@ -668,9 +687,9 @@ function createMist(app: Application, mistMaterial: StandardMaterial) {
           0.65 + seeded(index + 29, burstSeed) * 3.7,
           Math.sin(angle) * speed,
         );
-        particle.life = 0.42 + seeded(index + 43, burstSeed) * 0.92;
+        particle.life = 1.1 + seeded(index + 43, burstSeed) * 1.7;
         particle.age = -seeded(index + 59, burstSeed) * 0.12;
-        particle.baseScale = 0.1 + seeded(index + 71, burstSeed) * 0.34;
+        particle.baseScale = 0.18 + seeded(index + 71, burstSeed) * 0.46;
         particle.spin.set(
           -220 + seeded(index + 83, burstSeed) * 440,
           -220 + seeded(index + 97, burstSeed) * 440,
