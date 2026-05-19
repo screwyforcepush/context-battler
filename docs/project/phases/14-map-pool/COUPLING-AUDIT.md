@@ -13,7 +13,7 @@ report and not a balance/taste review.
 | Single map source / expand seam | fixed-now | Implemented in `convex/engine/map.ts`; `convex/matches.ts` resolves descriptors and expansion through that engine module. |
 | Magic-number grid dimensions / camera | non-issue this round | All five descriptors are 100x100, so `Grid.tsx`'s 100x100 SVG camera still frames every phase-14 map. Variable arena size belongs to the RNG slice. |
 | Coordinate-pinned test fixtures | fixed-now | Reference literal fixtures remain reference-scoped. New-map coverage is structural and parametrized over the registry. |
-| Replay reconstruction turn-zero spawns | fixed-now | Fixed: `reconstruct.ts` now resolves spawns from `bundle.match.mapId`, with a non-reference reconstruction test. A stricter renderer boundary can move this into replay state during the RNG slice. |
+| Replay reconstruction turn-zero spawns | fixed-now | Fixed: `reconstruct.ts` now resolves spawns from `bundle.match.mapId`, with an all-5 parametrized reconstruction test. A stricter renderer boundary can move this into replay state during the RNG slice. |
 | Cross-run-comparability UX | defer-to-RNG-slice | The substrate default stays pinned to `reference`; future seeded curated-pool selection owns map labels, comparison grouping, and daily-seed UX. |
 
 ## Registry And Seam Evidence
@@ -116,9 +116,13 @@ Observed coupling:
 - `apps/replay/src/lib/reconstruct.ts:170-188` resolves
   `const mapId = bundle.match.mapId`, uses that map's `spawns`, and
   validates `spawnIndex` against the selected map.
-- `apps/replay/src/lib/__tests__/reconstruct.test.ts:274-300` proves a
-  `split-basin` replay synthesizes turn-zero positions from the
-  non-reference descriptor.
+- `apps/replay/src/lib/__tests__/reconstruct.test.ts:309-327`
+  parametrizes turn-zero spawn reconstruction over all five registered
+  map ids and asserts reconstructed positions equal each selected
+  descriptor's spawn list.
+- `apps/replay/src/lib/__tests__/reconstruct.test.ts:329-354` asserts
+  the replay-local spawn registry key set stays aligned with the
+  test-local engine map id fixture.
 - `apps/replay/vite.config.ts:3-8` and `apps/replay/vite.config.ts:25-28`
   document the cross-root JSON import allowance for `maps/*.json`.
 
@@ -126,10 +130,10 @@ Decision:
 
 Class: fixed-now.
 
-Impact: the hardcoded reference-spawn assumption is fixed. Non-reference
-matches now reconstruct turn zero from the selected descriptor rather
-than from `maps/reference.json`, satisfying the replay reconstruction
-canary for the data contract.
+Impact: the hardcoded reference-spawn assumption is fixed. Every
+registered map now reconstructs turn zero from the selected descriptor
+rather than from `maps/reference.json`, satisfying the replay
+reconstruction canary for the data contract.
 
 Residual note: this is still a small renderer-side descriptor lookup,
 not replay state. It is acceptable for phase 14 because it consumes the

@@ -1,9 +1,11 @@
 # Phase 14 — Map Pool (Curated Asymmetric Maps + Renderer Coupling Audit)
 
-> **Status:** planned 2026-05-19. Lightweight substrate carve, **phase-08
-> weight class**: no closing-report run, **no second plan-review**, no
-> behaviour-tuning. Standard gates only (lint, typecheck, test, build,
-> build:replay) plus the harness-parity HARD GATE.
+> **Status:** **DELIVERED** 2026-05-19 — commit `ec9a490`. Lightweight
+> substrate carve, **phase-08 weight class**: no closing-report run, **no
+> second plan-review**, no behaviour-tuning. Standard gates green (lint,
+> typecheck, test 870 pass / 2 pre-existing skip, build, build:replay)
+> plus the harness-parity HARD GATE passed. See §10 for AC disposition
+> and RNG-slice handoff.
 >
 > Canonical intent anchors:
 > - [`docs/project/spec/mental-model.md`](../../spec/mental-model.md) §10
@@ -308,31 +310,35 @@ Maps 1:1 to North Star AC1–6:
    gates green (lint, ts:check, test, build, build:replay); **no
    closing-report run; no second plan-review.**
 
-## 7. Decisions Taken (ratify or override before dispatch)
+## 7. Decisions — ratified as-built
 
 - **D1 — Descriptor home is repo-root `maps/`, not `convex/maps/`.**
-  The North Star / assignment say `convex/maps/`; the *actual* import
-  path is repo-root `maps/` (`engine/map.ts` → `../../maps/`,
-  `matches.ts` → `../maps/`; `maps/reference.json` is the live exemplar).
-  Resolved to `maps/` — the North Star phrasing is path imprecision; the
-  intent ("alongside `reference.json`, one registry") is honoured.
-- **D2 — All 4 new maps are 100×100 (same as reference).** Variety comes
-  from topology, not arena dimensions. Keeps the substrate-proof harness
-  comparable (§10), keeps the Grid.tsx camera coupling a clean *non-issue
-  this round*, and lets the audit cleanly **defer** variable arena size
-  to the RNG slice. Differing sizes are explicitly out of this carve.
-- **D3 — Seam fully collapsed (recommended), bundler-verified.** WP1
-  deletes the inline mirror and imports the engine expander/registry
-  directly (the stale-comment node:fs rationale no longer holds). The
-  §3.2 fallback is the documented escape hatch only if real
-  build+codegen verification fails — not a default.
-- **D4 — Harness matrix surface: `--map` single flag + a thin matrix
-  driver reusing `runHarness`/`runOne`.** No new heavy machinery;
-  implementer may instead loop `run.ts --map` if cleaner.
-- **D5 — "Exercise replay reconstruction" = a `reconstruct.ts`
-  integration check over a non-reference world snapshot.** Confirms the
-  renderer is layout-agnostic at the data contract without standing up
-  the UI.
+  ✅ Ratified as-built. All 5 descriptors live under `maps/`; engine
+  imports via `../../maps/`, matches via `../maps/`. The North Star
+  phrasing was path imprecision; the intent is honoured.
+- **D2 — All 4 new maps are 100×100 (same as reference).**
+  ✅ Ratified as-built. Topology varies; arena size stays stable. Grid.tsx
+  camera coupling is a clean non-issue this round; variable arena size
+  deferred to the RNG slice.
+- **D3 — Seam fully collapsed by construction (recommended path).**
+  ✅ Ratified as-built — **resolved to the recommended collapse path, NOT
+  the fallback.** `expandMapInline`, the inline loader, and inline
+  assigners are physically deleted from `convex/matches.ts`. Both
+  `matches.start` and `matches.startFromCards` import
+  `getMapDescriptor`/`expandMap`/`assignPersonasToSpawns` from
+  `./engine/map.js`. Build + `convex codegen` verified green. The §3.2
+  equality-test fallback was not needed.
+- **D4 — Harness matrix surface: `--map` single flag.**
+  ✅ Ratified as-built. `harness/run.ts --map <id>` plumbed end-to-end;
+  matrix runs executed by looping `run.ts --map` per map.
+- **D5 — Replay reconstruction = `reconstruct.ts` integration check.**
+  ✅ Ratified as-built. `reconstruct.ts` resolves turn-0 spawns from
+  `bundle.match.mapId` via a replay-local registry mirror (lint blocks
+  `convex/engine/**` import). The closure-hardening test covers all 5
+  registered maps plus replay-local key-set parity.
+- **D6 — No plan-review job.**
+  ✅ Ratified as-built. Phase-08 weight class honoured: no second
+  plan-review, no closing-report run.
 
 ## 8. Ambiguities / Questions for PM
 
@@ -358,5 +364,66 @@ Maps 1:1 to North Star AC1–6:
    as audit evidence — not a gate.
 
 **Spec artifact:** `docs/project/phases/14-map-pool/README.md`
-</content>
-</invoke>
+
+---
+
+## 10. Phase-14 Completion
+
+**Commit:** `ec9a490` (2026-05-19). Phase-08 weight class — no closing
+report, no second plan-review.
+
+### What shipped
+
+A single map registry (`MAP_REGISTRY` in `convex/engine/map.ts`) with
+5 hand-authored asymmetric 100×100 descriptors under `maps/`. The BC-1
+dual-seam is eliminated by construction: `convex/matches.ts` imports the
+engine's registry, expander, and spawn assigner directly — the inline
+mirror is deleted. Optional `mapId` threaded through `matches.start`,
+`matches.startFromCards`, and `harness/run.ts --map`. Replay
+reconstruction (`reconstruct.ts`) resolves turn-0 spawns from
+`match.mapId` via a replay-local descriptor lookup. The coupling audit
+(`COUPLING-AUDIT.md`) classifies 5 vectors and pre-scopes the RNG
+slice.
+
+### AC disposition
+
+| AC | Status | Evidence |
+|---|---|---|
+| **AC1** — single registry, BC-1 eliminated by construction | ✅ Met | `convex/engine/map.ts:47-100` (registry); `convex/matches.ts` imports only — inline expander deleted; `tests/matches.test.ts` parity gate |
+| **AC2** — `mapId` threaded, absent ⇒ reference, parity HARD GATE | ✅ Met | `matches.start`/`startFromCards` accept optional `mapId`; `harness/run.ts --map`; parity test byte-identical for same `rngSeed` |
+| **AC3** — 4 asymmetric 100×100 maps, all-5 validity tests | ✅ Met | `maps/{split-basin,crosswind,market-maze,faultline}.json`; `tests/engine/map.test.ts` structural validity parametrised over `MAP_IDS` |
+| **AC4** — harness batch across map set, each end-to-end incl. replay | ✅ Met | 5 explicit low-reasoning harness runs (matrix evidence in COUPLING-AUDIT.md §Matrix Evidence); `reconstruct.test.ts` all-5 reconstruction canary |
+| **AC5** — `COUPLING-AUDIT.md` committed, vectors classified, RNG-slice pre-scoped | ✅ Met | `docs/project/phases/14-map-pool/COUPLING-AUDIT.md` — 5 vectors: 3 fixed-now, 1 non-issue, 1 defer-to-RNG-slice |
+| **AC6** — POC posture, standard gates green, no closing report | ✅ Met | lint 0 warn, typecheck 0, test 870 pass / 2 pre-existing skip, build + build:replay green |
+
+### D3 outcome — seam collapsed by construction
+
+The recommended collapse path succeeded: `expandMapInline`,
+`getReferenceMapDescriptor`, `assignPersonasToSpawnsInline`, and
+`assignItemsToSpawnsInline` are physically deleted from
+`convex/matches.ts`. Both live call sites resolve descriptors through
+`getMapDescriptor` and expand through `expandMap` from
+`./engine/map.js`. The §3.2 equality-test fallback was the documented
+escape hatch and was not needed — build + `convex codegen` both pass
+with the direct import.
+
+### RNG-slice handoff (carry-forward items)
+
+The following items are explicitly deferred to the future RNG slice
+(seeded curated-pool selection per §11–§13):
+
+1. **Variable arena size + Grid.tsx camera.** All 5 maps are 100×100
+   (D2). When variable arena sizes are admitted, `Grid.tsx`'s hardcoded
+   `VIEW_W=100/VIEW_H=100` must be driven from `worldState.size`.
+2. **Cross-run-comparability UX.** Replay picker, replay header, harness
+   summaries, and reports do not surface map identity. The RNG slice owns
+   `mapId` display, grouping, filtering, and daily-seed mode.
+3. **Stricter pillar-7 split for `reconstruct.ts`.** The replay-local
+   spawn lookup mirrors canonical descriptor JSON. A stricter boundary
+   would move the selected map's spawn list (or a descriptor facade
+   generated from the registry) into the replay bundle contract.
+4. **Seed-to-map selection logic.** The registry is explicit-selection
+   only; no automatic or random map selection exists.
+5. **Map balance / symmetry / taste tuning.** The 4 new maps are
+   deliberately asymmetric and un-tuned — variety only. A separate
+   later loop owns taste.

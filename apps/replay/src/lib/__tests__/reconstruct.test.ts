@@ -23,6 +23,9 @@
 
 import { describe, expect, it } from "vitest";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
+import crosswindMap from "../../../../../maps/crosswind.json";
+import faultlineMap from "../../../../../maps/faultline.json";
+import marketMazeMap from "../../../../../maps/market-maze.json";
 import referenceMap from "../../../../../maps/reference.json";
 import splitBasinMap from "../../../../../maps/split-basin.json";
 import { reconstruct, type ReplayBundle } from "../reconstruct";
@@ -51,6 +54,24 @@ const PERSONA_DISPLAY_NAMES = [
   "Sprinter",
   "Vulture",
 ] as const;
+
+const ENGINE_MAP_IDS = [
+  "reference",
+  "split-basin",
+  "crosswind",
+  "market-maze",
+  "faultline",
+] as const;
+
+type EngineMapId = (typeof ENGINE_MAP_IDS)[number];
+
+const MAP_FIXTURES = {
+  reference: referenceMap,
+  "split-basin": splitBasinMap,
+  crosswind: crosswindMap,
+  "market-maze": marketMazeMap,
+  faultline: faultlineMap,
+} satisfies Record<EngineMapId, { spawns: ReadonlyArray<Tile> }>;
 
 function asCharId(s: string): Id<"characters"> {
   return s as unknown as Id<"characters">;
@@ -283,6 +304,54 @@ describe("reconstruct — §1.5 spawnIndex lookup", () => {
     for (let i = 0; i < 8; i++) {
       expect(snap.characters[i]!.pos).toEqual(expected[i]);
     }
+  });
+
+  it.each(ENGINE_MAP_IDS)(
+    "uses match.mapId to synthesize turn-0 positions for every %s spawn",
+    (mapId) => {
+      const descriptor = MAP_FIXTURES[mapId];
+      const characters = descriptor.spawns.map((_, i) =>
+        makeCharacter(`${mapId}-c${i}`, i),
+      );
+      const bundle: ReplayBundle = {
+        match: makeMatch({ mapId }),
+        turns: [],
+        characters,
+        worldState: makeWorld(),
+      };
+
+      const snap = reconstruct(bundle, 0);
+
+      expect(snap.characters.map((c) => c.pos)).toEqual(
+        descriptor.spawns.map((spawn) => ({ x: spawn.x, y: spawn.y })),
+      );
+    },
+  );
+
+  it("keeps the replay-local spawn registry key set aligned with the engine map ids fixture", () => {
+    const bundle: ReplayBundle = {
+      match: makeMatch({ mapId: "missing-map" }),
+      turns: [],
+      characters: [makeCharacter("a", 0)],
+      worldState: makeWorld(),
+    };
+
+    const error = (() => {
+      try {
+        reconstruct(bundle, 0);
+      } catch (err) {
+        return err;
+      }
+      return null;
+    })();
+
+    expect(error).toBeInstanceOf(Error);
+    const message = error instanceof Error ? error.message : "";
+    const replayRegistryIds = message
+      .match(/Expected one of: (.*)$/)?.[1]
+      ?.split(", ");
+
+    expect(replayRegistryIds).toEqual([...ENGINE_MAP_IDS]);
   });
 
   it("uses match.mapId to synthesize turn-0 positions for non-reference maps", () => {

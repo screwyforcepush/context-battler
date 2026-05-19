@@ -2,11 +2,11 @@
 
 > Practical recipe: tweak a prompt / value / config → 10 runs → metric +
 > verbose-failure report. Reflects the actual state of harness + Convex
-> aggregators as of phase 13 (Card layer adds `matches.startFromCards`
-> parallel trigger; harness path unchanged; crate substrate, equipment
-> variance, airdrop lifecycle, telefrag, per-persona kill-attribution
-> from prior phases remain). Keep this current; future shifts in the
-> report contract belong here.
+> aggregators as of phase 14 (curated map pool adds `--map <id>` flag
+> and optional `mapId` on `matches.start`/`startFromCards`; Card layer
+> from phase 13; crate substrate, equipment variance, airdrop lifecycle,
+> telefrag, per-persona kill-attribution from prior phases remain). Keep
+> this current; future shifts in the report contract belong here.
 
 ---
 
@@ -60,6 +60,7 @@ use the phase-7 closing driver instead — see §4.5.
 | `--runs N` | 1 | Number of matches to fire. |
 | `--concurrency C` | 1 | Max matches in flight at once. Use `C === N` for max parallelism (Azure rate limits allow ~10 concurrent). |
 | `--reasoning low\|medium\|high` | low | Plumbed end-to-end to Azure `reasoning.effort`. `none` is rejected. |
+| `--map <id>` | `reference` | Map descriptor id from the registry (`reference`, `split-basin`, `crosswind`, `market-maze`, `faultline`). Plumbed to `matches.start` as `mapId`. Unknown id is rejected pre-flight. |
 | `--seed-prefix tag` | — | Prepended to each match's seed name (`tag-01`, `tag-02`, …). Re-running with the same prefix and same Convex deployment reproduces the same map/spawn conditions per match — load-bearing for cohort comparisons. |
 
 Lifecycle per match:
@@ -68,7 +69,9 @@ Lifecycle per match:
 3. On `match.status === "completed"`, the scheduler fires `runs.aggregate(matchId)` which writes a per-match summary row. For Card-triggered matches, `cards.accrueFromMatch(matchId)` is also scheduled (self-guards to no-op for non-Card matches).
 4. After all matches finish, the harness calls `reports.create({matchIds, reportType: "closing-${runs}"})` which inserts the `reports` row (idempotent — re-firing the same set is a no-op).
 
-**Card-triggered matches** (phase 13): `matches.startFromCards({ cardIds, rngSeed?, reasoningEffort? })` is a parallel trigger that accepts exactly 8 distinct Card ids, pins each character's `cardPromptHash` at match time, and uses the Card's `agentName` as the character `displayName`. The per-turn loop loads prompt text from the pinned hash (not the live Card). On completion, per-Card accumulators (prizeUnitsWon, matchesPlayed, kills, deaths, wallFaceSlams) are patched idempotently. The harness (`harness/run.ts`) still uses `matches.start` exclusively — Card-triggered matches are an independent code path.
+**Card-triggered matches** (phase 13): `matches.startFromCards({ cardIds, rngSeed?, reasoningEffort?, mapId? })` is a parallel trigger that accepts exactly 8 distinct Card ids, pins each character's `cardPromptHash` at match time, and uses the Card's `agentName` as the character `displayName`. The per-turn loop loads prompt text from the pinned hash (not the live Card). On completion, per-Card accumulators (prizeUnitsWon, matchesPlayed, kills, deaths, wallFaceSlams) are patched idempotently. The harness (`harness/run.ts`) still uses `matches.start` exclusively — Card-triggered matches are an independent code path.
+
+**Map selection** (phase 14): both `matches.start` and `matches.startFromCards` accept an optional `mapId` string. Absent ⇒ `"reference"` (the default, byte-identical to the pre-phase-14 path for the same `rngSeed`). The map registry in `convex/engine/map.ts` holds 5 descriptors: `reference`, `split-basin`, `crosswind`, `market-maze`, `faultline`. Unknown id → runtime error before any row is written. The resolved `mapId` is recorded on the match row. `runMatch.ts` is untouched — map selection fully resolves at match creation (pillar 7).
 
 Output to stdout (JSONL — grep-friendly):
 - `run_start`, `poll`, `run_end` — lifecycle per match.
@@ -433,35 +436,37 @@ report mirroring the D1 artifact's shape (cohorts table → metrics table
 
 ## 7. Compatibility matrix (TL;DR)
 
-| Surface | Phase 1 | Phase 3 | Phase 6 | Phase 7 | Phase 9 | Phase 10 | Phase 11 | Phase 12 (current) |
-|---|---|---|---|---|---|---|---|---|
-| `harness/run.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/analyze-match.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/cluster-failures.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/inspect-attacks.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/inspect-http.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `harness/inspect-equipped.ts` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| `harness/diagnostics.ts` | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (env-death + airdrop funnel metrics) |
-| `harness/closing/phase7.ts` | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (Path 2 local compute + thin persist) |
-| `harness/closing/phase9.ts` | — | — | — | — | ✅ | ✅ | ✅ | ✅ (reads joined worldStatic) |
-| `harness/closing/phase10.ts` | — | — | — | — | — | ✅ | ✅ | ✅ (Path 2; charge/bump/counter/feed counters) |
-| `harness/closing/phase12.ts` | — | — | — | — | — | — | — | ✅ (Path 2; env-death/telefrag/airdrop/determinism/kill-attrib gates) |
-| `harness/telefrag-frequency.ts` | — | — | — | — | — | — | — | ✅ (two-cohort stopAtRange experiment) |
-| `closing-N` report (phase-1 metrics) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `computePhase3Report` action | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `computePhase6Metrics` + persist | — | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `computePhase7Metrics` + persist | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `computePhase9Metrics` + persist | — | — | — | — | ✅ | ✅ | ✅ | ✅ (local compute + Convex persist) |
-| `computePhase10Metrics` + persist | — | — | — | — | — | ✅ | ✅ | ✅ (local compute + Convex persist) |
-| `computePhase12Metrics` + persist | — | — | — | — | — | — | — | ✅ (local compute + Convex persist) |
-| `phase-7-closing-20` persisted row | — | — | — | ✅ | wiped | wiped | wiped | wiped (POC posture) |
-| `phase-9-closing-20` persisted row | — | — | — | — | ✅ | wiped | wiped | wiped (POC posture) |
-| `phase-10-closing-20` persisted row | — | — | — | — | — | ✅ | wiped | wiped (POC posture) |
-| `phase-12-closing-20` persisted row | — | — | — | — | — | — | — | ✅ (jd75980xfbda1d19pynjgyb88186ramv) |
-| `turns.byMatchSlim` query | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (+ environmentalDeaths in slim projection) |
-| no-op rate aggregator | — | — | ✅ | superseded | superseded | superseded | superseded | superseded (→ armedStancePause / trueStationary) |
-| Replay UI — Matches tab | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (crate vocabulary; airdrop lifecycle in grid) |
-| Replay UI — Diagnostics tab | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (env-death + airdrop funnel panels) |
+| Surface | Phase 1 | Phase 3 | Phase 6 | Phase 7 | Phase 9 | Phase 10 | Phase 11 | Phase 12 | Phase 14 (current) |
+|---|---|---|---|---|---|---|---|---|---|
+| `harness/run.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (+ `--map <id>` flag) |
+| `harness/analyze-match.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/cluster-failures.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/inspect-attacks.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/inspect-http.ts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `harness/inspect-equipped.ts` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `harness/diagnostics.ts` | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (env-death + airdrop funnel metrics) | ✅ |
+| `harness/closing/phase7.ts` | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (Path 2 local compute + thin persist) | ✅ |
+| `harness/closing/phase9.ts` | — | — | — | — | ✅ | ✅ | ✅ | ✅ (reads joined worldStatic) | ✅ |
+| `harness/closing/phase10.ts` | — | — | — | — | — | ✅ | ✅ | ✅ (Path 2; charge/bump/counter/feed counters) | ✅ |
+| `harness/closing/phase12.ts` | — | — | — | — | — | — | — | ✅ (Path 2; env-death/telefrag/airdrop/determinism/kill-attrib gates) | ✅ |
+| `harness/telefrag-frequency.ts` | — | — | — | — | — | — | — | ✅ (two-cohort stopAtRange experiment) | ✅ |
+| `closing-N` report (phase-1 metrics) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `computePhase3Report` action | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `computePhase6Metrics` + persist | — | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `computePhase7Metrics` + persist | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `computePhase9Metrics` + persist | — | — | — | — | ✅ | ✅ | ✅ | ✅ (local compute + Convex persist) | ✅ |
+| `computePhase10Metrics` + persist | — | — | — | — | — | ✅ | ✅ | ✅ (local compute + Convex persist) | ✅ |
+| `computePhase12Metrics` + persist | — | — | — | — | — | — | — | ✅ (local compute + Convex persist) | ✅ |
+| `phase-7-closing-20` persisted row | — | — | — | ✅ | wiped | wiped | wiped | wiped (POC posture) | wiped (POC posture) |
+| `phase-9-closing-20` persisted row | — | — | — | — | ✅ | wiped | wiped | wiped (POC posture) | wiped (POC posture) |
+| `phase-10-closing-20` persisted row | — | — | — | — | — | ✅ | wiped | wiped (POC posture) | wiped (POC posture) |
+| `phase-12-closing-20` persisted row | — | — | — | — | — | — | — | ✅ (jd75980xfbda1d19pynjgyb88186ramv) | ✅ (jd75980xfbda1d19pynjgyb88186ramv) |
+| `turns.byMatchSlim` query | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (+ environmentalDeaths in slim projection) | ✅ |
+| no-op rate aggregator | — | — | ✅ | superseded | superseded | superseded | superseded | superseded (→ armedStancePause / trueStationary) | superseded |
+| Replay UI — Matches tab | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (crate vocabulary; airdrop lifecycle in grid) | ✅ (reconstruct resolves mapId) |
+| Replay UI — Diagnostics tab | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (env-death + airdrop funnel panels) | ✅ |
 
+Phase-14 is a substrate carve (no new closing driver, no new report
+type). Existing closing drivers and diagnostics remain compatible.
 Phase-12 data only lives in the current Convex deployment. Pre-phase-12
 match data was wiped per POC posture; old matchIds will not resolve.
