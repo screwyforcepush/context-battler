@@ -1,5 +1,8 @@
 # Full-Match Godot/WASM Renderer — Spec
 
+> **Status: IMPLEMENTED** — commit `bb87176`. Closing readout:
+> [`round-3-closing-readout.md`](./round-3-closing-readout.md).
+>
 > Pre-§10-gate exploration. Round-3 of the render R&D (post substrate
 > ratification). Drives a real completed match end-to-end inside Godot,
 > from a Convex HTTP endpoint that escapes throwaway as the de-facto

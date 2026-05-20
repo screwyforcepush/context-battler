@@ -1,6 +1,6 @@
 # Convex Backend — Deployment, Auth, Smoke Test
 
-Operational reference for talking to the project's Convex deployment. **Verified working 2026-05-19 (phase-14 map pool).**
+Operational reference for talking to the project's Convex deployment. **Verified working 2026-05-20 (render R&D round-3: HTTP replay contract).**
 
 > Convex is the backend-as-a-service for state, queries, mutations, and scheduled functions. Auth is via a deploy key in `.env`; the CLI picks it up automatically.
 
@@ -19,13 +19,40 @@ CONVEX_DEPLOY_KEY=dev:calculating-meerkat-923|<token>
 
 ## 2. Deployment state (as of 2026-05-19)
 
-- Project: **active** — full Convex schema (`convex/schema.ts`), functions deployed (`matches`, `runMatch`, `turns`, `turnsDerived`, `reports`, `reports/phase7`, `reports/phase9`, `reports/phase10`, `reports/phase12`, `replay`, `cards`, `spike`), active tables (`matches`, `characters`, `turns`, `worldState`, `worldStatic`, `prompts`, `runs`, `reports`, `cards`, `cardAccruals`).
+- Project: **active** — full Convex schema (`convex/schema.ts`), functions deployed (`matches`, `runMatch`, `turns`, `turnsDerived`, `reports`, `reports/phase7`, `reports/phase9`, `reports/phase10`, `reports/phase12`, `replay`, `cards`, `spike`), HTTP actions deployed (`convex/http.ts` — replay match-data contract, see §2a), active tables (`matches`, `characters`, `turns`, `worldState`, `worldStatic`, `prompts`, `runs`, `reports`, `cards`, `cardAccruals`).
 - Current data: 20 phase-12 closing matches + 20 telefrag-frequency experiment matches + 5 phase-14 map-matrix canary matches + associated turns/characters/runs/reports. Previous data was wiped per POC posture before the phase-12 closing. Canonical closing report: `jd75980xfbda1d19pynjgyb88186ramv` (`phase-12-closing-20`). Card pool: seeded on first `cards.seed` call (8 presets from the locked persona union); additional Cards addable via `cards.create`.
 - Schema/code changes (phase 14): `convex/engine/map.ts` now owns a single `MAP_REGISTRY` (5 descriptors: `reference`, `split-basin`, `crosswind`, `market-maze`, `faultline`), `getMapDescriptor(id)`, `MAP_IDS`, `DEFAULT_MAP_ID`. The inline expander/loader previously duplicated in `convex/matches.ts` is deleted — both `matches.start` and `matches.startFromCards` import from `./engine/map.js`. Optional `mapId` arg on both triggers (absent defaults to `"reference"`). Match row records the resolved `mapId`. No new tables; no schema change.
+- HTTP replay contract (render R&D round-3): `convex/http.ts` registers an `httpRouter` with two public GET endpoints and their OPTIONS preflights. `convex/replay/reconstruct.ts` is the reconstruction source of truth (moved from `apps/replay/src/lib/`; one-line re-export shim at old path). `convex/replay/snapshot.ts` builds `MatchSnapshotJson` (schemaVersion 2) and `MatchSummary`. `convex/replay/snapshotTypes.ts` exports the contract types. `convex/replay.ts` gains `listMatchesWithCharacters` query (server-side character fan-out). See §2a for endpoint details.
 - Schema additions (phase 13): `cards` table (persistent agent unit — agentName, promptHash, lineagePersonaId, progression placeholder, accumulator stats, isPreset flag); `cardAccruals` table (per-match idempotency sentinel, indexed by matchId); `characters` gains optional `cardId` + `cardPromptHash` fields for Card-triggered matches. `matches.startFromCards` is the new parallel trigger (exactly 8 Card ids).
 - Schema additions (phase 12): `crateValidator` is the live loot-container validator; `resolutionValidator` gains `environmentalDeaths` array; `worldState` gains `airdrops` (dynamic airdrop state); `worldStatic` gains `airdropWaves` (immutable wave schedule); `phase12Payload` on `reports` for the 23-gate closing payload. Prior phase-11 additions remain: `prompts` table, `worldStatic` table, structured `input.status`/`narrativeLines`/`aliveCount` on turns.
 - Notable query: `turns.byMatchSlim` — slim per-match trace projection that audits speech/loot/damage delivery against next-turn `narrativeLines` (via `narrativeLines.some(line => line.includes(...))`) before stripping heavy LLM text fields. Projects `selfHp`, `selfEquipment.consumable`, slide, bodyCollision, and `environmentalDeaths` evidence from structured `input.status` for diagnostics. Used by the diagnostics CLI, dashboard, and closing drivers to stay under the 16 MB per-function read budget.
 - `package.json` includes `convex` as a devDependency.
+
+## 2a. HTTP replay contract (render R&D round-3)
+
+`convex/http.ts` exposes two read-only public endpoints. CORS is open (`Allow-Origin: *`, POC posture). No auth.
+
+| Endpoint | Method | Returns | Error codes |
+|---|---|---|---|
+| `/replay/listMatches` | GET | `MatchSummary[]` — completed matches, desc by `completedAt`, max 100 | — |
+| `/replay/exportMatch?matchId=<id>` | GET | `MatchSnapshotJson` (schemaVersion 2) — full match snapshot | 400 (missing/malformed id), 404 (not found), 409 (not completed) |
+| `/replay/listMatches` | OPTIONS | 204 + CORS headers | — |
+| `/replay/exportMatch` | OPTIONS | 204 + CORS headers | — |
+
+Smoke test (requires a completed match in the deployment):
+
+```bash
+set -a; source .env; set +a
+
+# List completed matches:
+curl -sS "$CONVEX_URL/replay/listMatches" | jq '.[0]'
+
+# Export a specific match:
+MATCH_ID=$(curl -sS "$CONVEX_URL/replay/listMatches" | jq -r '.[0].matchId')
+curl -sS "$CONVEX_URL/replay/exportMatch?matchId=$MATCH_ID" | jq '.schemaVersion, .playback.turnCount'
+```
+
+Types: `MatchSnapshotJson` and `MatchSummary` are exported from `convex/replay/snapshotTypes.ts`. Full contract shape documented in [`docs/project/phases/render-rnd/round-3-closing-readout.md` §3](../docs/project/phases/render-rnd/round-3-closing-readout.md).
 
 ## 3. Smoke tests (no functions required)
 
