@@ -7,25 +7,24 @@ var mat_ground: StandardMaterial3D
 var mat_wall: StandardMaterial3D
 var mat_cover: StandardMaterial3D
 var mat_evac: StandardMaterial3D
-var mat_crate: StandardMaterial3D
 var mat_airdrop: StandardMaterial3D
+var map_geometry_root: Node3D
 
 
 func _ready() -> void:
 	_make_materials()
+	_ensure_map_geometry_root()
 	_make_world_environment()
 	_make_lighting()
 
 
 func build_from_snapshot(snapshot: Dictionary) -> void:
-	for child in get_children():
-		child.queue_free()
+	_clear_map_geometry()
 	map_data = snapshot.get("map", {})
 	_make_floor()
 	_build_rects(map_data.get("walls", []), 1.15, mat_wall, "wall")
 	_build_rects(map_data.get("coverClusters", []), 0.42, mat_cover, "cover")
 	_build_evac(map_data.get("evac", {}))
-	_build_static_crates(map_data.get("staticCrates", []))
 	_build_airdrops(map_data.get("airdrops", []))
 
 
@@ -45,7 +44,7 @@ func _make_floor() -> void:
 	node.mesh = mesh
 	node.material_override = mat_ground
 	node.position = Vector3(0.0, -0.05, 0.0)
-	add_child(node)
+	map_geometry_root.add_child(node)
 
 
 func _build_rects(rects: Array, height: float, material: Material, prefix: String) -> void:
@@ -62,7 +61,7 @@ func _build_rects(rects: Array, height: float, material: Material, prefix: Strin
 			height,
 			max(0.12, float(rect.get("h", 1)) * WORLD_SCALE)
 		)
-		add_child(_make_box("%s-%03d" % [prefix, i], center, scale, material))
+		map_geometry_root.add_child(_make_box("%s-%03d" % [prefix, i], center, scale, material))
 
 
 func _build_evac(evac: Dictionary) -> void:
@@ -75,15 +74,7 @@ func _build_evac(evac: Dictionary) -> void:
 		"y": float(zone.get("y", 0)) + float(zone.get("h", 3)) * 0.5,
 	}, 0.04)
 	var scale := Vector3(float(zone.get("w", 3)) * WORLD_SCALE, 0.04, float(zone.get("h", 3)) * WORLD_SCALE)
-	add_child(_make_box("evac-zone", center, scale, mat_evac))
-
-
-func _build_static_crates(crates: Array) -> void:
-	for i in range(crates.size()):
-		var crate = crates[i]
-		if typeof(crate) != TYPE_DICTIONARY:
-			continue
-		add_child(_make_box("static-crate-%03d" % i, tile_to_world(crate.get("pos", {}), 0.23), Vector3(0.34, 0.46, 0.34), mat_crate))
+	map_geometry_root.add_child(_make_box("evac-zone", center, scale, mat_evac))
 
 
 func _build_airdrops(airdrops: Array) -> void:
@@ -93,7 +84,7 @@ func _build_airdrops(airdrops: Array) -> void:
 			continue
 		var marker := _make_box("airdrop-marker-%03d" % i, tile_to_world(drop.get("pos", {}), 0.08), Vector3(0.46, 0.08, 0.46), mat_airdrop)
 		marker.visible = false
-		add_child(marker)
+		map_geometry_root.add_child(marker)
 
 
 func _make_box(label: String, pos: Vector3, size: Vector3, material: Material) -> MeshInstance3D:
@@ -107,8 +98,24 @@ func _make_box(label: String, pos: Vector3, size: Vector3, material: Material) -
 	return node
 
 
+func _ensure_map_geometry_root() -> void:
+	if map_geometry_root != null and is_instance_valid(map_geometry_root):
+		return
+	map_geometry_root = Node3D.new()
+	map_geometry_root.name = "map_geometry_root"
+	add_child(map_geometry_root)
+
+
+func _clear_map_geometry() -> void:
+	_ensure_map_geometry_root()
+	# Snapshot reloads must not clear the WorldEnvironment or named neon lights.
+	for child in map_geometry_root.get_children():
+		child.queue_free()
+
+
 func _make_world_environment() -> void:
 	var environment := WorldEnvironment.new()
+	environment.name = "neon-world-environment"
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0.006, 0.008, 0.012)
@@ -143,7 +150,6 @@ func _make_materials() -> void:
 	mat_wall = _mat(Color(0.06, 0.09, 0.13), Color(0.0, 0.55, 0.78), 0.55)
 	mat_cover = _mat(Color(0.09, 0.12, 0.16), Color(1.0, 0.42, 0.10), 0.32)
 	mat_evac = _mat(Color(0.06, 0.28, 0.22, 0.65), Color(0.0, 1.0, 0.72), 0.8)
-	mat_crate = _mat(Color(0.72, 0.46, 0.13), Color(1.0, 0.58, 0.08), 0.5)
 	mat_airdrop = _mat(Color(0.16, 0.04, 0.07), Color(1.0, 0.05, 0.18), 0.9)
 
 

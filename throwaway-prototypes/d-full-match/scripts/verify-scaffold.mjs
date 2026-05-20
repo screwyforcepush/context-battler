@@ -102,8 +102,17 @@ if (existsSync(path.join(appDir, "src/MatchPlayer.gd"))) {
 
 if (existsSync(path.join(appDir, "src/SceneBuilder.gd"))) {
   const sceneBuilder = read("src/SceneBuilder.gd");
-  for (const token of ["walls", "coverClusters", "evac", "staticCrates", "airdrops", "build_from_snapshot"]) {
+  for (const token of ["walls", "coverClusters", "evac", "airdrops", "build_from_snapshot"]) {
     assertIncludes(sceneBuilder, token, `SceneBuilder references snapshot.map.${token}`);
+  }
+  for (const token of ["WorldEnvironment", "neon-key-light", "crimson-rim-light"]) {
+    assertIncludes(sceneBuilder, token, `SceneBuilder preserves cyberpunk lighting token ${token}`);
+  }
+  assertIncludes(sceneBuilder, "map_geometry_root", "SceneBuilder isolates reloadable map geometry under map_geometry_root");
+  assertIncludes(sceneBuilder, "_ensure_map_geometry_root", "SceneBuilder creates or reuses the map geometry root");
+  assertNotIncludes(sceneBuilder, "for child in get_children()", "SceneBuilder does not clear lighting/environment siblings");
+  for (const token of ["staticCrates", "_build_static_crates", "static-crate"]) {
+    assertNotIncludes(sceneBuilder, token, `SceneBuilder leaves crate visibility to EntityRenderer (${token})`);
   }
   for (const mapId of ["reference", "split-basin", "crosswind", "market-maze", "faultline", "mapId"]) {
     assertNotIncludes(sceneBuilder, mapId, `SceneBuilder has no per-map branch token ${mapId}`);
