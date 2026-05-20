@@ -20,10 +20,16 @@ const PERSONAS = [
   "vulture",
 ];
 
-const START_TURN = 7;
+const START_TURN = 1;
 const END_TURN = 12;
 const LAND_TURN = 10;
-const SLICE_DURATION_SECONDS = 16;
+const DUEL_START_TURN = 2;
+const DUEL_EXCHANGE_TURN = 3;
+const DUEL_KILL_TURN = 4;
+const DUEL_KILLER_ID = "char_sprinter";
+const DUEL_VICTIM_ID = "char_vulture";
+const DUEL_CORPSE_TILE = { x: 34, y: 56 };
+const SLICE_DURATION_SECONDS = 30;
 
 function titleCase(value) {
   return `${value[0].toUpperCase()}${value.slice(1)}`;
@@ -69,17 +75,6 @@ function assertWalkable(map, tile, label) {
   }
 }
 
-function stepToward(from, to, maxDist) {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const dist = Math.max(Math.abs(dx), Math.abs(dy));
-  if (dist <= maxDist) return { x: to.x, y: to.y };
-  return {
-    x: from.x + Math.sign(dx) * Math.min(Math.abs(dx), maxDist),
-    y: from.y + Math.sign(dy) * Math.min(Math.abs(dy), maxDist),
-  };
-}
-
 function projectAirdrop(drop, turn) {
   if (drop.looted) {
     return {
@@ -118,11 +113,11 @@ function projectAirdrop(drop, turn) {
   };
 }
 
-function makeSnapshot({ turn, characters, crates, airdrops }) {
+function makeSnapshot({ turn, characters, corpses, crates, airdrops }) {
   return {
     turn,
     characters,
-    corpses: [],
+    corpses,
     crates,
     airdrops: airdrops.map((drop) => projectAirdrop(drop, turn)),
     evacRevealed: false,
@@ -130,15 +125,23 @@ function makeSnapshot({ turn, characters, crates, airdrops }) {
 }
 
 function makeCharacterFrame(character, pos, turn) {
-  const dead = character.characterId === "char_sprinter" && turn >= LAND_TURN;
+  const telefragged =
+    character.characterId === "char_sprinter" && turn >= LAND_TURN;
+  const duelKilled =
+    character.characterId === DUEL_VICTIM_ID && turn >= DUEL_KILL_TURN;
+  const diedAtTurn = telefragged
+    ? LAND_TURN
+    : duelKilled
+      ? DUEL_KILL_TURN
+      : null;
   return {
     characterId: character.characterId,
     personaId: character.personaId,
     displayName: character.displayName,
     pos,
-    alive: !dead,
+    alive: diedAtTurn === null,
     hidden: false,
-    diedAtTurn: dead ? LAND_TURN : null,
+    diedAtTurn,
     extractedAtTurn: null,
     equipped: null,
     hp: null,
@@ -148,31 +151,125 @@ function makeCharacterFrame(character, pos, turn) {
 function buildCharacterPositions(map, characters, drop) {
   const sprinter = characters.find((c) => c.personaId === "sprinter");
   if (!sprinter) throw new Error("Missing sprinter character");
+  const vulture = characters.find((c) => c.personaId === "vulture");
+  if (!vulture) throw new Error("Missing vulture character");
 
   const sprinterSpawn = map.spawns[sprinter.spawnIndex];
   const sprinterStaging = { x: drop.pos.x - 1, y: drop.pos.y };
+  const vultureSpawn = map.spawns[vulture.spawnIndex];
   assertWalkable(map, sprinterSpawn, "Sprinter spawn");
   assertWalkable(map, sprinterStaging, "Sprinter staging tile");
   assertWalkable(map, drop.pos, "Airdrop landing tile");
+  assertWalkable(map, vultureSpawn, "Vulture spawn");
 
-  let sprinterPos = sprinterSpawn;
-  const positionsByTurn = new Map();
-  for (let turn = 0; turn <= END_TURN; turn += 1) {
-    if (turn >= START_TURN && turn < LAND_TURN) {
-      sprinterPos = stepToward(sprinterPos, sprinterStaging, 8);
-    } else if (turn === LAND_TURN) {
-      sprinterPos = stepToward(sprinterPos, drop.pos, 8);
-    }
-    positionsByTurn.set(turn, { x: sprinterPos.x, y: sprinterPos.y });
+  const sprinterPath = new Map([
+    [0, sprinterSpawn],
+    [1, sprinterSpawn],
+    [2, { x: 28, y: 60 }],
+    [3, { x: 30, y: 56 }],
+    [4, { x: 34, y: 54 }],
+    [5, { x: 42, y: 52 }],
+    [6, sprinterStaging],
+    [7, sprinterStaging],
+    [8, sprinterStaging],
+    [9, sprinterStaging],
+    [10, drop.pos],
+    [11, drop.pos],
+    [12, drop.pos],
+  ]);
+  const vulturePath = new Map([
+    [0, vultureSpawn],
+    [1, vultureSpawn],
+    [2, { x: 28, y: 56 }],
+    [3, { x: 32, y: 56 }],
+    [4, DUEL_CORPSE_TILE],
+  ]);
+  for (const [turn, pos] of sprinterPath) {
+    assertWalkable(map, pos, `Sprinter scripted path turn ${turn}`);
   }
-
-  const duelistObserver = { x: drop.pos.x - 5, y: drop.pos.y };
-  assertWalkable(map, duelistObserver, "Duelist observer tile");
+  for (const [turn, pos] of vulturePath) {
+    assertWalkable(map, pos, `Vulture scripted path turn ${turn}`);
+  }
+  assertWalkable(map, DUEL_CORPSE_TILE, "Duel corpse tile");
 
   return function positionFor(character, turn) {
-    if (character.personaId === "sprinter") return positionsByTurn.get(turn);
-    if (character.personaId === "duelist" && turn >= 9) return duelistObserver;
+    if (character.personaId === "sprinter") {
+      return sprinterPath.get(turn) ?? drop.pos;
+    }
+    if (character.personaId === "vulture" && turn >= DUEL_KILL_TURN) {
+      return DUEL_CORPSE_TILE;
+    }
+    if (character.personaId === "vulture") {
+      return vulturePath.get(turn) ?? vultureSpawn;
+    }
     return map.spawns[character.spawnIndex];
+  };
+}
+
+function corpseFramesForTurn(turn) {
+  if (turn < DUEL_KILL_TURN) return [];
+  return [{ characterId: DUEL_VICTIM_ID, pos: { ...DUEL_CORPSE_TILE } }];
+}
+
+function sameTile(a, b) {
+  return a.x === b.x && a.y === b.y;
+}
+
+function movesForTurn({ turn, characters, positionFor }) {
+  if (turn <= START_TURN) return [];
+  const moves = [];
+  for (const character of characters) {
+    const from = positionFor(character, turn - 1);
+    const to = positionFor(character, turn);
+    if (!sameTile(from, to)) {
+      moves.push({
+        characterId: character.characterId,
+        from: { ...from },
+        to: { ...to },
+      });
+    }
+  }
+  return moves;
+}
+
+function actionsForTurn(turn) {
+  if (turn === DUEL_EXCHANGE_TURN) {
+    return [
+      {
+        characterId: DUEL_KILLER_ID,
+        kind: "attack",
+        target: "Vulture",
+        result: "dmg 20",
+      },
+      {
+        characterId: DUEL_VICTIM_ID,
+        kind: "attack",
+        target: "Sprinter",
+        result: "dmg 12",
+      },
+    ];
+  }
+  if (turn === DUEL_KILL_TURN) {
+    return [
+      {
+        characterId: DUEL_KILLER_ID,
+        kind: "attack",
+        target: "Vulture",
+        result: "dmg 50",
+      },
+    ];
+  }
+  return [];
+}
+
+function makeResolution({ turn, characters, positionFor }) {
+  return {
+    turn,
+    moves: movesForTurn({ turn, characters, positionFor }),
+    actions: actionsForTurn(turn),
+    deaths: turn === DUEL_KILL_TURN ? [DUEL_VICTIM_ID] : [],
+    environmentalDeaths: turn === LAND_TURN ? ["char_sprinter"] : [],
+    visibilityUpdates: [],
   };
 }
 
@@ -210,12 +307,18 @@ async function main() {
   const positionFor = buildCharacterPositions(map, characters, firstDrop);
 
   const turnFrameTimes = {
-    7: 0,
-    8: 3,
-    9: 6,
-    10: 11,
-    11: 13.5,
-    12: 16,
+    1: 0,
+    2: 3,
+    3: 6,
+    4: 9,
+    5: 12,
+    6: 15,
+    7: 18,
+    8: 21,
+    9: 24,
+    10: 27,
+    11: 28.5,
+    12: 30,
   };
 
   const frames = [];
@@ -229,33 +332,11 @@ async function main() {
       snapshot: makeSnapshot({
         turn,
         characters: frameCharacters,
+        corpses: corpseFramesForTurn(turn),
         crates: staticCrates,
         airdrops,
       }),
-      resolution:
-        turn === LAND_TURN
-          ? {
-              turn,
-              moves: [
-                {
-                  characterId: "char_sprinter",
-                  from: { x: firstDrop.pos.x - 1, y: firstDrop.pos.y },
-                  to: { ...firstDrop.pos },
-                },
-              ],
-              actions: [],
-              deaths: [],
-              environmentalDeaths: ["char_sprinter"],
-              visibilityUpdates: [],
-            }
-          : {
-              turn,
-              moves: [],
-              actions: [],
-              deaths: [],
-              environmentalDeaths: [],
-              visibilityUpdates: [],
-            },
+      resolution: makeResolution({ turn, characters, positionFor }),
     });
   }
 
@@ -266,15 +347,53 @@ async function main() {
     h: 3,
   };
 
+  const duelEvent = {
+    kind: "duel",
+    startTurn: DUEL_START_TURN,
+    exchangeTurn: DUEL_EXCHANGE_TURN,
+    killTurn: DUEL_KILL_TURN,
+    endTurn: DUEL_KILL_TURN,
+    participantIds: [DUEL_KILLER_ID, DUEL_VICTIM_ID],
+    killerId: DUEL_KILLER_ID,
+    killerDisplayName: "Sprinter",
+    victimId: DUEL_VICTIM_ID,
+    victimDisplayName: "Vulture",
+    corpseTile: { ...DUEL_CORPSE_TILE },
+    killFeedLine: "Sprinter killed Vulture in a brutal duel",
+    traceContract: {
+      deaths: [DUEL_VICTIM_ID],
+      environmentalDeaths: [],
+      corpseCreated: true,
+    },
+  };
+
+  const airdropTelefragEvent = {
+    kind: "airdrop-telefrag",
+    airdropId: firstDrop.id,
+    landTurn: LAND_TURN,
+    victimId: "char_sprinter",
+    victimDisplayName: "Sprinter",
+    landingTile: firstDrop.pos,
+    stagingTile: { x: firstDrop.pos.x - 1, y: firstDrop.pos.y },
+    killFeedLine: "Sprinter got telefragged by crate spawn",
+    traceContract: {
+      deaths: [],
+      environmentalDeaths: ["char_sprinter"],
+      corpseCreated: false,
+    },
+  };
+
   const fixture = {
     schemaVersion: 1,
-    fixtureId: "prototype-1-reference-airdrop-telefrag",
+    fixtureId: "prototype-2-reference-duel-airdrop-telefrag",
     contract: {
       snapshotType: "apps/replay/src/lib/reconstruct.ts#EntitySnapshot",
       notes: [
         "Each timeline.frames[].snapshot object follows the EntitySnapshot shape.",
         "Equipment and HP are null because reconstruct.ts treats them as non-derivable from the turn ledger.",
+        "The duel victim is listed in resolution.deaths and creates a corpse in snapshot.corpses.",
         "Telefrag victims are listed in resolution.environmentalDeaths, not resolution.deaths, and do not create corpses.",
+        "highlightedEvent remains the legacy airdrop telefrag object; highlightedEvents is the additive event list.",
       ],
     },
     source: {
@@ -283,7 +402,8 @@ async function main() {
       semantics: [
         "Airdrop projection uses the engine/reconstruct lifecycle: pre, telegraphed, landed, spent.",
         "The first drop uses the reference-map landing tile and landsAtTurn.",
-        "Sprinter's path is generated from reference-map spawn index 6 to the west-adjacent staging tile, then onto the landing tile on turn 10.",
+        "Sprinter and Vulture use fixed walkable reference-map tiles for a canned ordinary-death duel.",
+        "Sprinter survives the duel, walks to the west-adjacent staging tile, then steps onto the airdrop landing tile on turn 10.",
       ],
     },
     playback: {
@@ -292,11 +412,16 @@ async function main() {
       endTurn: END_TURN,
       fpsHint: 60,
       eventTimesSeconds: {
-        telegraphBegins: 0,
-        victimStartsFinalStep: 9.6,
-        airdropImpact: 11,
-        redMistPeak: 11.15,
-        landedCrateReadable: 13.5,
+        duelStarts: 3,
+        duelFirstClash: 6,
+        duelKillingBlow: 9,
+        duelCorpseReadable: 9.2,
+        survivorHeadsToDrop: 12,
+        telegraphBegins: 18,
+        victimStartsFinalStep: 26.1,
+        airdropImpact: 27,
+        redMistPeak: 27.15,
+        landedCrateReadable: 28.5,
       },
     },
     map: {
@@ -325,21 +450,8 @@ async function main() {
       })),
     },
     characters,
-    highlightedEvent: {
-      kind: "airdrop-telefrag",
-      airdropId: firstDrop.id,
-      landTurn: LAND_TURN,
-      victimId: "char_sprinter",
-      victimDisplayName: "Sprinter",
-      landingTile: firstDrop.pos,
-      stagingTile: { x: firstDrop.pos.x - 1, y: firstDrop.pos.y },
-      killFeedLine: "Sprinter got telefragged by crate spawn",
-      traceContract: {
-        deaths: [],
-        environmentalDeaths: ["char_sprinter"],
-        corpseCreated: false,
-      },
-    },
+    highlightedEvent: airdropTelefragEvent,
+    highlightedEvents: [duelEvent, airdropTelefragEvent],
     timeline: {
       frames,
     },

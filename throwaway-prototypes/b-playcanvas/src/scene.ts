@@ -64,6 +64,80 @@ type AirdropVisual = {
   light: Entity;
 };
 
+type RawDuelMetadata = {
+  participantIds?: string[];
+  attackerId?: string;
+  defenderId?: string;
+  winnerId?: string;
+  loserId?: string;
+  killerId?: string;
+  victimId?: string;
+  startTurn?: number;
+  exchangeTurn?: number;
+  killTurn?: number;
+  endTurn?: number;
+  corpseTile?: Tile;
+};
+
+type SnapshotWithDuel = ReplaySnapshot & {
+  duel?: RawDuelMetadata;
+};
+
+type DuelState = {
+  attackerId: string;
+  defenderId: string;
+  winnerId: string;
+  loserId: string;
+  startTurn: number;
+  exchangeTurn: number;
+  killTurn: number;
+  endTurn: number;
+  corpsePos: Tile | null;
+};
+
+type DuelVisual = {
+  state: DuelState;
+  clashTrace: Entity;
+  counterTrace: Entity;
+  killTrace: Entity;
+  impactRing: Entity;
+  corpsePool: Entity;
+  corpseRing: Entity;
+  corpseLight: Entity;
+  flare: Entity;
+  sparks: SimpleBurst;
+  blood: SimpleBurst;
+  smoke: SimpleBurst;
+  flarePulse: number;
+};
+
+type BurstParticle = {
+  entity: Entity;
+  velocity: Vec3;
+  life: number;
+  age: number;
+  baseScale: number;
+  spin: Vec3;
+  gravity: number;
+};
+
+type BurstConfig = {
+  speedMin: number;
+  speedMax: number;
+  riseMin: number;
+  riseMax: number;
+  lifeMin: number;
+  lifeMax: number;
+  scaleMin: number;
+  scaleMax: number;
+  gravity: number;
+};
+
+type SimpleBurst = {
+  trigger: (position: Vec3, config: BurstConfig) => void;
+  update: (dt: number) => void;
+};
+
 export type SceneController = {
   update: (dt: number) => void;
   setFollowLocked: (locked: boolean) => void;
@@ -99,6 +173,8 @@ export async function createTelefragScene(
   const drop = getMoneyShotAirdrop(snapshot);
   const airdropVisual = createAirdrop(app, templates, drop, snapshot.map, materials);
   const mist = createMist(app, materials.mist);
+  const duelState = resolveDuel(snapshot);
+  const duelVisual = duelState ? createDuelVisual(app, snapshot.map, duelState, materials) : null;
   const shockwave = addPrimitive(app, app.root, "impact-shockwave", "torus", materials.shock);
   shockwave.enabled = false;
   const impactCloud = addPrimitive(app, app.root, "impact-red-cloud", "sphere", materials.red);
@@ -117,6 +193,7 @@ export async function createTelefragScene(
   let elapsed = 0;
   let lastVirtualTurn: number | null = null;
   let impactPulse = 0;
+  let killCameraPulse = 0;
   const loop = getLoop(snapshot);
 
   return {
@@ -126,11 +203,30 @@ export async function createTelefragScene(
       const virtualTurn = loop.startTurn + (loopTime / loop.seconds) * loop.turnSpan;
       const sample = sampleSnapshot(snapshot.frames, virtualTurn);
 
-      updateCharacters(snapshot, characterVisuals, sample, virtualTurn, elapsed);
+      if (lastVirtualTurn !== null && duelVisual) {
+        if (crossedTurn(lastVirtualTurn, virtualTurn, duelVisual.state.exchangeTurn)) {
+          triggerDuelExchange(duelVisual, snapshot.map, sample);
+          killCameraPulse = Math.max(killCameraPulse, 0.42);
+        }
+        if (crossedTurn(lastVirtualTurn, virtualTurn, duelVisual.state.killTurn)) {
+          triggerDuelKill(duelVisual, snapshot.map, sample);
+          killCameraPulse = 1;
+        }
+      }
+
+      updateCharacters(snapshot, characterVisuals, sample, virtualTurn, elapsed, duelState);
+      if (duelVisual) {
+        updateDuelVisual(duelVisual, snapshot.map, sample, virtualTurn, elapsed, dt);
+      }
       updateAirdrop(snapshot.map, airdropVisual, drop, loop, virtualTurn, elapsed);
 
-      const targetPosition = getTargetPosition(snapshot, sample, virtualTurn, drop.pos);
+      killCameraPulse = Math.max(0, killCameraPulse - dt * 1.55);
+      const targetPosition = getTargetPosition(snapshot, sample, virtualTurn, drop.pos, duelState);
       targetPosition.y += 0.9;
+      const shake = cameraShakeOffset(elapsed, Math.max(killCameraPulse, impactPulse * 0.72));
+      targetPosition.x += shake.x;
+      targetPosition.y += shake.y;
+      targetPosition.z += shake.z;
       orbit.updateAnchor(targetPosition);
 
       if (lastVirtualTurn !== null && crossedTurn(lastVirtualTurn, virtualTurn, drop.landsAtTurn)) {
@@ -153,6 +249,14 @@ export async function createTelefragScene(
         impactPulse,
       );
       mist.update(dt);
+      const duelWindow =
+        duelState !== null &&
+        virtualTurn >= duelState.startTurn - 0.25 &&
+        virtualTurn <= duelState.killTurn + 1.25;
+      orbit.setPunch(
+        Math.max(killCameraPulse, impactPulse * 0.64),
+        (duelWindow ? 2.9 : 0) + killCameraPulse * 3.8 + impactPulse * 2.2,
+      );
       orbit.update(dt);
       if (postFrame) postFrame.update();
       lastVirtualTurn = virtualTurn;
@@ -167,10 +271,10 @@ export async function createTelefragScene(
 }
 
 function configureScene(app: Application): void {
-  app.scene.ambientLight = new Color(0.075, 0.11, 0.13);
+  app.scene.ambientLight = new Color(0.09, 0.12, 0.135);
   app.scene.fog.type = FOG_EXP2;
-  app.scene.fog.color = new Color(0.012, 0.015, 0.02);
-  app.scene.fog.density = 0.018;
+  app.scene.fog.color = new Color(0.008, 0.014, 0.02);
+  app.scene.fog.density = 0.023;
 }
 
 function createCamera(
@@ -223,8 +327,8 @@ function addLighting(app: Application): void {
   const key = new Entity("key-light", app);
   key.addComponent("light", {
     type: "directional",
-    color: new Color(1, 0.78, 0.55),
-    intensity: 1.55,
+    color: new Color(1, 0.82, 0.58),
+    intensity: 1.62,
     castShadows: true,
     shadowDistance: 34,
   });
@@ -235,8 +339,8 @@ function addLighting(app: Application): void {
   rim.addComponent("light", {
     type: "omni",
     color: new Color(0.0, 0.82, 0.9),
-    intensity: 2.1,
-    range: 28,
+    intensity: 2.55,
+    range: 32,
   });
   rim.setPosition(-10, 6, -11);
   app.root.addChild(rim);
@@ -250,23 +354,71 @@ function addLighting(app: Application): void {
   });
   infernal.setPosition(8, 5, 9);
   app.root.addChild(infernal);
+
+  const topWash = new Entity("wall-top-wash", app);
+  topWash.addComponent("light", {
+    type: "omni",
+    color: new Color(0.22, 0.82, 1.0),
+    intensity: 1.25,
+    range: 34,
+  });
+  topWash.setPosition(0, 7.4, 0);
+  app.root.addChild(topWash);
 }
 
 function createMaterials() {
   const ground = material(
     "ground",
-    new Color(0.018, 0.02, 0.026),
-    new Color(0.012, 0.048, 0.052),
+    new Color(0.009, 0.011, 0.016),
+    new Color(0.006, 0.025, 0.032),
   );
   const wall = material(
     "wall",
-    new Color(0.038, 0.036, 0.046),
-    new Color(0.01, 0.035, 0.045),
+    new Color(0.06, 0.068, 0.084),
+    new Color(0.025, 0.065, 0.082),
+    1,
+    false,
+    1.05,
+  );
+  const wallTop = material(
+    "wall-top-rim",
+    new Color(0.18, 0.205, 0.22),
+    new Color(0.08, 0.38, 0.42),
+    1,
+    false,
+    1.35,
+  );
+  const wallEdge = material(
+    "wall-cyan-edge",
+    new Color(0.02, 0.34, 0.38),
+    new Color(0.0, 0.95, 0.92),
+    0.82,
+    true,
+    3.4,
   );
   const cover = material(
     "cover",
-    new Color(0.055, 0.05, 0.044),
-    new Color(0.11, 0.06, 0.016),
+    new Color(0.055, 0.047, 0.062),
+    new Color(0.13, 0.045, 0.055),
+    1,
+    false,
+    1.0,
+  );
+  const coverTop = material(
+    "cover-top",
+    new Color(0.135, 0.11, 0.12),
+    new Color(0.38, 0.12, 0.07),
+    1,
+    false,
+    1.25,
+  );
+  const coverEdge = material(
+    "cover-neon-edge",
+    new Color(0.42, 0.08, 0.03),
+    new Color(1.0, 0.28, 0.04),
+    0.84,
+    true,
+    3.2,
   );
   const grid = material(
     "grid",
@@ -324,7 +476,76 @@ function createMaterials() {
     true,
     5.8,
   );
-  return { ground, wall, cover, grid, crate, airdrop, beam, red, shock, mist };
+  const duelTrace = material(
+    "duel-trace",
+    new Color(1.0, 0.76, 0.26),
+    new Color(1.0, 0.56, 0.04),
+    0.9,
+    true,
+    4.8,
+  );
+  const duelCounter = material(
+    "duel-counter-trace",
+    new Color(0.12, 0.82, 1.0),
+    new Color(0.0, 0.72, 1.0),
+    0.78,
+    true,
+    4.2,
+  );
+  const duelBlood = material(
+    "duel-blood",
+    new Color(0.8, 0.01, 0.0),
+    new Color(1.0, 0.0, 0.0),
+    0.82,
+    true,
+    5.2,
+  );
+  const duelSpark = material(
+    "duel-spark",
+    new Color(1.0, 0.84, 0.36),
+    new Color(1.0, 0.58, 0.04),
+    0.78,
+    true,
+    5.4,
+  );
+  const duelSmoke = material(
+    "duel-smoke",
+    new Color(0.32, 0.045, 0.036),
+    new Color(0.2, 0.035, 0.028),
+    0.42,
+    true,
+    1.4,
+  );
+  const corpse = material(
+    "duel-corpse-pool",
+    new Color(0.38, 0.005, 0.004),
+    new Color(0.68, 0.0, 0.0),
+    0.66,
+    true,
+    2.4,
+  );
+  return {
+    ground,
+    wall,
+    wallTop,
+    wallEdge,
+    cover,
+    coverTop,
+    coverEdge,
+    grid,
+    crate,
+    airdrop,
+    beam,
+    red,
+    shock,
+    mist,
+    duelTrace,
+    duelCounter,
+    duelBlood,
+    duelSpark,
+    duelSmoke,
+    corpse,
+  };
 }
 
 function material(
@@ -372,9 +593,13 @@ function buildArena(app: Application, map: MapDescriptor, materials: Materials):
 
   for (const rect of map.walls) {
     addBlock(app, map, rect, 1.16, materials.wall);
+    addBlockTop(app, map, rect, 1.16, materials.wallTop, "wall-top");
+    addTopEdgeStrips(app, map, rect, 1.16, materials.wallEdge, "wall-edge", 0.045);
   }
   for (const rect of map.coverClusters ?? []) {
     addBlock(app, map, rect, 0.54, materials.cover);
+    addBlockTop(app, map, rect, 0.54, materials.coverTop, "cover-top");
+    addTopEdgeStrips(app, map, rect, 0.54, materials.coverEdge, "cover-edge", 0.04);
   }
 
   if (map.evac) {
@@ -397,6 +622,54 @@ function addBlock(
   );
   block.setLocalScale(rect.w * WORLD_SCALE, height, rect.h * WORLD_SCALE);
   return block;
+}
+
+function addBlockTop(
+  app: Application,
+  map: MapDescriptor,
+  rect: Rect,
+  height: number,
+  blockMaterial: StandardMaterial,
+  prefix: string,
+): Entity {
+  const cap = addPrimitive(app, app.root, `${prefix}-${rect.x}-${rect.y}`, "box", blockMaterial);
+  cap.setPosition(
+    toScenePosition(map, { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 }, height + 0.028),
+  );
+  cap.setLocalScale(rect.w * WORLD_SCALE + 0.035, 0.052, rect.h * WORLD_SCALE + 0.035);
+  return cap;
+}
+
+function addTopEdgeStrips(
+  app: Application,
+  map: MapDescriptor,
+  rect: Rect,
+  height: number,
+  edgeMaterial: StandardMaterial,
+  prefix: string,
+  thickness: number,
+): void {
+  const xCenter = rect.x + rect.w / 2;
+  const yCenter = rect.y + rect.h / 2;
+  const topY = height + 0.066;
+  const longScale = rect.w * WORLD_SCALE + thickness * 1.5;
+  const tallScale = rect.h * WORLD_SCALE + thickness * 1.5;
+
+  const north = addPrimitive(app, app.root, `${prefix}-n-${rect.x}-${rect.y}`, "box", edgeMaterial);
+  north.setPosition(toScenePosition(map, { x: xCenter, y: rect.y }, topY));
+  north.setLocalScale(longScale, thickness, thickness);
+
+  const south = addPrimitive(app, app.root, `${prefix}-s-${rect.x}-${rect.y}`, "box", edgeMaterial);
+  south.setPosition(toScenePosition(map, { x: xCenter, y: rect.y + rect.h }, topY));
+  south.setLocalScale(longScale, thickness, thickness);
+
+  const west = addPrimitive(app, app.root, `${prefix}-w-${rect.x}-${rect.y}`, "box", edgeMaterial);
+  west.setPosition(toScenePosition(map, { x: rect.x, y: yCenter }, topY));
+  west.setLocalScale(thickness, thickness, tallScale);
+
+  const east = addPrimitive(app, app.root, `${prefix}-e-${rect.x}-${rect.y}`, "box", edgeMaterial);
+  east.setPosition(toScenePosition(map, { x: rect.x + rect.w, y: yCenter }, topY));
+  east.setLocalScale(thickness, thickness, tallScale);
 }
 
 async function loadTemplates(app: Application): Promise<Templates> {
@@ -544,6 +817,7 @@ function updateCharacters(
   sample: SnapshotSample,
   virtualTurn: number,
   elapsed: number,
+  duel: DuelState | null,
 ): void {
   for (const [characterId, visual] of visuals.entries()) {
     const character = sampleCharacter(sample, characterId);
@@ -555,8 +829,13 @@ function updateCharacters(
     const vaporized =
       characterId === snapshot.moneyShot.victimId &&
       virtualTurn >= snapshot.moneyShot.landsAtTurn;
+    const duelDeathFall =
+      duel !== null &&
+      characterId === duel.loserId &&
+      virtualTurn >= duel.killTurn &&
+      virtualTurn < duel.killTurn + 0.84;
     const visible =
-      character.alive &&
+      (character.alive || duelDeathFall) &&
       !vaporized &&
       (character.extractedAtTurn === null ||
         character.extractedAtTurn === undefined ||
@@ -566,9 +845,58 @@ function updateCharacters(
     if (!visible) continue;
 
     const pos = interpolateCharacterPosition(snapshot.map, sample, characterId);
+    let pitch = 0;
+    const yaw = Math.sin(elapsed * 1.5 + pos.z) * 8;
+    let roll = 0;
+
+    if (duelDeathFall && duel) {
+      const fall = clamp((virtualTurn - duel.killTurn) / 0.84, 0, 1);
+      const corpse = getDuelCorpsePosition(snapshot.map, duel);
+      const fallen = lerpVec3(pos, corpse, fall);
+      fallen.y += 0.05 + (1 - fall) * 0.3;
+      visual.root.setPosition(fallen);
+      visual.root.setEulerAngles(82 * fall, yaw, -48 * fall);
+      continue;
+    }
+
+    if (duel) {
+      const attacker = interpolateCharacterPosition(snapshot.map, sample, duel.attackerId);
+      const defender = interpolateCharacterPosition(snapshot.map, sample, duel.defenderId);
+      const winner = interpolateCharacterPosition(snapshot.map, sample, duel.winnerId);
+      const loser = getDuelCorpsePosition(snapshot.map, duel);
+      const exchangePulse = turnPulse(virtualTurn, duel.exchangeTurn, 0.42);
+      const killPulse = turnPulse(virtualTurn, duel.killTurn, 0.52);
+
+      if (characterId === duel.attackerId && exchangePulse > 0.01) {
+        const direction = directionBetween(attacker, defender);
+        pos.x += direction.x * exchangePulse * 0.32;
+        pos.z += direction.z * exchangePulse * 0.32;
+        pitch -= exchangePulse * 7;
+      }
+      if (characterId === duel.defenderId && exchangePulse > 0.01) {
+        const direction = directionBetween(attacker, defender);
+        pos.x -= direction.x * exchangePulse * 0.24;
+        pos.z -= direction.z * exchangePulse * 0.24;
+        roll += exchangePulse * 10;
+      }
+      if (characterId === duel.winnerId && killPulse > 0.01) {
+        const direction = directionBetween(winner, loser);
+        pos.x += direction.x * killPulse * 0.4;
+        pos.z += direction.z * killPulse * 0.4;
+        pitch -= killPulse * 10;
+      }
+      if (characterId === duel.loserId && virtualTurn < duel.killTurn && killPulse > 0.01) {
+        const direction = directionBetween(winner, loser);
+        pos.x -= direction.x * killPulse * 0.34;
+        pos.z -= direction.z * killPulse * 0.34;
+        pos.y += killPulse * 0.18;
+        roll += killPulse * 16;
+      }
+    }
+
     pos.y += Math.sin(elapsed * 7 + pos.x) * 0.045;
     visual.root.setPosition(pos);
-    visual.root.setEulerAngles(0, Math.sin(elapsed * 1.5 + pos.z) * 8, 0);
+    visual.root.setEulerAngles(pitch, yaw, roll);
   }
 }
 
@@ -644,6 +972,259 @@ function updateImpact(
   shockMaterial.update();
   light.setPosition(toScenePosition(map, pos, 0.7 + pulse * 1.8));
   setLightIntensity(light, 14 * pulse);
+}
+
+function createDuelVisual(
+  app: Application,
+  map: MapDescriptor,
+  state: DuelState,
+  materials: Materials,
+): DuelVisual {
+  const clashTrace = addPrimitive(app, app.root, "duel-clash-trace", "box", materials.duelTrace);
+  const counterTrace = addPrimitive(app, app.root, "duel-counter-trace", "box", materials.duelCounter);
+  const killTrace = addPrimitive(app, app.root, "duel-kill-trace", "box", materials.duelBlood);
+  clashTrace.enabled = false;
+  counterTrace.enabled = false;
+  killTrace.enabled = false;
+
+  const corpsePos = getDuelCorpsePosition(map, state);
+  const impactRing = addPrimitive(app, app.root, "duel-kill-ring", "torus", materials.duelBlood);
+  impactRing.enabled = false;
+  const corpsePool = addPrimitive(app, app.root, "duel-corpse-pool", "cylinder", materials.corpse);
+  corpsePool.setPosition(corpsePos.x, corpsePos.y + 0.04, corpsePos.z);
+  corpsePool.enabled = false;
+  const corpseRing = addPrimitive(app, app.root, "duel-corpse-ring", "torus", materials.duelBlood);
+  corpseRing.setPosition(corpsePos.x, corpsePos.y + 0.08, corpsePos.z);
+  corpseRing.enabled = false;
+
+  const corpseLight = new Entity("duel-corpse-light", app);
+  corpseLight.addComponent("light", {
+    type: "omni",
+    color: new Color(1, 0.02, 0.0),
+    intensity: 0,
+    range: 6,
+  });
+  corpseLight.setPosition(corpsePos.x, 0.45, corpsePos.z);
+  app.root.addChild(corpseLight);
+
+  const flare = new Entity("duel-kill-flare", app);
+  flare.addComponent("light", {
+    type: "omni",
+    color: new Color(1, 0.55, 0.18),
+    intensity: 0,
+    range: 8,
+  });
+  flare.setPosition(corpsePos.x, 1.1, corpsePos.z);
+  app.root.addChild(flare);
+
+  return {
+    state,
+    clashTrace,
+    counterTrace,
+    killTrace,
+    impactRing,
+    corpsePool,
+    corpseRing,
+    corpseLight,
+    flare,
+    sparks: createSimpleBurst(app, "duel-spark", materials.duelSpark, 56),
+    blood: createSimpleBurst(app, "duel-blood", materials.duelBlood, 72),
+    smoke: createSimpleBurst(app, "duel-smoke", materials.duelSmoke, 34),
+    flarePulse: 0,
+  };
+}
+
+function updateDuelVisual(
+  visual: DuelVisual,
+  map: MapDescriptor,
+  sample: SnapshotSample,
+  virtualTurn: number,
+  elapsed: number,
+  dt: number,
+): void {
+  const { state } = visual;
+  const attacker = elevated(interpolateCharacterPosition(map, sample, state.attackerId), 0.9);
+  const defender = elevated(interpolateCharacterPosition(map, sample, state.defenderId), 0.9);
+  const winner = elevated(interpolateCharacterPosition(map, sample, state.winnerId), 0.9);
+  const corpseGround = getDuelCorpsePosition(map, state);
+  const loser = elevated(corpseGround, 0.58);
+
+  const exchangePulse = turnPulse(virtualTurn, state.exchangeTurn, 0.54);
+  const counterTurn = state.exchangeTurn + Math.max(0.2, (state.killTurn - state.exchangeTurn) * 0.5);
+  const counterPulse = turnPulse(virtualTurn, counterTurn, 0.44);
+  const killPulse = turnPulse(virtualTurn, state.killTurn, 0.66);
+
+  setTraceBeam(visual.clashTrace, attacker, defender, exchangePulse, 0.07);
+  setTraceBeam(visual.counterTrace, defender, attacker, counterPulse * 0.82, 0.055);
+  setTraceBeam(visual.killTrace, winner, loser, killPulse, 0.11);
+
+  const afterKill = virtualTurn >= state.killTurn - 0.16 || killPulse > 0.15;
+  const corpseFade = Math.max(
+    clamp((virtualTurn - state.killTurn) / 0.62, 0, 1),
+    killPulse * 0.62,
+  );
+  visual.corpsePool.enabled = afterKill;
+  visual.corpseRing.enabled = afterKill;
+  if (afterKill) {
+    const poolPulse = 0.08 + Math.sin(elapsed * 5.2) * 0.026;
+    visual.corpsePool.setPosition(corpseGround.x, corpseGround.y + 0.045, corpseGround.z);
+    visual.corpsePool.setLocalScale(0.46 + corpseFade * 1.45, 0.03, 0.32 + corpseFade * 1.05);
+    visual.corpseRing.setPosition(corpseGround.x, corpseGround.y + 0.13, corpseGround.z);
+    visual.corpseRing.setLocalScale(1.05 + corpseFade * 0.36 + poolPulse, 0.055, 1.05 + corpseFade * 0.36 + poolPulse);
+    visual.corpseRing.rotateLocal(0, 38 * dt, 0);
+  }
+
+  if (killPulse > 0.02) {
+    visual.impactRing.enabled = true;
+    visual.impactRing.setPosition(corpseGround.x, corpseGround.y + 0.18, corpseGround.z);
+    const scale = 1.15 + (1 - killPulse) * 4.4;
+    visual.impactRing.setLocalScale(scale, 0.08, scale);
+  } else {
+    visual.impactRing.enabled = false;
+  }
+
+  visual.flarePulse = Math.max(0, visual.flarePulse - dt * 1.7);
+  visual.flare.setPosition(corpseGround.x, 1.0 + visual.flarePulse * 0.9, corpseGround.z);
+  setLightIntensity(visual.flare, visual.flarePulse * 11);
+  visual.corpseLight.setPosition(corpseGround.x, 0.45, corpseGround.z);
+  setLightIntensity(
+    visual.corpseLight,
+    afterKill ? 0.7 + Math.sin(elapsed * 4.4) * 0.22 + visual.flarePulse * 3.2 : 0,
+  );
+
+  visual.sparks.update(dt);
+  visual.blood.update(dt);
+  visual.smoke.update(dt);
+}
+
+function triggerDuelExchange(visual: DuelVisual, map: MapDescriptor, sample: SnapshotSample): void {
+  const attacker = elevated(interpolateCharacterPosition(map, sample, visual.state.attackerId), 0.88);
+  const defender = elevated(interpolateCharacterPosition(map, sample, visual.state.defenderId), 0.88);
+  visual.sparks.trigger(centerVec3(attacker, defender), {
+    speedMin: 2.2,
+    speedMax: 5.4,
+    riseMin: 0.25,
+    riseMax: 2.6,
+    lifeMin: 0.18,
+    lifeMax: 0.52,
+    scaleMin: 0.035,
+    scaleMax: 0.16,
+    gravity: -5.2,
+  });
+  visual.flarePulse = Math.max(visual.flarePulse, 0.45);
+}
+
+function triggerDuelKill(visual: DuelVisual, map: MapDescriptor, sample: SnapshotSample): void {
+  const loser = elevated(interpolateCharacterPosition(map, sample, visual.state.loserId), 0.75);
+  const corpse = elevated(getDuelCorpsePosition(map, visual.state), 0.38);
+  const impact = centerVec3(loser, corpse);
+  visual.sparks.trigger(impact, {
+    speedMin: 3.0,
+    speedMax: 6.8,
+    riseMin: 0.2,
+    riseMax: 3.2,
+    lifeMin: 0.16,
+    lifeMax: 0.62,
+    scaleMin: 0.045,
+    scaleMax: 0.2,
+    gravity: -5.8,
+  });
+  visual.blood.trigger(impact, {
+    speedMin: 1.7,
+    speedMax: 4.4,
+    riseMin: 0.12,
+    riseMax: 2.5,
+    lifeMin: 0.28,
+    lifeMax: 0.96,
+    scaleMin: 0.12,
+    scaleMax: 0.46,
+    gravity: -4.1,
+  });
+  visual.smoke.trigger(elevated(getDuelCorpsePosition(map, visual.state), 0.16), {
+    speedMin: 0.25,
+    speedMax: 1.25,
+    riseMin: 0.35,
+    riseMax: 1.45,
+    lifeMin: 0.75,
+    lifeMax: 1.9,
+    scaleMin: 0.32,
+    scaleMax: 1.18,
+    gravity: 0.08,
+  });
+  visual.flarePulse = 1;
+}
+
+function createSimpleBurst(
+  app: Application,
+  name: string,
+  particleMaterial: StandardMaterial,
+  count: number,
+): SimpleBurst {
+  const particles: BurstParticle[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const entity = addParticlePrimitive(app, app.root, `${name}-${index}`, "sphere", particleMaterial);
+    entity.enabled = false;
+    particles.push({
+      entity,
+      velocity: new Vec3(),
+      life: 1,
+      age: 1,
+      baseScale: 0.1,
+      spin: new Vec3(),
+      gravity: -3,
+    });
+  }
+
+  let origin = new Vec3();
+  let burstSeed = 0;
+
+  return {
+    trigger(position: Vec3, config: BurstConfig) {
+      origin = position.clone();
+      burstSeed += 1;
+      for (let index = 0; index < particles.length; index += 1) {
+        const particle = particles[index]!;
+        const angle = seeded(index, burstSeed) * Math.PI * 2;
+        const radialSpeed = config.speedMin + seeded(index + 13, burstSeed) * (config.speedMax - config.speedMin);
+        particle.velocity.set(
+          Math.cos(angle) * radialSpeed,
+          config.riseMin + seeded(index + 29, burstSeed) * (config.riseMax - config.riseMin),
+          Math.sin(angle) * radialSpeed,
+        );
+        particle.life = config.lifeMin + seeded(index + 43, burstSeed) * (config.lifeMax - config.lifeMin);
+        particle.age = -seeded(index + 59, burstSeed) * 0.06;
+        particle.baseScale = config.scaleMin + seeded(index + 71, burstSeed) * (config.scaleMax - config.scaleMin);
+        particle.gravity = config.gravity;
+        particle.spin.set(
+          -260 + seeded(index + 83, burstSeed) * 520,
+          -260 + seeded(index + 97, burstSeed) * 520,
+          -260 + seeded(index + 109, burstSeed) * 520,
+        );
+        particle.entity.enabled = true;
+        particle.entity.setPosition(origin);
+      }
+    },
+    update(dt: number) {
+      for (const particle of particles) {
+        if (!particle.entity.enabled) continue;
+        particle.age += dt;
+        if (particle.age >= particle.life) {
+          particle.entity.enabled = false;
+          continue;
+        }
+        if (particle.age < 0) continue;
+        const t = particle.age / particle.life;
+        particle.entity.setPosition(
+          origin.x + particle.velocity.x * particle.age,
+          origin.y + particle.velocity.y * particle.age + particle.gravity * particle.age * particle.age * 0.5,
+          origin.z + particle.velocity.z * particle.age,
+        );
+        const scale = particle.baseScale * (0.35 + (1 - t) * 1.45);
+        particle.entity.setLocalScale(scale, scale, scale);
+        particle.entity.rotateLocal(particle.spin.x * dt, particle.spin.y * dt, particle.spin.z * dt);
+      }
+    },
+  };
 }
 
 type MistParticle = {
@@ -736,6 +1317,8 @@ class OrbitRig {
   private lastX = 0;
   private lastY = 0;
   private followLocked = true;
+  private punch = 0;
+  private radiusPull = 0;
 
   constructor(camera: Entity, canvas: HTMLCanvasElement, initialTarget: Vec3) {
     this.camera = camera;
@@ -761,16 +1344,22 @@ class OrbitRig {
     return this.followLocked;
   }
 
+  setPunch(pulse: number, radiusPull: number): void {
+    this.punch = clamp(pulse, 0, 1);
+    this.radiusPull = Math.max(0, radiusPull);
+  }
+
   update(dt: number): void {
     if (this.followLocked) {
       this.temp.lerp(this.target, this.anchor, clamp(dt * 5.5, 0, 1));
       this.target.copy(this.temp);
     }
 
-    const horizontal = Math.cos(this.pitch) * this.radius;
+    const currentRadius = clamp(this.radius - this.radiusPull, 7, 34);
+    const horizontal = Math.cos(this.pitch) * currentRadius;
     const position = new Vec3(
       this.target.x + Math.sin(this.yaw) * horizontal,
-      this.target.y + Math.sin(this.pitch) * this.radius,
+      this.target.y + Math.sin(this.pitch) * currentRadius + this.punch * 0.18,
       this.target.z + Math.cos(this.yaw) * horizontal,
     );
     this.camera.setPosition(position);
@@ -821,7 +1410,17 @@ function getTargetPosition(
   sample: SnapshotSample,
   virtualTurn: number,
   fallback: Tile,
+  duel: DuelState | null,
 ): Vec3 {
+  if (
+    duel &&
+    virtualTurn >= duel.startTurn - 0.28 &&
+    virtualTurn <= duel.killTurn + 1.15
+  ) {
+    const winner = interpolateCharacterPosition(snapshot.map, sample, duel.winnerId);
+    const loser = getDuelCorpsePosition(snapshot.map, duel);
+    return centerVec3(winner, loser);
+  }
   if (virtualTurn >= snapshot.moneyShot.landsAtTurn) {
     return toScenePosition(snapshot.map, fallback, 0.2);
   }
@@ -899,7 +1498,7 @@ function getLoop(snapshot: ReplaySnapshot): Loop {
     startTurn,
     endTurn,
     turnSpan: Math.max(1, endTurn - startTurn),
-    seconds: clamp(snapshot.moneyShot.loopSeconds ?? 14, 10, 20),
+    seconds: clamp(snapshot.moneyShot.loopSeconds ?? 14, 10, 35),
   };
 }
 
@@ -947,6 +1546,66 @@ function collectCrates(snapshot: ReplaySnapshot): SnapshotCrate[] {
   return Array.from(byId.values()).filter((crate) => crate.id !== snapshot.moneyShot.dropId);
 }
 
+function resolveDuel(snapshot: ReplaySnapshot): DuelState | null {
+  const duel = (snapshot as SnapshotWithDuel).duel;
+  if (!duel) return null;
+
+  const participants = Array.isArray(duel.participantIds)
+    ? duel.participantIds.filter((id) => typeof id === "string" && id.length > 0)
+    : [];
+  const first = participants[0];
+  const second = participants[1];
+  const attackerId = firstString(duel.attackerId, duel.killerId, duel.winnerId, first);
+  const defenderId = firstString(duel.defenderId, duel.loserId, duel.victimId, second);
+  const winnerId = firstString(duel.winnerId, duel.killerId, attackerId);
+  const loserId = firstString(duel.loserId, duel.victimId, defenderId);
+  if (!attackerId || !defenderId || !winnerId || !loserId || winnerId === loserId) {
+    return null;
+  }
+
+  const firstTurn = snapshot.frames[0]?.turn ?? 0;
+  const startTurn = finiteNumber(duel.startTurn) ? duel.startTurn : firstTurn + 1;
+  const killTurn = finiteNumber(duel.killTurn)
+    ? duel.killTurn
+    : finiteNumber(duel.endTurn)
+      ? duel.endTurn
+      : startTurn + 2;
+  const exchangeTurn = finiteNumber(duel.exchangeTurn)
+    ? duel.exchangeTurn
+    : startTurn + Math.max(0.4, (killTurn - startTurn) * 0.52);
+  const endTurn = finiteNumber(duel.endTurn) ? duel.endTurn : killTurn;
+
+  return {
+    attackerId,
+    defenderId,
+    winnerId,
+    loserId,
+    startTurn,
+    exchangeTurn,
+    killTurn,
+    endTurn,
+    corpsePos: duel.corpseTile ?? findCorpsePosition(snapshot, loserId) ?? findCharacterTileAtTurn(snapshot, loserId, killTurn),
+  };
+}
+
+function findCorpsePosition(snapshot: ReplaySnapshot, characterId: string): Tile | null {
+  const sorted = [...snapshot.frames].sort((a, b) => a.turn - b.turn);
+  for (const frame of sorted) {
+    const corpse = frame.corpses.find((candidate) => candidate.characterId === characterId);
+    if (corpse) return corpse.pos;
+  }
+  return null;
+}
+
+function findCharacterTileAtTurn(snapshot: ReplaySnapshot, characterId: string, turn: number): Tile | null {
+  const sorted = [...snapshot.frames].sort((a, b) => Math.abs(a.turn - turn) - Math.abs(b.turn - turn));
+  for (const frame of sorted) {
+    const character = frame.characters.find((candidate) => candidate.characterId === characterId);
+    if (character) return character.pos;
+  }
+  return null;
+}
+
 function addPrimitive(
   app: Application,
   parent: Entity,
@@ -960,6 +1619,24 @@ function addPrimitive(
     material: renderMaterial,
     castShadows: true,
     receiveShadows: true,
+  });
+  parent.addChild(entity);
+  return entity;
+}
+
+function addParticlePrimitive(
+  app: Application,
+  parent: Entity,
+  name: string,
+  type: RenderPrimitive,
+  renderMaterial: StandardMaterial,
+): Entity {
+  const entity = new Entity(name, app);
+  entity.addComponent("render", {
+    type,
+    material: renderMaterial,
+    castShadows: false,
+    receiveShadows: false,
   });
   parent.addChild(entity);
   return entity;
@@ -985,6 +1662,79 @@ function accentMaterial(name: string, accent: Color): StandardMaterial {
     true,
     3.2,
   );
+}
+
+function getDuelCorpsePosition(map: MapDescriptor, duel: DuelState): Vec3 {
+  return toScenePosition(map, duel.corpsePos ?? { x: map.size.w / 2, y: map.size.h / 2 }, 0);
+}
+
+function setTraceBeam(beam: Entity, start: Vec3, end: Vec3, pulse: number, width: number): void {
+  if (pulse <= 0.02) {
+    beam.enabled = false;
+    return;
+  }
+
+  const length = distanceVec3(start, end);
+  if (length <= 0.01) {
+    beam.enabled = false;
+    return;
+  }
+
+  beam.enabled = true;
+  beam.setPosition(centerVec3(start, end));
+  const flareWidth = width * (0.75 + pulse * 1.9);
+  beam.setLocalScale(flareWidth, flareWidth, length);
+  beam.lookAt(end);
+}
+
+function cameraShakeOffset(elapsed: number, pulse: number): Vec3 {
+  if (pulse <= 0.01) return new Vec3();
+  const strength = pulse * pulse;
+  return new Vec3(
+    Math.sin(elapsed * 71) * 0.1 * strength,
+    Math.sin(elapsed * 93) * 0.045 * strength,
+    Math.cos(elapsed * 83) * 0.1 * strength,
+  );
+}
+
+function turnPulse(turn: number, center: number, width: number): number {
+  return clamp(1 - Math.abs(turn - center) / Math.max(width, 0.001), 0, 1);
+}
+
+function elevated(position: Vec3, height: number): Vec3 {
+  return new Vec3(position.x, position.y + height, position.z);
+}
+
+function centerVec3(a: Vec3, b: Vec3): Vec3 {
+  return new Vec3((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5);
+}
+
+function lerpVec3(a: Vec3, b: Vec3, t: number): Vec3 {
+  return new Vec3(
+    a.x + (b.x - a.x) * t,
+    a.y + (b.y - a.y) * t,
+    a.z + (b.z - a.z) * t,
+  );
+}
+
+function directionBetween(from: Vec3, to: Vec3): Vec3 {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const length = Math.hypot(dx, dz);
+  if (length <= 0.0001) return new Vec3();
+  return new Vec3(dx / length, 0, dz / length);
+}
+
+function distanceVec3(a: Vec3, b: Vec3): number {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+function firstString(...values: Array<string | undefined>): string | undefined {
+  return values.find((value) => typeof value === "string" && value.length > 0);
+}
+
+function finiteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function setLightIntensity(entity: Entity, intensity: number): void {

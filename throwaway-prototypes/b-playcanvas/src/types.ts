@@ -82,9 +82,33 @@ export type MoneyShot = {
   loopSeconds?: number;
 };
 
+export type DuelPlaybackTiming = {
+  startTurn?: number;
+  endTurn?: number;
+  loopSeconds?: number;
+  eventTimesSeconds?: Record<string, number>;
+};
+
+export type DuelMetadata = {
+  kind: "duel";
+  eventId?: string;
+  sourceKind?: string;
+  participantIds: string[];
+  attackerId?: string;
+  defenderId?: string;
+  winnerId?: string;
+  loserId?: string;
+  startTurn?: number;
+  exchangeTurn?: number;
+  killTurn?: number;
+  endTurn?: number;
+  playback?: DuelPlaybackTiming;
+};
+
 export type ReplaySnapshot = {
   metadata?: Record<string, unknown>;
   map: MapDescriptor;
   frames: EntitySnapshot[];
   moneyShot: MoneyShot;
+  duel?: DuelMetadata;
 };
