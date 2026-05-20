@@ -20,6 +20,7 @@ export default tseslint.config(
       "convex/_generated/**",
       "coverage/**",
       "dist/**",
+      "throwaway-prototypes/**/dist/**",
       "build/**",
       "**/*.cjs",
       // Agent harness tooling is not project code — owned by .agents/ and

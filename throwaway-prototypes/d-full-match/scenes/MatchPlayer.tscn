@@ -1,0 +1,41 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://src/MatchPlayer.gd" id="1_player"]
+[ext_resource type="Script" path="res://src/SceneBuilder.gd" id="2_scene_builder"]
+[ext_resource type="Script" path="res://src/EntityRenderer.gd" id="3_entity_renderer"]
+[ext_resource type="Script" path="res://src/PlaybackClock.gd" id="4_playback_clock"]
+[ext_resource type="Script" path="res://src/TimelineHud.gd" id="5_timeline_hud"]
+[ext_resource type="Script" path="res://src/CameraRig.gd" id="6_camera_rig"]
+[ext_resource type="Script" path="res://src/KillFeedOverlay.gd" id="7_kill_feed"]
+[ext_resource type="Script" path="res://src/SidePanel.gd" id="8_side_panel"]
+
+[node name="MatchPlayer" type="Node3D"]
+script = ExtResource("1_player")
+
+[node name="SceneBuilder" type="Node3D" parent="."]
+unique_name_in_owner = true
+script = ExtResource("2_scene_builder")
+
+[node name="EntityRenderer" type="Node3D" parent="."]
+unique_name_in_owner = true
+script = ExtResource("3_entity_renderer")
+
+[node name="PlaybackClock" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("4_playback_clock")
+
+[node name="CameraRig" type="Node3D" parent="."]
+unique_name_in_owner = true
+script = ExtResource("6_camera_rig")
+
+[node name="TimelineHud" type="CanvasLayer" parent="."]
+unique_name_in_owner = true
+script = ExtResource("5_timeline_hud")
+
+[node name="KillFeedOverlay" type="CanvasLayer" parent="."]
+unique_name_in_owner = true
+script = ExtResource("7_kill_feed")
+
+[node name="SidePanel" type="CanvasLayer" parent="."]
+unique_name_in_owner = true
+script = ExtResource("8_side_panel")

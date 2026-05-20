@@ -11,6 +11,7 @@ export type KillAttributionAction = {
   kind: string;
   target: string;
   result: string;
+  weapon?: string;
 };
 
 export type KillAttributionAgentRecord = {
@@ -101,7 +102,7 @@ function addParticipantAliases(
   );
 }
 
-function buildTargetIdLookup(
+export function buildTargetIdLookup(
   turns: readonly KillAttributionTurnRow[],
   characters: readonly KillAttributionCharacterRow[],
 ): Map<string, string> {
@@ -122,7 +123,7 @@ function buildTargetIdLookup(
   return lookup;
 }
 
-function isDamageAction(action: KillAttributionAction): boolean {
+export function isDamageAction(action: KillAttributionAction): boolean {
   return (
     (action.kind === "attack" ||
       action.kind === "overwatch" ||

@@ -1,0 +1,82 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/MatchPicker.gd" id="1_picker"]
+
+[node name="MatchPicker" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_picker")
+
+[node name="Root" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 28
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 28
+theme_override_constants/margin_bottom = 24
+
+[node name="Panel" type="PanelContainer" parent="Root"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="Root/Panel"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Header" type="HBoxContainer" parent="Root/Panel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Root/Panel/VBox/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Completed Matches"
+theme_override_font_sizes/font_size = 26
+
+[node name="RefreshButton" type="Button" parent="Root/Panel/VBox/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Refresh"
+
+[node name="ConvexUrlLabel" type="Label" parent="Root/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Convex: resolving..."
+autowrap_mode = 3
+
+[node name="StatusRow" type="HBoxContainer" parent="Root/Panel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="StatusLabel" type="Label" parent="Root/Panel/VBox/StatusRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Loading matches..."
+autowrap_mode = 3
+
+[node name="RetryButton" type="Button" parent="Root/Panel/VBox/StatusRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Retry"
+visible = false
+
+[node name="ListHeader" type="Label" parent="Root/Panel/VBox"]
+layout_mode = 2
+text = "Map | completed at | characters | turns | outcome"
+theme_override_font_sizes/font_size = 14
+
+[node name="MatchList" type="ItemList" parent="Root/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+allow_reselect = true
+allow_search = true
+same_column_width = true

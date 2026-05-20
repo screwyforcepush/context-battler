@@ -1,0 +1,12 @@
+{
+  "name": "@context-battler/throwaway-d-full-match",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway Godot 4 WASM full-match replay prototype.",
+  "scripts": {
+    "test": "node scripts/verify-scaffold.mjs",
+    "build": "node scripts/export-web.mjs",
+    "serve": "node scripts/serve.mjs"
+  }
+}

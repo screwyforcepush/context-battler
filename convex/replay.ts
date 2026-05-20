@@ -53,6 +53,45 @@ export const listMatches = query({
 });
 
 /**
+ * Full-match Godot HTTP picker contract.
+ *
+ * D11(b) join choice: fan out characters inside this query instead of making
+ * the httpAction perform one runQuery per match. The HTTP route passes a
+ * 100-row pagination page; the optional `limit` form keeps any direct Convex
+ * caller on the same joined query without a second implementation.
+ */
+export const listMatchesWithCharacters = query({
+  args: {
+    paginationOpts: v.optional(paginationOptsValidator),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { paginationOpts, limit }) => {
+    const baseQuery = ctx.db
+      .query("matches")
+      .withIndex("by_status", (q) => q.eq("status", "completed"))
+      .order("desc");
+    const matches = paginationOpts
+      ? (await baseQuery.paginate(paginationOpts)).page
+      : await baseQuery.take(limit ?? 100);
+
+    const joined = await Promise.all(
+      matches.map(async (match) => {
+        const characters = await ctx.db
+          .query("characters")
+          .withIndex("by_match", (q) => q.eq("matchId", match._id))
+          .collect();
+        return { match, characters };
+      }),
+    );
+    return joined.sort(
+      (a, b) =>
+        (b.match.completedAt ?? b.match._creationTime) -
+        (a.match.completedAt ?? a.match._creationTime),
+    );
+  },
+});
+
+/**
  * Single batch fetch — the entire data set the replay route needs in ONE
  * round trip. Returns `null` when the matchId does not resolve.
  *
