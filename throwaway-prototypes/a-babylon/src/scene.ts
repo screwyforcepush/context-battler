@@ -55,6 +55,7 @@ type Templates = {
 type CharacterVisual = {
   root: TransformNode;
   accent: Color3;
+  baseScaling: Vector3;
 };
 
 type AirdropVisual = {
@@ -62,6 +63,43 @@ type AirdropVisual = {
   marker: Mesh;
   beam: Mesh;
   light: PointLight;
+};
+
+type PostFx = {
+  glow: GlowLayer;
+  pipeline: DefaultRenderingPipeline;
+  baseGlow: number;
+  baseBloom: number;
+  baseAberration: number;
+  baseExposure: number;
+};
+
+type DuelState = {
+  attackerId: string;
+  defenderId: string;
+  winnerId: string;
+  loserId: string;
+  startTurn: number;
+  exchangeTurn: number;
+  killTurn: number;
+  endTurn: number;
+  corpsePos: Tile | null;
+};
+
+type DuelVisual = {
+  state: DuelState;
+  clashTrace: Mesh;
+  counterTrace: Mesh;
+  killTrace: Mesh;
+  impactRing: Mesh;
+  corpsePool: Mesh;
+  corpseRing: Mesh;
+  corpseLight: PointLight;
+  flare: PointLight;
+  sparks: ParticleSystem;
+  blood: ParticleSystem;
+  smoke: ParticleSystem;
+  flarePulse: number;
 };
 
 export type SceneController = {
@@ -84,7 +122,7 @@ export async function createTelefragScene(
   const camera = createCamera(scene, canvas, snapshot.map, targetAnchor);
 
   addLighting(scene);
-  addPost(scene, camera);
+  const postFx = addPost(scene, camera);
   buildArena(scene, snapshot.map, materials);
 
   const templates = await loadTemplates(scene);
@@ -99,13 +137,18 @@ export async function createTelefragScene(
   characterIds.forEach((characterId, index) => {
     const accent = AGENT_COLORS[index % AGENT_COLORS.length] ?? AGENT_COLORS[0]!;
     const root = instantiateAgent(scene, templates, characterId, accent, materials);
-    characterVisuals.set(characterId, { root, accent });
+    characterVisuals.set(characterId, { root, accent, baseScaling: root.scaling.clone() });
   });
 
+  const duelState = resolveDuel(snapshot);
+  const duelVisual = duelState ? createDuelVisual(scene, snapshot.map, duelState, materials) : null;
   const drop = getMoneyShotAirdrop(snapshot);
   const airdropVisual = createAirdrop(scene, templates, drop, snapshot.map, materials);
   const mist = createMist(scene);
+  const telefragSmoke = createTelefragSmoke(scene);
+  const telefragSparks = createTelefragSparks(scene);
   const shockwave = createShockwave(scene, materials);
+  const telefragCloud = createTelefragCloud(scene, materials);
   const impactLight = new PointLight("impact-light", toScenePosition(snapshot.map, drop.pos, 0.8), scene);
   impactLight.diffuse = new Color3(1, 0.04, 0.02);
   impactLight.specular = new Color3(1, 0.16, 0.08);
@@ -116,7 +159,11 @@ export async function createTelefragScene(
   let elapsed = 0;
   let lastVirtualTurn: number | null = null;
   let impactPulse = 0;
+  let killCameraPulse = 0;
+  let telefragCameraPulse = 0;
   const loop = getLoop(snapshot);
+  const baseCameraRadius = camera.radius;
+  const baseCameraBeta = camera.beta;
 
   scene.registerBeforeRender(() => {
     const deltaSeconds = Math.min(engine.getDeltaTime() / 1000, 0.05);
@@ -132,21 +179,51 @@ export async function createTelefragScene(
       virtualTurn,
       elapsed,
       materials,
+      duelState,
     );
+    if (duelVisual) {
+      updateDuelVisual(duelVisual, snapshot.map, sample, virtualTurn, elapsed, deltaSeconds);
+    }
     updateAirdrop(snapshot.map, airdropVisual, drop, loop, virtualTurn, elapsed);
 
-    const targetPosition = getTargetPosition(snapshot, sample, virtualTurn, drop.pos);
-    targetAnchor.position = targetPosition.add(new Vector3(0, 0.9, 0));
-
-    if (lastVirtualTurn !== null && crossedTurn(lastVirtualTurn, virtualTurn, drop.landsAtTurn)) {
-      mist.emitter = toScenePosition(snapshot.map, drop.pos, 0.75);
-      mist.manualEmitCount = 520;
-      mist.start();
-      impactPulse = 1;
+    if (lastVirtualTurn !== null) {
+      if (duelVisual && crossedTurn(lastVirtualTurn, virtualTurn, duelVisual.state.exchangeTurn)) {
+        triggerDuelExchange(duelVisual, snapshot.map, sample);
+      }
+      if (duelVisual && crossedTurn(lastVirtualTurn, virtualTurn, duelVisual.state.killTurn)) {
+        triggerDuelKill(duelVisual, snapshot.map, sample);
+        killCameraPulse = 1;
+      }
+      if (crossedTurn(lastVirtualTurn, virtualTurn, drop.landsAtTurn)) {
+        const dropImpact = toScenePosition(snapshot.map, drop.pos, 0.75);
+        triggerParticleBurst(mist, dropImpact, 820);
+        triggerParticleBurst(telefragSmoke, toScenePosition(snapshot.map, drop.pos, 0.5), 360);
+        triggerParticleBurst(telefragSparks, toScenePosition(snapshot.map, drop.pos, 0.9), 180);
+        impactPulse = 1;
+        telefragCameraPulse = 1;
+      }
     }
 
-    impactPulse = Math.max(0, impactPulse - deltaSeconds * 0.9);
-    updateImpact(shockwave, impactLight, snapshot.map, drop.pos, impactPulse);
+    killCameraPulse = Math.max(0, killCameraPulse - deltaSeconds * 1.45);
+    telefragCameraPulse = Math.max(0, telefragCameraPulse - deltaSeconds * 1.05);
+    impactPulse = Math.max(0, impactPulse - deltaSeconds * 0.36);
+    const targetPosition = getTargetPosition(snapshot, sample, virtualTurn, drop.pos, duelState);
+    const shake = cameraShakeOffset(elapsed, Math.max(killCameraPulse, telefragCameraPulse * 1.1));
+    targetAnchor.position = targetPosition.add(new Vector3(0, 0.9, 0)).add(shake);
+    updatePostFx(postFx, killCameraPulse, telefragCameraPulse, impactPulse);
+    updateCameraDirector(
+      camera,
+      followLocked,
+      baseCameraRadius,
+      baseCameraBeta,
+      virtualTurn,
+      duelState,
+      snapshot.moneyShot.landsAtTurn,
+      killCameraPulse,
+      telefragCameraPulse,
+      deltaSeconds,
+    );
+    updateImpact(shockwave, telefragCloud, impactLight, snapshot.map, drop.pos, impactPulse);
     lastVirtualTurn = virtualTurn;
   });
 
@@ -208,7 +285,7 @@ function addLighting(scene: Scene): void {
   key.intensity = 1.35;
 }
 
-function addPost(scene: Scene, camera: ArcRotateCamera): void {
+function addPost(scene: Scene, camera: ArcRotateCamera): PostFx {
   const glow = new GlowLayer("neon-glow", scene, {
     blurKernelSize: 48,
   });
@@ -225,6 +302,15 @@ function addPost(scene: Scene, camera: ArcRotateCamera): void {
   pipeline.imageProcessingEnabled = true;
   pipeline.imageProcessing.contrast = 1.18;
   pipeline.imageProcessing.exposure = 1.02;
+
+  return {
+    glow,
+    pipeline,
+    baseGlow: glow.intensity,
+    baseBloom: pipeline.bloomWeight,
+    baseAberration: pipeline.chromaticAberration.aberrationAmount,
+    baseExposure: pipeline.imageProcessing.exposure,
+  };
 }
 
 function createMaterials(scene: Scene) {
@@ -235,7 +321,12 @@ function createMaterials(scene: Scene) {
   const crate = material(scene, "crate", new Color3(0.16, 0.12, 0.075), new Color3(0.9, 0.34, 0.06));
   const airdrop = material(scene, "airdrop", new Color3(0.2, 0.02, 0.018), new Color3(1.0, 0.02, 0.02));
   const red = material(scene, "red-mist", new Color3(1.0, 0.03, 0.01), new Color3(1.0, 0.01, 0.0), 0.78);
-  return { ground, wall, cover, grid, crate, airdrop, red };
+  const telefragCloud = material(scene, "telefrag-cloud", new Color3(0.8, 0.02, 0.01), new Color3(1.0, 0.0, 0.0), 0.34);
+  const duelTrace = material(scene, "duel-trace", new Color3(1.0, 0.76, 0.22), new Color3(1.0, 0.55, 0.08), 0.92);
+  const duelCounter = material(scene, "duel-counter-trace", new Color3(0.18, 0.82, 1.0), new Color3(0.05, 0.72, 1.0), 0.82);
+  const duelBlood = material(scene, "duel-blood", new Color3(0.5, 0.005, 0.0), new Color3(1.0, 0.0, 0.0), 0.78);
+  const corpse = material(scene, "corpse-marker", new Color3(0.08, 0.0, 0.0), new Color3(0.72, 0.0, 0.0), 0.86);
+  return { ground, wall, cover, grid, crate, airdrop, red, telefragCloud, duelTrace, duelCounter, duelBlood, corpse };
 }
 
 function material(
@@ -563,36 +654,87 @@ function createAirdrop(
 }
 
 function createMist(scene: Scene): ParticleSystem {
-  const texture = new DynamicTexture("mist-dot", { width: 64, height: 64 }, scene, false);
-  const context = texture.getContext();
-  const gradient = context.createRadialGradient(32, 32, 2, 32, 32, 32);
-  gradient.addColorStop(0, "rgba(255,255,255,1)");
-  gradient.addColorStop(0.42, "rgba(255,90,80,0.72)");
-  gradient.addColorStop(1, "rgba(255,0,0,0)");
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, 64, 64);
-  texture.update();
+  const texture = createRadialParticleTexture(scene, "mist-dot", [
+    [0, "rgba(255,255,255,1)"],
+    [0.36, "rgba(255,66,58,0.76)"],
+    [0.7, "rgba(140,0,0,0.38)"],
+    [1, "rgba(255,0,0,0)"],
+  ]);
 
-  const mist = new ParticleSystem("red-mist", 900, scene);
+  const mist = new ParticleSystem("red-mist", 1400, scene);
   mist.particleTexture = texture;
-  mist.minEmitBox = new Vector3(-0.34, 0.1, -0.34);
-  mist.maxEmitBox = new Vector3(0.34, 0.9, 0.34);
-  mist.direction1 = new Vector3(-3.2, 0.4, -3.2);
-  mist.direction2 = new Vector3(3.2, 3.4, 3.2);
+  mist.minEmitBox = new Vector3(-0.48, 0.08, -0.48);
+  mist.maxEmitBox = new Vector3(0.48, 1.2, 0.48);
+  mist.direction1 = new Vector3(-4.4, 0.35, -4.4);
+  mist.direction2 = new Vector3(4.4, 4.2, 4.4);
   mist.color1 = new Color4(1.0, 0.02, 0.01, 0.9);
-  mist.color2 = new Color4(0.95, 0.22, 0.04, 0.42);
+  mist.color2 = new Color4(0.95, 0.14, 0.04, 0.5);
   mist.colorDead = new Color4(0.12, 0.0, 0.0, 0);
   mist.minSize = 0.18;
-  mist.maxSize = 0.74;
-  mist.minLifeTime = 0.35;
-  mist.maxLifeTime = 1.15;
+  mist.maxSize = 0.95;
+  mist.minLifeTime = 0.65;
+  mist.maxLifeTime = 2.45;
   mist.emitRate = 0;
-  mist.targetStopDuration = 0.16;
+  mist.targetStopDuration = 0.34;
   mist.gravity = new Vector3(0, -3.2, 0);
   mist.minAngularSpeed = -12;
   mist.maxAngularSpeed = 12;
   mist.blendMode = ParticleSystem.BLENDMODE_ADD;
   return mist;
+}
+
+function createTelefragSmoke(scene: Scene): ParticleSystem {
+  const texture = createRadialParticleTexture(scene, "telefrag-smoke-dot", [
+    [0, "rgba(255,210,190,0.64)"],
+    [0.44, "rgba(116,24,20,0.34)"],
+    [1, "rgba(16,10,10,0)"],
+  ]);
+
+  const smoke = new ParticleSystem("telefrag-smoke", 900, scene);
+  smoke.particleTexture = texture;
+  smoke.minEmitBox = new Vector3(-0.62, 0.05, -0.62);
+  smoke.maxEmitBox = new Vector3(0.62, 0.95, 0.62);
+  smoke.direction1 = new Vector3(-1.6, 0.15, -1.6);
+  smoke.direction2 = new Vector3(1.6, 2.4, 1.6);
+  smoke.color1 = new Color4(0.42, 0.07, 0.045, 0.48);
+  smoke.color2 = new Color4(0.08, 0.075, 0.07, 0.3);
+  smoke.colorDead = new Color4(0.02, 0.0, 0.0, 0);
+  smoke.minSize = 0.7;
+  smoke.maxSize = 2.1;
+  smoke.minLifeTime = 1.05;
+  smoke.maxLifeTime = 3.1;
+  smoke.emitRate = 0;
+  smoke.targetStopDuration = 0.38;
+  smoke.gravity = new Vector3(0, -0.2, 0);
+  smoke.minAngularSpeed = -1.6;
+  smoke.maxAngularSpeed = 1.6;
+  smoke.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+  return smoke;
+}
+
+function createTelefragSparks(scene: Scene): ParticleSystem {
+  const sparks = new ParticleSystem("telefrag-sparks", 500, scene);
+  sparks.particleTexture = createRadialParticleTexture(scene, "telefrag-spark-dot", [
+    [0, "rgba(255,255,220,1)"],
+    [0.34, "rgba(255,96,24,0.92)"],
+    [1, "rgba(255,0,0,0)"],
+  ]);
+  sparks.minEmitBox = new Vector3(-0.18, 0.25, -0.18);
+  sparks.maxEmitBox = new Vector3(0.18, 1.05, 0.18);
+  sparks.direction1 = new Vector3(-6.0, 0.1, -6.0);
+  sparks.direction2 = new Vector3(6.0, 5.2, 6.0);
+  sparks.color1 = new Color4(1.0, 0.9, 0.42, 1);
+  sparks.color2 = new Color4(1.0, 0.05, 0.0, 0.72);
+  sparks.colorDead = new Color4(0.22, 0.0, 0.0, 0);
+  sparks.minSize = 0.06;
+  sparks.maxSize = 0.22;
+  sparks.minLifeTime = 0.12;
+  sparks.maxLifeTime = 0.58;
+  sparks.emitRate = 0;
+  sparks.targetStopDuration = 0.08;
+  sparks.gravity = new Vector3(0, -6.0, 0);
+  sparks.blendMode = ParticleSystem.BLENDMODE_ADD;
+  return sparks;
 }
 
 function createShockwave(
@@ -610,8 +752,23 @@ function createShockwave(
   return ring;
 }
 
+function createTelefragCloud(
+  scene: Scene,
+  materials: ReturnType<typeof createMaterials>,
+): Mesh {
+  const cloud = MeshBuilder.CreateSphere(
+    "telefrag-red-cloud",
+    { diameter: 1.35, segments: 24 },
+    scene,
+  );
+  cloud.material = materials.telefragCloud;
+  cloud.setEnabled(false);
+  return cloud;
+}
+
 function updateImpact(
   ring: Mesh,
+  cloud: Mesh,
   light: PointLight,
   map: MapDescriptor,
   pos: Tile,
@@ -619,15 +776,264 @@ function updateImpact(
 ): void {
   if (pulse <= 0) {
     ring.setEnabled(false);
+    cloud.setEnabled(false);
     light.intensity = 0;
     return;
   }
   ring.setEnabled(true);
+  cloud.setEnabled(true);
   const inverse = 1 - pulse;
   ring.position = toScenePosition(map, pos, 0.1);
   ring.scaling = new Vector3(1 + inverse * 6.2, 1 + inverse * 6.2, 1 + inverse * 6.2);
+  cloud.position = toScenePosition(map, pos, 0.82 + Math.sin(inverse * Math.PI) * 0.22);
+  cloud.scaling = new Vector3(0.62 + inverse * 2.2, 0.32 + inverse * 0.72, 0.62 + inverse * 2.2);
+  cloud.visibility = pulse * 0.72;
   light.position = toScenePosition(map, pos, 0.7 + pulse * 1.8);
   light.intensity = 14 * pulse;
+}
+
+function createDuelVisual(
+  scene: Scene,
+  map: MapDescriptor,
+  state: DuelState,
+  materials: ReturnType<typeof createMaterials>,
+): DuelVisual {
+  const clashTrace = createTraceBeam(scene, "duel-clash-trace", materials.duelTrace);
+  const counterTrace = createTraceBeam(scene, "duel-counter-trace", materials.duelCounter);
+  const killTrace = createTraceBeam(scene, "duel-kill-trace", materials.duelBlood, 0.11);
+
+  const impactRing = MeshBuilder.CreateTorus(
+    "duel-kill-ring",
+    { diameter: 0.75, thickness: 0.022, tessellation: 80 },
+    scene,
+  );
+  impactRing.rotation.x = Math.PI / 2;
+  impactRing.material = materials.duelBlood;
+  impactRing.setEnabled(false);
+
+  const corpsePos = state.corpsePos ?? { x: map.size.w / 2, y: map.size.h / 2 };
+  const corpsePool = MeshBuilder.CreateCylinder(
+    "duel-corpse-pool",
+    { height: 0.018, diameter: 1.28, tessellation: 72 },
+    scene,
+  );
+  corpsePool.position = toScenePosition(map, corpsePos, 0.035);
+  corpsePool.material = materials.corpse;
+  corpsePool.setEnabled(false);
+
+  const corpseRing = MeshBuilder.CreateTorus(
+    "duel-corpse-ring",
+    { diameter: 1.65, thickness: 0.03, tessellation: 96 },
+    scene,
+  );
+  corpseRing.position = toScenePosition(map, corpsePos, 0.08);
+  corpseRing.rotation.x = Math.PI / 2;
+  corpseRing.material = materials.duelBlood;
+  corpseRing.setEnabled(false);
+
+  const corpseLight = new PointLight("duel-corpse-light", toScenePosition(map, corpsePos, 0.45), scene);
+  corpseLight.diffuse = new Color3(1.0, 0.02, 0.0);
+  corpseLight.specular = new Color3(1.0, 0.24, 0.06);
+  corpseLight.range = 6;
+  corpseLight.intensity = 0;
+
+  const flare = new PointLight("duel-flare", toScenePosition(map, corpsePos, 1.2), scene);
+  flare.diffuse = new Color3(1.0, 0.42, 0.12);
+  flare.specular = new Color3(1.0, 0.76, 0.38);
+  flare.range = 9;
+  flare.intensity = 0;
+
+  return {
+    state,
+    clashTrace,
+    counterTrace,
+    killTrace,
+    impactRing,
+    corpsePool,
+    corpseRing,
+    corpseLight,
+    flare,
+    sparks: createDuelSparks(scene),
+    blood: createDuelBlood(scene),
+    smoke: createDuelSmoke(scene),
+    flarePulse: 0,
+  };
+}
+
+function createTraceBeam(
+  scene: Scene,
+  name: string,
+  beamMaterial: StandardMaterial,
+  width = 0.07,
+): Mesh {
+  const beam = MeshBuilder.CreateBox(name, { width, height: width, depth: 1 }, scene);
+  beam.material = beamMaterial;
+  beam.setEnabled(false);
+  return beam;
+}
+
+function createDuelSparks(scene: Scene): ParticleSystem {
+  const sparks = new ParticleSystem("duel-impact-sparks", 600, scene);
+  sparks.particleTexture = createRadialParticleTexture(scene, "duel-spark-dot", [
+    [0, "rgba(255,255,220,1)"],
+    [0.45, "rgba(255,176,40,0.92)"],
+    [1, "rgba(255,0,0,0)"],
+  ]);
+  sparks.minEmitBox = new Vector3(-0.06, -0.06, -0.06);
+  sparks.maxEmitBox = new Vector3(0.06, 0.06, 0.06);
+  sparks.direction1 = new Vector3(-4.2, -0.3, -4.2);
+  sparks.direction2 = new Vector3(4.2, 3.4, 4.2);
+  sparks.color1 = new Color4(1.0, 0.9, 0.32, 1);
+  sparks.color2 = new Color4(1.0, 0.16, 0.02, 0.72);
+  sparks.colorDead = new Color4(0.2, 0.0, 0.0, 0);
+  sparks.minSize = 0.045;
+  sparks.maxSize = 0.2;
+  sparks.minLifeTime = 0.1;
+  sparks.maxLifeTime = 0.55;
+  sparks.emitRate = 0;
+  sparks.targetStopDuration = 0.08;
+  sparks.gravity = new Vector3(0, -5.4, 0);
+  sparks.blendMode = ParticleSystem.BLENDMODE_ADD;
+  return sparks;
+}
+
+function createDuelBlood(scene: Scene): ParticleSystem {
+  const blood = new ParticleSystem("duel-blood-burst", 700, scene);
+  blood.particleTexture = createRadialParticleTexture(scene, "duel-blood-dot", [
+    [0, "rgba(255,245,240,0.95)"],
+    [0.32, "rgba(255,20,12,0.78)"],
+    [1, "rgba(120,0,0,0)"],
+  ]);
+  blood.minEmitBox = new Vector3(-0.08, -0.05, -0.08);
+  blood.maxEmitBox = new Vector3(0.08, 0.08, 0.08);
+  blood.direction1 = new Vector3(-3.4, -0.1, -3.4);
+  blood.direction2 = new Vector3(3.4, 2.7, 3.4);
+  blood.color1 = new Color4(1.0, 0.0, 0.0, 0.92);
+  blood.color2 = new Color4(0.55, 0.0, 0.0, 0.55);
+  blood.colorDead = new Color4(0.08, 0.0, 0.0, 0);
+  blood.minSize = 0.12;
+  blood.maxSize = 0.58;
+  blood.minLifeTime = 0.22;
+  blood.maxLifeTime = 0.92;
+  blood.emitRate = 0;
+  blood.targetStopDuration = 0.11;
+  blood.gravity = new Vector3(0, -4.0, 0);
+  blood.minAngularSpeed = -7;
+  blood.maxAngularSpeed = 7;
+  blood.blendMode = ParticleSystem.BLENDMODE_ADD;
+  return blood;
+}
+
+function createDuelSmoke(scene: Scene): ParticleSystem {
+  const smoke = new ParticleSystem("duel-corpse-smoke", 600, scene);
+  smoke.particleTexture = createRadialParticleTexture(scene, "duel-smoke-dot", [
+    [0, "rgba(255,180,150,0.5)"],
+    [0.5, "rgba(80,24,24,0.3)"],
+    [1, "rgba(8,8,8,0)"],
+  ]);
+  smoke.minEmitBox = new Vector3(-0.3, 0.04, -0.3);
+  smoke.maxEmitBox = new Vector3(0.3, 0.18, 0.3);
+  smoke.direction1 = new Vector3(-0.45, 0.25, -0.45);
+  smoke.direction2 = new Vector3(0.45, 1.15, 0.45);
+  smoke.color1 = new Color4(0.3, 0.06, 0.04, 0.32);
+  smoke.color2 = new Color4(0.06, 0.05, 0.05, 0.22);
+  smoke.colorDead = new Color4(0.0, 0.0, 0.0, 0);
+  smoke.minSize = 0.45;
+  smoke.maxSize = 1.45;
+  smoke.minLifeTime = 0.75;
+  smoke.maxLifeTime = 1.9;
+  smoke.emitRate = 0;
+  smoke.targetStopDuration = 0.12;
+  smoke.gravity = new Vector3(0, 0.08, 0);
+  smoke.minAngularSpeed = -1.2;
+  smoke.maxAngularSpeed = 1.2;
+  smoke.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+  return smoke;
+}
+
+function updateDuelVisual(
+  visual: DuelVisual,
+  map: MapDescriptor,
+  sample: SnapshotSample,
+  virtualTurn: number,
+  elapsed: number,
+  deltaSeconds: number,
+): void {
+  const { state } = visual;
+  const winner = interpolateCharacterPosition(map, sample, state.winnerId).add(new Vector3(0, 0.82, 0));
+  const loser = getDuelCorpsePosition(map, state).add(new Vector3(0, 0.58, 0));
+  const attacker = interpolateCharacterPosition(map, sample, state.attackerId).add(new Vector3(0, 0.82, 0));
+  const defender = interpolateCharacterPosition(map, sample, state.defenderId).add(new Vector3(0, 0.82, 0));
+  const exchangePulse = turnPulse(virtualTurn, state.exchangeTurn, 0.56);
+  const counterTurn = state.exchangeTurn + Math.max(0.2, (state.killTurn - state.exchangeTurn) * 0.48);
+  const counterPulse = turnPulse(virtualTurn, counterTurn, 0.48);
+  const killPulse = turnPulse(virtualTurn, state.killTurn, 0.72);
+
+  setTraceBeam(visual.clashTrace, attacker, defender, exchangePulse);
+  setTraceBeam(visual.counterTrace, defender, attacker, counterPulse * 0.85);
+  setTraceBeam(visual.killTrace, winner, loser, killPulse);
+
+  const corpseGround = getDuelCorpsePosition(map, state);
+  const afterKill = virtualTurn >= state.killTurn - 0.18 || killPulse > 0.2;
+  const corpseFade = Math.max(
+    clamp((virtualTurn - state.killTurn) / 0.55, 0, 1),
+    killPulse * 0.62,
+  );
+  visual.corpsePool.setEnabled(afterKill);
+  visual.corpseRing.setEnabled(afterKill);
+  if (afterKill) {
+    const pulse = 0.08 + Math.sin(elapsed * 5.4) * 0.035;
+    visual.corpsePool.position = corpseGround.add(new Vector3(0, 0.05, 0));
+    visual.corpsePool.visibility = clamp(0.42 + corpseFade * 0.58, 0, 1);
+    visual.corpsePool.scaling = new Vector3(0.4 + corpseFade * 1.45, 1, 0.28 + corpseFade * 1.05);
+    visual.corpseRing.position = corpseGround.add(new Vector3(0, 0.13, 0));
+    visual.corpseRing.visibility = clamp(0.54 + killPulse * 0.46, 0, 1);
+    visual.corpseRing.scaling = new Vector3(1.05 + corpseFade * 0.34 + pulse, 1.05 + corpseFade * 0.34 + pulse, 1.05 + corpseFade * 0.34 + pulse);
+    visual.corpseRing.rotation.z += 0.012;
+    visual.smoke.emitter = corpseGround.add(new Vector3(0, 0.18, 0));
+    visual.smoke.emitRate = 10 + corpseFade * 18;
+    if (!visual.smoke.isStarted()) visual.smoke.start();
+  } else {
+    visual.smoke.emitRate = 0;
+  }
+
+  if (killPulse > 0.01) {
+    visual.impactRing.setEnabled(true);
+    visual.impactRing.visibility = clamp(0.45 + killPulse * 0.55, 0, 1);
+    visual.impactRing.position = corpseGround.add(new Vector3(0, 0.18, 0));
+    visual.impactRing.scaling = new Vector3(1.35 + (1 - killPulse) * 4.8, 1.35 + (1 - killPulse) * 4.8, 1.35 + (1 - killPulse) * 4.8);
+  } else {
+    visual.impactRing.setEnabled(false);
+  }
+
+  visual.flarePulse = Math.max(0, visual.flarePulse - deltaSeconds * 1.8);
+  visual.flare.position = corpseGround.add(new Vector3(0, 1.0 + visual.flarePulse * 0.9, 0));
+  visual.flare.intensity = visual.flarePulse * 12;
+  visual.corpseLight.position = corpseGround.add(new Vector3(0, 0.46, 0));
+  visual.corpseLight.intensity = afterKill ? 0.75 + Math.sin(elapsed * 4.2) * 0.24 + visual.flarePulse * 4 : 0;
+}
+
+function triggerDuelExchange(visual: DuelVisual, map: MapDescriptor, sample: SnapshotSample): void {
+  const attacker = interpolateCharacterPosition(map, sample, visual.state.attackerId).add(new Vector3(0, 0.82, 0));
+  const defender = interpolateCharacterPosition(map, sample, visual.state.defenderId).add(new Vector3(0, 0.82, 0));
+  triggerParticleBurst(visual.sparks, Vector3.Center(attacker, defender), 105);
+  visual.flarePulse = Math.max(visual.flarePulse, 0.45);
+}
+
+function triggerDuelKill(visual: DuelVisual, map: MapDescriptor, sample: SnapshotSample): void {
+  const loser = interpolateCharacterPosition(map, sample, visual.state.loserId).add(new Vector3(0, 0.82, 0));
+  const corpse = getDuelCorpsePosition(map, visual.state).add(new Vector3(0, 0.45, 0));
+  const impact = Vector3.Center(loser, corpse).add(new Vector3(0, 0.18, 0));
+  triggerParticleBurst(visual.sparks, impact, 170);
+  triggerParticleBurst(visual.blood, impact, 320);
+  triggerParticleBurst(visual.smoke, getDuelCorpsePosition(map, visual.state).add(new Vector3(0, 0.18, 0)), 140);
+  visual.flarePulse = 1;
+}
+
+function triggerParticleBurst(system: ParticleSystem, emitter: Vector3, count: number): void {
+  system.emitter = emitter;
+  system.manualEmitCount = count;
+  system.start();
 }
 
 function updateCharacters(
@@ -637,6 +1043,7 @@ function updateCharacters(
   virtualTurn: number,
   elapsed: number,
   materials: ReturnType<typeof createMaterials>,
+  duel: DuelState | null,
 ): void {
   for (const [characterId, visual] of visuals.entries()) {
     const character = sampleCharacter(sample, characterId);
@@ -648,8 +1055,13 @@ function updateCharacters(
     const vaporized =
       characterId === snapshot.moneyShot.victimId &&
       virtualTurn >= snapshot.moneyShot.landsAtTurn;
+    const duelDeathFall =
+      duel !== null &&
+      characterId === duel.loserId &&
+      virtualTurn >= duel.killTurn &&
+      virtualTurn < duel.killTurn + 0.78;
     const visible =
-      character.alive &&
+      (character.alive || duelDeathFall) &&
       !vaporized &&
       (character.extractedAtTurn === null ||
         character.extractedAtTurn === undefined ||
@@ -659,8 +1071,22 @@ function updateCharacters(
     if (!visible) continue;
 
     const pos = interpolateCharacterPosition(snapshot.map, sample, characterId);
-    visual.root.position = pos.add(new Vector3(0, Math.sin(elapsed * 7 + pos.x) * 0.045, 0));
-    visual.root.rotation.y = Math.sin(elapsed * 1.5 + pos.z) * 0.16;
+    visual.root.scaling = visual.baseScaling.clone();
+    visual.root.rotation.x = 0;
+    visual.root.rotation.z = 0;
+
+    if (duelDeathFall && duel) {
+      const fall = clamp((virtualTurn - duel.killTurn) / 0.78, 0, 1);
+      const corpse = getDuelCorpsePosition(snapshot.map, duel);
+      visual.root.position = lerpVector3(pos, corpse, fall).add(new Vector3(0, 0.04 + (1 - fall) * 0.28, 0));
+      visual.root.rotation.x = fall * Math.PI * 0.5;
+      visual.root.rotation.z = -fall * 0.86;
+      visual.root.rotation.y = Math.sin(elapsed * 12) * 0.2;
+      visual.root.scaling = new Vector3(visual.baseScaling.x, visual.baseScaling.y * (1 - fall * 0.38), visual.baseScaling.z);
+    } else {
+      visual.root.position = pos.add(new Vector3(0, Math.sin(elapsed * 7 + pos.x) * 0.045, 0));
+      visual.root.rotation.y = Math.sin(elapsed * 1.5 + pos.z) * 0.16;
+    }
 
     const spotlight = visual.root.getChildMeshes().find((mesh) => mesh.name.endsWith("-visor"));
     if (spotlight) spotlight.material = materials.grid;
@@ -709,12 +1135,24 @@ function getTargetPosition(
   sample: SnapshotSample,
   virtualTurn: number,
   fallback: Tile,
+  duel: DuelState | null,
 ): Vector3 {
+  if (
+    duel &&
+    virtualTurn >= duel.startTurn - 0.28 &&
+    virtualTurn <= duel.killTurn + 1.1
+  ) {
+    const winner = interpolateCharacterPosition(snapshot.map, sample, duel.winnerId);
+    const loser = getDuelCorpsePosition(snapshot.map, duel);
+    return Vector3.Center(winner, loser);
+  }
   if (virtualTurn >= snapshot.moneyShot.landsAtTurn) {
     return toScenePosition(snapshot.map, fallback, 0.2);
   }
+  const character = sampleCharacter(sample, snapshot.moneyShot.victimId);
+  if (!character) return toScenePosition(snapshot.map, fallback, 0.2);
   const pos = interpolateCharacterPosition(snapshot.map, sample, snapshot.moneyShot.victimId);
-  return pos.y > 0 ? pos : toScenePosition(snapshot.map, fallback, 0.2);
+  return pos;
 }
 
 function sampleSnapshot(frames: EntitySnapshot[], turn: number): SnapshotSample {
@@ -786,7 +1224,7 @@ function getLoop(snapshot: ReplaySnapshot): Loop {
     startTurn,
     endTurn,
     turnSpan: Math.max(1, endTurn - startTurn),
-    seconds: clamp(snapshot.moneyShot.loopSeconds ?? 14, 10, 20),
+    seconds: clamp(snapshot.moneyShot.loopSeconds ?? 14, 10, 36),
   };
 }
 
@@ -840,6 +1278,149 @@ function toScenePosition(map: MapDescriptor, tile: Tile, y: number): Vector3 {
     y,
     (tile.y - map.size.h / 2) * WORLD_SCALE,
   );
+}
+
+function resolveDuel(snapshot: ReplaySnapshot): DuelState | null {
+  const duel = snapshot.duel;
+  if (!duel) return null;
+
+  const firstTurn = snapshot.frames[0]?.turn ?? 0;
+  const first = duel.participantIds[0];
+  const second = duel.participantIds[1];
+  const attackerId = duel.attackerId ?? duel.winnerId ?? first;
+  const defenderId = duel.defenderId ?? duel.loserId ?? second;
+  const winnerId = duel.winnerId ?? attackerId;
+  const loserId = duel.loserId ?? defenderId;
+  if (!attackerId || !defenderId || !winnerId || !loserId || winnerId === loserId) {
+    return null;
+  }
+
+  const startTurn = duel.startTurn ?? firstTurn + 1;
+  const killTurn = duel.killTurn ?? duel.endTurn ?? startTurn + 2;
+  const exchangeTurn = duel.exchangeTurn ?? startTurn + Math.max(0.4, (killTurn - startTurn) * 0.52);
+  const endTurn = duel.endTurn ?? killTurn;
+  return {
+    attackerId,
+    defenderId,
+    winnerId,
+    loserId,
+    startTurn,
+    exchangeTurn,
+    killTurn,
+    endTurn,
+    corpsePos: findCorpsePosition(snapshot, loserId) ?? findCharacterTileAtTurn(snapshot, loserId, killTurn),
+  };
+}
+
+function findCorpsePosition(snapshot: ReplaySnapshot, characterId: string): Tile | null {
+  const sorted = [...snapshot.frames].sort((a, b) => a.turn - b.turn);
+  for (const frame of sorted) {
+    const corpse = frame.corpses.find((candidate) => candidate.characterId === characterId);
+    if (corpse) return corpse.pos;
+  }
+  return null;
+}
+
+function findCharacterTileAtTurn(snapshot: ReplaySnapshot, characterId: string, turn: number): Tile | null {
+  const sorted = [...snapshot.frames].sort((a, b) => Math.abs(a.turn - turn) - Math.abs(b.turn - turn));
+  for (const frame of sorted) {
+    const character = frame.characters.find((candidate) => candidate.characterId === characterId);
+    if (character) return character.pos;
+  }
+  return null;
+}
+
+function getDuelCorpsePosition(map: MapDescriptor, duel: DuelState): Vector3 {
+  return toScenePosition(map, duel.corpsePos ?? { x: map.size.w / 2, y: map.size.h / 2 }, 0);
+}
+
+function setTraceBeam(beam: Mesh, start: Vector3, end: Vector3, pulse: number): void {
+  if (pulse <= 0.02) {
+    beam.setEnabled(false);
+    return;
+  }
+  const length = Vector3.Distance(start, end);
+  if (length <= 0.01) {
+    beam.setEnabled(false);
+    return;
+  }
+  beam.setEnabled(true);
+  beam.position = Vector3.Center(start, end);
+  beam.scaling = new Vector3(1 + pulse * 1.5, 1 + pulse * 1.5, length);
+  beam.lookAt(end);
+}
+
+function updatePostFx(postFx: PostFx, killPulse: number, telefragPulse: number, impactPulse: number): void {
+  const strongest = Math.max(killPulse * 0.7, telefragPulse, impactPulse * 0.85);
+  postFx.glow.intensity = postFx.baseGlow + strongest * 0.72;
+  postFx.pipeline.bloomWeight = postFx.baseBloom + strongest * 0.42;
+  postFx.pipeline.chromaticAberration.aberrationAmount = postFx.baseAberration + strongest * 21;
+  postFx.pipeline.imageProcessing.exposure = postFx.baseExposure + strongest * 0.16;
+}
+
+function updateCameraDirector(
+  camera: ArcRotateCamera,
+  followLocked: boolean,
+  baseRadius: number,
+  baseBeta: number,
+  virtualTurn: number,
+  duel: DuelState | null,
+  telefragTurn: number,
+  killPulse: number,
+  telefragPulse: number,
+  deltaSeconds: number,
+): void {
+  if (!followLocked) return;
+  const duelWindow =
+    duel !== null &&
+    virtualTurn >= duel.startTurn - 0.3 &&
+    virtualTurn <= duel.killTurn + 1.15;
+  const telefragWindow = Math.abs(virtualTurn - telefragTurn) <= 1.25;
+  const radiusPull =
+    (duelWindow ? 4.8 : 0) +
+    (telefragWindow ? 2.4 : 0) +
+    killPulse * 4.2 +
+    telefragPulse * 3.4;
+  const desiredRadius = clamp(baseRadius - radiusPull, 8.2, baseRadius);
+  const desiredBeta = clamp(baseBeta - killPulse * 0.035 + telefragPulse * 0.025, 0.34, Math.PI * 0.48);
+  const blend = clamp(deltaSeconds * 4.4, 0, 1);
+  camera.radius += (desiredRadius - camera.radius) * blend;
+  camera.beta += (desiredBeta - camera.beta) * blend;
+}
+
+function cameraShakeOffset(elapsed: number, pulse: number): Vector3 {
+  if (pulse <= 0.01) return Vector3.Zero();
+  const strength = pulse * pulse;
+  return new Vector3(
+    Math.sin(elapsed * 71.0) * 0.1 * strength,
+    Math.sin(elapsed * 93.0) * 0.045 * strength,
+    Math.cos(elapsed * 83.0) * 0.1 * strength,
+  );
+}
+
+function turnPulse(turn: number, center: number, width: number): number {
+  return clamp(1 - Math.abs(turn - center) / Math.max(width, 0.001), 0, 1);
+}
+
+function lerpVector3(a: Vector3, b: Vector3, t: number): Vector3 {
+  return a.scale(1 - t).add(b.scale(t));
+}
+
+function createRadialParticleTexture(
+  scene: Scene,
+  name: string,
+  stops: Array<[number, string]>,
+): DynamicTexture {
+  const texture = new DynamicTexture(name, { width: 64, height: 64 }, scene, false);
+  const context = texture.getContext();
+  const gradient = context.createRadialGradient(32, 32, 2, 32, 32, 32);
+  for (const [stop, color] of stops) {
+    gradient.addColorStop(stop, color);
+  }
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 64, 64);
+  texture.update();
+  return texture;
 }
 
 function unique<T>(values: T[]): T[] {

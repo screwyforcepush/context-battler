@@ -4,6 +4,14 @@ import { createPreferredEngine } from "./engine";
 import { createTelefragScene } from "./scene";
 import { loadReplaySnapshot } from "./snapshot";
 
+declare global {
+  interface Window {
+    __prototypeReady?: boolean;
+    __telefragReady?: boolean;
+    __telefragReadyAt?: number;
+  }
+}
+
 const canvas = document.querySelector<HTMLCanvasElement>("#renderCanvas");
 const backendLabel = document.querySelector<HTMLElement>("#backendLabel");
 const snapshotLabel = document.querySelector<HTMLElement>("#snapshotLabel");
@@ -21,6 +29,25 @@ const dom = {
   errorPanel,
   cameraToggle,
 };
+
+let prototypeReadyMarked = false;
+
+function markPrototypeReady(): void {
+  if (prototypeReadyMarked) {
+    return;
+  }
+
+  prototypeReadyMarked = true;
+  window.__prototypeReady = true;
+  window.__telefragReady = true;
+  window.__telefragReadyAt = performance.now();
+  document.documentElement.dataset.ready = "true";
+  document.documentElement.dataset.prototypeReady = "true";
+  document.documentElement.dataset.telefragReady = "true";
+  document.body.dataset.ready = "true";
+  document.body.dataset.prototypeReady = "true";
+  document.body.dataset.telefragReady = "true";
+}
 
 async function boot(): Promise<void> {
   const loadResult = await loadReplaySnapshot();
@@ -53,6 +80,7 @@ async function boot(): Promise<void> {
 
   engine.runRenderLoop(() => {
     controller.scene.render();
+    markPrototypeReady();
   });
 
   window.addEventListener("resize", () => {

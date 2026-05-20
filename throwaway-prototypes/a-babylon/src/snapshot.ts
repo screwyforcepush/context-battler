@@ -46,12 +46,14 @@ function normalizeSnapshot(value: unknown): ReplaySnapshot {
     normalizeFrame(frameValue, index),
   );
   const moneyShot = normalizeMoneyShot(value);
+  const duel = normalizeDuel(value);
 
   return {
     metadata: isRecord(value.metadata) ? value.metadata : undefined,
     map: normalizeMap(value.map),
     frames,
     moneyShot,
+    ...(duel ? { duel } : {}),
   };
 }
 
@@ -85,17 +87,144 @@ function normalizeMoneyShot(value: Record<string, unknown>): ReplaySnapshot["mon
 
   if (isRecord(value.highlightedEvent)) {
     const playback = isRecord(value.playback) ? value.playback : {};
-    return {
-      victimId: stringField(value.highlightedEvent, "victimId"),
-      dropId: stringField(value.highlightedEvent, "airdropId"),
-      landsAtTurn: numberField(value.highlightedEvent, "landTurn"),
-      loopStartTurn: optionalNumberField(playback, "startTurn"),
-      loopEndTurn: optionalNumberField(playback, "endTurn"),
-      loopSeconds: optionalNumberField(playback, "sliceDurationSeconds"),
-    };
+    return normalizeHighlightedAirdrop(value.highlightedEvent, playback);
+  }
+
+  const highlightedAirdrop = highlightedEvents(value).find(isAirdropEvent);
+  if (highlightedAirdrop) {
+    const playback = isRecord(value.playback) ? value.playback : {};
+    return normalizeHighlightedAirdrop(highlightedAirdrop, playback);
   }
 
   throw new Error("snapshot money-shot event is missing or invalid");
+}
+
+function normalizeHighlightedAirdrop(
+  event: Record<string, unknown>,
+  playback: Record<string, unknown>,
+): ReplaySnapshot["moneyShot"] {
+  return {
+    victimId: stringField(event, "victimId"),
+    dropId: stringField(event, "airdropId"),
+    landsAtTurn: numberField(event, "landTurn"),
+    loopStartTurn: optionalNumberField(playback, "startTurn"),
+    loopEndTurn: optionalNumberField(playback, "endTurn"),
+    loopSeconds: optionalNumberField(playback, "sliceDurationSeconds"),
+  };
+}
+
+function normalizeDuel(value: Record<string, unknown>): ReplaySnapshot["duel"] {
+  const event = highlightedEvents(value).find(isDuelEvent);
+  if (!event) return undefined;
+
+  const attackerId = firstStringField(event, ["attackerId", "killerId", "actorId"]);
+  const defenderId = firstStringField(event, ["defenderId", "targetId", "victimId"]);
+  const winnerId = firstStringField(event, ["winnerId", "killerId"]);
+  const loserId = firstStringField(event, ["loserId", "victimId"]);
+  const participantIds = collectParticipantIds(event, [
+    attackerId,
+    defenderId,
+    winnerId,
+    loserId,
+  ]);
+  const playback = normalizeDuelPlayback(event, value);
+
+  return {
+    kind: "duel",
+    eventId: firstStringField(event, ["eventId", "id"]),
+    sourceKind: optionalStringField(event, "kind"),
+    participantIds,
+    attackerId,
+    defenderId,
+    winnerId,
+    loserId,
+    startTurn: firstNumberField(event, ["startTurn", "turn"]),
+    exchangeTurn: firstNumberField(event, ["exchangeTurn"]),
+    killTurn: firstNumberField(event, ["killTurn", "deathTurn"]),
+    endTurn: firstNumberField(event, ["endTurn", "killTurn", "deathTurn", "turn"]),
+    ...(playback ? { playback } : {}),
+  };
+}
+
+function normalizeDuelPlayback(
+  event: Record<string, unknown>,
+  root: Record<string, unknown>,
+): NonNullable<ReplaySnapshot["duel"]>["playback"] {
+  const eventPlayback = isRecord(event.playback) ? event.playback : {};
+  const rootPlayback = isRecord(root.playback) ? root.playback : {};
+  const eventTimesSeconds =
+    numberRecord(eventPlayback.eventTimesSeconds) ??
+    duelEventTimesSeconds(rootPlayback.eventTimesSeconds);
+
+  const playback = {
+    startTurn: firstNumberField(eventPlayback, ["startTurn", "loopStartTurn"]),
+    endTurn: firstNumberField(eventPlayback, ["endTurn", "loopEndTurn"]),
+    loopSeconds: firstNumberField(eventPlayback, [
+      "loopSeconds",
+      "sliceDurationSeconds",
+    ]),
+    ...(eventTimesSeconds ? { eventTimesSeconds } : {}),
+  };
+
+  if (
+    playback.startTurn === undefined &&
+    playback.endTurn === undefined &&
+    playback.loopSeconds === undefined &&
+    playback.eventTimesSeconds === undefined
+  ) {
+    return undefined;
+  }
+
+  return playback;
+}
+
+function highlightedEvents(value: Record<string, unknown>): Record<string, unknown>[] {
+  if (!Array.isArray(value.highlightedEvents)) return [];
+  return value.highlightedEvents.filter(isRecord);
+}
+
+function isAirdropEvent(event: Record<string, unknown>): boolean {
+  const kind = optionalStringField(event, "kind");
+  return (
+    kind === "airdrop-telefrag" ||
+    (typeof event.airdropId === "string" &&
+      typeof event.victimId === "string" &&
+      typeof event.landTurn === "number")
+  );
+}
+
+function isDuelEvent(event: Record<string, unknown>): boolean {
+  return (
+    optionalStringField(event, "kind")?.toLowerCase().includes("duel") ?? false
+  );
+}
+
+function collectParticipantIds(
+  event: Record<string, unknown>,
+  candidates: Array<string | undefined>,
+): string[] {
+  const ids = new Set<string>();
+
+  for (const id of stringArrayField(event, "participantIds")) {
+    ids.add(id);
+  }
+
+  if (Array.isArray(event.participants)) {
+    for (const participant of event.participants) {
+      if (typeof participant === "string" && participant.length > 0) {
+        ids.add(participant);
+      } else if (isRecord(participant)) {
+        const id = firstStringField(participant, ["characterId", "id"]);
+        if (id) ids.add(id);
+      }
+    }
+  }
+
+  for (const id of candidates) {
+    if (id) ids.add(id);
+  }
+
+  return [...ids];
 }
 
 function normalizeMap(map: Record<string, unknown>): MapDescriptor {
@@ -163,12 +292,42 @@ function stringField(record: Record<string, unknown>, key: string): string {
   return value;
 }
 
+function optionalStringField(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function firstStringField(
+  record: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
+  for (const key of keys) {
+    const value = optionalStringField(record, key);
+    if (value) return value;
+  }
+  return undefined;
+}
+
 function numberField(record: Record<string, unknown>, key: string): number {
   const value = record[key];
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new Error(`expected number field "${key}"`);
   }
   return value;
+}
+
+function firstNumberField(
+  record: Record<string, unknown>,
+  keys: string[],
+): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
 }
 
 function optionalNumberField(
@@ -181,4 +340,34 @@ function optionalNumberField(
     throw new Error(`expected optional number field "${key}"`);
   }
   return value;
+}
+
+function stringArrayField(record: Record<string, unknown>, key: string): string[] {
+  const value = record[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is string => typeof item === "string" && item.length > 0,
+  );
+}
+
+function numberRecord(value: unknown): Record<string, number> | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const entries = Object.entries(value).filter(
+    (entry): entry is [string, number] =>
+      typeof entry[1] === "number" && Number.isFinite(entry[1]),
+  );
+  if (entries.length === 0) return undefined;
+
+  return Object.fromEntries(entries);
+}
+
+function duelEventTimesSeconds(value: unknown): Record<string, number> | undefined {
+  const eventTimesSeconds = numberRecord(value);
+  if (!eventTimesSeconds) return undefined;
+
+  const duelEntries = Object.entries(eventTimesSeconds).filter(([key]) =>
+    key.toLowerCase().includes("duel"),
+  );
+  return duelEntries.length > 0 ? Object.fromEntries(duelEntries) : eventTimesSeconds;
 }
