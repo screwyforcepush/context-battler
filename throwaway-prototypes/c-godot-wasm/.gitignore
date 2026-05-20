@@ -3,5 +3,6 @@ node_modules/
 scorecard-measurement.json
 .godot/
 src/*.gd.uid
+telefrag-capture.png.import
 shared-harness/art-kit/*.import
 shared-harness/art-kit/*_Atlas.png

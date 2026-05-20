@@ -9,6 +9,8 @@ const MODEL_BUILDING := "res://shared-harness/art-kit/Building L.glb"
 const WORLD_SCALE := 0.38
 const LOOP_DEFAULT_SECONDS := 16.0
 const MIST_COUNT := 46
+const DUEL_SPARK_COUNT := 34
+const DUEL_BLOOD_COUNT := 24
 const AGENT_COLORS := [
 	Color(0.95, 0.10, 0.12),
 	Color(0.00, 0.90, 0.78),
@@ -25,11 +27,25 @@ var map_data: Dictionary = {}
 var frames: Array = []
 var money_shot: Dictionary = {}
 var highlighted_event: Dictionary = {}
+var highlighted_events: Array = []
+var duel_event: Dictionary = {}
 var playback: Dictionary = {}
 var character_nodes: Dictionary = {}
 var character_names: Dictionary = {}
 var character_colors: Dictionary = {}
 var static_crate_nodes: Array[Node3D] = []
+var duel_root: Node3D
+var duel_trace_primary: MeshInstance3D
+var duel_trace_counter: MeshInstance3D
+var duel_hit_flash: MeshInstance3D
+var duel_kill_flash: MeshInstance3D
+var duel_light: OmniLight3D
+var duel_corpse_root: Node3D
+var duel_blood_pool: MeshInstance3D
+var duel_spark_nodes: Array[MeshInstance3D] = []
+var duel_spark_velocities: Array[Vector3] = []
+var duel_blood_nodes: Array[MeshInstance3D] = []
+var duel_blood_velocities: Array[Vector3] = []
 var drop_root: Node3D
 var drop_crate: Node3D
 var telegraph_beam: MeshInstance3D
@@ -65,6 +81,12 @@ var mat_red: StandardMaterial3D
 var mat_crimson: StandardMaterial3D
 var mat_gold: StandardMaterial3D
 var mat_shock: StandardMaterial3D
+var mat_duel_trace: StandardMaterial3D
+var mat_duel_counter: StandardMaterial3D
+var mat_duel_flash: StandardMaterial3D
+var mat_duel_spark: StandardMaterial3D
+var mat_duel_blood: StandardMaterial3D
+var mat_duel_corpse: StandardMaterial3D
 
 
 func _ready() -> void:
@@ -97,6 +119,7 @@ func _process(delta: float) -> void:
 	var impact_time := _impact_time(loop_seconds, start_turn, end_turn)
 
 	_update_characters(sample, virtual_turn, loop_time, impact_time)
+	_update_duel_vfx(sample, loop_time)
 	_update_airdrop(loop_time, impact_time)
 	_update_mist(delta)
 	_update_camera(delta, sample, loop_time, impact_time)
@@ -148,10 +171,12 @@ func _load_snapshot() -> void:
 	snapshot = parsed
 	map_data = snapshot.get("map", {})
 	playback = snapshot.get("playback", {})
-	highlighted_event = snapshot.get("highlightedEvent", {})
+	highlighted_events = _extract_highlighted_events(snapshot)
+	highlighted_event = _normalize_airdrop_event(snapshot)
+	duel_event = _normalize_duel_event(snapshot)
 	money_shot = _normalize_money_shot(snapshot)
 	frames = _extract_frame_snapshots(snapshot)
-	print("Godot WASM telefrag loaded %d frames from %s" % [frames.size(), source])
+	print("Godot WASM duel/telefrag loaded %d frames from %s" % [frames.size(), source])
 
 
 func _load_snapshot_via_js_bridge() -> String:
@@ -187,7 +212,7 @@ func _load_snapshot_via_js_bridge() -> String:
 func _normalize_money_shot(root: Dictionary) -> Dictionary:
 	if root.has("moneyShot"):
 		return root.get("moneyShot", {})
-	var event: Dictionary = root.get("highlightedEvent", {})
+	var event: Dictionary = _normalize_airdrop_event(root)
 	return {
 		"victimId": event.get("victimId", "char_sprinter"),
 		"dropId": event.get("airdropId", "Crate_50_50"),
@@ -196,6 +221,115 @@ func _normalize_money_shot(root: Dictionary) -> Dictionary:
 		"loopEndTurn": playback.get("endTurn", 12),
 		"loopSeconds": playback.get("sliceDurationSeconds", LOOP_DEFAULT_SECONDS),
 	}
+
+
+func _extract_highlighted_events(root: Dictionary) -> Array:
+	var events := []
+	var raw_events = root.get("highlightedEvents", [])
+	if typeof(raw_events) != TYPE_ARRAY:
+		return events
+	for event in raw_events:
+		if typeof(event) == TYPE_DICTIONARY:
+			events.append(event)
+	return events
+
+
+func _normalize_airdrop_event(root: Dictionary) -> Dictionary:
+	var legacy = root.get("highlightedEvent", {})
+	if typeof(legacy) == TYPE_DICTIONARY and not legacy.is_empty():
+		return legacy
+	for event in _extract_highlighted_events(root):
+		if _is_airdrop_event(event):
+			return event
+	return {}
+
+
+func _normalize_duel_event(root: Dictionary) -> Dictionary:
+	var source_event: Dictionary = {}
+	for event in _extract_highlighted_events(root):
+		if _is_duel_event(event):
+			source_event = event
+			break
+	if source_event.is_empty():
+		return {}
+
+	var normalized := source_event.duplicate(true)
+	var killer_id := _first_string_field(source_event, ["winnerId", "killerId", "attackerId", "actorId"])
+	var victim_id := _first_string_field(source_event, ["loserId", "victimId", "defenderId", "targetId"])
+	if not killer_id.is_empty():
+		normalized["killerId"] = killer_id
+	if not victim_id.is_empty():
+		normalized["victimId"] = victim_id
+	normalized["participantIds"] = _collect_participant_ids(source_event, [killer_id, victim_id])
+
+	var event_playback = source_event.get("playback", {})
+	var event_times := {}
+	if typeof(event_playback) == TYPE_DICTIONARY:
+		event_times = _number_record(event_playback.get("eventTimesSeconds", {}))
+	if event_times.is_empty():
+		event_times = _number_record(playback.get("eventTimesSeconds", {}))
+	if not event_times.is_empty():
+		normalized["eventTimesSeconds"] = event_times
+	return normalized
+
+
+func _is_airdrop_event(event: Dictionary) -> bool:
+	var kind := str(event.get("kind", "")).to_lower()
+	return kind == "airdrop-telefrag" or (event.has("airdropId") and event.has("victimId") and event.has("landTurn"))
+
+
+func _is_duel_event(event: Dictionary) -> bool:
+	return str(event.get("kind", "")).to_lower().find("duel") != -1
+
+
+func _first_string_field(event: Dictionary, keys: Array) -> String:
+	for key in keys:
+		var value = event.get(str(key), null)
+		if typeof(value) == TYPE_STRING and not str(value).is_empty():
+			return str(value)
+	return ""
+
+
+func _collect_participant_ids(event: Dictionary, candidates: Array) -> Array:
+	var ids := []
+	var seen := {}
+	var raw_ids = event.get("participantIds", [])
+	if typeof(raw_ids) == TYPE_ARRAY:
+		for raw_id in raw_ids:
+			_add_unique_string(ids, seen, raw_id)
+
+	var participants = event.get("participants", [])
+	if typeof(participants) == TYPE_ARRAY:
+		for participant in participants:
+			if typeof(participant) == TYPE_DICTIONARY:
+				_add_unique_string(ids, seen, _first_string_field(participant, ["characterId", "id"]))
+			else:
+				_add_unique_string(ids, seen, participant)
+
+	for candidate in candidates:
+		_add_unique_string(ids, seen, candidate)
+	return ids
+
+
+func _add_unique_string(ids: Array, seen: Dictionary, value) -> void:
+	if typeof(value) != TYPE_STRING or str(value).is_empty():
+		return
+	var id := str(value)
+	if seen.has(id):
+		return
+	seen[id] = true
+	ids.append(id)
+
+
+func _number_record(value) -> Dictionary:
+	var out := {}
+	if typeof(value) != TYPE_DICTIONARY:
+		return out
+	for key in value.keys():
+		var entry = value[key]
+		if typeof(entry) == TYPE_INT or typeof(entry) == TYPE_FLOAT:
+			out[str(key)] = float(entry)
+	return out
 
 
 func _extract_frame_snapshots(root: Dictionary) -> Array:
@@ -226,6 +360,7 @@ func _build_scene_from_snapshot() -> void:
 	_build_agents()
 	_build_airdrop()
 	_build_impact_vfx()
+	_build_duel_vfx()
 
 
 func _build_arena() -> void:
@@ -378,6 +513,121 @@ func _build_impact_vfx() -> void:
 		mist_velocities.append(Vector3(cos(angle) * speed, randf_range(0.5, 2.4), sin(angle) * speed))
 
 
+func _build_duel_vfx() -> void:
+	if duel_event.is_empty():
+		return
+	duel_root = Node3D.new()
+	duel_root.name = "duel-vfx-root"
+	add_child(duel_root)
+
+	duel_trace_primary = _make_duel_trace("duel-killer-slash", mat_duel_trace, 0.055)
+	duel_trace_counter = _make_duel_trace("duel-counter-slash", mat_duel_counter, 0.042)
+	duel_hit_flash = _make_duel_sphere("duel-clash-flash", mat_duel_flash, 0.26)
+	duel_kill_flash = _make_duel_sphere("duel-kill-flash", mat_duel_flash, 0.36)
+
+	duel_light = OmniLight3D.new()
+	duel_light.name = "duel-kill-light"
+	duel_light.light_color = Color(1.0, 0.17, 0.05)
+	duel_light.light_energy = 0.0
+	duel_light.omni_range = 8.0
+	duel_root.add_child(duel_light)
+
+	_make_duel_corpse()
+	_make_duel_bursts()
+
+
+func _make_duel_trace(label: String, material: Material, radius: float) -> MeshInstance3D:
+	var trace := MeshInstance3D.new()
+	trace.name = label
+	var beam := CylinderMesh.new()
+	beam.top_radius = radius
+	beam.bottom_radius = radius
+	beam.height = 1.0
+	trace.mesh = beam
+	trace.material_override = material
+	trace.visible = false
+	duel_root.add_child(trace)
+	return trace
+
+
+func _make_duel_sphere(label: String, material: Material, radius: float) -> MeshInstance3D:
+	var sphere_node := MeshInstance3D.new()
+	sphere_node.name = label
+	var sphere := SphereMesh.new()
+	sphere.radius = radius
+	sphere.height = radius * 2.0
+	sphere_node.mesh = sphere
+	sphere_node.material_override = material
+	sphere_node.visible = false
+	duel_root.add_child(sphere_node)
+	return sphere_node
+
+
+func _make_duel_corpse() -> void:
+	duel_corpse_root = Node3D.new()
+	duel_corpse_root.name = "duel-readable-corpse"
+	duel_corpse_root.visible = false
+	duel_root.add_child(duel_corpse_root)
+
+	var body := MeshInstance3D.new()
+	body.name = "duel-corpse-body"
+	var capsule := CapsuleMesh.new()
+	capsule.radius = 0.24
+	capsule.height = 1.12
+	body.mesh = capsule
+	body.material_override = mat_duel_corpse
+	body.rotation.z = PI * 0.5
+	body.position = Vector3(0.0, 0.24, 0.0)
+	duel_corpse_root.add_child(body)
+
+	var head := MeshInstance3D.new()
+	head.name = "duel-corpse-head"
+	var head_mesh := SphereMesh.new()
+	head_mesh.radius = 0.19
+	head_mesh.height = 0.38
+	head.mesh = head_mesh
+	head.material_override = mat_duel_corpse
+	head.position = Vector3(0.53, 0.25, 0.0)
+	duel_corpse_root.add_child(head)
+
+	var ring := MeshInstance3D.new()
+	ring.name = "duel-corpse-readable-ring"
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.52
+	torus.outer_radius = 0.59
+	ring.mesh = torus
+	ring.material_override = mat_duel_blood
+	ring.position = Vector3(0.0, 0.06, 0.0)
+	duel_corpse_root.add_child(ring)
+
+	duel_blood_pool = MeshInstance3D.new()
+	duel_blood_pool.name = "duel-blood-pool"
+	var pool := CylinderMesh.new()
+	pool.top_radius = 0.42
+	pool.bottom_radius = 0.54
+	pool.height = 0.035
+	duel_blood_pool.mesh = pool
+	duel_blood_pool.material_override = mat_duel_blood
+	duel_blood_pool.position = Vector3(-0.08, 0.025, 0.08)
+	duel_corpse_root.add_child(duel_blood_pool)
+
+
+func _make_duel_bursts() -> void:
+	for i in range(DUEL_SPARK_COUNT):
+		var spark := _make_duel_sphere("duel-spark-%02d" % i, mat_duel_spark, randf_range(0.028, 0.055))
+		duel_spark_nodes.append(spark)
+		var spark_angle := randf() * TAU
+		var spark_speed := randf_range(1.5, 4.2)
+		duel_spark_velocities.append(Vector3(cos(spark_angle) * spark_speed, randf_range(0.4, 1.8), sin(spark_angle) * spark_speed))
+
+	for i in range(DUEL_BLOOD_COUNT):
+		var blood := _make_duel_sphere("duel-blood-%02d" % i, mat_duel_blood, randf_range(0.035, 0.085))
+		duel_blood_nodes.append(blood)
+		var blood_angle := randf() * TAU
+		var blood_speed := randf_range(0.45, 2.2)
+		duel_blood_velocities.append(Vector3(cos(blood_angle) * blood_speed, randf_range(0.15, 1.25), sin(blood_angle) * blood_speed))
+
+
 func _make_camera() -> void:
 	camera = Camera3D.new()
 	camera.name = "director-orbit-camera"
@@ -411,7 +661,9 @@ func _make_ui() -> void:
 
 
 func _update_characters(sample: Dictionary, virtual_turn: float, loop_time: float, impact_time: float) -> void:
-	var victim_id := str(money_shot.get("victimId", highlighted_event.get("victimId", "")))
+	var telefrag_victim_id := str(money_shot.get("victimId", highlighted_event.get("victimId", "")))
+	var duel_victim_id := str(duel_event.get("victimId", ""))
+	var duel_kill_time := _duel_kill_time()
 	var seen_alive := {}
 	for character in sample.get("characters", []):
 		if typeof(character) != TYPE_DICTIONARY:
@@ -421,19 +673,24 @@ func _update_characters(sample: Dictionary, virtual_turn: float, loop_time: floa
 		if node == null:
 			continue
 		var alive := bool(character.get("alive", true))
-		if id == victim_id and loop_time >= impact_time:
-			alive = false
+		if id == duel_victim_id and loop_time < duel_kill_time + 0.08:
+			alive = true
+		if id == telefrag_victim_id:
+			alive = loop_time < impact_time
 		node.visible = alive
 		if alive:
 			seen_alive[id] = true
 			node.position = _tile_to_world(character.get("pos", {"x": 0, "y": 0}), 0.35)
+			if id == telefrag_victim_id and loop_time < impact_time:
+				node.position = _telefrag_victim_world(character.get("pos", {"x": 0, "y": 0}), loop_time, impact_time, 0.35)
 			node.rotation.y = sin(elapsed * 1.8 + float(id.hash() % 31)) * 0.18
 			var bob := sin(elapsed * 4.0 + float(id.hash() % 17)) * 0.025
 			node.position.y += bob
+			_apply_duel_actor_pose(id, node, sample, loop_time)
 
 	for id in character_nodes.keys():
 		var node: Node3D = character_nodes[id]
-		if not seen_alive.has(id) and id != victim_id:
+		if not seen_alive.has(id) and id != telefrag_victim_id:
 			node.visible = false
 
 
@@ -485,12 +742,119 @@ func _update_mist(delta: float) -> void:
 			mist.visible = false
 
 
+func _update_duel_vfx(sample: Dictionary, loop_time: float) -> void:
+	if duel_event.is_empty() or duel_root == null:
+		return
+	var killer_id := str(duel_event.get("killerId", ""))
+	var victim_id := str(duel_event.get("victimId", ""))
+	if killer_id.is_empty() or victim_id.is_empty():
+		return
+
+	var killer_pos := _character_world(sample, killer_id, 0.9)
+	var victim_pos := _character_world(sample, victim_id, 0.9)
+	var corpse_pos := _duel_corpse_world(sample)
+	var clash_time := _duel_event_time("duelFirstClash", _time_for_turn(float(duel_event.get("exchangeTurn", duel_event.get("startTurn", 3.0)))))
+	var kill_time := _duel_kill_time()
+	var corpse_time := _playback_event_time("duelCorpseReadable", kill_time + 0.2)
+	var clash_phase := _time_pulse(loop_time, clash_time, 0.55)
+	var kill_phase := _time_pulse(loop_time, kill_time, 0.75)
+	var trace_phase: float = max(clash_phase, kill_phase)
+	var lifted_killer := killer_pos + Vector3(0.0, 0.24 + 0.18 * kill_phase, 0.0)
+	var lifted_victim := victim_pos + Vector3(0.0, 0.22, 0.0)
+	var midpoint := (lifted_killer + lifted_victim) * 0.5
+	var slash_side := _flat_perpendicular(lifted_victim - lifted_killer)
+
+	_set_duel_trace(duel_trace_primary, lifted_killer + slash_side * (0.25 * trace_phase), lifted_victim - slash_side * 0.18, trace_phase)
+	_set_duel_trace(duel_trace_counter, lifted_victim - slash_side * (0.2 * clash_phase), lifted_killer + slash_side * 0.16, clash_phase)
+
+	duel_hit_flash.visible = clash_phase > 0.03
+	duel_hit_flash.position = midpoint + Vector3(0.0, 0.12, 0.0)
+	duel_hit_flash.scale = Vector3.ONE * (0.5 + clash_phase * 2.8)
+
+	duel_kill_flash.visible = kill_phase > 0.03
+	duel_kill_flash.position = lifted_victim + Vector3(0.0, 0.18, 0.0)
+	duel_kill_flash.scale = Vector3.ONE * (0.55 + kill_phase * 3.4)
+	duel_light.position = duel_kill_flash.position
+	duel_light.light_energy = 7.5 * kill_phase
+
+	var corpse_visible := loop_time >= corpse_time
+	duel_corpse_root.visible = corpse_visible
+	if corpse_visible:
+		duel_corpse_root.position = corpse_pos
+		duel_corpse_root.rotation.y = -0.42 + sin(elapsed * 0.7) * 0.02
+
+	_update_duel_burst(duel_spark_nodes, duel_spark_velocities, midpoint + Vector3(0.0, 0.16, 0.0), loop_time - clash_time, 0.85, 1.25)
+	if loop_time - kill_time >= 0.0 and loop_time - kill_time < 1.25:
+		_update_duel_burst(duel_spark_nodes, duel_spark_velocities, lifted_victim + Vector3(0.0, 0.18, 0.0), loop_time - kill_time, 1.25, 1.45)
+	_update_duel_burst(duel_blood_nodes, duel_blood_velocities, corpse_pos + Vector3(0.0, 0.28, 0.0), loop_time - kill_time, 2.2, 1.75)
+
+
+func _set_duel_trace(trace: MeshInstance3D, start: Vector3, finish: Vector3, phase: float) -> void:
+	if trace == null:
+		return
+	trace.visible = phase > 0.035
+	if not trace.visible:
+		return
+	var direction := finish - start
+	var length := direction.length()
+	if length < 0.02:
+		trace.visible = false
+		return
+	if trace.mesh is CylinderMesh:
+		var beam := trace.mesh as CylinderMesh
+		beam.height = length
+	trace.position = start + direction * 0.5
+	trace.basis = _basis_from_y(direction)
+	trace.scale = Vector3(1.0 + phase * 0.7, 1.0, 1.0 + phase * 0.7)
+
+
+func _update_duel_burst(nodes: Array, velocities: Array, origin: Vector3, age: float, life: float, gravity: float) -> void:
+	var active := age >= 0.0 and age < life
+	var fade: float = clamp(1.0 - age / max(0.01, life), 0.0, 1.0)
+	for i in range(nodes.size()):
+		var node: MeshInstance3D = nodes[i]
+		node.visible = active
+		if active:
+			var velocity: Vector3 = velocities[i]
+			var drift := velocity * age
+			drift.y -= gravity * age * age
+			node.position = origin + drift
+			node.scale = Vector3.ONE * (0.75 + (1.0 - fade) * 1.8)
+
+
+func _apply_duel_actor_pose(id: String, node: Node3D, sample: Dictionary, loop_time: float) -> void:
+	if duel_event.is_empty():
+		return
+	var killer_id := str(duel_event.get("killerId", ""))
+	var victim_id := str(duel_event.get("victimId", ""))
+	if id != killer_id and id != victim_id:
+		return
+	var start_time := _duel_event_time("duelStarts", _time_for_turn(float(duel_event.get("startTurn", 2.0))))
+	var kill_time := _duel_kill_time()
+	if loop_time < start_time or loop_time > kill_time + 0.35:
+		return
+	var other_id := victim_id if id == killer_id else killer_id
+	var other_pos := _character_world(sample, other_id, node.position.y)
+	var flat_target := Vector3(other_pos.x, node.position.y, other_pos.z)
+	var direction := flat_target - node.position
+	if direction.length() > 0.03:
+		node.look_at(flat_target, Vector3.UP)
+		var clash_time := _duel_event_time("duelFirstClash", _time_for_turn(float(duel_event.get("exchangeTurn", 3.0))))
+		var phase: float = max(_time_pulse(loop_time, clash_time, 0.45), _time_pulse(loop_time, kill_time, 0.55))
+		var lunge := 0.28 if id == killer_id else 0.12
+		node.position += direction.normalized() * lunge * phase
+		node.position.y += 0.05 * phase
+
+
 func _update_camera(delta: float, sample: Dictionary, loop_time: float, impact_time: float) -> void:
+	if follow_locked and _apply_duel_killcam(delta, sample, loop_time):
+		return
+	camera.fov = lerp(camera.fov, 49.0, clamp(delta * 3.2, 0.0, 1.0))
 	var victim_id := str(money_shot.get("victimId", highlighted_event.get("victimId", "")))
 	var follow_pos := _tile_to_world(_landing_tile(), 0.95)
 	for character in sample.get("characters", []):
 		if typeof(character) == TYPE_DICTIONARY and str(character.get("characterId", "")) == victim_id and loop_time < impact_time:
-			follow_pos = _tile_to_world(character.get("pos", _landing_tile()), 0.95)
+			follow_pos = _telefrag_victim_world(character.get("pos", _landing_tile()), loop_time, impact_time, 0.95)
 			break
 	if loop_time >= impact_time:
 		follow_pos = _tile_to_world(_landing_tile(), 0.95)
@@ -505,10 +869,67 @@ func _update_camera(delta: float, sample: Dictionary, loop_time: float, impact_t
 	camera.look_at(anchor, Vector3.UP)
 
 
+func _apply_duel_killcam(delta: float, sample: Dictionary, loop_time: float) -> bool:
+	if duel_event.is_empty():
+		return false
+	var kill_time := _duel_kill_time()
+	var exit_time := _playback_event_time("survivorHeadsToDrop", kill_time + 3.0)
+	if loop_time < kill_time - 1.15 or loop_time > exit_time - 0.1:
+		return false
+	var killer_id := str(duel_event.get("killerId", ""))
+	var victim_id := str(duel_event.get("victimId", ""))
+	if killer_id.is_empty() or victim_id.is_empty():
+		return false
+
+	var killer_pos := _character_world(sample, killer_id, 0.85)
+	var victim_pos := _character_world(sample, victim_id, 0.85)
+	if loop_time > kill_time + 0.18:
+		victim_pos = _duel_corpse_world(sample) + Vector3(0.0, 0.65, 0.0)
+	var anchor := (killer_pos + victim_pos) * 0.5 + Vector3(0.0, 0.36, 0.0)
+	target_anchor = target_anchor.lerp(anchor, clamp(delta * 8.0, 0.0, 1.0))
+
+	var line := victim_pos - killer_pos
+	if line.length() < 0.01:
+		line = Vector3.FORWARD
+	var flat_line := Vector3(line.x, 0.0, line.z)
+	if flat_line.length() < 0.001:
+		flat_line = Vector3.FORWARD
+	var forward := flat_line.normalized()
+	var side := _flat_perpendicular(forward)
+	var dolly: float = clamp((loop_time - (kill_time - 1.15)) / 2.6, 0.0, 1.0)
+	dolly = dolly * dolly * (3.0 - 2.0 * dolly)
+	var camera_target: Vector3 = target_anchor + Vector3(0.0, 0.22, 0.0)
+	var camera_pos: Vector3 = target_anchor + side * lerp(5.8, 3.8, dolly) - forward * 1.1 + Vector3(0.0, lerp(2.25, 1.35, dolly), 0.0)
+	var shake := _time_pulse(loop_time, kill_time, 0.38) * 0.09
+	camera_pos += side * sin(elapsed * 39.0) * shake + Vector3.UP * cos(elapsed * 31.0) * shake
+	camera.position = camera.position.lerp(camera_pos, clamp(delta * 6.5, 0.0, 1.0))
+	camera.look_at(camera_target, Vector3.UP)
+	camera.fov = lerp(camera.fov, 34.0, clamp(delta * 5.0, 0.0, 1.0))
+	return true
+
+
 func _update_status(loop_time: float, impact_time: float) -> void:
 	if status_label == null:
 		return
 	var text := "Airdrop warning"
+	if not duel_event.is_empty():
+		var duel_start := _duel_event_time("duelStarts", _time_for_turn(float(duel_event.get("startTurn", 2.0))))
+		var clash_time := _duel_event_time("duelFirstClash", _time_for_turn(float(duel_event.get("exchangeTurn", 3.0))))
+		var kill_time := _duel_kill_time()
+		var corpse_time := _playback_event_time("duelCorpseReadable", kill_time + 0.2)
+		var walk_time := _playback_event_time("survivorHeadsToDrop", kill_time + 3.0)
+		var killer_name := str(duel_event.get("killerDisplayName", character_names.get(str(duel_event.get("killerId", "")), "Sprinter")))
+		var victim_name := str(duel_event.get("victimDisplayName", character_names.get(str(duel_event.get("victimId", "")), "Vulture")))
+		if loop_time < duel_start:
+			text = "%s and %s close distance" % [killer_name, victim_name]
+		elif loop_time < clash_time + 0.7:
+			text = "%s / %s brutal duel" % [killer_name, victim_name]
+		elif loop_time < corpse_time + 1.4:
+			text = "Kill-cam: %s drops %s" % [killer_name, victim_name]
+		elif loop_time < walk_time:
+			text = "%s corpse readable" % victim_name
+		else:
+			text = "%s heads to the drop" % killer_name
 	if loop_time > impact_time - 2.6 and loop_time < impact_time:
 		text = "Crate falling"
 	elif loop_time >= impact_time and loop_time < impact_time + 2.2:
@@ -536,6 +957,22 @@ func _reset_loop() -> void:
 		mist.visible = false
 	shockwave.visible = false
 	impact_light.light_energy = 0.0
+	if duel_trace_primary != null:
+		duel_trace_primary.visible = false
+	if duel_trace_counter != null:
+		duel_trace_counter.visible = false
+	if duel_hit_flash != null:
+		duel_hit_flash.visible = false
+	if duel_kill_flash != null:
+		duel_kill_flash.visible = false
+	if duel_light != null:
+		duel_light.light_energy = 0.0
+	if duel_corpse_root != null:
+		duel_corpse_root.visible = false
+	for spark in duel_spark_nodes:
+		spark.visible = false
+	for blood in duel_blood_nodes:
+		blood.visible = false
 
 
 func _toggle_follow() -> void:
@@ -579,7 +1016,9 @@ func _interpolate_frames(a: Dictionary, b: Dictionary, t: float) -> Dictionary:
 		var pos_a: Dictionary = char_a.get("pos", {"x": 0, "y": 0})
 		var pos_b: Dictionary = char_b.get("pos", pos_a)
 		var merged: Dictionary = char_a.duplicate(true)
-		merged["alive"] = bool(char_a.get("alive", true)) and bool(char_b.get("alive", true))
+		var alive_a := bool(char_a.get("alive", true))
+		var alive_b := bool(char_b.get("alive", alive_a))
+		merged["alive"] = alive_a if t < 0.985 else alive_b
 		merged["pos"] = {
 			"x": lerp(float(pos_a.get("x", 0)), float(pos_b.get("x", 0)), t),
 			"y": lerp(float(pos_a.get("y", 0)), float(pos_b.get("y", 0)), t),
@@ -601,12 +1040,103 @@ func _landing_tile() -> Dictionary:
 	return {"x": 50, "y": 50}
 
 
+func _character_world(sample: Dictionary, character_id: String, y: float = 0.35) -> Vector3:
+	for character in sample.get("characters", []):
+		if typeof(character) == TYPE_DICTIONARY and str(character.get("characterId", "")) == character_id:
+			return _tile_to_world(character.get("pos", {"x": 0, "y": 0}), y)
+	var node: Node3D = character_nodes.get(character_id)
+	if node != null:
+		return Vector3(node.position.x, y, node.position.z)
+	return Vector3.ZERO
+
+
+func _telefrag_victim_world(sample_pos: Dictionary, loop_time: float, impact_time: float, y: float) -> Vector3:
+	var staging = highlighted_event.get("stagingTile", {})
+	var landing = highlighted_event.get("landingTile", _landing_tile())
+	if typeof(staging) != TYPE_DICTIONARY or typeof(landing) != TYPE_DICTIONARY:
+		return _tile_to_world(sample_pos, y)
+	var walk_time := _playback_event_time("survivorHeadsToDrop", _time_for_turn(5.0))
+	var final_step_time := _playback_event_time("victimStartsFinalStep", max(0.0, impact_time - 0.9))
+	if loop_time >= walk_time and loop_time < final_step_time:
+		return _tile_to_world(staging, y)
+	if loop_time >= final_step_time and loop_time < impact_time:
+		var t: float = clamp((loop_time - final_step_time) / max(0.01, impact_time - final_step_time), 0.0, 1.0)
+		t = t * t * (3.0 - 2.0 * t)
+		return _tile_to_world({
+			"x": lerp(float(staging.get("x", 0)), float(landing.get("x", 0)), t),
+			"y": lerp(float(staging.get("y", 0)), float(landing.get("y", 0)), t),
+		}, y)
+	return _tile_to_world(sample_pos, y)
+
+
+func _duel_corpse_world(sample: Dictionary) -> Vector3:
+	var victim_id := str(duel_event.get("victimId", ""))
+	var corpse_tile = duel_event.get("corpseTile", {})
+	if typeof(corpse_tile) == TYPE_DICTIONARY:
+		return _tile_to_world(corpse_tile, 0.08)
+	for corpse in sample.get("corpses", []):
+		if typeof(corpse) == TYPE_DICTIONARY and str(corpse.get("characterId", "")) == victim_id:
+			return _tile_to_world(corpse.get("pos", {"x": 0, "y": 0}), 0.08)
+	return _character_world(sample, victim_id, 0.08)
+
+
 func _impact_time(loop_seconds: float, start_turn: int, end_turn: int) -> float:
 	var events: Dictionary = playback.get("eventTimesSeconds", {})
 	if events.has("airdropImpact"):
 		return float(events.get("airdropImpact", 11.0))
 	var land_turn := float(money_shot.get("landsAtTurn", highlighted_event.get("landTurn", 10)))
 	return ((land_turn - float(start_turn)) / float(max(1, end_turn - start_turn))) * loop_seconds
+
+
+func _duel_kill_time() -> float:
+	if duel_event.is_empty():
+		return -999.0
+	var fallback_turn := float(duel_event.get("killTurn", duel_event.get("endTurn", 4.0)))
+	return _duel_event_time("duelKillingBlow", _time_for_turn(fallback_turn))
+
+
+func _duel_event_time(key: String, fallback: float) -> float:
+	var times = duel_event.get("eventTimesSeconds", {})
+	if typeof(times) == TYPE_DICTIONARY and times.has(key):
+		return float(times.get(key, fallback))
+	return _playback_event_time(key, fallback)
+
+
+func _playback_event_time(key: String, fallback: float) -> float:
+	var times = playback.get("eventTimesSeconds", {})
+	if typeof(times) == TYPE_DICTIONARY and times.has(key):
+		return float(times.get(key, fallback))
+	return fallback
+
+
+func _time_for_turn(turn: float) -> float:
+	var loop_seconds := float(playback.get("sliceDurationSeconds", money_shot.get("loopSeconds", LOOP_DEFAULT_SECONDS)))
+	var start_turn := float(playback.get("startTurn", money_shot.get("loopStartTurn", 7)))
+	var end_turn := float(playback.get("endTurn", money_shot.get("loopEndTurn", 12)))
+	return ((turn - start_turn) / float(max(1.0, end_turn - start_turn))) * loop_seconds
+
+
+func _time_pulse(time: float, center: float, half_width: float) -> float:
+	var pulse: float = clamp(1.0 - abs(time - center) / max(0.01, half_width), 0.0, 1.0)
+	return pulse * pulse * (3.0 - 2.0 * pulse)
+
+
+func _basis_from_y(direction: Vector3) -> Basis:
+	var y_axis := direction.normalized()
+	var x_axis := Vector3.UP.cross(y_axis)
+	if x_axis.length() < 0.001:
+		x_axis = Vector3.RIGHT
+	x_axis = x_axis.normalized()
+	var z_axis := x_axis.cross(y_axis).normalized()
+	return Basis(x_axis, y_axis, z_axis)
+
+
+func _flat_perpendicular(direction: Vector3) -> Vector3:
+	var flat := Vector3(direction.x, 0.0, direction.z)
+	if flat.length() < 0.001:
+		return Vector3.RIGHT
+	flat = flat.normalized()
+	return Vector3(-flat.z, 0.0, flat.x)
 
 
 func _tile_to_world(pos: Dictionary, y: float = 0.0) -> Vector3:
@@ -725,6 +1255,12 @@ func _make_materials() -> void:
 	mat_crimson = _emissive_material("red-mist", Color(1.0, 0.02, 0.04, 0.42), 2.5, true)
 	mat_gold = _emissive_material("gold-fallback", Color(1.0, 0.56, 0.12), 0.6, false)
 	mat_shock = _emissive_material("shockwave", Color(1.0, 0.04, 0.02, 0.36), 3.2, true)
+	mat_duel_trace = _emissive_material("duel-hot-slash", Color(1.0, 0.84, 0.18, 0.78), 4.2, true)
+	mat_duel_counter = _emissive_material("duel-counter-slash", Color(0.0, 0.92, 1.0, 0.56), 3.4, true)
+	mat_duel_flash = _emissive_material("duel-hit-flash", Color(1.0, 0.24, 0.06, 0.58), 5.5, true)
+	mat_duel_spark = _emissive_material("duel-sparks", Color(1.0, 0.68, 0.12, 0.72), 4.0, true)
+	mat_duel_blood = _emissive_material("duel-blood", Color(0.82, 0.0, 0.04, 0.48), 1.8, true)
+	mat_duel_corpse = _material("duel-corpse", Color(0.16, 0.04, 0.06), Color(0.7, 0.0, 0.08), 0.45)
 
 
 func _material(name: String, albedo: Color, emission: Color, emission_energy: float) -> StandardMaterial3D:

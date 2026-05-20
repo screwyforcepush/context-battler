@@ -19,14 +19,28 @@ fixture whose `timeline.frames[].snapshot` objects follow
 
 Fixture summary:
 
-- Slice: turns 7 through 12, 16 seconds.
+- Slice: turns 1 through 12, 30 seconds.
 - Map: `reference`, including size, walls, cover clusters, static crates,
   airdrops, and the evac zone.
-- Event: `Crate_50_50` is telegraphed on turns 7-10 and lands on turn 10.
-- Victim: `char_sprinter` / Sprinter moves from `{ "x": 49, "y": 50 }`
-  onto `{ "x": 50, "y": 50 }` on turn 10.
-- Result: turn 10 has `environmentalDeaths: ["char_sprinter"]`,
-  `deaths: []`, and `corpses: []`. Turn 11 shows the airdrop as landed.
+- Duel: `char_sprinter` / Sprinter and `char_vulture` / Vulture close on
+  turns 2-3. Turn 4 has the killing blow in `resolution.actions` and
+  `resolution.deaths: ["char_vulture"]`.
+- Duel result: Vulture has `alive: false`, `diedAtTurn: 4`, and appears
+  in `snapshot.corpses` at `{ "x": 34, "y": 56 }` from turn 4 onward.
+  Sprinter survives and reaches the west-adjacent airdrop staging tile
+  by turn 6.
+- Airdrop event: `Crate_50_50` is telegraphed on turns 7-10 and lands
+  on turn 10.
+- Telefrag victim: `char_sprinter` / Sprinter moves from
+  `{ "x": 49, "y": 50 }` onto `{ "x": 50, "y": 50 }` on turn 10.
+- Telefrag result: turn 10 has `environmentalDeaths: ["char_sprinter"]`,
+  no Sprinter entry in `resolution.deaths`, and no Sprinter corpse. Turn
+  11 shows the airdrop as landed.
+- Metadata: `highlightedEvent` remains the legacy airdrop-telefrag
+  object. `highlightedEvents` contains both the duel and
+  airdrop-telefrag events, with killer/victim ids for the duel.
+  `playback.eventTimesSeconds` includes duel timings and the existing
+  telegraph/impact/readable telefrag timings.
 
 The fixture keeps HP and equipment as `null`, matching the reconstruct
 contract: those fields are not derivable from the turn ledger in replay

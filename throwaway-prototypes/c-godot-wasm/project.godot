@@ -4,10 +4,15 @@ config_version=5
 
 [application]
 
-config/name="Context Battler Telefrag Godot WASM"
+config/name="Context Battler Telefrag Register"
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
 config/icon=""
+boot_splash/bg_color=Color(0.005, 0.007, 0.011, 1)
+boot_splash/image=""
+boot_splash/show_image=false
+boot_splash/fullsize=false
+boot_splash/use_filter=false
 
 [display]
 

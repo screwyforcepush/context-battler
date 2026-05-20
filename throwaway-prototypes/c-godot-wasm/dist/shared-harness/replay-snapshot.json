@@ -1,12 +1,14 @@
 {
   "schemaVersion": 1,
-  "fixtureId": "prototype-1-reference-airdrop-telefrag",
+  "fixtureId": "prototype-2-reference-duel-airdrop-telefrag",
   "contract": {
     "snapshotType": "apps/replay/src/lib/reconstruct.ts#EntitySnapshot",
     "notes": [
       "Each timeline.frames[].snapshot object follows the EntitySnapshot shape.",
       "Equipment and HP are null because reconstruct.ts treats them as non-derivable from the turn ledger.",
-      "Telefrag victims are listed in resolution.environmentalDeaths, not resolution.deaths, and do not create corpses."
+      "The duel victim is listed in resolution.deaths and creates a corpse in snapshot.corpses.",
+      "Telefrag victims are listed in resolution.environmentalDeaths, not resolution.deaths, and do not create corpses.",
+      "highlightedEvent remains the legacy airdrop telefrag object; highlightedEvents is the additive event list."
     ]
   },
   "source": {
@@ -15,20 +17,26 @@
     "semantics": [
       "Airdrop projection uses the engine/reconstruct lifecycle: pre, telegraphed, landed, spent.",
       "The first drop uses the reference-map landing tile and landsAtTurn.",
-      "Sprinter's path is generated from reference-map spawn index 6 to the west-adjacent staging tile, then onto the landing tile on turn 10."
+      "Sprinter and Vulture use fixed walkable reference-map tiles for a canned ordinary-death duel.",
+      "Sprinter survives the duel, walks to the west-adjacent staging tile, then steps onto the airdrop landing tile on turn 10."
     ]
   },
   "playback": {
-    "sliceDurationSeconds": 16,
-    "startTurn": 7,
+    "sliceDurationSeconds": 30,
+    "startTurn": 1,
     "endTurn": 12,
     "fpsHint": 60,
     "eventTimesSeconds": {
-      "telegraphBegins": 0,
-      "victimStartsFinalStep": 9.6,
-      "airdropImpact": 11,
-      "redMistPeak": 11.15,
-      "landedCrateReadable": 13.5
+      "duelStarts": 3,
+      "duelFirstClash": 6,
+      "duelKillingBlow": 9,
+      "duelCorpseReadable": 9.2,
+      "survivorHeadsToDrop": 12,
+      "telegraphBegins": 18,
+      "victimStartsFinalStep": 26.1,
+      "airdropImpact": 27,
+      "redMistPeak": 27.15,
+      "landedCrateReadable": 28.5
     }
   },
   "map": {
@@ -596,11 +604,1876 @@
       "corpseCreated": false
     }
   },
+  "highlightedEvents": [
+    {
+      "kind": "duel",
+      "startTurn": 2,
+      "exchangeTurn": 3,
+      "killTurn": 4,
+      "endTurn": 4,
+      "participantIds": [
+        "char_sprinter",
+        "char_vulture"
+      ],
+      "killerId": "char_sprinter",
+      "killerDisplayName": "Sprinter",
+      "victimId": "char_vulture",
+      "victimDisplayName": "Vulture",
+      "corpseTile": {
+        "x": 34,
+        "y": 56
+      },
+      "killFeedLine": "Sprinter killed Vulture in a brutal duel",
+      "traceContract": {
+        "deaths": [
+          "char_vulture"
+        ],
+        "environmentalDeaths": [],
+        "corpseCreated": true
+      }
+    },
+    {
+      "kind": "airdrop-telefrag",
+      "airdropId": "Crate_50_50",
+      "landTurn": 10,
+      "victimId": "char_sprinter",
+      "victimDisplayName": "Sprinter",
+      "landingTile": {
+        "x": 50,
+        "y": 50
+      },
+      "stagingTile": {
+        "x": 49,
+        "y": 50
+      },
+      "killFeedLine": "Sprinter got telefragged by crate spawn",
+      "traceContract": {
+        "deaths": [],
+        "environmentalDeaths": [
+          "char_sprinter"
+        ],
+        "corpseCreated": false
+      }
+    }
+  ],
   "timeline": {
     "frames": [
       {
-        "turn": 7,
+        "turn": 1,
         "timeSeconds": 0,
+        "snapshot": {
+          "turn": 1,
+          "characters": [
+            {
+              "characterId": "char_rat",
+              "personaId": "rat",
+              "displayName": "Rat",
+              "pos": {
+                "x": 28,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_duelist",
+              "personaId": "duelist",
+              "displayName": "Duelist",
+              "pos": {
+                "x": 48,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_trader",
+              "personaId": "trader",
+              "displayName": "Trader",
+              "pos": {
+                "x": 68,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_opportunist",
+              "personaId": "opportunist",
+              "displayName": "Opportunist",
+              "pos": {
+                "x": 68,
+                "y": 48
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_paranoid",
+              "personaId": "paranoid",
+              "displayName": "Paranoid",
+              "pos": {
+                "x": 68,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_camper",
+              "personaId": "camper",
+              "displayName": "Camper",
+              "pos": {
+                "x": 48,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_sprinter",
+              "personaId": "sprinter",
+              "displayName": "Sprinter",
+              "pos": {
+                "x": 28,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_vulture",
+              "personaId": "vulture",
+              "displayName": "Vulture",
+              "pos": {
+                "x": 28,
+                "y": 48
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            }
+          ],
+          "corpses": [],
+          "crates": [
+            {
+              "id": "Crate_14_14",
+              "pos": {
+                "x": 14,
+                "y": 14
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_85_14",
+              "pos": {
+                "x": 85,
+                "y": 14
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_14_85",
+              "pos": {
+                "x": 14,
+                "y": 85
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_85_85",
+              "pos": {
+                "x": 85,
+                "y": 85
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_33_33",
+              "pos": {
+                "x": 33,
+                "y": 33
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_66_33",
+              "pos": {
+                "x": 66,
+                "y": 33
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_47_46",
+              "pos": {
+                "x": 47,
+                "y": 46
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_49_52",
+              "pos": {
+                "x": 49,
+                "y": 52
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_33_66",
+              "pos": {
+                "x": 33,
+                "y": 66
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_66_66",
+              "pos": {
+                "x": 66,
+                "y": 66
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_53_54",
+              "pos": {
+                "x": 53,
+                "y": 54
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_50_25",
+              "pos": {
+                "x": 50,
+                "y": 25
+              },
+              "opened": false
+            }
+          ],
+          "airdrops": [
+            {
+              "id": "Crate_50_50",
+              "pos": {
+                "x": 50,
+                "y": 50
+              },
+              "landsAtTurn": 10,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_25_75",
+              "pos": {
+                "x": 25,
+                "y": 75
+              },
+              "landsAtTurn": 20,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_75_25",
+              "pos": {
+                "x": 75,
+                "y": 25
+              },
+              "landsAtTurn": 30,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_48_48",
+              "pos": {
+                "x": 48,
+                "y": 48
+              },
+              "landsAtTurn": 40,
+              "state": "pre",
+              "looted": false
+            }
+          ],
+          "evacRevealed": false
+        },
+        "resolution": {
+          "turn": 1,
+          "moves": [],
+          "actions": [],
+          "deaths": [],
+          "environmentalDeaths": [],
+          "visibilityUpdates": []
+        }
+      },
+      {
+        "turn": 2,
+        "timeSeconds": 3,
+        "snapshot": {
+          "turn": 2,
+          "characters": [
+            {
+              "characterId": "char_rat",
+              "personaId": "rat",
+              "displayName": "Rat",
+              "pos": {
+                "x": 28,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_duelist",
+              "personaId": "duelist",
+              "displayName": "Duelist",
+              "pos": {
+                "x": 48,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_trader",
+              "personaId": "trader",
+              "displayName": "Trader",
+              "pos": {
+                "x": 68,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_opportunist",
+              "personaId": "opportunist",
+              "displayName": "Opportunist",
+              "pos": {
+                "x": 68,
+                "y": 48
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_paranoid",
+              "personaId": "paranoid",
+              "displayName": "Paranoid",
+              "pos": {
+                "x": 68,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_camper",
+              "personaId": "camper",
+              "displayName": "Camper",
+              "pos": {
+                "x": 48,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_sprinter",
+              "personaId": "sprinter",
+              "displayName": "Sprinter",
+              "pos": {
+                "x": 28,
+                "y": 60
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_vulture",
+              "personaId": "vulture",
+              "displayName": "Vulture",
+              "pos": {
+                "x": 28,
+                "y": 56
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            }
+          ],
+          "corpses": [],
+          "crates": [
+            {
+              "id": "Crate_14_14",
+              "pos": {
+                "x": 14,
+                "y": 14
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_85_14",
+              "pos": {
+                "x": 85,
+                "y": 14
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_14_85",
+              "pos": {
+                "x": 14,
+                "y": 85
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_85_85",
+              "pos": {
+                "x": 85,
+                "y": 85
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_33_33",
+              "pos": {
+                "x": 33,
+                "y": 33
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_66_33",
+              "pos": {
+                "x": 66,
+                "y": 33
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_47_46",
+              "pos": {
+                "x": 47,
+                "y": 46
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_49_52",
+              "pos": {
+                "x": 49,
+                "y": 52
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_33_66",
+              "pos": {
+                "x": 33,
+                "y": 66
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_66_66",
+              "pos": {
+                "x": 66,
+                "y": 66
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_53_54",
+              "pos": {
+                "x": 53,
+                "y": 54
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_50_25",
+              "pos": {
+                "x": 50,
+                "y": 25
+              },
+              "opened": false
+            }
+          ],
+          "airdrops": [
+            {
+              "id": "Crate_50_50",
+              "pos": {
+                "x": 50,
+                "y": 50
+              },
+              "landsAtTurn": 10,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_25_75",
+              "pos": {
+                "x": 25,
+                "y": 75
+              },
+              "landsAtTurn": 20,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_75_25",
+              "pos": {
+                "x": 75,
+                "y": 25
+              },
+              "landsAtTurn": 30,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_48_48",
+              "pos": {
+                "x": 48,
+                "y": 48
+              },
+              "landsAtTurn": 40,
+              "state": "pre",
+              "looted": false
+            }
+          ],
+          "evacRevealed": false
+        },
+        "resolution": {
+          "turn": 2,
+          "moves": [
+            {
+              "characterId": "char_sprinter",
+              "from": {
+                "x": 28,
+                "y": 68
+              },
+              "to": {
+                "x": 28,
+                "y": 60
+              }
+            },
+            {
+              "characterId": "char_vulture",
+              "from": {
+                "x": 28,
+                "y": 48
+              },
+              "to": {
+                "x": 28,
+                "y": 56
+              }
+            }
+          ],
+          "actions": [],
+          "deaths": [],
+          "environmentalDeaths": [],
+          "visibilityUpdates": []
+        }
+      },
+      {
+        "turn": 3,
+        "timeSeconds": 6,
+        "snapshot": {
+          "turn": 3,
+          "characters": [
+            {
+              "characterId": "char_rat",
+              "personaId": "rat",
+              "displayName": "Rat",
+              "pos": {
+                "x": 28,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_duelist",
+              "personaId": "duelist",
+              "displayName": "Duelist",
+              "pos": {
+                "x": 48,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_trader",
+              "personaId": "trader",
+              "displayName": "Trader",
+              "pos": {
+                "x": 68,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_opportunist",
+              "personaId": "opportunist",
+              "displayName": "Opportunist",
+              "pos": {
+                "x": 68,
+                "y": 48
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_paranoid",
+              "personaId": "paranoid",
+              "displayName": "Paranoid",
+              "pos": {
+                "x": 68,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_camper",
+              "personaId": "camper",
+              "displayName": "Camper",
+              "pos": {
+                "x": 48,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_sprinter",
+              "personaId": "sprinter",
+              "displayName": "Sprinter",
+              "pos": {
+                "x": 30,
+                "y": 56
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_vulture",
+              "personaId": "vulture",
+              "displayName": "Vulture",
+              "pos": {
+                "x": 32,
+                "y": 56
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            }
+          ],
+          "corpses": [],
+          "crates": [
+            {
+              "id": "Crate_14_14",
+              "pos": {
+                "x": 14,
+                "y": 14
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_85_14",
+              "pos": {
+                "x": 85,
+                "y": 14
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_14_85",
+              "pos": {
+                "x": 14,
+                "y": 85
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_85_85",
+              "pos": {
+                "x": 85,
+                "y": 85
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_33_33",
+              "pos": {
+                "x": 33,
+                "y": 33
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_66_33",
+              "pos": {
+                "x": 66,
+                "y": 33
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_47_46",
+              "pos": {
+                "x": 47,
+                "y": 46
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_49_52",
+              "pos": {
+                "x": 49,
+                "y": 52
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_33_66",
+              "pos": {
+                "x": 33,
+                "y": 66
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_66_66",
+              "pos": {
+                "x": 66,
+                "y": 66
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_53_54",
+              "pos": {
+                "x": 53,
+                "y": 54
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_50_25",
+              "pos": {
+                "x": 50,
+                "y": 25
+              },
+              "opened": false
+            }
+          ],
+          "airdrops": [
+            {
+              "id": "Crate_50_50",
+              "pos": {
+                "x": 50,
+                "y": 50
+              },
+              "landsAtTurn": 10,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_25_75",
+              "pos": {
+                "x": 25,
+                "y": 75
+              },
+              "landsAtTurn": 20,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_75_25",
+              "pos": {
+                "x": 75,
+                "y": 25
+              },
+              "landsAtTurn": 30,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_48_48",
+              "pos": {
+                "x": 48,
+                "y": 48
+              },
+              "landsAtTurn": 40,
+              "state": "pre",
+              "looted": false
+            }
+          ],
+          "evacRevealed": false
+        },
+        "resolution": {
+          "turn": 3,
+          "moves": [
+            {
+              "characterId": "char_sprinter",
+              "from": {
+                "x": 28,
+                "y": 60
+              },
+              "to": {
+                "x": 30,
+                "y": 56
+              }
+            },
+            {
+              "characterId": "char_vulture",
+              "from": {
+                "x": 28,
+                "y": 56
+              },
+              "to": {
+                "x": 32,
+                "y": 56
+              }
+            }
+          ],
+          "actions": [
+            {
+              "characterId": "char_sprinter",
+              "kind": "attack",
+              "target": "Vulture",
+              "result": "dmg 20"
+            },
+            {
+              "characterId": "char_vulture",
+              "kind": "attack",
+              "target": "Sprinter",
+              "result": "dmg 12"
+            }
+          ],
+          "deaths": [],
+          "environmentalDeaths": [],
+          "visibilityUpdates": []
+        }
+      },
+      {
+        "turn": 4,
+        "timeSeconds": 9,
+        "snapshot": {
+          "turn": 4,
+          "characters": [
+            {
+              "characterId": "char_rat",
+              "personaId": "rat",
+              "displayName": "Rat",
+              "pos": {
+                "x": 28,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_duelist",
+              "personaId": "duelist",
+              "displayName": "Duelist",
+              "pos": {
+                "x": 48,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_trader",
+              "personaId": "trader",
+              "displayName": "Trader",
+              "pos": {
+                "x": 68,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_opportunist",
+              "personaId": "opportunist",
+              "displayName": "Opportunist",
+              "pos": {
+                "x": 68,
+                "y": 48
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_paranoid",
+              "personaId": "paranoid",
+              "displayName": "Paranoid",
+              "pos": {
+                "x": 68,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_camper",
+              "personaId": "camper",
+              "displayName": "Camper",
+              "pos": {
+                "x": 48,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_sprinter",
+              "personaId": "sprinter",
+              "displayName": "Sprinter",
+              "pos": {
+                "x": 34,
+                "y": 54
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_vulture",
+              "personaId": "vulture",
+              "displayName": "Vulture",
+              "pos": {
+                "x": 34,
+                "y": 56
+              },
+              "alive": false,
+              "hidden": false,
+              "diedAtTurn": 4,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            }
+          ],
+          "corpses": [
+            {
+              "characterId": "char_vulture",
+              "pos": {
+                "x": 34,
+                "y": 56
+              }
+            }
+          ],
+          "crates": [
+            {
+              "id": "Crate_14_14",
+              "pos": {
+                "x": 14,
+                "y": 14
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_85_14",
+              "pos": {
+                "x": 85,
+                "y": 14
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_14_85",
+              "pos": {
+                "x": 14,
+                "y": 85
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_85_85",
+              "pos": {
+                "x": 85,
+                "y": 85
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_33_33",
+              "pos": {
+                "x": 33,
+                "y": 33
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_66_33",
+              "pos": {
+                "x": 66,
+                "y": 33
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_47_46",
+              "pos": {
+                "x": 47,
+                "y": 46
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_49_52",
+              "pos": {
+                "x": 49,
+                "y": 52
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_33_66",
+              "pos": {
+                "x": 33,
+                "y": 66
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_66_66",
+              "pos": {
+                "x": 66,
+                "y": 66
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_53_54",
+              "pos": {
+                "x": 53,
+                "y": 54
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_50_25",
+              "pos": {
+                "x": 50,
+                "y": 25
+              },
+              "opened": false
+            }
+          ],
+          "airdrops": [
+            {
+              "id": "Crate_50_50",
+              "pos": {
+                "x": 50,
+                "y": 50
+              },
+              "landsAtTurn": 10,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_25_75",
+              "pos": {
+                "x": 25,
+                "y": 75
+              },
+              "landsAtTurn": 20,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_75_25",
+              "pos": {
+                "x": 75,
+                "y": 25
+              },
+              "landsAtTurn": 30,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_48_48",
+              "pos": {
+                "x": 48,
+                "y": 48
+              },
+              "landsAtTurn": 40,
+              "state": "pre",
+              "looted": false
+            }
+          ],
+          "evacRevealed": false
+        },
+        "resolution": {
+          "turn": 4,
+          "moves": [
+            {
+              "characterId": "char_sprinter",
+              "from": {
+                "x": 30,
+                "y": 56
+              },
+              "to": {
+                "x": 34,
+                "y": 54
+              }
+            },
+            {
+              "characterId": "char_vulture",
+              "from": {
+                "x": 32,
+                "y": 56
+              },
+              "to": {
+                "x": 34,
+                "y": 56
+              }
+            }
+          ],
+          "actions": [
+            {
+              "characterId": "char_sprinter",
+              "kind": "attack",
+              "target": "Vulture",
+              "result": "dmg 50"
+            }
+          ],
+          "deaths": [
+            "char_vulture"
+          ],
+          "environmentalDeaths": [],
+          "visibilityUpdates": []
+        }
+      },
+      {
+        "turn": 5,
+        "timeSeconds": 12,
+        "snapshot": {
+          "turn": 5,
+          "characters": [
+            {
+              "characterId": "char_rat",
+              "personaId": "rat",
+              "displayName": "Rat",
+              "pos": {
+                "x": 28,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_duelist",
+              "personaId": "duelist",
+              "displayName": "Duelist",
+              "pos": {
+                "x": 48,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_trader",
+              "personaId": "trader",
+              "displayName": "Trader",
+              "pos": {
+                "x": 68,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_opportunist",
+              "personaId": "opportunist",
+              "displayName": "Opportunist",
+              "pos": {
+                "x": 68,
+                "y": 48
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_paranoid",
+              "personaId": "paranoid",
+              "displayName": "Paranoid",
+              "pos": {
+                "x": 68,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_camper",
+              "personaId": "camper",
+              "displayName": "Camper",
+              "pos": {
+                "x": 48,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_sprinter",
+              "personaId": "sprinter",
+              "displayName": "Sprinter",
+              "pos": {
+                "x": 42,
+                "y": 52
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_vulture",
+              "personaId": "vulture",
+              "displayName": "Vulture",
+              "pos": {
+                "x": 34,
+                "y": 56
+              },
+              "alive": false,
+              "hidden": false,
+              "diedAtTurn": 4,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            }
+          ],
+          "corpses": [
+            {
+              "characterId": "char_vulture",
+              "pos": {
+                "x": 34,
+                "y": 56
+              }
+            }
+          ],
+          "crates": [
+            {
+              "id": "Crate_14_14",
+              "pos": {
+                "x": 14,
+                "y": 14
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_85_14",
+              "pos": {
+                "x": 85,
+                "y": 14
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_14_85",
+              "pos": {
+                "x": 14,
+                "y": 85
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_85_85",
+              "pos": {
+                "x": 85,
+                "y": 85
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_33_33",
+              "pos": {
+                "x": 33,
+                "y": 33
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_66_33",
+              "pos": {
+                "x": 66,
+                "y": 33
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_47_46",
+              "pos": {
+                "x": 47,
+                "y": 46
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_49_52",
+              "pos": {
+                "x": 49,
+                "y": 52
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_33_66",
+              "pos": {
+                "x": 33,
+                "y": 66
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_66_66",
+              "pos": {
+                "x": 66,
+                "y": 66
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_53_54",
+              "pos": {
+                "x": 53,
+                "y": 54
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_50_25",
+              "pos": {
+                "x": 50,
+                "y": 25
+              },
+              "opened": false
+            }
+          ],
+          "airdrops": [
+            {
+              "id": "Crate_50_50",
+              "pos": {
+                "x": 50,
+                "y": 50
+              },
+              "landsAtTurn": 10,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_25_75",
+              "pos": {
+                "x": 25,
+                "y": 75
+              },
+              "landsAtTurn": 20,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_75_25",
+              "pos": {
+                "x": 75,
+                "y": 25
+              },
+              "landsAtTurn": 30,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_48_48",
+              "pos": {
+                "x": 48,
+                "y": 48
+              },
+              "landsAtTurn": 40,
+              "state": "pre",
+              "looted": false
+            }
+          ],
+          "evacRevealed": false
+        },
+        "resolution": {
+          "turn": 5,
+          "moves": [
+            {
+              "characterId": "char_sprinter",
+              "from": {
+                "x": 34,
+                "y": 54
+              },
+              "to": {
+                "x": 42,
+                "y": 52
+              }
+            }
+          ],
+          "actions": [],
+          "deaths": [],
+          "environmentalDeaths": [],
+          "visibilityUpdates": []
+        }
+      },
+      {
+        "turn": 6,
+        "timeSeconds": 15,
+        "snapshot": {
+          "turn": 6,
+          "characters": [
+            {
+              "characterId": "char_rat",
+              "personaId": "rat",
+              "displayName": "Rat",
+              "pos": {
+                "x": 28,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_duelist",
+              "personaId": "duelist",
+              "displayName": "Duelist",
+              "pos": {
+                "x": 48,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_trader",
+              "personaId": "trader",
+              "displayName": "Trader",
+              "pos": {
+                "x": 68,
+                "y": 28
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_opportunist",
+              "personaId": "opportunist",
+              "displayName": "Opportunist",
+              "pos": {
+                "x": 68,
+                "y": 48
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_paranoid",
+              "personaId": "paranoid",
+              "displayName": "Paranoid",
+              "pos": {
+                "x": 68,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_camper",
+              "personaId": "camper",
+              "displayName": "Camper",
+              "pos": {
+                "x": 48,
+                "y": 68
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_sprinter",
+              "personaId": "sprinter",
+              "displayName": "Sprinter",
+              "pos": {
+                "x": 49,
+                "y": 50
+              },
+              "alive": true,
+              "hidden": false,
+              "diedAtTurn": null,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            },
+            {
+              "characterId": "char_vulture",
+              "personaId": "vulture",
+              "displayName": "Vulture",
+              "pos": {
+                "x": 34,
+                "y": 56
+              },
+              "alive": false,
+              "hidden": false,
+              "diedAtTurn": 4,
+              "extractedAtTurn": null,
+              "equipped": null,
+              "hp": null
+            }
+          ],
+          "corpses": [
+            {
+              "characterId": "char_vulture",
+              "pos": {
+                "x": 34,
+                "y": 56
+              }
+            }
+          ],
+          "crates": [
+            {
+              "id": "Crate_14_14",
+              "pos": {
+                "x": 14,
+                "y": 14
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_85_14",
+              "pos": {
+                "x": 85,
+                "y": 14
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_14_85",
+              "pos": {
+                "x": 14,
+                "y": 85
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_85_85",
+              "pos": {
+                "x": 85,
+                "y": 85
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_33_33",
+              "pos": {
+                "x": 33,
+                "y": 33
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_66_33",
+              "pos": {
+                "x": 66,
+                "y": 33
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_47_46",
+              "pos": {
+                "x": 47,
+                "y": 46
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_49_52",
+              "pos": {
+                "x": 49,
+                "y": 52
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_33_66",
+              "pos": {
+                "x": 33,
+                "y": 66
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_66_66",
+              "pos": {
+                "x": 66,
+                "y": 66
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_53_54",
+              "pos": {
+                "x": 53,
+                "y": 54
+              },
+              "opened": false
+            },
+            {
+              "id": "Crate_50_25",
+              "pos": {
+                "x": 50,
+                "y": 25
+              },
+              "opened": false
+            }
+          ],
+          "airdrops": [
+            {
+              "id": "Crate_50_50",
+              "pos": {
+                "x": 50,
+                "y": 50
+              },
+              "landsAtTurn": 10,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_25_75",
+              "pos": {
+                "x": 25,
+                "y": 75
+              },
+              "landsAtTurn": 20,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_75_25",
+              "pos": {
+                "x": 75,
+                "y": 25
+              },
+              "landsAtTurn": 30,
+              "state": "pre",
+              "looted": false
+            },
+            {
+              "id": "Crate_48_48",
+              "pos": {
+                "x": 48,
+                "y": 48
+              },
+              "landsAtTurn": 40,
+              "state": "pre",
+              "looted": false
+            }
+          ],
+          "evacRevealed": false
+        },
+        "resolution": {
+          "turn": 6,
+          "moves": [
+            {
+              "characterId": "char_sprinter",
+              "from": {
+                "x": 42,
+                "y": 52
+              },
+              "to": {
+                "x": 49,
+                "y": 50
+              }
+            }
+          ],
+          "actions": [],
+          "deaths": [],
+          "environmentalDeaths": [],
+          "visibilityUpdates": []
+        }
+      },
+      {
+        "turn": 7,
+        "timeSeconds": 18,
         "snapshot": {
           "turn": 7,
           "characters": [
@@ -699,8 +2572,8 @@
               "personaId": "sprinter",
               "displayName": "Sprinter",
               "pos": {
-                "x": 36,
-                "y": 60
+                "x": 49,
+                "y": 50
               },
               "alive": true,
               "hidden": false,
@@ -714,18 +2587,26 @@
               "personaId": "vulture",
               "displayName": "Vulture",
               "pos": {
-                "x": 28,
-                "y": 48
+                "x": 34,
+                "y": 56
               },
-              "alive": true,
+              "alive": false,
               "hidden": false,
-              "diedAtTurn": null,
+              "diedAtTurn": 4,
               "extractedAtTurn": null,
               "equipped": null,
               "hp": null
             }
           ],
-          "corpses": [],
+          "corpses": [
+            {
+              "characterId": "char_vulture",
+              "pos": {
+                "x": 34,
+                "y": 56
+              }
+            }
+          ],
           "crates": [
             {
               "id": "Crate_14_14",
@@ -880,7 +2761,7 @@
       },
       {
         "turn": 8,
-        "timeSeconds": 3,
+        "timeSeconds": 21,
         "snapshot": {
           "turn": 8,
           "characters": [
@@ -979,8 +2860,8 @@
               "personaId": "sprinter",
               "displayName": "Sprinter",
               "pos": {
-                "x": 44,
-                "y": 52
+                "x": 49,
+                "y": 50
               },
               "alive": true,
               "hidden": false,
@@ -994,18 +2875,26 @@
               "personaId": "vulture",
               "displayName": "Vulture",
               "pos": {
-                "x": 28,
-                "y": 48
+                "x": 34,
+                "y": 56
               },
-              "alive": true,
+              "alive": false,
               "hidden": false,
-              "diedAtTurn": null,
+              "diedAtTurn": 4,
               "extractedAtTurn": null,
               "equipped": null,
               "hp": null
             }
           ],
-          "corpses": [],
+          "corpses": [
+            {
+              "characterId": "char_vulture",
+              "pos": {
+                "x": 34,
+                "y": 56
+              }
+            }
+          ],
           "crates": [
             {
               "id": "Crate_14_14",
@@ -1160,7 +3049,7 @@
       },
       {
         "turn": 9,
-        "timeSeconds": 6,
+        "timeSeconds": 24,
         "snapshot": {
           "turn": 9,
           "characters": [
@@ -1184,8 +3073,8 @@
               "personaId": "duelist",
               "displayName": "Duelist",
               "pos": {
-                "x": 45,
-                "y": 50
+                "x": 48,
+                "y": 28
               },
               "alive": true,
               "hidden": false,
@@ -1274,18 +3163,26 @@
               "personaId": "vulture",
               "displayName": "Vulture",
               "pos": {
-                "x": 28,
-                "y": 48
+                "x": 34,
+                "y": 56
               },
-              "alive": true,
+              "alive": false,
               "hidden": false,
-              "diedAtTurn": null,
+              "diedAtTurn": 4,
               "extractedAtTurn": null,
               "equipped": null,
               "hp": null
             }
           ],
-          "corpses": [],
+          "corpses": [
+            {
+              "characterId": "char_vulture",
+              "pos": {
+                "x": 34,
+                "y": 56
+              }
+            }
+          ],
           "crates": [
             {
               "id": "Crate_14_14",
@@ -1440,7 +3337,7 @@
       },
       {
         "turn": 10,
-        "timeSeconds": 11,
+        "timeSeconds": 27,
         "snapshot": {
           "turn": 10,
           "characters": [
@@ -1464,8 +3361,8 @@
               "personaId": "duelist",
               "displayName": "Duelist",
               "pos": {
-                "x": 45,
-                "y": 50
+                "x": 48,
+                "y": 28
               },
               "alive": true,
               "hidden": false,
@@ -1554,18 +3451,26 @@
               "personaId": "vulture",
               "displayName": "Vulture",
               "pos": {
-                "x": 28,
-                "y": 48
+                "x": 34,
+                "y": 56
               },
-              "alive": true,
+              "alive": false,
               "hidden": false,
-              "diedAtTurn": null,
+              "diedAtTurn": 4,
               "extractedAtTurn": null,
               "equipped": null,
               "hp": null
             }
           ],
-          "corpses": [],
+          "corpses": [
+            {
+              "characterId": "char_vulture",
+              "pos": {
+                "x": 34,
+                "y": 56
+              }
+            }
+          ],
           "crates": [
             {
               "id": "Crate_14_14",
@@ -1734,7 +3639,7 @@
       },
       {
         "turn": 11,
-        "timeSeconds": 13.5,
+        "timeSeconds": 28.5,
         "snapshot": {
           "turn": 11,
           "characters": [
@@ -1758,8 +3663,8 @@
               "personaId": "duelist",
               "displayName": "Duelist",
               "pos": {
-                "x": 45,
-                "y": 50
+                "x": 48,
+                "y": 28
               },
               "alive": true,
               "hidden": false,
@@ -1848,18 +3753,26 @@
               "personaId": "vulture",
               "displayName": "Vulture",
               "pos": {
-                "x": 28,
-                "y": 48
+                "x": 34,
+                "y": 56
               },
-              "alive": true,
+              "alive": false,
               "hidden": false,
-              "diedAtTurn": null,
+              "diedAtTurn": 4,
               "extractedAtTurn": null,
               "equipped": null,
               "hp": null
             }
           ],
-          "corpses": [],
+          "corpses": [
+            {
+              "characterId": "char_vulture",
+              "pos": {
+                "x": 34,
+                "y": 56
+              }
+            }
+          ],
           "crates": [
             {
               "id": "Crate_14_14",
@@ -2013,7 +3926,7 @@
       },
       {
         "turn": 12,
-        "timeSeconds": 16,
+        "timeSeconds": 30,
         "snapshot": {
           "turn": 12,
           "characters": [
@@ -2037,8 +3950,8 @@
               "personaId": "duelist",
               "displayName": "Duelist",
               "pos": {
-                "x": 45,
-                "y": 50
+                "x": 48,
+                "y": 28
               },
               "alive": true,
               "hidden": false,
@@ -2127,18 +4040,26 @@
               "personaId": "vulture",
               "displayName": "Vulture",
               "pos": {
-                "x": 28,
-                "y": 48
+                "x": 34,
+                "y": 56
               },
-              "alive": true,
+              "alive": false,
               "hidden": false,
-              "diedAtTurn": null,
+              "diedAtTurn": 4,
               "extractedAtTurn": null,
               "equipped": null,
               "hp": null
             }
           ],
-          "corpses": [],
+          "corpses": [
+            {
+              "characterId": "char_vulture",
+              "pos": {
+                "x": 34,
+                "y": 56
+              }
+            }
+          ],
           "crates": [
             {
               "id": "Crate_14_14",
