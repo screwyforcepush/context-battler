@@ -186,10 +186,18 @@ describe("Convex replay HTTP helpers", () => {
       ctxReturning(minimalBundle()),
       request("/replay/exportMatch?matchId=match_http"),
     );
-    const parsed = (await response.json()) as { schemaVersion: number };
+    const parsed = (await response.json()) as {
+      schemaVersion: number;
+      movements: unknown[];
+      attacks: unknown[];
+      loots: unknown[];
+    };
 
     expect(response.status).toBe(200);
     expectCors(response);
-    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.schemaVersion).toBe(3);
+    expect(parsed.movements).toEqual([]);
+    expect(parsed.attacks).toEqual([]);
+    expect(parsed.loots).toEqual([]);
   });
 });

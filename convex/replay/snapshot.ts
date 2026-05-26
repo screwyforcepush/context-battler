@@ -1,9 +1,23 @@
 import type { Doc } from "../_generated/dataModel.js";
+import { findCrateById } from "../engine/airdrops.js";
 import {
   buildTargetIdLookup,
-  isDamageAction,
+  collectDamageCandidates,
 } from "../engine/killAttribution.js";
-import type { EquippedSlots, MapDescriptor, Tile } from "../engine/types.js";
+import {
+  ARMOUR,
+  CONSUMABLES,
+  WEAPONS,
+  type ArmourName,
+  type ConsumableName,
+  type EquippedSlots,
+  type ItemRef,
+  type MapDescriptor,
+  type Tile,
+  type WeaponName,
+  type WorldState,
+} from "../engine/types.js";
+import { normaliseCorpseTargetId } from "../llm/idNormalisation.js";
 import { reconstruct, type ReplayBundle } from "./reconstruct.js";
 import type {
   MatchSnapshotJson,
@@ -18,6 +32,9 @@ const FPS_HINT = 60;
 type TurnRow = ReplayBundle["turns"][number];
 type AgentRecord = TurnRow["agentRecords"][number];
 type StatusSnapshot = { equipped: EquippedSlots; hp: number };
+type SnapshotMoveTrace = TurnRow["resolution"]["moves"][number] & {
+  path: Tile[];
+};
 
 export function buildMatchSnapshot(
   bundle: ReplayBundle,
@@ -87,7 +104,7 @@ export function buildMatchSnapshot(
   }
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     source: {
       matchId: bundle.match._id,
       mapId: bundle.match.mapId,
@@ -105,6 +122,9 @@ export function buildMatchSnapshot(
     map: projectMap(bundle, mapDescriptor),
     characters: projectCharacters(bundle, mapDescriptor),
     timeline: { frames },
+    movements: buildMovements(bundle.turns),
+    attacks: buildAttacks(bundle),
+    loots: buildLoots(bundle),
     killFeed: buildKillFeed(bundle),
     speechLog: buildSpeechLog(bundle.turns),
     agentTraces: buildAgentTraces(bundle.turns),
@@ -219,6 +239,96 @@ function projectCharacters(
   });
 }
 
+function buildMovements(
+  turns: TurnRow[],
+): MatchSnapshotJson["movements"] {
+  return turns.flatMap((turn) =>
+    snapshotMoves(turn).map((move) => {
+      const event: MatchSnapshotJson["movements"][number] = {
+        turn: turn.turn,
+        characterId: move.characterId,
+        fromTile: copyTile(move.from),
+        toTile: copyTile(move.to),
+        path: move.path.map(copyTile),
+      };
+      if (move.blockedBy !== undefined) event.blockedBy = move.blockedBy;
+      if (move.bodyCollision !== undefined) {
+        event.bodyCollisionKind = move.bodyCollision.kind;
+        if (move.bodyCollision.kind === "wall") {
+          event.wallRectId = move.bodyCollision.wallRectId;
+        }
+      }
+      return event;
+    }),
+  );
+}
+
+function buildAttacks(bundle: ReplayBundle): MatchSnapshotJson["attacks"] {
+  const targetIdLookup = buildTargetIdLookup(bundle.turns, bundle.characters);
+  const characterIds = new Set<string>(
+    bundle.characters.map((character) => character._id),
+  );
+
+  return bundle.turns.flatMap((turn) =>
+    collectDamageCandidates(turn, (target) => targetIdLookup.get(target) ?? target)
+      .filter((candidate) => characterIds.has(candidate.targetId))
+      .map((candidate) => ({
+        turn: turn.turn,
+        attackerId: candidate.attackerId,
+        targetId: candidate.targetId,
+        weapon: weaponForSnapshot(candidate.weapon),
+        kind: candidate.kind,
+        hit: candidate.hit,
+        lethal: candidate.lethal,
+      })),
+  );
+}
+
+function buildLoots(bundle: ReplayBundle): MatchSnapshotJson["loots"] {
+  const world = bundle.worldState as WorldState | null;
+  if (!world) return [];
+  const characters = bundle.characters.map((character) => ({
+    characterId: character._id,
+    displayName: character.displayName,
+  }));
+
+  const loots: MatchSnapshotJson["loots"] = [];
+  for (const turn of bundle.turns) {
+    for (const action of turn.resolution.actions) {
+      if (action.kind !== "loot") continue;
+      if (action.result !== "opened" && action.result !== "looted") continue;
+      const item = itemRefForLootedItem(action.lootedItem);
+      if (!item) continue;
+
+      if (action.result === "opened") {
+        const crate = findCrateById(world, action.target, turn.turn);
+        if (!crate) continue;
+        loots.push({
+          turn: turn.turn,
+          characterId: action.characterId,
+          source: crate.source === "static" ? "crate" : "airdrop",
+          sourceId: action.target,
+          item,
+          equipped: action.discardedWeaker !== true,
+        });
+        continue;
+      }
+
+      const sourceId = normaliseCorpseSourceId(action.target, characters, world);
+      if (!sourceId) continue;
+      loots.push({
+        turn: turn.turn,
+        characterId: action.characterId,
+        source: "corpse",
+        sourceId,
+        item,
+        equipped: action.discardedWeaker !== true,
+      });
+    }
+  }
+  return loots;
+}
+
 function promptHashesForCharacter(
   turns: TurnRow[],
   characterId: string,
@@ -245,21 +355,20 @@ function buildKillFeed(bundle: ReplayBundle): MatchSnapshotJson["killFeed"] {
   const feed: MatchSnapshotJson["killFeed"] = [];
 
   for (const row of bundle.turns) {
-    const deathSet = new Set<string>(row.resolution.deaths);
     const environmentalDeathSet = new Set<string>(
       row.resolution.environmentalDeaths ?? [],
     );
+    const candidates = collectDamageCandidates(
+      row,
+      (target) => targetIdLookup.get(target) ?? target,
+    );
     for (const victimId of row.resolution.deaths) {
       if (environmentalDeathSet.has(victimId)) continue;
-      const action = row.resolution.actions.find((candidate) => {
-        if (!isDamageAction(candidate)) return false;
-        const targetId = deathSet.has(candidate.target)
-          ? candidate.target
-          : targetIdLookup.get(candidate.target) ?? candidate.target;
-        return targetId === victimId;
-      });
-      const killerId = action?.characterId ?? null;
-      const weapon = action?.weapon ?? null;
+      const candidate = candidates.find(
+        (candidate) => candidate.lethal && candidate.targetId === victimId,
+      );
+      const killerId = candidate?.attackerId ?? null;
+      const weapon = weaponForSnapshot(candidate?.weapon ?? null);
       feed.push({
         turn: row.turn,
         victimId,
@@ -324,6 +433,42 @@ function buildAgentTraces(turns: TurnRow[]): MatchSnapshotJson["agentTraces"] {
 
 function decisionSay(record: AgentRecord): string | null {
   return record.decision.say;
+}
+
+function snapshotMoves(turn: TurnRow): SnapshotMoveTrace[] {
+  return turn.resolution.moves as SnapshotMoveTrace[];
+}
+
+function copyTile(tile: Tile): Tile {
+  return { x: tile.x, y: tile.y };
+}
+
+function weaponForSnapshot(weapon: string | null): WeaponName | null {
+  return weapon !== null && weapon in WEAPONS ? (weapon as WeaponName) : null;
+}
+
+function itemRefForLootedItem(item: string | undefined): ItemRef | null {
+  if (item === undefined) return null;
+  if (item in WEAPONS) return { category: "weapon", name: item as WeaponName };
+  if (item in ARMOUR) return { category: "armour", name: item as ArmourName };
+  if (item in CONSUMABLES) {
+    return { category: "consumable", name: item as ConsumableName };
+  }
+  return null;
+}
+
+function normaliseCorpseSourceId(
+  target: string,
+  characters: ReadonlyArray<{ characterId: string; displayName: string }>,
+  world: WorldState,
+): string | null {
+  const resolved = normaliseCorpseTargetId(target, characters);
+  if (resolved) return resolved;
+  if (!target.startsWith("Corpse_")) return null;
+  const directId = target.slice("Corpse_".length);
+  return world.corpses.some((corpse) => corpse.characterId === directId)
+    ? directId
+    : null;
 }
 
 function copyEquipped(equipped: EquippedSlots): EquippedSlots {

@@ -196,6 +196,7 @@ const resolutionValidator = v.object({
       characterId: v.id("characters"),
       from: tileValidator,
       to: tileValidator,
+      path: v.array(tileValidator),
       // Phase-3 ADR §9 mirror — wall-blocked move marker (optional).
       blockedBy: v.optional(v.literal("wall")),
       slide: v.optional(

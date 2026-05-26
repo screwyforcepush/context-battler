@@ -832,7 +832,38 @@ describe("WP7 movement — concept-spec §24 collisions", () => {
       characterId: "A",
       from: { x: 0, y: 0 },
       to: { x: 3, y: 0 },
+      path: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 2, y: 0 },
+        { x: 3, y: 0 },
+      ],
     });
+  });
+
+  it("§24 — moves trace path is enumerable JSON data", () => {
+    const a = makeCharacter({ id: "A", pos: { x: 0, y: 0 } });
+    const state = makeState({ characters: [a] });
+    const decisions = new Map<string, ParsedDecision>([
+      ["A", moveDecision({ kind: "E" }, 2)],
+    ]);
+
+    const { moves } = simulateMovement(state, decisions);
+    const move = onlyMove(moves);
+
+    const expected = {
+      characterId: "A",
+      from: { x: 0, y: 0 },
+      to: { x: 2, y: 0 },
+      path: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 2, y: 0 },
+      ],
+    };
+    expect(move).toEqual(expected);
+    expect(Object.keys(move)).toContain("path");
+    expect(JSON.parse(JSON.stringify(move))).toEqual(expected);
   });
 });
 
@@ -859,6 +890,7 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
       characterId: "A",
       from: { x: 5, y: 5 },
       to: { x: 5, y: 5 },
+      path: [{ x: 5, y: 5 }],
       blockedBy: "wall",
       bodyCollision: { kind: "wall", wallRectId: "Wall_6_5" },
     });
@@ -917,6 +949,10 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
       characterId: "A",
       from: { x: 5, y: 5 },
       to: { x: 6, y: 5 },
+      path: [
+        { x: 5, y: 5 },
+        { x: 6, y: 5 },
+      ],
       slide: { wallRectId: "Wall_6_4", axis: "E", intent: "NE" },
     });
   });
@@ -944,6 +980,7 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
       characterId: "A",
       from: { x: 5, y: 5 },
       to: { x: 5, y: 5 },
+      path: [{ x: 5, y: 5 }],
       bodyCollision: { kind: "character", defenderId: "B" },
     });
   });
@@ -976,6 +1013,11 @@ describe("WP-B.7 wall-blocked move emit — ADR §9", () => {
     expect(move).toBeDefined();
     expect(move?.from).toEqual({ x: 5, y: 5 });
     expect(move?.to).toEqual({ x: 7, y: 5 });
+    expect(move?.path).toEqual([
+      { x: 5, y: 5 },
+      { x: 6, y: 5 },
+      { x: 7, y: 5 },
+    ]);
     expect(move?.blockedBy).toBeUndefined();
     expect(move?.bodyCollision).toEqual({
       kind: "wall",
@@ -1006,6 +1048,10 @@ describe("Phase 9 WP-B wall-slide movement substrate", () => {
       characterId: "A",
       from: { x: 5, y: 5 },
       to: { x: 6, y: 5 },
+      path: [
+        { x: 5, y: 5 },
+        { x: 6, y: 5 },
+      ],
       slide: { wallRectId: "Wall_6_4", axis: "E", intent: "NE" },
     });
   });
@@ -1030,6 +1076,10 @@ describe("Phase 9 WP-B wall-slide movement substrate", () => {
       characterId: "A",
       from: { x: 5, y: 5 },
       to: { x: 5, y: 4 },
+      path: [
+        { x: 5, y: 5 },
+        { x: 5, y: 4 },
+      ],
       slide: { wallRectId: "Wall_6_4", axis: "N", intent: "NE" },
     });
   });
@@ -1104,6 +1154,7 @@ describe("Phase 9 WP-B wall-slide movement substrate", () => {
       characterId: "A",
       from: { x: 5, y: 5 },
       to: { x: 5, y: 5 },
+      path: [{ x: 5, y: 5 }],
       blockedBy: "wall",
       bodyCollision: { kind: "wall", wallRectId: "Wall_6_5" },
     });
@@ -1129,6 +1180,7 @@ describe("Phase 9 WP-B wall-slide movement substrate", () => {
       characterId: "A",
       from: { x: 5, y: 5 },
       to: { x: 5, y: 5 },
+      path: [{ x: 5, y: 5 }],
       blockedBy: "wall",
       bodyCollision: { kind: "wall", wallRectId: "Wall_6_4" },
     });
@@ -1167,6 +1219,13 @@ describe("Phase 9 WP-B wall-slide movement substrate", () => {
       characterId: "A",
       from: { x: 5, y: 5 },
       to: { x: 9, y: 2 },
+      path: [
+        { x: 5, y: 5 },
+        { x: 6, y: 5 },
+        { x: 7, y: 4 },
+        { x: 8, y: 3 },
+        { x: 9, y: 2 },
+      ],
       slide: { wallRectId: "Wall_6_4", axis: "E", intent: "NE" },
     });
   });
@@ -1211,6 +1270,11 @@ describe("Phase 9 WP-B wall-slide movement substrate", () => {
       characterId: "A",
       from: { x: 5, y: 5 },
       to: { x: 7, y: 4 },
+      path: [
+        { x: 5, y: 5 },
+        { x: 6, y: 5 },
+        { x: 7, y: 4 },
+      ],
       slide: { wallRectId: "Wall_6_4", axis: "E", intent: "NE" },
       bodyCollision: { kind: "wall", wallRectId: "Wall_8_3" },
     });
@@ -1233,6 +1297,11 @@ describe("Phase 9 WP-B wall-slide movement substrate", () => {
       characterId: "A",
       from: { x: 5, y: 5 },
       to: { x: 7, y: 5 },
+      path: [
+        { x: 5, y: 5 },
+        { x: 6, y: 5 },
+        { x: 7, y: 5 },
+      ],
       bodyCollision: { kind: "character", defenderId: "B" },
     });
   });
@@ -1255,12 +1324,14 @@ describe("Phase 9 WP-B wall-slide movement substrate", () => {
         characterId: "A",
         from: { x: 5, y: 5 },
         to: { x: 5, y: 5 },
+        path: [{ x: 5, y: 5 }],
         bodyCollision: { kind: "character", defenderId: "B" },
       },
       {
         characterId: "B",
         from: { x: 6, y: 5 },
         to: { x: 6, y: 5 },
+        path: [{ x: 6, y: 5 }],
         bodyCollision: { kind: "character", defenderId: "A" },
       },
     ]);

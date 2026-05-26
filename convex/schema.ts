@@ -314,6 +314,7 @@ const resolutionValidator = v.object({
       characterId: v.id("characters"),
       from: tileValidator,
       to: tileValidator,
+      path: v.array(tileValidator),
       // Phase-3 ADR §9 — wall-blocked move marker. Present iff the
       // entry has `from === to` AND the agent attempted a move whose
       // next-step tile was blocked by a wall. The closing-10 wall-

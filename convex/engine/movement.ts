@@ -234,6 +234,7 @@ export type MoveTraceEntry = {
   characterId: string;
   from: Tile;
   to: Tile;
+  path: Tile[];
   /**
    * Phase-3 ADR §9 — wall-blocked move marker. Present iff the entry has
    * `from === to` AND the agent attempted a move whose next-step tile
@@ -271,6 +272,17 @@ type CharacterCollisionTrace = Extract<
   BodyCollisionTrace,
   { kind: "character" }
 >;
+
+function cloneTile(tile: Tile): Tile {
+  return { x: tile.x, y: tile.y };
+}
+
+function withPath(
+  entry: Omit<MoveTraceEntry, "path">,
+  path: readonly Tile[],
+): MoveTraceEntry {
+  return { ...entry, path: path.map(cloneTile) };
+}
 
 function livingCharacterAtTile(
   tile: Tile,
@@ -403,6 +415,10 @@ export function simulateMovement(
   const slideByMover = new Map<string, SlideTrace>();
   const bumpByMover = new Map<string, WallBumpTrace>();
   const chargeByMover = new Map<string, CharacterCollisionTrace>();
+  const pathByMover = new Map<string, Tile[]>();
+  for (const id of movers.map((m) => m.characterId)) {
+    pathByMover.set(id, [startPos.get(id)!]);
+  }
 
   // Per substep:
   for (let step = 0; step < MAX_BUDGET; step++) {
@@ -497,6 +513,7 @@ export function simulateMovement(
       if (isBlocked(p.tile, snapshot, p.mover.characterId, currentPos)) continue;
       // Commit this mover's step.
       newPositions.set(p.mover.characterId, p.tile);
+      pathByMover.get(p.mover.characterId)?.push(cloneTile(p.tile));
       p.mover.budget -= 1;
       if (p.slide && !firstSlideByMover.has(p.mover.characterId)) {
         firstSlideByMover.set(p.mover.characterId, p.slide);
@@ -535,7 +552,7 @@ export function simulateMovement(
       continue;
     }
 
-    const entry: MoveTraceEntry = {
+    const entry: Omit<MoveTraceEntry, "path"> = {
       characterId: id,
       from: start,
       to: end,
@@ -548,7 +565,7 @@ export function simulateMovement(
     if (charge) {
       entry.bodyCollision = charge;
     }
-    moves.push(entry);
+    moves.push(withPath(entry, pathByMover.get(id) ?? [start]));
   }
 
   return {

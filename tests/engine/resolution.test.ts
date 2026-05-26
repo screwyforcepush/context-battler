@@ -1064,6 +1064,10 @@ describe("WP7 resolution — concept-spec §13 gear / loot", () => {
       characterId: "A",
       from: { x: 49, y: 50 },
       to: { x: 50, y: 50 },
+      path: [
+        { x: 49, y: 50 },
+        { x: 50, y: 50 },
+      ],
     });
     expect(trace.environmentalDeaths).toEqual(["A"]);
     expect(trace.deaths).toEqual([]);
@@ -2383,6 +2387,7 @@ describe("Phase 10 WP-A body-collision damage routing", () => {
       characterId: "A",
       from: { x: 4, y: 5 },
       to: { x: 4, y: 5 },
+      path: [{ x: 4, y: 5 }],
       bodyCollision: { kind: "character", defenderId: "B" },
     });
     expect(trace.actions.filter((a) => a.kind === "counter")).toHaveLength(0);
@@ -2449,12 +2454,14 @@ describe("Phase 10 WP-A body-collision damage routing", () => {
         characterId: "A",
         from: { x: 4, y: 5 },
         to: { x: 4, y: 5 },
+        path: [{ x: 4, y: 5 }],
         bodyCollision: { kind: "character", defenderId: "B" },
       },
       {
         characterId: "B",
         from: { x: 5, y: 5 },
         to: { x: 5, y: 5 },
+        path: [{ x: 5, y: 5 }],
         bodyCollision: { kind: "character", defenderId: "A" },
       },
     ]);
@@ -2484,6 +2491,7 @@ describe("Phase 10 WP-A body-collision damage routing", () => {
         characterId: "A",
         from: { x: 5, y: 5 },
         to: { x: 5, y: 5 },
+        path: [{ x: 5, y: 5 }],
         blockedBy: "wall",
         bodyCollision: { kind: "wall", wallRectId: "Wall_6_5" },
       },
@@ -2520,6 +2528,7 @@ describe("Phase 10 WP-A body-collision damage routing", () => {
         characterId: "A",
         from: { x: 5, y: 5 },
         to: { x: 5, y: 5 },
+        path: [{ x: 5, y: 5 }],
         blockedBy: "wall",
         bodyCollision: { kind: "wall", wallRectId: "Wall_6_4" },
       },
@@ -2566,6 +2575,11 @@ describe("Phase 10 WP-A body-collision damage routing", () => {
         characterId: "A",
         from: { x: 5, y: 5 },
         to: { x: 7, y: 5 },
+        path: [
+          { x: 5, y: 5 },
+          { x: 6, y: 5 },
+          { x: 7, y: 5 },
+        ],
         bodyCollision: { kind: "wall", wallRectId: "Wall_8_5" },
       },
     ]);

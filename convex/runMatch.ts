@@ -447,6 +447,8 @@ function requireCardPromptText(
  *     Id values ARE strings at runtime; we cast at the boundary.
  *   - Phase-3 ADR §9 / Phase-6 overwatch audit — propagate optional
  *     engine-emitted trace fields verbatim so metrics survive persistence:
+ *       - `moves[].path` — engine-truth waypoint sequence, including
+ *         from/to tiles.
  *       - `moves[].blockedBy: "wall"` — wall-blocked move marker
  *         (movement.ts:449-455).
  *       - `actions[].triggeredByMovement: boolean` — movement-triggered
@@ -479,6 +481,7 @@ export function adaptResolutionForSchema(
     characterId: Id<"characters">;
     from: Tile;
     to: Tile;
+    path: Tile[];
     blockedBy?: "wall";
     slide?: {
       wallRectId: string;
@@ -526,6 +529,7 @@ export function adaptResolutionForSchema(
       characterId: m.characterId as Id<"characters">,
       from: { x: m.from.x, y: m.from.y },
       to: { x: m.to.x, y: m.to.y },
+      path: m.path.map((p) => ({ x: p.x, y: p.y })),
       // Phase-3 ADR §9 — wall-blocked-move marker. Conditional spread:
       // engine omits the field on every non-blocked move entry, and the
       // schema validator is `v.optional(v.literal("wall"))`.
@@ -593,6 +597,7 @@ type PersistedPriorTurnRow = {
       characterId: string;
       from: Tile;
       to: Tile;
+      path: ReadonlyArray<Tile>;
       blockedBy?: "wall";
       slide?: PersistedSlideTrace;
       bodyCollision?: PersistedBodyCollisionTrace;
@@ -640,6 +645,7 @@ export function adaptPriorTurnRowForBuilder(
         characterId: m.characterId as string,
         from: { x: m.from.x, y: m.from.y },
         to: { x: m.to.x, y: m.to.y },
+        path: m.path.map((p) => ({ x: p.x, y: p.y })),
         ...(m.blockedBy ? { blockedBy: m.blockedBy } : {}),
         ...(m.slide !== undefined ? { slide: m.slide } : {}),
         ...(m.bodyCollision !== undefined

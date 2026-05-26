@@ -32,11 +32,19 @@ import {
   adaptPriorTurnRowForBuilder,
   adaptResolutionForSchema,
 } from "../../convex/runMatch.js";
+import { simulateMovement } from "../../convex/engine/movement.js";
 import {
   DataIntegrityError,
   getOrCreatePrompt,
 } from "../../convex/_internal_runMatch.js";
 import type { ResolutionTrace } from "../../convex/engine/resolution.js";
+import type {
+  CharacterState,
+  MatchState,
+  ParsedDecision,
+  Tile,
+  WorldState,
+} from "../../convex/engine/types.js";
 
 // ─── Fixture helpers ───────────────────────────────────────────────────
 
@@ -56,9 +64,180 @@ function makeTrace(overrides: Partial<ResolutionTrace> = {}): ResolutionTrace {
   };
 }
 
+function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
+  return {
+    size: { w: 20, h: 20 },
+    walls: [],
+    coverClusters: [],
+    coverTiles: [],
+    crates: [],
+    airdrops: [],
+    corpses: [],
+    evac: { centre: { x: 10, y: 10 }, revealedAtTurn: null },
+    ...overrides,
+  };
+}
+
+function makeCharacter(id: string, pos: Tile): CharacterState {
+  return {
+    characterId: id,
+    personaId: "rat",
+    spawnIndex: 0,
+    displayName: id,
+    hp: 100,
+    maxHp: 100,
+    pos,
+    equipped: {},
+    scratchpad: "",
+    hidden: false,
+    alive: true,
+    lastKnown: [],
+  };
+}
+
+function makeState(opts: {
+  characters: CharacterState[];
+  world?: Partial<WorldState>;
+}): MatchState {
+  return {
+    matchId: "m",
+    turn: 1,
+    world: makeWorld(opts.world),
+    characters: opts.characters,
+    rngSeed: "seed",
+  };
+}
+
+type MovePosition = Extract<ParsedDecision["position"], { kind: "move" }>;
+
+function moveDecision(
+  direction: MovePosition["direction"],
+  dist = 8,
+): ParsedDecision {
+  return {
+    use: null,
+    position: { kind: "move", direction, dist },
+    action: { kind: "none" },
+    say: null,
+    scratchpad: null,
+  };
+}
+
+function noMoveDecision(): ParsedDecision {
+  return moveDecision({ kind: "N" }, 0);
+}
+
+function assertMovePathSurvivesAdapters(trace: ResolutionTrace): void {
+  const adapted = adaptResolutionForSchema(trace);
+  expect(adapted.moves.map((move) => move.path)).toEqual(
+    trace.moves.map((move) => move.path),
+  );
+
+  const prev = adaptPriorTurnRowForBuilder({
+    resolution: {
+      consumed: [],
+      speech: [],
+      moves: adapted.moves,
+      actions: [],
+      deaths: [],
+      visibilityUpdates: [],
+    },
+    agentRecords: trace.moves.map((move) => ({
+      characterId: move.characterId,
+      decision: {
+        position: { kind: "move", direction: { kind: "E" }, dist: 1 },
+      },
+    })),
+  });
+
+  const prevMoves = prev?.resolution.moves as
+    | Array<{ path: Tile[] }>
+    | undefined;
+  expect(prevMoves?.map((move) => move.path)).toEqual(
+    trace.moves.map((move) => move.path),
+  );
+}
+
 // ─── adaptResolutionForSchema parity ───────────────────────────────────
 
 describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", () => {
+  it("WP1 — preserves exact wall-slide path through both persistence adapters", () => {
+    const state = makeState({
+      characters: [makeCharacter("char_slider", { x: 5, y: 5 })],
+      world: { walls: [{ x: 6, y: 4, w: 1, h: 1 }] },
+    });
+    const { moves } = simulateMovement(
+      state,
+      new Map<string, ParsedDecision>([
+        ["char_slider", moveDecision({ kind: "NE" }, 4)],
+      ]),
+    );
+    const trace = makeTrace({ moves });
+
+    expect(trace.moves[0]?.path).toEqual([
+      { x: 5, y: 5 },
+      { x: 6, y: 5 },
+      { x: 7, y: 4 },
+      { x: 8, y: 3 },
+      { x: 9, y: 2 },
+    ]);
+    expect(trace.moves[0]?.slide).toEqual({
+      wallRectId: "Wall_6_4",
+      axis: "E",
+      intent: "NE",
+    });
+
+    assertMovePathSurvivesAdapters(trace);
+  });
+
+  it("WP1 — preserves exact wall face-slam path through both persistence adapters", () => {
+    const state = makeState({
+      characters: [makeCharacter("char_blocked", { x: 5, y: 5 })],
+      world: { walls: [{ x: 6, y: 5, w: 1, h: 1 }] },
+    });
+    const { moves } = simulateMovement(
+      state,
+      new Map<string, ParsedDecision>([
+        ["char_blocked", moveDecision({ kind: "E" }, 1)],
+      ]),
+    );
+    const trace = makeTrace({ moves });
+
+    expect(trace.moves[0]?.path).toEqual([{ x: 5, y: 5 }]);
+    expect(trace.moves[0]?.blockedBy).toBe("wall");
+    expect(trace.moves[0]?.bodyCollision).toEqual({
+      kind: "wall",
+      wallRectId: "Wall_6_5",
+    });
+
+    assertMovePathSurvivesAdapters(trace);
+  });
+
+  it("WP1 — preserves exact character-collision charge path through both persistence adapters", () => {
+    const state = makeState({
+      characters: [
+        makeCharacter("char_charger", { x: 4, y: 5 }),
+        makeCharacter("char_defender", { x: 5, y: 5 }),
+      ],
+    });
+    const { moves } = simulateMovement(
+      state,
+      new Map<string, ParsedDecision>([
+        ["char_charger", moveDecision({ kind: "E" }, 1)],
+        ["char_defender", noMoveDecision()],
+      ]),
+    );
+    const trace = makeTrace({ moves });
+
+    expect(trace.moves[0]?.path).toEqual([{ x: 4, y: 5 }]);
+    expect(trace.moves[0]?.bodyCollision).toEqual({
+      kind: "character",
+      defenderId: "char_defender",
+    });
+
+    assertMovePathSurvivesAdapters(trace);
+  });
+
   it("propagates moves[].blockedBy='wall' through to the schema-shape output", () => {
     const trace = makeTrace({
       moves: [
@@ -68,6 +247,7 @@ describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", (
           characterId: "char_blocked",
           from: { x: 5, y: 5 },
           to: { x: 5, y: 5 },
+          path: [{ x: 5, y: 5 }],
           blockedBy: "wall",
         },
         // Successful move: no blockedBy field at all (schema validator is
@@ -77,6 +257,10 @@ describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", (
           characterId: "char_moved",
           from: { x: 1, y: 1 },
           to: { x: 2, y: 1 },
+          path: [
+            { x: 1, y: 1 },
+            { x: 2, y: 1 },
+          ],
         },
       ],
     });
@@ -105,6 +289,10 @@ describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", (
           characterId: "char_slider",
           from: { x: 5, y: 5 },
           to: { x: 6, y: 5 },
+          path: [
+            { x: 5, y: 5 },
+            { x: 6, y: 5 },
+          ],
           slide,
         },
       ],
@@ -153,12 +341,18 @@ describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", (
           characterId: "char_charger",
           from: { x: 4, y: 5 },
           to: { x: 4, y: 5 },
+          path: [{ x: 4, y: 5 }],
           bodyCollision: characterCollision,
         },
         {
           characterId: "char_wall_bumper",
           from: { x: 5, y: 5 },
           to: { x: 7, y: 5 },
+          path: [
+            { x: 5, y: 5 },
+            { x: 6, y: 5 },
+            { x: 7, y: 5 },
+          ],
           bodyCollision: wallCollision,
         },
       ],
@@ -369,6 +563,7 @@ describe("WP-F.1 — adaptResolutionForSchema preserves Phase 6 trace fields", (
           characterId: "char_blocked",
           from: { x: 0, y: 0 },
           to: { x: 0, y: 0 },
+          path: [{ x: 0, y: 0 }],
           blockedBy: "wall",
         },
       ],

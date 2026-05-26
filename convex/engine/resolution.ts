@@ -105,6 +105,7 @@ export type ResolutionTrace = {
     characterId: string;
     from: Tile;
     to: Tile;
+    path: Tile[];
     blockedBy?: "wall";
     slide?: {
       wallRectId: string;

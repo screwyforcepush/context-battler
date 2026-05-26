@@ -1,11 +1,17 @@
 import type { Doc, Id } from "../_generated/dataModel.js";
-import type { EquippedSlots, ItemRef, PersonaId, Wall } from "../engine/types.js";
+import type {
+  EquippedSlots,
+  ItemRef,
+  PersonaId,
+  Wall,
+  WeaponName,
+} from "../engine/types.js";
 import type { EntitySnapshot, Tile } from "./reconstruct.js";
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
 export type MatchSnapshotJson = {
-  schemaVersion: 2;
+  schemaVersion: 3;
   source: {
     matchId: string;
     mapId: string;
@@ -51,6 +57,33 @@ export type MatchSnapshotJson = {
       hpByCharacter: Record<string, number>;
     }>;
   };
+  movements: Array<{
+    turn: number;
+    characterId: string;
+    fromTile: Tile;
+    toTile: Tile;
+    path: Tile[];
+    blockedBy?: "wall";
+    wallRectId?: string;
+    bodyCollisionKind?: "character" | "wall";
+  }>;
+  attacks: Array<{
+    turn: number;
+    attackerId: string;
+    targetId: string;
+    weapon: WeaponName | null;
+    kind: "attack" | "overwatch" | "counter" | "bodyCollision";
+    hit: boolean;
+    lethal: boolean;
+  }>;
+  loots: Array<{
+    turn: number;
+    characterId: string;
+    source: "crate" | "corpse" | "airdrop";
+    sourceId: string;
+    item: ItemRef;
+    equipped: boolean;
+  }>;
   killFeed: Array<{
     turn: number;
     victimId: string;
@@ -97,4 +130,3 @@ export type MatchWithCharacters = {
   match: Doc<"matches">;
   characters: Array<Doc<"characters">>;
 };
-
