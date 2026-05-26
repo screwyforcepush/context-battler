@@ -23,6 +23,13 @@ async function body(response: Response) {
 
 function expectCors(response: Response) {
   expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+  // Regression lock: Godot's WASM HTTPRequest sends Cache-Control and Pragma
+  // on every cross-origin fetch, and the browser rejects the preflight with
+  // "Request header field cache-control is not allowed" unless the response
+  // lists them. Surfaced during blind UAT of the d-full-match prototype.
+  const allowHeaders = response.headers.get("Access-Control-Allow-Headers") ?? "";
+  expect(allowHeaders).toMatch(/Cache-Control/i);
+  expect(allowHeaders).toMatch(/Pragma/i);
 }
 
 function minimalBundle(status: Doc<"matches">["status"] = "completed"): ReplayBundle {

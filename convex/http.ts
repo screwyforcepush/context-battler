@@ -14,7 +14,10 @@ import type { MatchWithCharacters } from "./replay/snapshotTypes.js";
 export const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  // Godot's WASM HTTPRequest sends Cache-Control / Pragma on every fetch,
+  // so the preflight must list them — otherwise browsers reject the
+  // preflight with "Request header field cache-control is not allowed".
+  "Access-Control-Allow-Headers": "Content-Type, Cache-Control, Pragma",
 } as const;
 
 type ReplayHttpCtx = Pick<ActionCtx, "runQuery">;

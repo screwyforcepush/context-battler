@@ -11,7 +11,9 @@ const distDir = path.join(appDir, "dist");
 const outHtml = path.join(distDir, "index.html");
 const hookFile = path.join(appDir, "godot-d-full-match-hooks.js");
 const defaultConvexUrl =
-  process.env.DEFAULT_CONVEX_URL ?? process.env.CONVEX_URL ?? "http://127.0.0.1:3210";
+  process.env.DEFAULT_CONVEX_URL ??
+  process.env.CONVEX_URL ??
+  "https://calculating-meerkat-923.convex.site";
 const customLoaderMarker = "<!-- d-full-match-custom-loader -->";
 
 const customLoaderStyle = `${customLoaderMarker}
