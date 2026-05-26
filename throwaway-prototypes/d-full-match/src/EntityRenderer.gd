@@ -813,16 +813,20 @@ func _make_materials() -> void:
 	for color in colors:
 		mat_agent.append(_mat(color, color, 0.36))
 	mat_corpse = _mat(Color(0.18, 0.02, 0.03), Color(0.8, 0.0, 0.05), 0.42)
-	mat_opened = _mat(Color(0.22, 0.18, 0.12), Color(0.25, 0.12, 0.03), 0.16)
-	mat_closed = _mat(Color(0.78, 0.47, 0.12), Color(1.0, 0.62, 0.08), 0.55)
-	mat_airdrop = _mat(Color(0.55, 0.04, 0.08), Color(1.0, 0.04, 0.10), 0.8)
+	var crate_texture = load("res://shared-harness/art-kit/textures/crate-neon-wear.png")
+	mat_opened = _mat(Color(0.22, 0.18, 0.12), Color(0.25, 0.12, 0.03), 0.16, crate_texture)
+	mat_closed = _mat(Color(0.78, 0.47, 0.12), Color(1.0, 0.62, 0.08), 0.55, crate_texture)
+	mat_airdrop = _mat(Color(0.55, 0.04, 0.08), Color(1.0, 0.04, 0.10), 0.8, crate_texture)
 	mat_beam = _mat(Color(0.3, 0.02, 0.05, 0.35), Color(1.0, 0.04, 0.12), 1.2)
 	mat_mist = _mat(Color(0.9, 0.02, 0.04, 0.42), Color(1.0, 0.02, 0.05), 1.4)
 
 
-func _mat(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
+func _mat(albedo: Color, emission: Color, energy: float, texture_resource: Resource = null) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = albedo
+	var texture := texture_resource as Texture2D
+	if texture != null:
+		material.albedo_texture = texture
 	material.emission_enabled = true
 	material.emission = emission
 	material.emission_energy_multiplier = energy

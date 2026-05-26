@@ -183,23 +183,30 @@ func _make_lighting() -> void:
 
 
 func _make_materials() -> void:
-	mat_ground = _mat(Color(0.015, 0.021, 0.030), Color(0.0, 0.10, 0.16), 0.42, 1101, 0.08, 0.68)
-	mat_wall = _mat(Color(0.045, 0.065, 0.092), Color(0.0, 0.70, 0.88), 0.72, 2202, 0.32, 0.38)
-	mat_cover = _mat(Color(0.08, 0.09, 0.12), Color(1.0, 0.35, 0.08), 0.46, 3303, 0.22, 0.48)
-	mat_evac = _mat(Color(0.04, 0.26, 0.20, 0.68), Color(0.0, 1.0, 0.72), 1.05, 4404, 0.12, 0.32)
-	mat_airdrop = _mat(Color(0.16, 0.035, 0.06), Color(1.0, 0.04, 0.15), 1.15, 5505, 0.18, 0.44)
+	mat_ground = _mat(Color(0.015, 0.021, 0.030), Color(0.0, 0.10, 0.16), 0.42, load("res://shared-harness/art-kit/textures/floor-neon-dungeon.png"), 1101, 0.08, 0.68)
+	mat_wall = _mat(Color(0.045, 0.065, 0.092), Color(0.0, 0.70, 0.88), 0.72, load("res://shared-harness/art-kit/textures/wall-dark-metal.png"), 2202, 0.32, 0.38)
+	mat_cover = _mat(Color(0.08, 0.09, 0.12), Color(1.0, 0.35, 0.08), 0.46, load("res://shared-harness/art-kit/textures/cover-hazard-rust.png"), 3303, 0.22, 0.48)
+	mat_evac = _mat(Color(0.04, 0.26, 0.20, 0.68), Color(0.0, 1.0, 0.72), 1.05, load("res://shared-harness/art-kit/textures/evac-crimson-glyph.png"), 4404, 0.12, 0.32)
+	mat_airdrop = _mat(Color(0.16, 0.035, 0.06), Color(1.0, 0.04, 0.15), 1.15, load("res://shared-harness/art-kit/textures/crate-neon-wear.png"), 5505, 0.18, 0.44)
 
 
-func _mat(albedo: Color, emission: Color, energy: float, noise_seed: int, metallic: float, roughness: float) -> StandardMaterial3D:
+func _mat(albedo: Color, emission: Color, energy: float, albedo_texture_resource: Resource, noise_seed: int, metallic: float, roughness: float) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = albedo
-	material.albedo_texture = _noise_texture(noise_seed)
+	material.albedo_texture = _albedo_texture_or_noise(albedo_texture_resource, noise_seed)
 	material.emission_enabled = true
 	material.emission = emission
 	material.emission_energy_multiplier = energy
 	material.metallic = metallic
 	material.roughness = roughness
 	return material
+
+
+func _albedo_texture_or_noise(texture_resource: Resource, noise_seed: int) -> Texture2D:
+	var texture := texture_resource as Texture2D
+	if texture != null:
+		return texture
+	return _noise_texture(noise_seed)
 
 
 func _noise_texture(noise_seed: int) -> NoiseTexture2D:

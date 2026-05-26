@@ -1,6 +1,6 @@
 # Convex Backend — Deployment, Auth, Smoke Test
 
-Operational reference for talking to the project's Convex deployment. **Verified working 2026-05-20 (render R&D round-3: HTTP replay contract).**
+Operational reference for talking to the project's Convex deployment. **Verified working 2026-05-26 (render R&D round-4: schemaVersion 3 + spectacle event streams).**
 
 > Convex is the backend-as-a-service for state, queries, mutations, and scheduled functions. Auth is via a deploy key in `.env`; the CLI picks it up automatically.
 

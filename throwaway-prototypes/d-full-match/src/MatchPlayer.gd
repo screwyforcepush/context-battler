@@ -68,6 +68,15 @@ func _load_snapshot() -> void:
 
 
 func _start_replay(loaded_snapshot: Dictionary, from_cache: bool) -> void:
+	var schema_value = loaded_snapshot.get("schemaVersion", null)
+	var schema_is_numeric := typeof(schema_value) == TYPE_INT or typeof(schema_value) == TYPE_FLOAT
+	if not schema_is_numeric or int(schema_value) != 3:
+		snapshot = {}
+		var message := "Unsupported replay snapshot schemaVersion %s. Expected 3." % str(loaded_snapshot.get("schemaVersion", "missing"))
+		push_error(message)
+		_show_error(message)
+		return
+
 	snapshot = loaded_snapshot
 	AppState.set_current_snapshot(snapshot)
 	scene_builder.build_from_snapshot(snapshot)

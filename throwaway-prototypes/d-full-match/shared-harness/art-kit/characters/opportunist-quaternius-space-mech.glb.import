@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://b40v4vo0wwlkv"
-path="res://.godot/imported/trader-kenney-blocky-c.glb-4bba4305932fcf42b9d86c8fcb365dde.scn"
+uid="uid://b42tbjhofoakd"
+path="res://.godot/imported/opportunist-quaternius-space-mech.glb-de34fed629df726f044422a004aade46.scn"
 
 [deps]
 
-source_file="res://shared-harness/art-kit/characters/trader-kenney-blocky-c.glb"
-dest_files=["res://.godot/imported/trader-kenney-blocky-c.glb-4bba4305932fcf42b9d86c8fcb365dde.scn"]
+source_file="res://shared-harness/art-kit/characters/opportunist-quaternius-space-mech.glb"
+dest_files=["res://.godot/imported/opportunist-quaternius-space-mech.glb-de34fed629df726f044422a004aade46.scn"]
 
 [params]
 

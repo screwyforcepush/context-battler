@@ -2,19 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cea38kwesrujq"
-path="res://.godot/imported/opportunist-quaternius-astronaut-baseline_Atlas.png-57cebe965d66cc5f410a91c8d89a19fa.ctex"
+uid="uid://dcv4qo7kqiqrs"
+path="res://.godot/imported/opportunist-quaternius-space-mech_Atlas.png-655a33df5cc5a745c39727f968f9d56a.ctex"
 metadata={
 "vram_texture": false
 }
 generator_parameters={
-"md5": "b6b1d5843eb67973aacf764f46d2f25b"
+"md5": "6f086225ae2dc220001377c2279dc587"
 }
 
 [deps]
 
-source_file="res://shared-harness/art-kit/characters/opportunist-quaternius-astronaut-baseline_Atlas.png"
-dest_files=["res://.godot/imported/opportunist-quaternius-astronaut-baseline_Atlas.png-57cebe965d66cc5f410a91c8d89a19fa.ctex"]
+source_file="res://shared-harness/art-kit/characters/opportunist-quaternius-space-mech_Atlas.png"
+dest_files=["res://.godot/imported/opportunist-quaternius-space-mech_Atlas.png-655a33df5cc5a745c39727f968f9d56a.ctex"]
 
 [params]
 

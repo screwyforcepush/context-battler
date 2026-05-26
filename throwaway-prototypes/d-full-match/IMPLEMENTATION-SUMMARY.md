@@ -20,19 +20,25 @@ to survive; this Godot project is only the blind full-match probe.
 - Director camera plus anchored follow camera. Anchored cycling includes alive,
   dead, and extracted characters.
 - Manifest-driven character/corpse/equipment assets:
-  rat = Kenney blocky A; duelist = Robin Lamb hero; trader = Kenney blocky C;
-  opportunist = Quaternius astronaut baseline; paranoid = Kenney blocky R;
-  camper = Kenney blocky N; sprinter = Kenney blocky H; vulture = Kenney blocky Q.
-  Character source lanes: Kenney, Robin Lamb, Quaternius. Weapon/armour/corpse
-  R&D placeholders are recorded per asset with license, size, and SHA-256 in
+  rat = Kenney blocky A; duelist = Robin Lamb hero; trader = local neon broker;
+  opportunist = Quaternius space mech; paranoid = Kenney blocky R;
+  camper = Kenney blocky N; sprinter = local crimson stalker; vulture = Kenney blocky Q.
+  Character source lanes: Kenney, Robin Lamb, Quaternius, and context-battler
+  local primitive humanoids. Weapon/armour/corpse R&D placeholders are recorded
+  per asset with license, size, and SHA-256 in
   `shared-harness/art-kit/manifest.json`.
 - Equipment mesh-on-equip: all six weapon names and five armour names map through
   manifest metadata to deterministic socket attachments with tier-tinted material
   variation.
 - Combat spectacle pass: attack poses oriented attacker-to-target; hit splash,
   miss spray, lethal disintegration chunks, persistent blood pools capped at 64,
-  camera punch, wall face-slam dust, and loot pickup flourishes. Environmental
-  deaths still use the original red-mist beat.
+  camera punch, wall face-slam dust placed at the `wallRectId` contact face, and
+  loot pickup flourishes. Environmental deaths still use the original red-mist beat.
+- Scene material reconciliation: the five manifest PNG textures are now loaded
+  by renderer code for floor, walls, cover, evac, airdrop/crate markers, and
+  actual crate materials; procedural noise remains a fallback path.
+- Forward-only replay guard: `MatchPlayer` rejects non-v3 snapshots before scene
+  configuration so stale cached v2 data fails loudly.
 - Right-side panel: Director summary in FREE mode; anchored Identity,
   Equipment, Scratchpad, Prompt, and Speech sections.
 - Top-right FPS-style kill feed rebuilt from `snapshot.killFeed`, including
@@ -74,9 +80,11 @@ to survive; this Godot project is only the blind full-match probe.
   readability.
 - Confirm anchored mode remains ground truth: all entities stay visible.
 - Check each persona's model silhouette and each equipped weapon/armour tier for
-  readability.
+  readability. The astronaut comparison slot was removed; opportunist now uses
+  the Quaternius mech, with trader and sprinter moved to local primitive lanes.
 - Check attacks, lethal deaths, wall face-slams, environmental red mist, and loot
-  pickups for timing against the kill feed and turn scrubber.
+  pickups for timing against the kill feed and turn scrubber. Wall face-slams
+  should land at the wall contact face, not at the character's start tile.
 
 ## Technical Ceilings
 
@@ -87,3 +95,6 @@ to survive; this Godot project is only the blind full-match probe.
 - Socket attachment is deterministic offset-based because the R&D models do not
   share a reliable humanoid bone map. The manifest records `attachBone` metadata,
   but the runtime falls back to stable hand/spine offsets.
+- Two persona models (trader and sprinter) are local primitive humanoids. They
+  increase R&D source breadth and silhouette contrast, but they are intentionally
+  rough placeholders rather than final art-direction picks.

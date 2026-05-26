@@ -120,7 +120,7 @@ func _trigger_attack(event: Dictionary) -> void:
 
 func _trigger_wall_face_slam(event: Dictionary) -> void:
 	var character_id := str(event.get("characterId", ""))
-	var origin := _tile_world(event.get("fromTile", {}), 0.18)
+	var origin := _wall_face_slam_origin(event)
 	_spawn_burst(origin + Vector3(0.0, 0.22, 0.0), Vector3.UP, mat_dust, min(MAX_PARTICLE_BURST, 38), 0.85)
 	if entity_renderer != null and entity_renderer.has_method("play_wall_slam"):
 		entity_renderer.play_wall_slam(character_id, origin)
@@ -322,6 +322,79 @@ func _tile_world(tile, y: float) -> Vector3:
 	if scene_builder != null and scene_builder.has_method("tile_to_world"):
 		return scene_builder.tile_to_world(tile if typeof(tile) == TYPE_DICTIONARY else {}, y)
 	return Vector3.ZERO
+
+
+func _wall_face_slam_origin(event: Dictionary) -> Vector3:
+	var from_tile = event.get("fromTile", {})
+	var fallback := _tile_world(from_tile, 0.18)
+	var wall_rect_id := str(event.get("wallRectId", ""))
+	if wall_rect_id.is_empty() or typeof(from_tile) != TYPE_DICTIONARY:
+		return fallback
+	var from_tile_dict := from_tile as Dictionary
+	var rect := _wall_rect_by_id(wall_rect_id)
+	if rect.is_empty():
+		return fallback
+	var contact_tile := _wall_edge_midpoint_facing(rect, from_tile_dict)
+	return _tile_world(contact_tile, 0.18)
+
+
+func _wall_rect_by_id(wall_rect_id: String) -> Dictionary:
+	for rect in _wall_rects():
+		if typeof(rect) != TYPE_DICTIONARY:
+			continue
+		var rect_dict := rect as Dictionary
+		if _wall_rect_id(rect_dict) == wall_rect_id:
+			return rect_dict
+	return {}
+
+
+func _wall_rects() -> Array:
+	var map_root = snapshot.get("map", {})
+	if typeof(map_root) == TYPE_DICTIONARY:
+		var snapshot_walls = map_root.get("walls", [])
+		if typeof(snapshot_walls) == TYPE_ARRAY:
+			return snapshot_walls as Array
+	if scene_builder != null:
+		var builder_map = scene_builder.get("map_data")
+		if typeof(builder_map) == TYPE_DICTIONARY:
+			var builder_walls = builder_map.get("walls", [])
+			if typeof(builder_walls) == TYPE_ARRAY:
+				return builder_walls as Array
+	return []
+
+
+func _wall_rect_id(rect: Dictionary) -> String:
+	var x1 := int(rect.get("x", 0))
+	var y1 := int(rect.get("y", 0))
+	var x2 := x1 + int(rect.get("w", 1)) - 1
+	var y2 := y1 + int(rect.get("h", 1)) - 1
+	if x1 == x2 and y1 == y2:
+		return "Wall_%d_%d" % [x1, y1]
+	return "Wall_%d_%d_to_%d_%d" % [x1, y1, x2, y2]
+
+
+func _wall_edge_midpoint_facing(rect: Dictionary, from_tile: Dictionary) -> Dictionary:
+	var left := float(rect.get("x", 0.0))
+	var top := float(rect.get("y", 0.0))
+	var width := float(rect.get("w", 1.0))
+	var height := float(rect.get("h", 1.0))
+	var right := left + width
+	var bottom := top + height
+	var center_x := left + width * 0.5
+	var center_y := top + height * 0.5
+	var from_x := float(from_tile.get("x", center_x - 0.5)) + 0.5
+	var from_y := float(from_tile.get("y", center_y - 0.5)) + 0.5
+	var dx := from_x - center_x
+	var dy := from_y - center_y
+	if abs(dx) >= abs(dy):
+		return {
+			"x": left if dx <= 0.0 else right,
+			"y": center_y,
+		}
+	return {
+		"x": center_x,
+		"y": top if dy <= 0.0 else bottom,
+	}
 
 
 func _flat_direction(from_pos: Vector3, to_pos: Vector3) -> Vector3:

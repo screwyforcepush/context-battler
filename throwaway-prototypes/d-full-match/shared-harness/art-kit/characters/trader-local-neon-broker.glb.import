@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dpeloxuvq0sej"
-path="res://.godot/imported/opportunist-quaternius-astronaut-baseline.glb-9720ee49bc68fc04bea7bb650a0a8309.scn"
+uid="uid://ck1yq1mb5dbdw"
+path="res://.godot/imported/trader-local-neon-broker.glb-0bb6042821793c1cec331bbc9ac5e2d0.scn"
 
 [deps]
 
-source_file="res://shared-harness/art-kit/characters/opportunist-quaternius-astronaut-baseline.glb"
-dest_files=["res://.godot/imported/opportunist-quaternius-astronaut-baseline.glb-9720ee49bc68fc04bea7bb650a0a8309.scn"]
+source_file="res://shared-harness/art-kit/characters/trader-local-neon-broker.glb"
+dest_files=["res://.godot/imported/trader-local-neon-broker.glb-0bb6042821793c1cec331bbc9ac5e2d0.scn"]
 
 [params]
 

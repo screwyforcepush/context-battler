@@ -4,8 +4,8 @@
   "purpose": "Multi-source Round-4 R&D art kit for d-full-match: deterministic persona models, equipment meshes, corpse, and cyberpunk-Diablo material placeholders.",
   "notes": [
     "Throwaway prototype art kit: breadth and deterministic mapping matter more than uniform art polish.",
-    "Character sources represented: Kenney Blocky Characters 2.0, Robin Lamb Animated Low Poly Hero, and Quaternius Ultimate Space Kit baseline.",
-    "Primitive weapons, armour, corpse, and textures are generated CC0 R&D placeholders so WP4 can wire mesh-on-equip and VFX timing without waiting on bespoke art.",
+    "Character sources represented: Kenney Blocky Characters 2.0, Robin Lamb Animated Low Poly Hero, Quaternius Ultimate Space Kit mech, and context-battler local primitive humanoids.",
+    "Primitive weapons, armour, corpse, two character silhouettes, and textures are generated CC0 R&D placeholders so WP4 can wire mesh-on-equip and VFX timing without waiting on bespoke art.",
     "The original root-level fixed-kit files are retained for compatibility with pre-integration renderer code; Round-4 manifest entries point at lowercase category-folder assets."
   ],
   "assets": [
@@ -75,38 +75,39 @@
       "id": "character.trader",
       "category": "character",
       "personaSlot": "trader",
-      "file": "characters/trader-kenney-blocky-c.glb",
+      "file": "characters/trader-local-neon-broker.glb",
       "pivotYOffset": 0,
       "attachBone": null,
       "source": {
-        "title": "Blocky Characters 2.0",
-        "creator": "Kenney",
-        "repository": "OpenGameArt",
-        "pageUrl": "https://opengameart.org/content/blocky-characters",
-        "downloadUrl": "https://opengameart.org/sites/default/files/kenney_blocky-characters_2.0.zip"
+        "title": "context-battler Round-4 primitive humanoid characters",
+        "creator": "context-battler prototype humanoid",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-primitive-humanoid-character-generator",
+        "downloadUrl": "local://workspace/throwaway-prototypes/d-full-match/shared-harness/art-kit/characters/trader-local-neon-broker.glb"
       },
       "license": {
         "spdx": "CC0-1.0",
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "Kenney License.txt declares Blocky Characters 2.0 as CC0."
+        "notes": "Generated R&D placeholder character art for this throwaway prototype; dedicated CC0 for reuse inside the project."
       },
       "extraction": {
-        "sourceArchive": "/tmp/context-battler-r4-assets/kenney_blocky-characters_2.0.zip",
-        "sourceArchiveSha256": "5e123859aa0c1598342b600c6db197024a1d63eb9ec531398b310725f589887e",
-        "sourceArchivePath": "Models/GLB format/character-c.glb",
+        "sourceArchive": "local://generated-in-workspace",
+        "sourceArchiveSha256": null,
+        "sourceArchivePath": "throwaway-prototypes/d-full-match/shared-harness/art-kit/characters/trader-local-neon-broker.glb",
+        "generatedBy": "inline Node GLB primitive humanoid generator during render-rnd round-4 asset R&D breadth lane",
         "selectedOnly": true
       },
-      "notes": "Brighter Kenney variant for the trader so the archetype stays readable beside darker fighters.",
-      "sizeBytes": 113580,
-      "sha256": "ad2425ba0da5d9adff791b949bd62389ddcb09963ff89265930eab0d6484398c"
+      "notes": "Local primitive neon broker silhouette swaps trader out of the Kenney lane; mask, sash, and cyan chest glow push market opportunism toward cyberpunk x Diablo without chasing polish.",
+      "sizeBytes": 11452,
+      "sha256": "9cc2fb087c1075e19c77e67362077d3b836233e239010cb84da1ca42d5b5b0c2"
     },
     {
       "id": "character.opportunist",
       "category": "character",
       "personaSlot": "opportunist",
-      "file": "characters/opportunist-quaternius-astronaut-baseline.glb",
+      "file": "characters/opportunist-quaternius-space-mech.glb",
       "pivotYOffset": -0.05,
       "attachBone": null,
       "source": {
@@ -122,17 +123,17 @@
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "OpenGameArt and Quaternius provenance from the prior fixed kit list Ultimate Space Kit as CC0."
+        "notes": "OpenGameArt and Quaternius provenance from the local Ultimate Space Kit bundle list the pack as CC0."
       },
       "extraction": {
         "sourceArchive": "/tmp/context-battler-assets/ultimate_space_kit-glb.zip",
-        "fallbackDownloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
-        "sourceArchivePath": "Astronaut.glb",
+        "sourceArchiveSha256": "61ee5a5199d1abe419bb15ca580ab047449c3c4500b73962d4be01faa11bf8a0",
+        "sourceArchivePath": "Mech.glb",
         "selectedOnly": true
       },
-      "notes": "Intentionally retained as one Quaternius baseline/comparison slot after the astronaut vibe mismatch note.",
-      "sizeBytes": 701328,
-      "sha256": "0ff4594de44e0cd3339373f80cc734e69fd139c4457812efe9a761a72c8a541d"
+      "notes": "Non-astronaut Quaternius mech replaces the rejected astronaut baseline; bulky machine limbs read as scavenged cyberpunk muscle with a darker dungeon-combat silhouette for opportunist.",
+      "sizeBytes": 426804,
+      "sha256": "795d137e3413ca0412835c8624f3fce56d69243f86e50481c72effea1354a488"
     },
     {
       "id": "character.paranoid",
@@ -200,32 +201,33 @@
       "id": "character.sprinter",
       "category": "character",
       "personaSlot": "sprinter",
-      "file": "characters/sprinter-kenney-blocky-h.glb",
+      "file": "characters/sprinter-local-crimson-stalker.glb",
       "pivotYOffset": 0,
       "attachBone": null,
       "source": {
-        "title": "Blocky Characters 2.0",
-        "creator": "Kenney",
-        "repository": "OpenGameArt",
-        "pageUrl": "https://opengameart.org/content/blocky-characters",
-        "downloadUrl": "https://opengameart.org/sites/default/files/kenney_blocky-characters_2.0.zip"
+        "title": "context-battler Round-4 primitive humanoid characters",
+        "creator": "context-battler prototype humanoid",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-primitive-humanoid-character-generator",
+        "downloadUrl": "local://workspace/throwaway-prototypes/d-full-match/shared-harness/art-kit/characters/sprinter-local-crimson-stalker.glb"
       },
       "license": {
         "spdx": "CC0-1.0",
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "Kenney License.txt declares Blocky Characters 2.0 as CC0."
+        "notes": "Generated R&D placeholder character art for this throwaway prototype; dedicated CC0 for reuse inside the project."
       },
       "extraction": {
-        "sourceArchive": "/tmp/context-battler-r4-assets/kenney_blocky-characters_2.0.zip",
-        "sourceArchiveSha256": "5e123859aa0c1598342b600c6db197024a1d63eb9ec531398b310725f589887e",
-        "sourceArchivePath": "Models/GLB format/character-h.glb",
+        "sourceArchive": "local://generated-in-workspace",
+        "sourceArchiveSha256": null,
+        "sourceArchivePath": "throwaway-prototypes/d-full-match/shared-harness/art-kit/characters/sprinter-local-crimson-stalker.glb",
+        "generatedBy": "inline Node GLB primitive humanoid generator during render-rnd round-4 asset R&D breadth lane",
         "selectedOnly": true
       },
-      "notes": "Clean, bright Kenney variant chosen to make fast movement headings easy to track.",
-      "sizeBytes": 113596,
-      "sha256": "f62fcf774dc6d61d64a3616803bc3a71176e1aee252020dd3ef680ef0a95d588"
+      "notes": "Local primitive crimson stalker swaps sprinter out of the Kenney lane; long limbs, violet visor, and claw blocks favor motion readability and the darker cyberpunk x Diablo brief over uniform polish.",
+      "sizeBytes": 12696,
+      "sha256": "2f41e4a5679ece3687fed8356ac7b2701da4c51431f0377044b4e3f69ea5b0c4"
     },
     {
       "id": "character.vulture",
