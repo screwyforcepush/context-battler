@@ -1,6 +1,6 @@
 # Round-4 Closing Readout — Spectacle-Grade Full-Match Godot/WASM Replay
 
-Round 4 of the render R&D. Substrate ratified in Round 2 (Godot/WASM), full-match playback proven in Round 3. This round extended the snapshot contract with engine-truth event streams (movements/attacks/loots, schemaVersion 2 → 3) and drove a spectacle polish pass on the d-full-match Godot prototype: 8 visually-distinct character models from 4 source lanes, weapon/armour mesh-on-equip, maximalist gore VFX, attack + loot + wall face-slam animations, scale/camera/ground tuning, and environment material polish. Commits `7777026` (WP1 contract) + `d480811` (WP2-4 renderer), followed by the completion-review refinement pass documented here.
+Round 4 of the render R&D. Substrate ratified in Round 2 (Godot/WASM), full-match playback proven in Round 3. This round extended the snapshot contract with engine-truth event streams (movements/attacks/loots, schemaVersion 2 → 3) and drove a spectacle polish pass on the d-full-match Godot prototype: 8 visually-distinct character models from 4 source lanes, weapon/armour mesh-on-equip, maximalist gore VFX, attack + loot + wall face-slam animations, scale/camera/ground tuning, and environment material polish. Commits `7777026` (WP1 contract) + `d480811` (WP2-4 renderer) + `599ddeb` (completion-review refinement).
 
 Spec: [`round-4-spectacle-spec.md`](./round-4-spectacle-spec.md). Blind-UAT handoff: [`IMPLEMENTATION-SUMMARY.md`](../../../throwaway-prototypes/d-full-match/IMPLEMENTATION-SUMMARY.md).
 
@@ -67,7 +67,7 @@ Two layers, same throwaway-boundary posture as Round 3:
 - **Wall-clip padding:** `SceneBuilder.cosmetic_wall_inset` provides a render-only positional offset for characters adjacent to walls. Engine positions unchanged.
 - **Camera:** anchored cam default radius `14.0` (from `26.0`); max anchored zoom-out `32.0` (from `62.0`). Director cam preserved at `26.0` radius / `62.0` max zoom.
 - **Schema guard:** `MatchPlayer` rejects non-v3 snapshots before scene configuration, so stale cached v2 payloads fail loudly.
-- **Environment polish:** the five manifest PNG textures are now loaded by renderer code: walls (`wall-dark-metal.png`), floor (`floor-neon-dungeon.png`), cover (`cover-hazard-rust.png`), crates/airdrop crates (`crate-neon-wear.png`), and evac (`evac-crimson-glyph.png`). Procedural `NoiseTexture2D` remains as a fallback texture path. Lighting baseline (WorldEnvironment + neon-key-light + crimson-rim-light) preserved per scaffold-verify.
+- **Environment polish:** the five manifest PNG textures are wired into two renderer layers: `SceneBuilder._make_materials` applies them to map-level geometry (floor, walls, cover, evac, and the airdrop marker), and `EntityRenderer` separately loads `crate-neon-wear.png` for runtime crate and airdrop entity materials (closed crates + airdrop crates). Texture files: `wall-dark-metal.png`, `floor-neon-dungeon.png`, `cover-hazard-rust.png`, `crate-neon-wear.png`, `evac-crimson-glyph.png`. Procedural `NoiseTexture2D` remains as a fallback path. Lighting baseline (WorldEnvironment + neon-key-light + crimson-rim-light) preserved per scaffold-verify.
 
 ### 1c. WP3 — Asset R&D (throwaway, commit `d480811`)
 
@@ -153,7 +153,7 @@ Source lanes: **Kenney** (4 character models, CC0), **Robin Lamb** (1 character 
 
 | File | Lines | Role |
 |---|---|---|
-| `src/CombatVfx.gd` | 369 | Attack/loot/wall-slam VFX consumer; blood splash, pools, dismemberment, screen-shake |
+| `src/CombatVfx.gd` | 441 | Attack/loot/wall-slam VFX consumer; blood splash, pools, dismemberment, screen-shake |
 | `src/EquipmentMeshAttachment.gd` | 329 | Manifest-driven weapon/armour mesh attachment + swap |
 | `src/EntityRenderer.gd` | +518 lines | Waypoint animator, facing direction, persona model loader, attack/loot/death hooks |
 | `src/CameraRig.gd` | +59 lines | Anchored zoom tightening, max zoom cap, screen-punch support |
