@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,8 +23,11 @@ const requiredFiles = [
   "src/PlaybackClock.gd",
   "src/TimelineHud.gd",
   "src/CameraRig.gd",
+  "src/CombatVfx.gd",
+  "src/EquipmentMeshAttachment.gd",
   "scripts/export-web.mjs",
   "scripts/serve.mjs",
+  "shared-harness/art-kit/manifest.json",
 ];
 
 const checks = [];
@@ -42,6 +46,18 @@ function assertIncludes(source, needle, message) {
 
 function assertNotIncludes(source, needle, message) {
   assert(!source.toLowerCase().includes(needle.toLowerCase()), message);
+}
+
+function assertMatches(source, pattern, message) {
+  assert(pattern.test(source), message);
+}
+
+function sha256(relativePath) {
+  return createHash("sha256").update(readFileSync(path.join(appDir, relativePath))).digest("hex");
+}
+
+function manifestAssetPath(asset) {
+  return path.join("shared-harness/art-kit", asset.file);
 }
 
 for (const file of requiredFiles) {
@@ -98,6 +114,7 @@ if (existsSync(path.join(appDir, "src/MatchPlayer.gd"))) {
   assertIncludes(player, "get_current_turn", "MatchPlayer exposes current_turn getter bridge");
   assertIncludes(player, "anchor_changed", "MatchPlayer connects CameraRig anchor_changed");
   assertIncludes(player, "mode_changed", "MatchPlayer connects CameraRig mode_changed");
+  assertIncludes(player, "set_camera_rig", "MatchPlayer passes CameraRig into EntityRenderer for VFX screen punch");
 }
 
 if (existsSync(path.join(appDir, "src/SceneBuilder.gd"))) {
@@ -120,6 +137,12 @@ if (existsSync(path.join(appDir, "src/SceneBuilder.gd"))) {
   for (const banned of ["fog_enabled", "line_of_sight", "perception", "ghost"]) {
     assertNotIncludes(sceneBuilder, banned, `SceneBuilder avoids banned visual token ${banned}`);
   }
+  assertIncludes(sceneBuilder, "cosmetic_wall_inset", "SceneBuilder exposes render-only wall inset helper");
+  assertIncludes(sceneBuilder, "NoiseTexture2D", "SceneBuilder uses procedural texture materials");
+  assertIncludes(sceneBuilder, "albedo_texture", "SceneBuilder assigns material albedo textures");
+  for (const banned of ["a_star", "astar", "find_path", "bresenham", "dijkstra", "breadth_first_search", "manual_collision"]) {
+    assertNotIncludes(sceneBuilder, banned, `SceneBuilder avoids renderer pathing token ${banned}`);
+  }
 }
 
 if (existsSync(path.join(appDir, "src/EntityRenderer.gd"))) {
@@ -130,9 +153,82 @@ if (existsSync(path.join(appDir, "src/EntityRenderer.gd"))) {
   for (const token of ["telegraphed", "landed", "spent", "opened"]) {
     assertIncludes(entityRenderer, token, `EntityRenderer differentiates ${token} state`);
   }
-  assertIncludes(entityRenderer, "Astronaut.glb", "EntityRenderer uses astronaut model");
-  assertIncludes(entityRenderer, "Pickup Crate.glb", "EntityRenderer uses crate model");
+  assertNotIncludes(entityRenderer, "Astronaut.glb", "EntityRenderer no longer hard-codes the stale astronaut model");
+  assertNotIncludes(entityRenderer, "Pickup Crate.glb", "EntityRenderer no longer hard-codes the stale crate model");
   assertNotIncludes(entityRenderer, "speech", "EntityRenderer does not render speech in 3D");
+  assertIncludes(entityRenderer, "EquipmentMeshAttachment", "EntityRenderer wires manifest-driven equipment attachment");
+  assertIncludes(entityRenderer, "CombatVfx", "EntityRenderer wires CombatVfx event consumer");
+  assertIncludes(entityRenderer, "character_scene_for_persona", "EntityRenderer loads persona models from manifest");
+  assertIncludes(entityRenderer, "personaId", "EntityRenderer maps snapshot personaId to manifest personaSlot");
+  assertIncludes(entityRenderer, "corpse_scene", "EntityRenderer uses manifest corpse asset");
+  assertIncludes(entityRenderer, "update_equipment", "EntityRenderer updates equipment attachment from equippedByCharacter");
+  assertIncludes(entityRenderer, "equippedByCharacter", "EntityRenderer reads frame equippedByCharacter");
+  assertIncludes(entityRenderer, "play_attack_pose", "EntityRenderer exposes attack animation hook");
+  assertIncludes(entityRenderer, "mark_lethal_target", "EntityRenderer exposes lethal death hook");
+  assertIncludes(entityRenderer, "play_wall_slam", "EntityRenderer exposes wall face-slam hook");
+  assertIncludes(entityRenderer, "play_loot_pickup", "EntityRenderer exposes loot animation hook");
+  assertIncludes(entityRenderer, "mark_loot_source", "EntityRenderer exposes loot source empty/fade hook");
+  assertIncludes(entityRenderer, "movements_by_turn_character", "EntityRenderer buckets snapshot.movements by turn and character");
+  assertIncludes(entityRenderer, '"movements"', "EntityRenderer reads snapshot.movements");
+  assertIncludes(entityRenderer, '"path"', "EntityRenderer consumes movement path waypoints");
+  assertIncludes(entityRenderer, "last_heading_by_character", "EntityRenderer preserves stationary character heading");
+  assertIncludes(entityRenderer, "_tile_along_path", "EntityRenderer walks engine-emitted waypoint paths");
+  assertIncludes(entityRenderer, "var movement_turn := turn_base", "EntityRenderer aligns movement event turn to the visible turn");
+  assertNotIncludes(entityRenderer, "turn_base + 1", "EntityRenderer does not skip movement event turn 1 with turn_base + 1 alignment");
+  assertIncludes(entityRenderer, "cosmetic_wall_inset", "EntityRenderer applies render-only wall inset");
+  assertNotIncludes(entityRenderer, "node.rotation.y = sin(Time.get_ticks_msec", "EntityRenderer removed decorative sine rotation");
+  assertMatches(entityRenderer, /CHARACTER_MODEL_SCALE\s*:=\s*0\.21/, "EntityRenderer halves character model scale to 0.21");
+  assertMatches(entityRenderer, /CRATE_MODEL_SCALE\s*:=\s*0\.17/, "EntityRenderer halves crate model scale to 0.17");
+  for (const banned of ["a_star", "astar", "find_path", "bresenham", "dijkstra", "breadth_first_search", "manual_collision"]) {
+    assertNotIncludes(entityRenderer, banned, `EntityRenderer avoids renderer pathing token ${banned}`);
+  }
+}
+
+if (existsSync(path.join(appDir, "src/CombatVfx.gd"))) {
+  const combatVfx = read("src/CombatVfx.gd");
+  for (const token of [
+    '"attacks"',
+    '"loots"',
+    '"movements"',
+    '"blockedBy"',
+    '"hit"',
+    '"lethal"',
+    "play_attack_pose",
+    "mark_lethal_target",
+    "play_wall_slam",
+    "play_loot_pickup",
+    "mark_loot_source",
+    "screen_punch",
+    "persistent-blood-pool",
+    "dismemberment-chunk",
+  ]) {
+    assertIncludes(combatVfx, token, `CombatVfx consumes or emits ${token}`);
+  }
+  const poolMatch = combatVfx.match(/MAX_BLOOD_POOLS\s*:=\s*(\d+)/);
+  const burstMatch = combatVfx.match(/MAX_PARTICLE_BURST\s*:=\s*(\d+)/);
+  assert(poolMatch && Number(poolMatch[1]) <= 64, "CombatVfx caps persistent blood pools at <=64");
+  assert(burstMatch && Number(burstMatch[1]) <= 120, "CombatVfx caps per-burst particles at <=120");
+}
+
+if (existsSync(path.join(appDir, "src/EquipmentMeshAttachment.gd"))) {
+  const equipment = read("src/EquipmentMeshAttachment.gd");
+  for (const token of [
+    "manifest.json",
+    "weaponName",
+    "armourName",
+    "personaSlot",
+    "handOffset",
+    "character_scene_for_persona",
+    "corpse_scene",
+    "environment_scene_for_role",
+    "register_character",
+    "update_equipment",
+    "play_loot_swap",
+    "WEAPON_SOCKET_NAME",
+    "ARMOUR_SOCKET_NAME",
+  ]) {
+    assertIncludes(equipment, token, `EquipmentMeshAttachment handles ${token}`);
+  }
 }
 
 if (existsSync(path.join(appDir, "src/PlaybackClock.gd"))) {
@@ -143,6 +239,7 @@ if (existsSync(path.join(appDir, "src/PlaybackClock.gd"))) {
   for (const multiplier of ["0.5", "1.0", "2.0"]) {
     assertIncludes(clock, multiplier, `PlaybackClock supports ${multiplier}x speed`);
   }
+  assertIncludes(clock, "speed = 1.0", "PlaybackClock default speed remains 1.0");
 }
 
 if (existsSync(path.join(appDir, "src/TimelineHud.gd"))) {
@@ -158,12 +255,97 @@ if (existsSync(path.join(appDir, "src/CameraRig.gd"))) {
     assertIncludes(cameraRig, token, `CameraRig provides ${token}`);
   }
   assertIncludes(cameraRig, "including dead/extracted", "CameraRig documents all-character anchor cycling");
+  assertMatches(cameraRig, /DEFAULT_DIRECTOR_RADIUS\s*:=\s*26\.0/, "CameraRig preserves director default radius");
+  assertMatches(cameraRig, /DEFAULT_ANCHORED_RADIUS\s*:=\s*14\.0/, "CameraRig tightens anchored default radius");
+  assertMatches(cameraRig, /MAX_DIRECTOR_ZOOM\s*:=\s*62\.0/, "CameraRig preserves director zoom-out cap");
+  assertMatches(cameraRig, /MAX_ANCHORED_ZOOM\s*:=\s*32\.0/, "CameraRig caps anchored zoom-out");
+  assertIncludes(cameraRig, "_max_zoom_for_mode", "CameraRig clamps zoom by active camera mode");
+  assertIncludes(cameraRig, "screen_punch", "CameraRig exposes screen_punch for combat VFX");
+  for (const banned of ["a_star", "astar", "find_path", "bresenham", "dijkstra", "breadth_first_search", "manual_collision"]) {
+    assertNotIncludes(cameraRig, banned, `CameraRig avoids renderer pathing token ${banned}`);
+  }
 }
 
 if (existsSync(path.join(appDir, "scenes/MatchPlayer.tscn"))) {
   const scene = read("scenes/MatchPlayer.tscn");
   for (const token of ["SceneBuilder", "EntityRenderer", "PlaybackClock", "TimelineHud", "CameraRig"]) {
     assertIncludes(scene, token, `MatchPlayer scene contains ${token}`);
+  }
+}
+
+if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
+  const manifest = JSON.parse(read("shared-harness/art-kit/manifest.json"));
+  assert(manifest.schemaVersion === 2, "d-full-match art manifest uses schemaVersion 2");
+  assert(!("source" in manifest), "art manifest has no singleton top-level source");
+  assert(!("license" in manifest), "art manifest has no singleton top-level license");
+  assert(!("extraction" in manifest), "art manifest has no singleton top-level extraction");
+  assert(Array.isArray(manifest.assets), "art manifest exposes assets array");
+  const assets = manifest.assets ?? [];
+  const personas = new Set();
+  const characterSources = new Set();
+  const weapons = new Set();
+  const armours = new Set();
+  const corpseAssets = [];
+  const environmentRoles = new Set();
+  for (const asset of assets) {
+    const relativePath = manifestAssetPath(asset);
+    assert(typeof asset.file === "string" && asset.file.length > 0, `manifest asset has file: ${asset.id}`);
+    assert(existsSync(path.join(appDir, relativePath)), `manifest asset file exists: ${asset.file}`);
+    assert(asset.source && asset.source.pageUrl, `manifest asset has source URL: ${asset.id}`);
+    assert(asset.license && asset.license.name && asset.license.url, `manifest asset has license metadata: ${asset.id}`);
+    assert(typeof asset.notes === "string" && asset.notes.length > 0, `manifest asset has notes: ${asset.id}`);
+    if (existsSync(path.join(appDir, relativePath))) {
+      assert(statSync(path.join(appDir, relativePath)).size === asset.sizeBytes, `manifest sizeBytes matches: ${asset.file}`);
+      assert(sha256(relativePath) === asset.sha256, `manifest sha256 matches: ${asset.file}`);
+      if (/\.(glb|png)$/i.test(asset.file)) {
+        assert(existsSync(path.join(appDir, `${relativePath}.import`)), `Godot import sidecar exists: ${asset.file}`);
+      }
+    }
+    if (asset.category === "character") {
+      personas.add(asset.personaSlot);
+      characterSources.add(asset.source.creator || asset.source.pageUrl);
+      assert("pivotYOffset" in asset, `character asset has pivotYOffset: ${asset.id}`);
+    } else if (asset.category === "weapon") {
+      weapons.add(asset.weaponName);
+      assert(asset.attachBone || asset.handOffset, `weapon asset has socket metadata: ${asset.id}`);
+      assert(typeof asset.tier === "number", `weapon asset has tier: ${asset.id}`);
+    } else if (asset.category === "armour") {
+      armours.add(asset.armourName);
+      assert(typeof asset.tier === "number", `armour asset has tier: ${asset.id}`);
+    } else if (asset.category === "corpse") {
+      corpseAssets.push(asset);
+    } else if (asset.category === "environment") {
+      environmentRoles.add(asset.environmentRole);
+    }
+  }
+  for (const persona of ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]) {
+    assert(personas.has(persona), `manifest maps persona ${persona}`);
+  }
+  assert(characterSources.size >= 3, "manifest character assets represent at least 3 source lanes");
+  for (const weapon of ["rusty_blade", "dagger", "sword", "axe", "greatsword", "warhammer"]) {
+    assert(weapons.has(weapon), `manifest maps weapon ${weapon}`);
+  }
+  for (const armour of ["cloth", "leather", "chain", "plate", "riot_plate"]) {
+    assert(armours.has(armour), `manifest maps armour ${armour}`);
+  }
+  assert(corpseAssets.length >= 1, "manifest includes corpse asset");
+  for (const role of ["floor", "wall", "cover", "evac", "crate"]) {
+    assert(environmentRoles.has(role), `manifest includes environment role ${role}`);
+  }
+}
+
+for (const codeFile of [
+  "src/CombatVfx.gd",
+  "src/EquipmentMeshAttachment.gd",
+  "src/EntityRenderer.gd",
+  "src/CameraRig.gd",
+  "src/MatchPlayer.gd",
+  "IMPLEMENTATION-SUMMARY.md",
+]) {
+  if (!existsSync(path.join(appDir, codeFile))) continue;
+  const source = read(codeFile);
+  for (const banned of ["browsertools", "chromium", "playwright", "puppeteer", "screenshot", "visual uat", "browser-mediated"]) {
+    assertNotIncludes(source, banned, `${codeFile} avoids forbidden blind-validation token ${banned}`);
   }
 }
 

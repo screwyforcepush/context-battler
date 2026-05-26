@@ -5,6 +5,11 @@ signal mode_changed(mode: int)
 
 const MODE_FREE := 0
 const MODE_ANCHORED := 1
+const DEFAULT_DIRECTOR_RADIUS := 26.0
+const DEFAULT_ANCHORED_RADIUS := 14.0
+const MIN_ZOOM_RADIUS := 5.0
+const MAX_DIRECTOR_ZOOM := 62.0
+const MAX_ANCHORED_ZOOM := 32.0
 
 var snapshot: Dictionary = {}
 var entity_renderer: Node
@@ -16,12 +21,16 @@ var anchor_index := 0
 var anchor_id := ""
 var yaw := -0.72
 var pitch := -0.72
-var radius := 26.0
+var radius := DEFAULT_DIRECTOR_RADIUS
+var director_radius := DEFAULT_DIRECTOR_RADIUS
+var anchored_radius := DEFAULT_ANCHORED_RADIUS
 var free_anchor := Vector3.ZERO
 var smooth_anchor := Vector3.ZERO
 var dragging := false
 var panning := false
 var last_pointer := Vector2.ZERO
+var punch_offset := Vector3.ZERO
+var punch_velocity := Vector3.ZERO
 var mode_button: Button
 var prev_button: Button
 var next_button: Button
@@ -46,6 +55,9 @@ func configure(root: Dictionary, renderer: Node, builder: Node, playback_clock: 
 	var characters: Array = snapshot.get("characters", [])
 	anchor_index = 0
 	anchor_id = str(characters[0].get("characterId", "")) if not characters.is_empty() and typeof(characters[0]) == TYPE_DICTIONARY else ""
+	director_radius = DEFAULT_DIRECTOR_RADIUS
+	anchored_radius = DEFAULT_ANCHORED_RADIUS
+	radius = _radius_for_mode()
 	free_anchor = Vector3.ZERO
 	smooth_anchor = _anchor_world()
 	# Anchor cycling intentionally includes every roster entry, including dead/extracted characters.
@@ -57,6 +69,7 @@ func configure(root: Dictionary, renderer: Node, builder: Node, playback_clock: 
 func update_camera(delta: float) -> void:
 	if camera == null:
 		return
+	_update_screen_punch(delta)
 	var target := free_anchor
 	if mode == MODE_ANCHORED:
 		target = _anchor_world()
@@ -66,7 +79,7 @@ func update_camera(delta: float) -> void:
 		-sin(pitch),
 		cos(pitch) * cos(yaw)
 	) * radius
-	camera.position = smooth_anchor + offset
+	camera.position = smooth_anchor + offset + punch_offset
 	camera.look_at(smooth_anchor, Vector3.UP)
 
 
@@ -80,9 +93,11 @@ func _input(event: InputEvent) -> void:
 			panning = button.pressed
 			last_pointer = button.position
 		elif button.pressed and button.button_index == MOUSE_BUTTON_WHEEL_UP:
-			radius = max(5.0, radius - 1.2)
+			radius = max(MIN_ZOOM_RADIUS, radius - 1.2)
+			_store_radius_for_mode()
 		elif button.pressed and button.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			radius = min(62.0, radius + 1.2)
+			radius = min(_max_zoom_for_mode(), radius + 1.2)
+			_store_radius_for_mode()
 	elif event is InputEventMouseMotion:
 		var motion := event as InputEventMouseMotion
 		var delta := motion.position - last_pointer
@@ -104,11 +119,13 @@ func _input(event: InputEvent) -> void:
 
 
 func toggle_mode() -> void:
+	_store_radius_for_mode()
 	if mode == MODE_FREE:
 		mode = MODE_ANCHORED
 	else:
 		mode = MODE_FREE
 		free_anchor = smooth_anchor
+	radius = _radius_for_mode()
 	mode_changed.emit(mode)
 	_update_button_text()
 
@@ -122,7 +139,9 @@ func cycle_anchor(delta_int: int) -> void:
 	anchor_id = str(character.get("characterId", ""))
 	anchor_changed.emit(anchor_id)
 	if mode == MODE_FREE:
+		_store_radius_for_mode()
 		mode = MODE_ANCHORED
+		radius = _radius_for_mode()
 		mode_changed.emit(mode)
 	_update_button_text()
 
@@ -135,10 +154,42 @@ func get_mode() -> int:
 	return mode
 
 
+func screen_punch(direction: Vector3, magnitude: float) -> void:
+	var flat := direction
+	flat.y = 0.0
+	var impulse := flat.normalized() if flat.length() > 0.001 else Vector3(0.0, 0.0, -1.0)
+	punch_velocity += (impulse + Vector3.UP * 0.42) * clamp(magnitude, 0.0, 0.16)
+
+
 func _anchor_world() -> Vector3:
 	if entity_renderer != null and entity_renderer.has_method("get_anchor_world"):
 		return entity_renderer.get_anchor_world(anchor_id)
 	return Vector3.ZERO
+
+
+func _store_radius_for_mode() -> void:
+	if mode == MODE_ANCHORED:
+		anchored_radius = clamp(radius, MIN_ZOOM_RADIUS, MAX_ANCHORED_ZOOM)
+	else:
+		director_radius = clamp(radius, MIN_ZOOM_RADIUS, MAX_DIRECTOR_ZOOM)
+
+
+func _radius_for_mode() -> float:
+	return clamp(anchored_radius, MIN_ZOOM_RADIUS, MAX_ANCHORED_ZOOM) if mode == MODE_ANCHORED else clamp(director_radius, MIN_ZOOM_RADIUS, MAX_DIRECTOR_ZOOM)
+
+
+func _max_zoom_for_mode() -> float:
+	return MAX_ANCHORED_ZOOM if mode == MODE_ANCHORED else MAX_DIRECTOR_ZOOM
+
+
+func _update_screen_punch(delta: float) -> void:
+	punch_offset += punch_velocity
+	punch_velocity = punch_velocity.lerp(Vector3.ZERO, clamp(delta * 13.0, 0.0, 1.0))
+	punch_offset = punch_offset.lerp(Vector3.ZERO, clamp(delta * 9.0, 0.0, 1.0))
+	if punch_offset.length() < 0.0005:
+		punch_offset = Vector3.ZERO
+	if punch_velocity.length() < 0.0005:
+		punch_velocity = Vector3.ZERO
 
 
 func _make_controls() -> void:

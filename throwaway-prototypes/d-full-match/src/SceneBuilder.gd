@@ -1,6 +1,7 @@
 extends Node3D
 
 const WORLD_SCALE := 0.38
+const WALL_COSMETIC_INSET_WORLD := 0.09
 
 var map_data: Dictionary = {}
 var mat_ground: StandardMaterial3D
@@ -33,6 +34,38 @@ func tile_to_world(pos: Dictionary, y: float = 0.0) -> Vector3:
 	var world_x := (float(pos.get("x", 0.0)) - float(size.get("w", 100)) * 0.5) * WORLD_SCALE
 	var world_z := (float(pos.get("y", 0.0)) - float(size.get("h", 100)) * 0.5) * WORLD_SCALE
 	return Vector3(world_x, y, world_z)
+
+
+func cosmetic_wall_inset(tile_pos: Dictionary) -> Vector3:
+	var inset := Vector3.ZERO
+	for rect in map_data.get("walls", []):
+		if typeof(rect) != TYPE_DICTIONARY:
+			continue
+		inset += _wall_inset_for_rect(tile_pos, rect)
+	if inset.length() > WALL_COSMETIC_INSET_WORLD:
+		return inset.normalized() * WALL_COSMETIC_INSET_WORLD
+	return inset
+
+
+func _wall_inset_for_rect(tile_pos: Dictionary, rect: Dictionary) -> Vector3:
+	var tile_x := float(tile_pos.get("x", 0.0))
+	var tile_y := float(tile_pos.get("y", 0.0))
+	var left := float(rect.get("x", 0.0))
+	var top := float(rect.get("y", 0.0))
+	var right := left + float(rect.get("w", 1.0))
+	var bottom := top + float(rect.get("h", 1.0))
+	var near_vertical_span := tile_y >= top - 0.55 and tile_y <= bottom + 0.55
+	var near_horizontal_span := tile_x >= left - 0.55 and tile_x <= right + 0.55
+	var inset := Vector3.ZERO
+	if near_vertical_span and tile_x <= left and left - tile_x <= 1.0:
+		inset.x -= WALL_COSMETIC_INSET_WORLD
+	elif near_vertical_span and tile_x >= right and tile_x - right <= 1.0:
+		inset.x += WALL_COSMETIC_INSET_WORLD
+	if near_horizontal_span and tile_y <= top and top - tile_y <= 1.0:
+		inset.z -= WALL_COSMETIC_INSET_WORLD
+	elif near_horizontal_span and tile_y >= bottom and tile_y - bottom <= 1.0:
+		inset.z += WALL_COSMETIC_INSET_WORLD
+	return inset
 
 
 func _make_floor() -> void:
@@ -123,8 +156,12 @@ func _make_world_environment() -> void:
 	env.ambient_light_color = Color(0.09, 0.14, 0.18)
 	env.ambient_light_energy = 0.42
 	env.glow_enabled = true
-	env.glow_intensity = 0.82
-	env.glow_bloom = 0.24
+	env.glow_intensity = 1.05
+	env.glow_bloom = 0.34
+	env.adjustment_enabled = true
+	env.adjustment_brightness = 1.05
+	env.adjustment_contrast = 1.16
+	env.adjustment_saturation = 1.08
 	environment.environment = env
 	add_child(environment)
 
@@ -146,18 +183,33 @@ func _make_lighting() -> void:
 
 
 func _make_materials() -> void:
-	mat_ground = _mat(Color(0.015, 0.021, 0.030), Color(0.0, 0.10, 0.16), 0.35)
-	mat_wall = _mat(Color(0.06, 0.09, 0.13), Color(0.0, 0.55, 0.78), 0.55)
-	mat_cover = _mat(Color(0.09, 0.12, 0.16), Color(1.0, 0.42, 0.10), 0.32)
-	mat_evac = _mat(Color(0.06, 0.28, 0.22, 0.65), Color(0.0, 1.0, 0.72), 0.8)
-	mat_airdrop = _mat(Color(0.16, 0.04, 0.07), Color(1.0, 0.05, 0.18), 0.9)
+	mat_ground = _mat(Color(0.015, 0.021, 0.030), Color(0.0, 0.10, 0.16), 0.42, 1101, 0.08, 0.68)
+	mat_wall = _mat(Color(0.045, 0.065, 0.092), Color(0.0, 0.70, 0.88), 0.72, 2202, 0.32, 0.38)
+	mat_cover = _mat(Color(0.08, 0.09, 0.12), Color(1.0, 0.35, 0.08), 0.46, 3303, 0.22, 0.48)
+	mat_evac = _mat(Color(0.04, 0.26, 0.20, 0.68), Color(0.0, 1.0, 0.72), 1.05, 4404, 0.12, 0.32)
+	mat_airdrop = _mat(Color(0.16, 0.035, 0.06), Color(1.0, 0.04, 0.15), 1.15, 5505, 0.18, 0.44)
 
 
-func _mat(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
+func _mat(albedo: Color, emission: Color, energy: float, noise_seed: int, metallic: float, roughness: float) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = albedo
+	material.albedo_texture = _noise_texture(noise_seed)
 	material.emission_enabled = true
 	material.emission = emission
 	material.emission_energy_multiplier = energy
-	material.roughness = 0.44
+	material.metallic = metallic
+	material.roughness = roughness
 	return material
+
+
+func _noise_texture(noise_seed: int) -> NoiseTexture2D:
+	var noise := FastNoiseLite.new()
+	noise.seed = noise_seed
+	noise.frequency = 0.09
+	noise.fractal_octaves = 4
+	noise.fractal_gain = 0.42
+	var texture := NoiseTexture2D.new()
+	texture.width = 512
+	texture.height = 512
+	texture.noise = noise
+	return texture

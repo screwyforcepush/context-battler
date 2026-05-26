@@ -74,6 +74,8 @@ func _start_replay(loaded_snapshot: Dictionary, from_cache: bool) -> void:
 	entity_renderer.configure(snapshot, scene_builder)
 	playback_clock.configure(snapshot.get("playback", {}))
 	camera_rig.configure(snapshot, entity_renderer, scene_builder, playback_clock)
+	if entity_renderer.has_method("set_camera_rig"):
+		entity_renderer.set_camera_rig(camera_rig)
 	timeline_hud.configure(playback_clock, snapshot)
 	kill_feed_overlay.configure(snapshot, playback_clock)
 	side_panel.configure(snapshot, playback_clock, camera_rig)

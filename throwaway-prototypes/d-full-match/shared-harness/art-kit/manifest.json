@@ -1,63 +1,900 @@
 {
-  "schemaVersion": 1,
-  "kitName": "prototype-1-fixed-art-kit",
-  "purpose": "Minimal fixed GLB kit shared by throwaway replay-render prototypes for the airdrop-telefrag money shot.",
-  "source": {
-    "title": "Ultimate Space Kit by Quaternius",
-    "creator": "Quaternius",
-    "repository": "OpenGameArt",
-    "openGameArtPage": "https://opengameart.org/content/ultimate-space-kit-by-quaternius",
-    "downloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
-    "upstreamPackPage": "https://quaternius.com/packs/ultimatespacekit.html"
-  },
-  "license": {
-    "spdx": "CC0-1.0",
-    "name": "CC0 1.0 Universal / Public Domain",
-    "url": "https://creativecommons.org/publicdomain/zero/1.0/",
-    "attributionRequired": false,
-    "notes": "OpenGameArt lists the pack license as CC0. Quaternius also lists Ultimate Space Kit as CC0. Credit is still documented here for provenance."
-  },
-  "extraction": {
-    "sourceArchive": "/tmp/context-battler-assets/ultimate_space_kit-glb.zip",
-    "fallbackDownloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
-    "selectedOnly": true
-  },
+  "schemaVersion": 2,
+  "kitName": "d-full-match-round-4-spectacle-art-kit",
+  "purpose": "Multi-source Round-4 R&D art kit for d-full-match: deterministic persona models, equipment meshes, corpse, and cyberpunk-Diablo material placeholders.",
+  "notes": [
+    "Throwaway prototype art kit: breadth and deterministic mapping matter more than uniform art polish.",
+    "Character sources represented: Kenney Blocky Characters 2.0, Robin Lamb Animated Low Poly Hero, and Quaternius Ultimate Space Kit baseline.",
+    "Primitive weapons, armour, corpse, and textures are generated CC0 R&D placeholders so WP4 can wire mesh-on-equip and VFX timing without waiting on bespoke art.",
+    "The original root-level fixed-kit files are retained for compatibility with pre-integration renderer code; Round-4 manifest entries point at lowercase category-folder assets."
+  ],
   "assets": [
     {
-      "id": "agent.astronaut",
-      "file": "Astronaut.glb",
-      "sourceArchivePath": "Astronaut.glb",
-      "role": "animated agent",
+      "id": "character.rat",
+      "category": "character",
+      "personaSlot": "rat",
+      "file": "characters/rat-kenney-blocky-a.glb",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "Blocky Characters 2.0",
+        "creator": "Kenney",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/blocky-characters",
+        "downloadUrl": "https://opengameart.org/sites/default/files/kenney_blocky-characters_2.0.zip"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Kenney License.txt declares Blocky Characters 2.0 as CC0."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-r4-assets/kenney_blocky-characters_2.0.zip",
+        "sourceArchiveSha256": "5e123859aa0c1598342b600c6db197024a1d63eb9ec531398b310725f589887e",
+        "sourceArchivePath": "Models/GLB format/character-a.glb",
+        "selectedOnly": true
+      },
+      "notes": "Small blocky scavenger silhouette; chosen as the rat baseline because it reads scrappy rather than heroic.",
+      "sizeBytes": 113596,
+      "sha256": "8ee5dae167ec589863f6bba222467eb90ace8be357a4c5abfcab289290181616"
+    },
+    {
+      "id": "character.duelist",
+      "category": "character",
+      "personaSlot": "duelist",
+      "file": "characters/duelist-robin-lamb-hero.glb",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "Animated Low Poly Hero with Sword and Shield",
+        "creator": "Robin Lamb",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/animated-low-poly-hero-with-sword-and-shield",
+        "downloadUrl": "https://opengameart.org/sites/default/files/hero_1.zip"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Provided local source bundle is marked CC0 for this R&D pass."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-r4-assets/robin_lamb_hero.zip",
+        "sourceArchiveSha256": "26eac1b512bb2d5074f135d152e52fc1c9e993c055845d9a550ce960ed15e603",
+        "sourceArchivePath": "hero/character.glb",
+        "selectedOnly": true
+      },
+      "notes": "Sword-and-shield humanoid gives the duelist a clear combat silhouette distinct from the blocky set.",
+      "sizeBytes": 268504,
+      "sha256": "d611bc2ccd01a797fcf1b4f6fd2239c8acd6f34e51d5ded8c148369b7880388d"
+    },
+    {
+      "id": "character.trader",
+      "category": "character",
+      "personaSlot": "trader",
+      "file": "characters/trader-kenney-blocky-c.glb",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "Blocky Characters 2.0",
+        "creator": "Kenney",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/blocky-characters",
+        "downloadUrl": "https://opengameart.org/sites/default/files/kenney_blocky-characters_2.0.zip"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Kenney License.txt declares Blocky Characters 2.0 as CC0."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-r4-assets/kenney_blocky-characters_2.0.zip",
+        "sourceArchiveSha256": "5e123859aa0c1598342b600c6db197024a1d63eb9ec531398b310725f589887e",
+        "sourceArchivePath": "Models/GLB format/character-c.glb",
+        "selectedOnly": true
+      },
+      "notes": "Brighter Kenney variant for the trader so the archetype stays readable beside darker fighters.",
+      "sizeBytes": 113580,
+      "sha256": "ad2425ba0da5d9adff791b949bd62389ddcb09963ff89265930eab0d6484398c"
+    },
+    {
+      "id": "character.opportunist",
+      "category": "character",
+      "personaSlot": "opportunist",
+      "file": "characters/opportunist-quaternius-astronaut-baseline.glb",
+      "pivotYOffset": -0.05,
+      "attachBone": null,
+      "source": {
+        "title": "Ultimate Space Kit",
+        "creator": "Quaternius",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/ultimate-space-kit-by-quaternius",
+        "downloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
+        "upstreamPackPage": "https://quaternius.com/packs/ultimatespacekit.html"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "OpenGameArt and Quaternius provenance from the prior fixed kit list Ultimate Space Kit as CC0."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/ultimate_space_kit-glb.zip",
+        "fallbackDownloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
+        "sourceArchivePath": "Astronaut.glb",
+        "selectedOnly": true
+      },
+      "notes": "Intentionally retained as one Quaternius baseline/comparison slot after the astronaut vibe mismatch note.",
       "sizeBytes": 701328,
       "sha256": "0ff4594de44e0cd3339373f80cc734e69fd139c4457812efe9a761a72c8a541d"
     },
     {
-      "id": "objective.airdrop_crate",
-      "file": "Pickup Crate.glb",
-      "sourceArchivePath": "Pickup Crate.glb",
-      "role": "airdrop crate",
-      "sizeBytes": 75296,
-      "sha256": "3428e5339fe362eebf463f12ec7321951e4972e501fc953c02e4dd74c3e77b52"
+      "id": "character.paranoid",
+      "category": "character",
+      "personaSlot": "paranoid",
+      "file": "characters/paranoid-kenney-blocky-r.glb",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "Blocky Characters 2.0",
+        "creator": "Kenney",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/blocky-characters",
+        "downloadUrl": "https://opengameart.org/sites/default/files/kenney_blocky-characters_2.0.zip"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Kenney License.txt declares Blocky Characters 2.0 as CC0."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-r4-assets/kenney_blocky-characters_2.0.zip",
+        "sourceArchiveSha256": "5e123859aa0c1598342b600c6db197024a1d63eb9ec531398b310725f589887e",
+        "sourceArchivePath": "Models/GLB format/character-r.glb",
+        "selectedOnly": true
+      },
+      "notes": "High-contrast blocky variant reserved for paranoid so it can pop when circling walls and cover.",
+      "sizeBytes": 113596,
+      "sha256": "b880654e0bcf4cfda119750d1ae0842ccfb73ae22f7844ab95015122b746808a"
     },
     {
-      "id": "environment.base_large",
-      "file": "Base Large.glb",
-      "sourceArchivePath": "Base Large.glb",
-      "role": "environment prop",
+      "id": "character.camper",
+      "category": "character",
+      "personaSlot": "camper",
+      "file": "characters/camper-kenney-blocky-n.glb",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "Blocky Characters 2.0",
+        "creator": "Kenney",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/blocky-characters",
+        "downloadUrl": "https://opengameart.org/sites/default/files/kenney_blocky-characters_2.0.zip"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Kenney License.txt declares Blocky Characters 2.0 as CC0."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-r4-assets/kenney_blocky-characters_2.0.zip",
+        "sourceArchiveSha256": "5e123859aa0c1598342b600c6db197024a1d63eb9ec531398b310725f589887e",
+        "sourceArchivePath": "Models/GLB format/character-n.glb",
+        "selectedOnly": true
+      },
+      "notes": "Muted Kenney variant for the camper; intentionally quieter than duelist and sprinter.",
+      "sizeBytes": 113596,
+      "sha256": "1ea5a0cb0c65f51d6a1b40caa15a27f625365d341f33392a2bd926b0bf695394"
+    },
+    {
+      "id": "character.sprinter",
+      "category": "character",
+      "personaSlot": "sprinter",
+      "file": "characters/sprinter-kenney-blocky-h.glb",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "Blocky Characters 2.0",
+        "creator": "Kenney",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/blocky-characters",
+        "downloadUrl": "https://opengameart.org/sites/default/files/kenney_blocky-characters_2.0.zip"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Kenney License.txt declares Blocky Characters 2.0 as CC0."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-r4-assets/kenney_blocky-characters_2.0.zip",
+        "sourceArchiveSha256": "5e123859aa0c1598342b600c6db197024a1d63eb9ec531398b310725f589887e",
+        "sourceArchivePath": "Models/GLB format/character-h.glb",
+        "selectedOnly": true
+      },
+      "notes": "Clean, bright Kenney variant chosen to make fast movement headings easy to track.",
+      "sizeBytes": 113596,
+      "sha256": "f62fcf774dc6d61d64a3616803bc3a71176e1aee252020dd3ef680ef0a95d588"
+    },
+    {
+      "id": "character.vulture",
+      "category": "character",
+      "personaSlot": "vulture",
+      "file": "characters/vulture-kenney-blocky-q.glb",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "Blocky Characters 2.0",
+        "creator": "Kenney",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/blocky-characters",
+        "downloadUrl": "https://opengameart.org/sites/default/files/kenney_blocky-characters_2.0.zip"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Kenney License.txt declares Blocky Characters 2.0 as CC0."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-r4-assets/kenney_blocky-characters_2.0.zip",
+        "sourceArchiveSha256": "5e123859aa0c1598342b600c6db197024a1d63eb9ec531398b310725f589887e",
+        "sourceArchivePath": "Models/GLB format/character-q.glb",
+        "selectedOnly": true
+      },
+      "notes": "Sharper dark Kenney variant mapped to vulture for a scavenger profile distinct from rat.",
+      "sizeBytes": 113596,
+      "sha256": "9193d03bc9ee1cfb080a1d561522f45806fe0b522b9807ef2b7c451b77547999"
+    },
+    {
+      "id": "weapon.rusty_blade",
+      "category": "weapon",
+      "weaponName": "rusty_blade",
+      "file": "weapons/rusty-blade-prototype.glb",
+      "tier": 1,
+      "dpsBucket": "low",
+      "attachBone": "right_hand",
+      "pivotYOffset": 0,
+      "handOffset": {
+        "position": [
+          0.05,
+          0.02,
+          -0.02
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          -18
+        ],
+        "scale": 1
+      },
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Jagged rust-coloured primitive blade; intentionally low-tier and rough.",
+      "sizeBytes": 4368,
+      "sha256": "34313c3877d0b607e77d8793f85a6a6cc84ccf36c18c37ba0976b325fb5ded96"
+    },
+    {
+      "id": "weapon.dagger",
+      "category": "weapon",
+      "weaponName": "dagger",
+      "file": "weapons/dagger-prototype.glb",
+      "tier": 1,
+      "dpsBucket": "low",
+      "attachBone": "right_hand",
+      "pivotYOffset": 0,
+      "handOffset": {
+        "position": [
+          0.04,
+          0.01,
+          -0.02
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          -10
+        ],
+        "scale": 0.85
+      },
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Short cyan-guard primitive for quick melee reads without needing a bespoke asset.",
+      "sizeBytes": 4348,
+      "sha256": "f4cf01eae545b4df0b175359b5c5f36b2f976248d07828cf24a2f36d063c9db6"
+    },
+    {
+      "id": "weapon.sword",
+      "category": "weapon",
+      "weaponName": "sword",
+      "file": "weapons/sword-robin-lamb-hero.glb",
+      "tier": 2,
+      "dpsBucket": "mid",
+      "attachBone": "right_hand",
+      "pivotYOffset": 0,
+      "handOffset": {
+        "position": [
+          0.06,
+          0.03,
+          -0.03
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          -14
+        ],
+        "scale": 1
+      },
+      "source": {
+        "title": "Animated Low Poly Hero with Sword and Shield",
+        "creator": "Robin Lamb",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/animated-low-poly-hero-with-sword-and-shield",
+        "downloadUrl": "https://opengameart.org/sites/default/files/hero_1.zip"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Provided local source bundle is marked CC0 for this R&D pass."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-r4-assets/robin_lamb_hero.zip",
+        "sourceArchiveSha256": "26eac1b512bb2d5074f135d152e52fc1c9e993c055845d9a550ce960ed15e603",
+        "sourceArchivePath": "hero/charactersword.glb",
+        "selectedOnly": true
+      },
+      "notes": "Real sourced sword mesh from the hero pack to anchor the mid-tier melee lane.",
+      "sizeBytes": 8956,
+      "sha256": "82a39243bc6a8739626a8dca0a791928b0f13c2b067054b36aa11e530e070792"
+    },
+    {
+      "id": "weapon.axe",
+      "category": "weapon",
+      "weaponName": "axe",
+      "file": "weapons/axe-prototype.glb",
+      "tier": 2,
+      "dpsBucket": "mid",
+      "attachBone": "right_hand",
+      "pivotYOffset": 0,
+      "handOffset": {
+        "position": [
+          0.08,
+          0.04,
+          -0.04
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          -24
+        ],
+        "scale": 1
+      },
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Wide-head primitive axe gives a different swing silhouette from sword and dagger.",
+      "sizeBytes": 4392,
+      "sha256": "f473b990074bfd8794f3fbad3c723b5b7fd06eaae5ca604289c5daed16f5e928"
+    },
+    {
+      "id": "weapon.greatsword",
+      "category": "weapon",
+      "weaponName": "greatsword",
+      "file": "weapons/greatsword-prototype.glb",
+      "tier": 3,
+      "dpsBucket": "high",
+      "attachBone": "right_hand",
+      "pivotYOffset": 0,
+      "handOffset": {
+        "position": [
+          0.09,
+          0.06,
+          -0.05
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          -20
+        ],
+        "scale": 1.15
+      },
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Oversized crimson-guard primitive makes high-tier melee obvious at a glance.",
+      "sizeBytes": 4384,
+      "sha256": "85e26485db2f829a48b8d3c6154e4f59b73021d655b7910953154ab968ee564d"
+    },
+    {
+      "id": "weapon.warhammer",
+      "category": "weapon",
+      "weaponName": "warhammer",
+      "file": "weapons/warhammer-prototype.glb",
+      "tier": 3,
+      "dpsBucket": "high",
+      "attachBone": "right_hand",
+      "pivotYOffset": 0,
+      "handOffset": {
+        "position": [
+          0.1,
+          0.04,
+          -0.05
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          -30
+        ],
+        "scale": 1.1
+      },
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Chunky hammer head and cyan impact core signal heavy-hit VFX timing for WP4.",
+      "sizeBytes": 4388,
+      "sha256": "93876a5eebe28d9e0f18c18385c10a4a0087cc598d2f98a01f393a7327eb5c42"
+    },
+    {
+      "id": "armour.cloth",
+      "category": "armour",
+      "armourName": "cloth",
+      "visualTier": "low",
+      "file": "armour/cloth-wrap-prototype.glb",
+      "tier": 1,
+      "attachBone": "spine",
+      "pivotYOffset": 0,
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Thin dark wrap with a cyan sash; deliberately low protection and low bulk.",
+      "sizeBytes": 2980,
+      "sha256": "c1d3027b2d88946c06c92cdf09631c814379ebb5e2d3a02944dd972fbfe562e6"
+    },
+    {
+      "id": "armour.leather",
+      "category": "armour",
+      "armourName": "leather",
+      "visualTier": "low",
+      "file": "armour/leather-vest-prototype.glb",
+      "tier": 2,
+      "attachBone": "spine",
+      "pivotYOffset": 0,
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Brown scarred vest separates leather from cloth without overwhelming character silhouettes.",
+      "sizeBytes": 3000,
+      "sha256": "3d0e1f3b59e003257003971790474d69eb7a69f66e59b48ffdb802929c6efe1c"
+    },
+    {
+      "id": "armour.chain",
+      "category": "armour",
+      "armourName": "chain",
+      "visualTier": "mid",
+      "file": "armour/chain-mail-prototype.glb",
+      "tier": 3,
+      "attachBone": "spine",
+      "pivotYOffset": 0,
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Metallic mail strips create a mid-tier read for equipment-on-equip swaps.",
+      "sizeBytes": 4484,
+      "sha256": "16ae847ee24fc755ee1e0dd751d5fd6cbb63bac38b51591e0eb7409e6eb5f139"
+    },
+    {
+      "id": "armour.plate",
+      "category": "armour",
+      "armourName": "plate",
+      "visualTier": "high",
+      "file": "armour/plate-harness-prototype.glb",
+      "tier": 4,
+      "attachBone": "spine",
+      "pivotYOffset": 0,
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Shoulder pads plus crimson status bar make plate visibly heavier than chain.",
+      "sizeBytes": 5784,
+      "sha256": "9d0b618fead6cb5095019c4b0337ea7b968fca01cc0fecc11fd64fa6dd1e19b8"
+    },
+    {
+      "id": "armour.riot_plate",
+      "category": "armour",
+      "armourName": "riot_plate",
+      "visualTier": "high",
+      "file": "armour/riot-plate-robin-lamb-shield.glb",
+      "tier": 5,
+      "attachBone": "spine",
+      "pivotYOffset": 0,
+      "source": {
+        "title": "Animated Low Poly Hero with Sword and Shield",
+        "creator": "Robin Lamb",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/animated-low-poly-hero-with-sword-and-shield",
+        "downloadUrl": "https://opengameart.org/sites/default/files/hero_1.zip"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Provided local source bundle is marked CC0 for this R&D pass."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-r4-assets/robin_lamb_hero.zip",
+        "sourceArchiveSha256": "26eac1b512bb2d5074f135d152e52fc1c9e993c055845d9a550ce960ed15e603",
+        "sourceArchivePath": "hero/charactershield.glb",
+        "selectedOnly": true
+      },
+      "notes": "Hero shield repurposed as a bulky riot-plate accessory so top-tier armour is unmistakable.",
+      "sizeBytes": 10240,
+      "sha256": "fc27f95c1a619fdc37f2a0fc9ef0883cece85e9b6d6738340235f413d13953e2"
+    },
+    {
+      "id": "corpse.prone_humanoid",
+      "category": "corpse",
+      "file": "corpse/prone-humanoid-prototype.glb",
+      "corpseKind": "prone-humanoid",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Project-created prone low-poly body replaces the prior flat blob while leaving gore to WP4 VFX.",
+      "sizeBytes": 9948,
+      "sha256": "85bc63281aa9007e7ec027702510ece5da531f698ec99fb6819d1b34bbd6ad8e"
+    },
+    {
+      "id": "environment.floor_texture",
+      "category": "environment",
+      "environmentRole": "floor",
+      "materialRole": "albedo_texture",
+      "file": "textures/floor-neon-dungeon.png",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Dark tiled floor texture with cyan/crimson accents for cyberpunk dungeon material polish.",
+      "sizeBytes": 2697,
+      "sha256": "6287dc11b6cc1cf157ae3c627941dfb55d5a9d335cefc58bddb89f9962faf340"
+    },
+    {
+      "id": "environment.wall_texture",
+      "category": "environment",
+      "environmentRole": "wall",
+      "materialRole": "albedo_texture",
+      "file": "textures/wall-dark-metal.png",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Dark metal wall texture with noisy neon breaks to support the moody lighting pass.",
+      "sizeBytes": 2092,
+      "sha256": "d4e0d5b78a44ae7740e901e583d6f3970b44354baa7feea62c73358326ae3a22"
+    },
+    {
+      "id": "environment.cover_base_large",
+      "category": "environment",
+      "environmentRole": "cover",
+      "file": "environment/cover-quaternius-base-large.glb",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "Ultimate Space Kit",
+        "creator": "Quaternius",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/ultimate-space-kit-by-quaternius",
+        "downloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
+        "upstreamPackPage": "https://quaternius.com/packs/ultimatespacekit.html"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "OpenGameArt and Quaternius provenance from the prior fixed kit list Ultimate Space Kit as CC0."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/ultimate_space_kit-glb.zip",
+        "fallbackDownloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
+        "sourceArchivePath": "Base Large.glb",
+        "selectedOnly": true
+      },
+      "notes": "Existing Quaternius base prop renamed into the Round-4 kit as a cover/objective dressing candidate.",
       "sizeBytes": 124868,
       "sha256": "7da734f2c43a3bee511a94e00ec45826d153ba8182bda64e96409ca9d946d5b1"
     },
     {
-      "id": "environment.building_l",
-      "file": "Building L.glb",
-      "sourceArchivePath": "Building L.glb",
-      "role": "environment prop",
+      "id": "environment.cover_texture",
+      "category": "environment",
+      "environmentRole": "cover",
+      "materialRole": "albedo_texture",
+      "file": "textures/cover-hazard-rust.png",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Rust and hazard-neon texture for cover material variation.",
+      "sizeBytes": 2621,
+      "sha256": "38f78063553b087776ffbd4ae8118d9b4c468ab97ee4e317402d186e09938576"
+    },
+    {
+      "id": "environment.evac_building_l",
+      "category": "environment",
+      "environmentRole": "evac",
+      "file": "environment/evac-quaternius-building-l.glb",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "Ultimate Space Kit",
+        "creator": "Quaternius",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/ultimate-space-kit-by-quaternius",
+        "downloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
+        "upstreamPackPage": "https://quaternius.com/packs/ultimatespacekit.html"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "OpenGameArt and Quaternius provenance from the prior fixed kit list Ultimate Space Kit as CC0."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/ultimate_space_kit-glb.zip",
+        "fallbackDownloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
+        "sourceArchivePath": "Building L.glb",
+        "selectedOnly": true
+      },
+      "notes": "Blocky Quaternius structure retained as an evac visual anchor for the tighter camera pass.",
       "sizeBytes": 109256,
       "sha256": "7351519a381d23ca29f32167206a5c277b7aca286be8a568c962d6db7710609f"
+    },
+    {
+      "id": "environment.evac_texture",
+      "category": "environment",
+      "environmentRole": "evac",
+      "materialRole": "albedo_texture",
+      "file": "textures/evac-crimson-glyph.png",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Crimson glyph texture for evac glow and Diablo-leaning floor markings.",
+      "sizeBytes": 2747,
+      "sha256": "ee1772ae3be03a4e91f9162fb9fdb5f8e0724b29532bae36012c37733555ee84"
+    },
+    {
+      "id": "environment.crate_pickup",
+      "category": "environment",
+      "environmentRole": "crate",
+      "file": "environment/crate-quaternius-pickup.glb",
+      "pivotYOffset": -0.02,
+      "attachBone": null,
+      "source": {
+        "title": "Ultimate Space Kit",
+        "creator": "Quaternius",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/ultimate-space-kit-by-quaternius",
+        "downloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
+        "upstreamPackPage": "https://quaternius.com/packs/ultimatespacekit.html"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "OpenGameArt and Quaternius provenance from the prior fixed kit list Ultimate Space Kit as CC0."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/ultimate_space_kit-glb.zip",
+        "fallbackDownloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
+        "sourceArchivePath": "Pickup Crate.glb",
+        "selectedOnly": true
+      },
+      "notes": "Existing Quaternius pickup crate renamed into the manifest for loot-source visual updates.",
+      "sizeBytes": 75296,
+      "sha256": "3428e5339fe362eebf463f12ec7321951e4972e501fc953c02e4dd74c3e77b52"
+    },
+    {
+      "id": "environment.crate_texture",
+      "category": "environment",
+      "environmentRole": "crate",
+      "materialRole": "albedo_texture",
+      "file": "textures/crate-neon-wear.png",
+      "pivotYOffset": 0,
+      "attachBone": null,
+      "source": {
+        "title": "context-battler Round-4 prototype primitive",
+        "creator": "context-battler prototype",
+        "repository": "local generated asset",
+        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
+        "downloadUrl": null
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+      },
+      "notes": "Extra crate wear texture for empty/fading crate state experiments.",
+      "sizeBytes": 2490,
+      "sha256": "6a46143c0e24e67bf91a85698306710ec7023f8f16fb9b9f97858b7ce475fc43"
     }
-  ],
-  "notes": [
-    "This is a throwaway sourced art kit for prototype substrate comparison, not production art.",
-    "Keep the file set fixed so every prototype renders against the same shared baseline."
   ]
 }
