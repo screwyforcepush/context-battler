@@ -56,14 +56,14 @@ Fallback chains: `attack_armed` -> `attack` -> `generic`; `attack_unarmed` -> `a
 |---|---|---|---|---|---|---|---|
 | rat | `Idle` | `Walking_A` | `Unarmed_Melee_Attack_Punch_A` | `Dualwield_Melee_Attack_Chop` | `PickUp` | `Hit_A` | `Death_A` |
 | duelist | `idle` | `walk` | `attack`* | `attack` | `jump`* generic | `hurt` | `die` |
-| trader | `idle` | `walk` | `attack`* | `attack`* | `jump`* generic | `idle`* fallback | `idle`* fallback |
-| opportunist | `RobotArmature\|Idle` | `RobotArmature\|Walk` | `RobotArmature\|Punch` | `RobotArmature\|Shoot_Big` | `RobotArmature\|Pickup` | `RobotArmature\|HitReact` | `RobotArmature\|Death` |
-| paranoid | `idle` | `run` | `fight_punch` | `fight_punch`* | `fight_kick`* generic | `idle`* fallback | `idle`* fallback |
-| camper | `Idle` | `Walk` | `Sword_Attack`* | `Sword_Attack` | `PickUp_Table` | `Hit` | `Death` |
-| sprinter | `Armature\|Standing` | `Armature\|Run` | `Armature\|Punch` | `Armature\|Punch`* | `Armature\|CrouchDefault`* generic | `Armature\|Standing`* fallback | `Armature\|Standing`* fallback |
-| vulture | `iddle` | `walking` | `attackwithhand` | `attackwithhand`* | `grab` | `iddle`* fallback | `iddle`* fallback |
+| trader | `idle` | `walk` | `jump`* | `jump`* | `jump`* generic | `jump`* generic | `jump`* generic |
+| opportunist | `RobotArmature\|Idle` | `RobotArmature\|Walk` | `RobotArmature\|Kick` | `RobotArmature\|Shoot_Big` | `RobotArmature\|Pickup` | `RobotArmature\|HitRecieve_1` | `RobotArmature\|Death` |
+| paranoid | `idle` | `run` | `fight_punch` | `fight_kick` | `fight_kick`* generic | `fight_kick`* generic | `fight_kick`* generic |
+| camper | `Idle` | `Walk` | `Punch_Jab` | `Sword_Attack` | `PickUp_Table` | `Hit_Chest` | `Death01` |
+| sprinter | `Armature\|Standing` | `Armature\|Run` | `Armature\|Punch` | `Armature\|Swing` | `Armature\|CrouchDefault`* generic | `Armature\|CrouchDefault`* generic | `Armature\|CrouchDefault`* generic |
+| vulture | `iddle` | `walking` | `attackwithhand` | `attackminiguns` | `grab` | `iddle`* fallback | `iddle`* fallback |
 
-`*` = resolved via fallback chain. Entries marked `fallback` surface as frozen idle pose in the Showroom -- a highly visible diagnostic signal that the pack lacks that clip kind. These are curation candidates for a future pack-swap round, not Round-6 scope.
+`*` = resolved via fallback chain. Entries annotated `generic` resolve to the persona's generic action clip (active animation, but not purpose-built for the requested kind). Entries annotated `fallback` resolve to idle -- a frozen pose in the Showroom, the strongest diagnostic signal that the pack lacks that clip kind entirely. Both categories are curation candidates for a future pack-swap round, not Round-6 scope.
 
 ## Equipment Tier Representatives
 
@@ -142,7 +142,7 @@ The Showroom is the concrete realisation of mental-model section 10's "Breadth n
 ## Blind Review Focus
 
 1. Open the Showroom from the home screen and confirm all 8 personas are visible in a side-by-side row with NameLabels.
-2. Click each of the 7 animation triggers -- confirm all 8 characters play simultaneously, ClipLabels update, and fallback annotations appear where expected (trader death -> idle, vulture take_hit -> idle, etc.).
+2. Click each of the 7 animation triggers -- confirm all 8 characters play simultaneously, ClipLabels update, and fallback annotations appear where expected (trader death -> jump via generic, vulture take_hit -> iddle via idle fallback, etc.).
 3. Cycle through weapon tiers None -> Low -> Mid -> High and confirm weapon meshes swap on all personas.
 4. Cycle through armor tiers and confirm material-change reads per tier (not a separate floating mesh).
 5. Click Death and confirm the end pose holds (frozen, not looping). Click Idle and confirm recovery from the paused state.
@@ -153,7 +153,7 @@ The Showroom is the concrete realisation of mental-model section 10's "Breadth n
 
 ## Technical Ceilings
 
-Trader uses `jump` as both attack and generic action clip (the CC0 source ships only idle/walk/jump) and falls back to `idle` for take_hit and death. Paranoid and sprinter similarly lack dedicated take_hit and death clips. Vulture lacks take_hit and death. These fallback chains produce frozen-idle poses that are highly visible diagnostic signals via the ClipLabel. They are curation candidates for a future pack-swap round; the Showroom exists precisely to evaluate them.
+Trader uses `jump` as attack and generic action clip (the CC0 source ships only idle/walk/jump) and resolves take_hit and death to `jump` via the generic fallback chain. Paranoid and sprinter similarly lack dedicated take_hit and death clips, resolving both to their generic clip (`fight_kick` and `Armature|CrouchDefault` respectively). Vulture lacks take_hit, death, and generic, so it falls back all the way to idle (`iddle`) -- the only persona that produces a frozen-idle pose for these triggers. These fallback resolutions are curation candidates for a future pack-swap round; the Showroom exists precisely to evaluate them.
 
 Socket attachment quality remains mixed across packs (no shared humanoid bone map). The manifest records `attachBone` metadata and the runtime falls back to stable hand offsets when a bone is missing.
 

@@ -151,6 +151,20 @@ How the substrate is grown, stated as enduring intent rather than a phase log:
   destroys that signal. Consolidation/curation is a deliberate later
   round, not the next-obvious thing to do once breadth lands.
 
+- **Breadth needs a dedicated viewing surface.** Once breadth-sampling
+  is wide, chasing comparison moments in replay scrubs does not scale
+  — the user cannot reliably evaluate 8 personas × N animation states
+  × M equipment tiers by waiting for the right moment to occur in a
+  match. The R&D throwaway grows a **showroom / playpen** companion
+  surface alongside replay: stable side-by-side display of every
+  sampled asset, on-demand triggers for every animation state, and
+  on-demand equipment swaps — so curation decisions are made under
+  controlled conditions rather than chance. The showroom is a
+  *curator's diagnostic* (the user *is* the building agent for the
+  asset-curation loop, per §10's "diagnostics target building agents
+  first"); it is not a player-facing surface and is not the consumer-
+  render era.
+
 ## 11. Current vision — graded gear & contested public objectives
 
 Where the substrate is heading next, as intent (not an assignment record):
