@@ -1,10 +1,14 @@
 # Round-6 Showroom Spec — Curator's Showroom + Per-Persona Scale Calibration
 
-> **Status: PLAN_RATIFIED (amended 2026-05-27, post-`3036a28`)** —
-> three plan reviews folded in via D9–D18; §7 is a ratified-
-> decisions table. Engineer treats this spec as the WP-A dispatch
-> contract. See `## Plan Review Verdict — RATIFIED` at the foot for
-> the amendment summary and the source review artefacts.
+> **Status: IMPLEMENTED (commit `598be35`, 2026-05-27)** —
+> Closing readout: [`round-6-closing-readout.md`](./round-6-closing-readout.md).
+> Plan ratified post-`3036a28`; three plan reviews folded in via
+> D9–D18; §7 is a ratified-decisions table. Engineer treated this
+> spec as the binding contract.
+> Post-review D21/D22 follow-up is recorded in the closing readout:
+> armour visual buckets use manifest `visualTier`, and `attack_armed`
+> passes through for resolver fallback diagnostics. Ratified spec body
+> below remains unchanged.
 >
 > Follow-up to Round 5
 > ([`round-5-spectacle-spec.md`](./round-5-spectacle-spec.md),

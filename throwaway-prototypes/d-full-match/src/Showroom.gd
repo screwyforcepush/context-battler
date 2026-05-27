@@ -200,9 +200,8 @@ func _make_tier_row(parent: Node, label_text: String, slot: String) -> void:
 
 
 func _trigger_animation(kind: String) -> void:
-	var effective_kind := _effective_animation_kind(kind)
 	for persona in PERSONAS:
-		equipment_attachment.play_character_animation(_showroom_id(str(persona)), effective_kind)
+		equipment_attachment.play_character_animation(_showroom_id(str(persona)), kind)
 	_update_clip_labels()
 
 
@@ -228,11 +227,11 @@ func _apply_equipment() -> void:
 
 
 func _build_tier_maps() -> void:
-	weapon_by_tier = _tier_map_for_assets("weapon_assets_by_name")
-	armour_by_tier = _tier_map_for_assets("armour_assets_by_name")
+	weapon_by_tier = _numeric_tier_map_for_assets("weapon_assets_by_name")
+	armour_by_tier = _armour_visual_tier_map()
 
 
-func _tier_map_for_assets(property_name: String) -> Dictionary:
+func _numeric_tier_map_for_assets(property_name: String) -> Dictionary:
 	var out := {0: "", 1: "", 2: "", 3: ""}
 	var assets = equipment_attachment.get(property_name)
 	if typeof(assets) != TYPE_DICTIONARY:
@@ -248,16 +247,38 @@ func _tier_map_for_assets(property_name: String) -> Dictionary:
 	return out
 
 
+func _armour_visual_tier_map() -> Dictionary:
+	var out := {0: "", 1: "", 2: "", 3: ""}
+	var assets = equipment_attachment.get("armour_assets_by_name")
+	if typeof(assets) != TYPE_DICTIONARY:
+		return out
+	var asset_dict := assets as Dictionary
+	for asset_name in asset_dict.keys():
+		var asset = asset_dict.get(asset_name, {})
+		if typeof(asset) != TYPE_DICTIONARY:
+			continue
+		var tier := _armour_visual_bucket(asset as Dictionary)
+		if out.has(tier) and str(out.get(tier, "")).is_empty():
+			out[tier] = str(asset_name)
+	return out
+
+
+func _armour_visual_bucket(asset: Dictionary) -> int:
+	match str(asset.get("visualTier", "")):
+		"low":
+			return 1
+		"mid":
+			return 2
+		"high":
+			return 3
+		_:
+			return -1
+
+
 func _asset_for_slot_tier(slot: String, tier: int) -> String:
 	if slot == "weapon":
 		return str(weapon_by_tier.get(tier, ""))
 	return str(armour_by_tier.get(tier, ""))
-
-
-func _effective_animation_kind(kind: String) -> String:
-	if kind == "attack_armed" and str(weapon_by_tier.get(current_weapon_tier, "")).is_empty():
-		return "attack_unarmed"
-	return kind
 
 
 func _update_tier_buttons(slot: String, selected_tier: int) -> void:
