@@ -142,6 +142,15 @@ How the substrate is grown, stated as enduring intent rather than a phase log:
 
 - **POC posture.** While in POC, breaking schema and resetting state beats migration shims. Single forward shape, no backward-compat branches.
 
+- **R&D rounds sample breadth before consolidating.** A pre-§10-gate
+  R&D probe (the throwaway render prototypes are the live example)
+  iterates by *sampling* — e.g. one distinct character-pack source per
+  persona, intentionally inconsistent — before any *curation* pass that
+  consolidates onto a single lane. Inconsistency across slots is the
+  data the user reads to pick a direction; premature consolidation
+  destroys that signal. Consolidation/curation is a deliberate later
+  round, not the next-obvious thing to do once breadth lands.
+
 ## 11. Current vision — graded gear & contested public objectives
 
 Where the substrate is heading next, as intent (not an assignment record):
@@ -247,7 +256,40 @@ do not conflict because different layers carry them:
   hand-modeled art. The render is never blocked on an art budget;
   sourced/stylized assets suffice and self-modeling is explicitly out. The
   signature shareable beat is the airdrop **telefrag → red mist** (§11) — a
-  VFX/camera moment, not a modeling one.
+  VFX/camera moment, not a modeling one. **Operationalising "slick is
+  pipeline" means *using* the pipeline:** spectacle layers must speak the
+  substrate's native language — **decals** for surface marks (blood
+  splatter, scorch, signs), **material swaps** for state changes on
+  existing meshes (armor tier shown as a metallic/emissive shift on the
+  character body, not a separately-attached floating mesh), **particles
+  and postprocess** for impacts, and **textured PBR** over base
+  geometry for walls/cover/floor (never flat single-color blocks).
+  Spawning a new entity-mesh as a stand-in for what should be a
+  material/decal/particle effect is a renderer smell — it makes visual
+  state look like *more objects in the scene* rather than properties of
+  the objects already there, and it breaks the felt experience the
+  pipeline is supposed to carry.
+- **Skeletal animation is part of the spectacle floor, not polish.**
+  Walking, attacking, looting, and idling must drive a **rigged
+  skeleton** (AnimationPlayer + clip selection per engine event); limbs
+  must visibly move. Static-pose mesh translation, whole-body-tilt
+  attacks, and rigid sliding figures cannot be compensated for by
+  lighting/material/VFX work elsewhere — they are the dominant felt-
+  experience signal and a missing rig is visible from the first second.
+  Sourced rigged character packs with anim clips (KayKit, Mixamo,
+  Quaternius, Kenney, etc.) are the operational answer; per pillar §13
+  asset rules, this is sourced-not-modeled.
+- **Renderer respects engine resolution order within a turn.** The
+  engine resolves a turn as **movement first, then actions**
+  (attacks/loots/equips/death). The renderer must play it back in that
+  order: the move animation completes (or substantially completes)
+  before loot/gore/attack visuals fire. This temporal sequencing is
+  *implicit in the snapshot schema* — `movements[]` and `actions[]` are
+  separate arrays in engine-resolution order, no within-turn timestamp
+  is required. A renderer that batches every event in a turn at t=0 is
+  a renderer bug, not a contract gap. Honest within-turn sequencing is
+  load-bearing for §5 attribution: the user must see the move that led
+  to the loot, not the loot detached from its cause.
 - **Camera intent:** a follow-anchor on the player's card with free orbit
   to look around; the "director" view is the same camera with the anchor
   released — one system, not two.
