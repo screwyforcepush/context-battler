@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://d8ubyg8xbmfl"
-valid=false
+path="res://.godot/imported/dagger-prototype.glb-b47302a409ce85b103f837470b95896f.scn"
 
 [deps]
 
 source_file="res://shared-harness/art-kit/weapons/dagger-prototype.glb"
+dest_files=["res://.godot/imported/dagger-prototype.glb-b47302a409ce85b103f837470b95896f.scn"]
 
 [params]
 

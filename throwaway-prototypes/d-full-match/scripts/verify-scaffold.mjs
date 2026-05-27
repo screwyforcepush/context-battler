@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -362,6 +364,134 @@ if (existsSync(path.join(appDir, "scripts/export-web.mjs"))) {
   assert(exportScript.includes("DEFAULT_CONVEX_URL"), "export script accepts build-time default");
   assert(exportScript.includes("__d_full_match_config"), "export script injects runtime config");
   assert(exportScript.includes("d-full-match-custom-loader"), "export script carries custom loader marker");
+}
+
+// Asset-import validity sweep. Round-4 blind-UAT salvage: 10 prototype .glb
+// assets had `valid=false` in their .import sidecars because an
+// implementer-written GLTF generator emitted malformed baseColorFactor.
+// The export still built cleanly because failed imports just produce no
+// .scn artifact; the runtime hits "No loader found for resource" at load.
+// This check fails the test step before that surfaces in a browser.
+function walkImports(dir) {
+  const found = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...walkImports(full));
+    } else if (entry.name.endsWith(".import")) {
+      found.push(full);
+    }
+  }
+  return found;
+}
+const artKitDir = path.join(appDir, "shared-harness/art-kit");
+if (existsSync(artKitDir)) {
+  const imports = walkImports(artKitDir);
+  for (const importPath of imports) {
+    const source = readFileSync(importPath, "utf8");
+    const rel = path.relative(appDir, importPath);
+    const validFalse = /^valid\s*=\s*false\s*$/m.test(source);
+    const hasPath = /^path\s*=\s*"res:\/\/.godot\/imported\//m.test(source);
+    assert(!validFalse, `import not marked valid=false: ${rel}`);
+    assert(hasPath, `import has compiled artifact path: ${rel}`);
+  }
+}
+
+// GDScript runtime-parse smoke. Round-4 blind-UAT salvage: 5 parse errors
+// in EntityRenderer.gd (walrus type-inference on Node-typed dispatchers,
+// clamp() return inference) were accepted by the editor parser + the
+// export-release build, but rejected by the WASM runtime at load(). The
+// closure summary's "Godot WebAssembly build clean" was technically true
+// but missed this entire class of defect. This invokes godot --headless
+// --script to exercise the SAME load() codepath the game uses, catching
+// any future drift before the user opens a browser. Skips gracefully if
+// the godot binary isn't on this machine.
+const godotCandidates = [
+  process.env.GODOT_BIN,
+  `/tmp/context-battler-godot/Godot_v4.6.2-stable_linux.${os.arch() === "arm64" ? "arm64" : "x86_64"}`,
+  "godot4",
+  "godot",
+].filter(Boolean);
+let godotBin = null;
+for (const candidate of godotCandidates) {
+  if (candidate.includes("/")) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) {
+      godotBin = candidate;
+      break;
+    }
+  } else {
+    const found = spawnSync("bash", ["-lc", `command -v ${JSON.stringify(candidate)}`], {
+      encoding: "utf8",
+    });
+    if (found.status === 0 && found.stdout.trim()) {
+      godotBin = found.stdout.trim();
+      break;
+    }
+  }
+}
+if (godotBin && existsSync(path.join(appDir, "scripts/verify-gd-parse.gd"))) {
+  const parse = spawnSync(
+    godotBin,
+    ["--headless", "--script", "res://scripts/verify-gd-parse.gd"],
+    { cwd: appDir, encoding: "utf8" },
+  );
+  const stdout = parse.stdout ?? "";
+  const stderr = parse.stderr ?? "";
+  const combined = `${stdout}\n${stderr}`;
+  // verify-gd-parse.gd prints "PASS" or "FAIL"; godot exits nonzero on FAIL.
+  // NOTE: native godot's load() uses a more lenient parser than the WASM
+  // runtime, so this check catches plain syntax errors but NOT all the
+  // walrus type-inference errors that surfaced in round-4 blind UAT. The
+  // narrow regex below targets the specific shapes that bit us, complementing
+  // this smoke as a known-pattern regression lock.
+  const passed = parse.status === 0 && /verify-gd-parse PASS/.test(combined);
+  if (!passed) {
+    console.error("--- godot --script verify-gd-parse.gd output ---");
+    console.error(stdout);
+    console.error(stderr);
+    console.error("--- end godot output ---");
+  }
+  assert(passed, "all res://src/*.gd scripts parse under godot native loader");
+} else {
+  console.warn(
+    "WARN: godot binary not found — skipping GDScript native-parse smoke. " +
+      "Set GODOT_BIN to enable.",
+  );
+}
+
+// GDScript walrus-with-null-ternary regression lock. Round-4 blind UAT
+// surfaced 3 parse errors of the shape `var X := obj.method(...) if cond
+// else null`. The walrus `:=` can't infer the union of <method-return-type>
+// and `null`, and the WASM runtime parser rejects the script at load(). The
+// fix is always to write `var X: Type = ... if cond else null` instead. This
+// regex catches future drift of the same shape. It is intentionally narrow
+// — only the exact bite-pattern from this round — so it doesn't false-flag
+// every walrus assignment in the codebase. If a different walrus inference
+// failure class shows up in a future UAT, add a sibling check rather than
+// widening this one.
+const walrusNullTernary = /^\s*var\s+\w+\s*:=\s+.*\sif\s+.*\selse\s+null\s*$/m;
+const srcDir = path.join(appDir, "src");
+if (existsSync(srcDir)) {
+  for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".gd")) continue;
+    const rel = path.join("src", entry.name);
+    const source = read(rel);
+    let lineNum = 0;
+    let offending = null;
+    for (const line of source.split("\n")) {
+      lineNum += 1;
+      if (walrusNullTernary.test(line)) {
+        offending = `${rel}:${lineNum}: ${line.trim()}`;
+        break;
+      }
+    }
+    assert(
+      offending === null,
+      offending
+        ? `no walrus-with-null-ternary parse-hazard: ${offending}`
+        : `no walrus-with-null-ternary parse-hazard: ${rel}`,
+    );
+  }
 }
 
 const failed = checks.filter((check) => !check.ok);

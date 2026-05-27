@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://dybti6qqtjanv"
-valid=false
+path="res://.godot/imported/axe-prototype.glb-b471e79e26b07d700e87c54d35abf50d.scn"
 
 [deps]
 
 source_file="res://shared-harness/art-kit/weapons/axe-prototype.glb"
+dest_files=["res://.godot/imported/axe-prototype.glb-b471e79e26b07d700e87c54d35abf50d.scn"]
 
 [params]
 

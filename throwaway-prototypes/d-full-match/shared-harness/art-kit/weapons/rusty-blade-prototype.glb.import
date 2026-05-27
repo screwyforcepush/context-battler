@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://cl24db4trqxlc"
-valid=false
+path="res://.godot/imported/rusty-blade-prototype.glb-7a366ae3703988ae4bd400386256302b.scn"
 
 [deps]
 
 source_file="res://shared-harness/art-kit/weapons/rusty-blade-prototype.glb"
+dest_files=["res://.godot/imported/rusty-blade-prototype.glb-7a366ae3703988ae4bd400386256302b.scn"]
 
 [params]
 

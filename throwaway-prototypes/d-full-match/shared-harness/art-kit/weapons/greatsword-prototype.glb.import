@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://bqkt1083h557w"
-valid=false
+path="res://.godot/imported/greatsword-prototype.glb-e3975f867a9bd9031c226cb726a1e320.scn"
 
 [deps]
 
 source_file="res://shared-harness/art-kit/weapons/greatsword-prototype.glb"
+dest_files=["res://.godot/imported/greatsword-prototype.glb-e3975f867a9bd9031c226cb726a1e320.scn"]
 
 [params]
 

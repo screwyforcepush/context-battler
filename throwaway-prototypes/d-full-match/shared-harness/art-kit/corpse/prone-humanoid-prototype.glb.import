@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://dpmmivcjnwts"
-valid=false
+path="res://.godot/imported/prone-humanoid-prototype.glb-fbd477d5abdf15daaf6cb69bea3af781.scn"
 
 [deps]
 
 source_file="res://shared-harness/art-kit/corpse/prone-humanoid-prototype.glb"
+dest_files=["res://.godot/imported/prone-humanoid-prototype.glb-fbd477d5abdf15daaf6cb69bea3af781.scn"]
 
 [params]
 

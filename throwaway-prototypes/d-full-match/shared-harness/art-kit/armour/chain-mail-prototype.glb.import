@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://mpa7djvkexc2"
-valid=false
+path="res://.godot/imported/chain-mail-prototype.glb-e01838dd23c02c8e7843879480aa925a.scn"
 
 [deps]
 
 source_file="res://shared-harness/art-kit/armour/chain-mail-prototype.glb"
+dest_files=["res://.godot/imported/chain-mail-prototype.glb-e01838dd23c02c8e7843879480aa925a.scn"]
 
 [params]
 

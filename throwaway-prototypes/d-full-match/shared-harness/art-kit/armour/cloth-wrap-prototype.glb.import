@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://b4lp82we8rc32"
-valid=false
+path="res://.godot/imported/cloth-wrap-prototype.glb-1f089f792a03eb63bfd32922169bbb9e.scn"
 
 [deps]
 
 source_file="res://shared-harness/art-kit/armour/cloth-wrap-prototype.glb"
+dest_files=["res://.godot/imported/cloth-wrap-prototype.glb-1f089f792a03eb63bfd32922169bbb9e.scn"]
 
 [params]
 

@@ -297,8 +297,8 @@
         "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
       },
       "notes": "Jagged rust-coloured primitive blade; intentionally low-tier and rough.",
-      "sizeBytes": 4368,
-      "sha256": "34313c3877d0b607e77d8793f85a6a6cc84ccf36c18c37ba0976b325fb5ded96"
+      "sizeBytes": 4344,
+      "sha256": "a7c323e25f68bc0f5e54d118f497a0c7db5f575fda303ca90b05bccd82464a1e"
     },
     {
       "id": "weapon.dagger",
@@ -337,8 +337,8 @@
         "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
       },
       "notes": "Short cyan-guard primitive for quick melee reads without needing a bespoke asset.",
-      "sizeBytes": 4348,
-      "sha256": "f4cf01eae545b4df0b175359b5c5f36b2f976248d07828cf24a2f36d063c9db6"
+      "sizeBytes": 4324,
+      "sha256": "ab397967a57ccdf1a783fcfc8b2d1a758a1e82e88b0d8426d74379eb1d0283cc"
     },
     {
       "id": "weapon.sword",
@@ -423,8 +423,8 @@
         "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
       },
       "notes": "Wide-head primitive axe gives a different swing silhouette from sword and dagger.",
-      "sizeBytes": 4392,
-      "sha256": "f473b990074bfd8794f3fbad3c723b5b7fd06eaae5ca604289c5daed16f5e928"
+      "sizeBytes": 4364,
+      "sha256": "c2549690cf6033d3fb474060634fd502de62fb79d88a78e4f394742c0fad7e81"
     },
     {
       "id": "weapon.greatsword",
@@ -463,8 +463,8 @@
         "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
       },
       "notes": "Oversized crimson-guard primitive makes high-tier melee obvious at a glance.",
-      "sizeBytes": 4384,
-      "sha256": "85e26485db2f829a48b8d3c6154e4f59b73021d655b7910953154ab968ee564d"
+      "sizeBytes": 4356,
+      "sha256": "0ecaa1c4ab84b2cf34362df234f9d7187d3b8d6ebeba8125471a604142d2a135"
     },
     {
       "id": "weapon.warhammer",
@@ -503,8 +503,8 @@
         "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
       },
       "notes": "Chunky hammer head and cyan impact core signal heavy-hit VFX timing for WP4.",
-      "sizeBytes": 4388,
-      "sha256": "93876a5eebe28d9e0f18c18385c10a4a0087cc598d2f98a01f393a7327eb5c42"
+      "sizeBytes": 4364,
+      "sha256": "3b62b9bf0982ac85e61d1412dbb611b24bf5896edb87467306252ad2f1020d59"
     },
     {
       "id": "armour.cloth",
@@ -530,8 +530,8 @@
         "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
       },
       "notes": "Thin dark wrap with a cyan sash; deliberately low protection and low bulk.",
-      "sizeBytes": 2980,
-      "sha256": "c1d3027b2d88946c06c92cdf09631c814379ebb5e2d3a02944dd972fbfe562e6"
+      "sizeBytes": 2968,
+      "sha256": "1e0c0fe0ea16da62ba23c42c9d74bbbc9b70b6f7fdd44b24cd57d75b5f48a7a0"
     },
     {
       "id": "armour.leather",
@@ -557,8 +557,8 @@
         "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
       },
       "notes": "Brown scarred vest separates leather from cloth without overwhelming character silhouettes.",
-      "sizeBytes": 3000,
-      "sha256": "3d0e1f3b59e003257003971790474d69eb7a69f66e59b48ffdb802929c6efe1c"
+      "sizeBytes": 2980,
+      "sha256": "e4d65e786017627f562c09f302270ff269a12fb0d97dac173585f0a59ef49a8a"
     },
     {
       "id": "armour.chain",
@@ -584,8 +584,8 @@
         "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
       },
       "notes": "Metallic mail strips create a mid-tier read for equipment-on-equip swaps.",
-      "sizeBytes": 4484,
-      "sha256": "16ae847ee24fc755ee1e0dd751d5fd6cbb63bac38b51591e0eb7409e6eb5f139"
+      "sizeBytes": 4456,
+      "sha256": "ba0320462a6963c3cc9dcd82a2721506acfdd5573d92f117ca7b696abe369092"
     },
     {
       "id": "armour.plate",
@@ -611,8 +611,8 @@
         "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
       },
       "notes": "Shoulder pads plus crimson status bar make plate visibly heavier than chain.",
-      "sizeBytes": 5784,
-      "sha256": "9d0b618fead6cb5095019c4b0337ea7b968fca01cc0fecc11fd64fa6dd1e19b8"
+      "sizeBytes": 5744,
+      "sha256": "b057c715020746877ee3c6af540da226b09448b924d47fc6815490708cbb14f2"
     },
     {
       "id": "armour.riot_plate",
@@ -669,8 +669,8 @@
         "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
       },
       "notes": "Project-created prone low-poly body replaces the prior flat blob while leaving gore to WP4 VFX.",
-      "sizeBytes": 9948,
-      "sha256": "85bc63281aa9007e7ec027702510ece5da531f698ec99fb6819d1b34bbd6ad8e"
+      "sizeBytes": 9900,
+      "sha256": "cca57cd872514fa8a3e435f002f3f6e8edc83481d466577c8c7e4e3b345d38fa"
     },
     {
       "id": "environment.floor_texture",

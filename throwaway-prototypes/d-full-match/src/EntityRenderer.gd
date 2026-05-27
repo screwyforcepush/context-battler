@@ -257,8 +257,8 @@ func _spawn_characters(characters: Array) -> void:
 			continue
 		var id := str(character.get("characterId", ""))
 		var persona := str(character.get("personaId", ""))
-		var scene := equipment_attachment.character_scene_for_persona(persona) if equipment_attachment != null else null
-		var pivot_y := equipment_attachment.pivot_y_for_persona(persona) if equipment_attachment != null else 0.0
+		var scene: PackedScene = equipment_attachment.character_scene_for_persona(persona) if equipment_attachment != null else null
+		var pivot_y: float = equipment_attachment.pivot_y_for_persona(persona) if equipment_attachment != null else 0.0
 		var node := _instance_or_capsule(scene, "character-%s" % id, mat_agent[i % mat_agent.size()], pivot_y)
 		add_child(node)
 		character_nodes[id] = node
@@ -277,7 +277,7 @@ func _spawn_crates() -> void:
 		var id := str(crate.get("id", ""))
 		var node := _instance_or_box(crate_scene, "crate-%s" % id, mat_closed, Vector3(0.17, 0.21, 0.17), CRATE_MODEL_SCALE)
 		if equipment_attachment != null:
-			var pivot_y := equipment_attachment.pivot_y_for_environment_role("crate")
+			var pivot_y: float = equipment_attachment.pivot_y_for_environment_role("crate")
 			var visual := node.get_node_or_null("visual") as Node3D
 			if visual != null:
 				visual.position.y = pivot_y
@@ -381,7 +381,7 @@ func _tile_along_path(path: Array, progress: float) -> Dictionary:
 	if points.size() == 1:
 		return points[0]
 	var segment_count := points.size() - 1
-	var scaled := clamp(progress, 0.0, 1.0) * float(segment_count)
+	var scaled: float = clamp(progress, 0.0, 1.0) * float(segment_count)
 	var segment_index: int = min(int(floor(scaled)), segment_count - 1)
 	var local_t := clamp(scaled - float(segment_index), 0.0, 1.0)
 	var a: Dictionary = points[segment_index]
@@ -413,7 +413,7 @@ func _active_heading_for_character(character_id: String) -> Vector3:
 	if points.size() < 2:
 		return Vector3.ZERO
 	var segment_count := points.size() - 1
-	var scaled := clamp(_turn_fraction(), 0.0, 1.0) * float(segment_count)
+	var scaled: float = clamp(_turn_fraction(), 0.0, 1.0) * float(segment_count)
 	var segment_index: int = min(int(floor(scaled)), segment_count - 1)
 	for offset in range(segment_count):
 		var index: int = clamp(segment_index + offset, 0, segment_count - 1)

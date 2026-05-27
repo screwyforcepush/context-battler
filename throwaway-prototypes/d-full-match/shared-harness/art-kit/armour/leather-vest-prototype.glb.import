@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://dhp3olac3johm"
-valid=false
+path="res://.godot/imported/leather-vest-prototype.glb-b0998f4056165d65137f76e1ce75e4bf.scn"
 
 [deps]
 
 source_file="res://shared-harness/art-kit/armour/leather-vest-prototype.glb"
+dest_files=["res://.godot/imported/leather-vest-prototype.glb-b0998f4056165d65137f76e1ce75e4bf.scn"]
 
 [params]
 

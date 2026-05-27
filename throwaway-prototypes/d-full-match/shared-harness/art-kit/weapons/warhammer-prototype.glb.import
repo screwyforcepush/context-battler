@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://bjmw8pfxv5a1e"
-valid=false
+path="res://.godot/imported/warhammer-prototype.glb-5eef0165de9e4e664ab47d2273936d0b.scn"
 
 [deps]
 
 source_file="res://shared-harness/art-kit/weapons/warhammer-prototype.glb"
+dest_files=["res://.godot/imported/warhammer-prototype.glb-5eef0165de9e4e664ab47d2273936d0b.scn"]
 
 [params]
 
