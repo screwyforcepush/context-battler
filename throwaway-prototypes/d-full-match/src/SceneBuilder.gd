@@ -199,6 +199,9 @@ func _mat(albedo: Color, emission: Color, energy: float, albedo_texture_resource
 	material.emission_energy_multiplier = energy
 	material.metallic = metallic
 	material.roughness = roughness
+	material.normal_enabled = true
+	material.normal_texture = _normal_noise_texture(noise_seed + 77)
+	material.normal_scale = 0.12 + metallic * 0.18
 	return material
 
 
@@ -218,5 +221,20 @@ func _noise_texture(noise_seed: int) -> NoiseTexture2D:
 	var texture := NoiseTexture2D.new()
 	texture.width = 512
 	texture.height = 512
+	texture.noise = noise
+	return texture
+
+
+func _normal_noise_texture(noise_seed: int) -> NoiseTexture2D:
+	var noise := FastNoiseLite.new()
+	noise.seed = noise_seed
+	noise.frequency = 0.18
+	noise.fractal_octaves = 5
+	noise.fractal_gain = 0.50
+	var texture := NoiseTexture2D.new()
+	texture.width = 512
+	texture.height = 512
+	texture.as_normal_map = true
+	texture.bump_strength = 0.42
 	texture.noise = noise
 	return texture

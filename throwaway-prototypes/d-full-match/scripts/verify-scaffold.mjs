@@ -29,6 +29,7 @@ const requiredFiles = [
   "src/EquipmentMeshAttachment.gd",
   "scripts/export-web.mjs",
   "scripts/serve.mjs",
+  "scripts/verify-character-rigs.gd",
   "shared-harness/art-kit/manifest.json",
 ];
 
@@ -52,6 +53,11 @@ function assertNotIncludes(source, needle, message) {
 
 function assertMatches(source, pattern, message) {
   assert(pattern.test(source), message);
+}
+
+function numericConstant(source, name) {
+  const match = source.match(new RegExp(`const\\s+${name}\\s*:=\\s*([0-9]+(?:\\.[0-9]+)?)`));
+  return match ? Number(match[1]) : Number.NaN;
 }
 
 function sha256(relativePath) {
@@ -142,6 +148,8 @@ if (existsSync(path.join(appDir, "src/SceneBuilder.gd"))) {
   assertIncludes(sceneBuilder, "cosmetic_wall_inset", "SceneBuilder exposes render-only wall inset helper");
   assertIncludes(sceneBuilder, "NoiseTexture2D", "SceneBuilder uses procedural texture materials");
   assertIncludes(sceneBuilder, "albedo_texture", "SceneBuilder assigns material albedo textures");
+  assertIncludes(sceneBuilder, "normal_texture", "SceneBuilder assigns PBR normal textures");
+  assertIncludes(sceneBuilder, "metallic", "SceneBuilder assigns PBR metallic values");
   for (const banned of ["a_star", "astar", "find_path", "bresenham", "dijkstra", "breadth_first_search", "manual_collision"]) {
     assertNotIncludes(sceneBuilder, banned, `SceneBuilder avoids renderer pathing token ${banned}`);
   }
@@ -170,6 +178,25 @@ if (existsSync(path.join(appDir, "src/EntityRenderer.gd"))) {
   assertIncludes(entityRenderer, "play_wall_slam", "EntityRenderer exposes wall face-slam hook");
   assertIncludes(entityRenderer, "play_loot_pickup", "EntityRenderer exposes loot animation hook");
   assertIncludes(entityRenderer, "mark_loot_source", "EntityRenderer exposes loot source empty/fade hook");
+  const entityActionPhaseStart = numericConstant(entityRenderer, "ACTION_PHASE_START");
+  assert(
+    entityActionPhaseStart >= 0.55 && entityActionPhaseStart <= 0.8,
+    "EntityRenderer defines ACTION_PHASE_START within the action-phase gate range",
+  );
+  assertIncludes(entityRenderer, "environmental_effects_fired_through_turn", "EntityRenderer gates environmental effects with a fired-through counter");
+  assertIncludes(entityRenderer, "_resolved_action_turn_for_value", "EntityRenderer resolves action-phase turns from fractional turn_value");
+  assertIncludes(entityRenderer, "_equipment_turn_for_value", "EntityRenderer gates equipment visibility through the action-phase helper");
+  assertMatches(
+    entityRenderer,
+    /fraction\s*>=\s*ACTION_PHASE_START[\s\S]*turn_int\s*-\s*1/,
+    "EntityRenderer holds current-turn equipment until ACTION_PHASE_START",
+  );
+  assertMatches(
+    entityRenderer,
+    /turn_int\s*>=\s*_end_turn_from_snapshot\(\)[\s\S]*return\s+_end_turn_from_snapshot\(\)/,
+    "EntityRenderer clamps equipment visibility at final turn",
+  );
+  assertNotIncludes(entityRenderer, "last_effect_turn", "EntityRenderer no longer fires red mist directly at floor(turn_value)");
   assertIncludes(entityRenderer, "movements_by_turn_character", "EntityRenderer buckets snapshot.movements by turn and character");
   assertIncludes(entityRenderer, '"movements"', "EntityRenderer reads snapshot.movements");
   assertIncludes(entityRenderer, '"path"', "EntityRenderer consumes movement path waypoints");
@@ -206,6 +233,37 @@ if (existsSync(path.join(appDir, "src/CombatVfx.gd"))) {
   ]) {
     assertIncludes(combatVfx, token, `CombatVfx consumes or emits ${token}`);
   }
+  const actionPhaseStart = numericConstant(combatVfx, "ACTION_PHASE_START");
+  assert(actionPhaseStart >= 0.55 && actionPhaseStart <= 0.8, "CombatVfx defines ACTION_PHASE_START within the action-phase gate range");
+  const wallSlamPhaseStart = numericConstant(combatVfx, "WALL_SLAM_PHASE_START");
+  assert(wallSlamPhaseStart >= 0.95 && wallSlamPhaseStart <= 1.0, "CombatVfx gates wall-slams at movement-end");
+  assertIncludes(combatVfx, "actions_fired_through_turn", "CombatVfx tracks action VFX with a fired-through gate");
+  assertIncludes(combatVfx, "wall_slams_fired_through_turn", "CombatVfx tracks wall-slams with a separate fired-through gate");
+  assertIncludes(combatVfx, "_initial_actions_fired_through_turn", "CombatVfx initializes fired-through from playback startTurn");
+  assertMatches(
+    combatVfx,
+    /startTurn[\s\S]*-\s*1/,
+    "CombatVfx initializes fired-through from startTurn - 1",
+  );
+  assertMatches(
+    combatVfx,
+    /if\s+fraction\s*>=\s*ACTION_PHASE_START[\s\S]*resolved_through\s*=\s*turn_int/,
+    "CombatVfx fires action VFX only after ACTION_PHASE_START",
+  );
+  assertMatches(
+    combatVfx,
+    /if\s+fraction\s*>=\s*WALL_SLAM_PHASE_START[\s\S]*resolved_through\s*=\s*turn_int/,
+    "CombatVfx fires wall-slams only near movement end",
+  );
+  assertMatches(
+    combatVfx,
+    /if\s+turn_int\s*>=\s*end_turn[\s\S]*resolved_through\s*=\s*end_turn/,
+    "CombatVfx clamps final-turn VFX at playback end",
+  );
+  assertNotIncludes(combatVfx, "last_triggered_turn", "CombatVfx no longer uses floor-turn last_triggered_turn gate");
+  assertNotIncludes(combatVfx, "CylinderMesh", "CombatVfx blood-pool spawn no longer uses circular disk meshes");
+  assertIncludes(combatVfx, "QuadMesh", "CombatVfx uses the documented blood-pool alpha fallback mesh");
+  assertIncludes(combatVfx, "blood-splatter-alexandrohaibi.png", "CombatVfx uses the sourced splatter alpha texture");
   const poolMatch = combatVfx.match(/MAX_BLOOD_POOLS\s*:=\s*(\d+)/);
   const burstMatch = combatVfx.match(/MAX_PARTICLE_BURST\s*:=\s*(\d+)/);
   assert(poolMatch && Number(poolMatch[1]) <= 64, "CombatVfx caps persistent blood pools at <=64");
@@ -228,9 +286,19 @@ if (existsSync(path.join(appDir, "src/EquipmentMeshAttachment.gd"))) {
     "play_loot_swap",
     "WEAPON_SOCKET_NAME",
     "ARMOUR_SOCKET_NAME",
+    "Skeleton3D",
+    "AnimationPlayer",
+    "BoneAttachment3D",
+    "find_bone",
+    "animation_clip_for_character",
+    "has_rigged_animation",
+    "play_character_animation",
+    "_apply_persona_palette",
+    "_palette_material",
   ]) {
     assertIncludes(equipment, token, `EquipmentMeshAttachment handles ${token}`);
   }
+  assertNotIncludes(equipment, "armour_visual", "EquipmentMeshAttachment does not attach floating armour visuals");
 }
 
 if (existsSync(path.join(appDir, "src/PlaybackClock.gd"))) {
@@ -277,14 +345,17 @@ if (existsSync(path.join(appDir, "scenes/MatchPlayer.tscn"))) {
 
 if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   const manifest = JSON.parse(read("shared-harness/art-kit/manifest.json"));
-  assert(manifest.schemaVersion === 2, "d-full-match art manifest uses schemaVersion 2");
+  assert(manifest.schemaVersion === 3, "d-full-match art manifest uses schemaVersion 3");
   assert(!("source" in manifest), "art manifest has no singleton top-level source");
   assert(!("license" in manifest), "art manifest has no singleton top-level license");
   assert(!("extraction" in manifest), "art manifest has no singleton top-level extraction");
   assert(Array.isArray(manifest.assets), "art manifest exposes assets array");
   const assets = manifest.assets ?? [];
   const personas = new Set();
-  const characterSources = new Set();
+  const characters = [];
+  const sourceCounts = new Map();
+  const priorSources = new Set(["kenney", "quaternius", "robin-lamb"]);
+  let translationOnlyFallbacks = 0;
   const weapons = new Set();
   const armours = new Set();
   const corpseAssets = [];
@@ -299,14 +370,44 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
     if (existsSync(path.join(appDir, relativePath))) {
       assert(statSync(path.join(appDir, relativePath)).size === asset.sizeBytes, `manifest sizeBytes matches: ${asset.file}`);
       assert(sha256(relativePath) === asset.sha256, `manifest sha256 matches: ${asset.file}`);
-      if (/\.(glb|png)$/i.test(asset.file)) {
+      if (/\.(glb|gltf|fbx|png)$/i.test(asset.file)) {
         assert(existsSync(path.join(appDir, `${relativePath}.import`)), `Godot import sidecar exists: ${asset.file}`);
       }
     }
     if (asset.category === "character") {
       personas.add(asset.personaSlot);
-      characterSources.add(asset.source.creator || asset.source.pageUrl);
+      characters.push(asset);
+      assert(typeof asset.sourceKey === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(asset.sourceKey), `character asset has normalized sourceKey: ${asset.id}`);
+      sourceCounts.set(asset.sourceKey, (sourceCounts.get(asset.sourceKey) ?? 0) + 1);
       assert("pivotYOffset" in asset, `character asset has pivotYOffset: ${asset.id}`);
+      assert(asset.palette && typeof asset.palette === "object", `character asset has palette block: ${asset.id}`);
+      for (const channel of ["base", "accent", "emissive"]) {
+        assert(typeof asset.palette?.[channel] === "string" && /^#[0-9a-fA-F]{6}$/.test(asset.palette[channel]), `character palette has ${channel}: ${asset.id}`);
+      }
+      assert(asset.animation && typeof asset.animation === "object", `character asset has animation block: ${asset.id}`);
+      assert(typeof asset.animation?.idle === "string" && asset.animation.idle.length > 0, `character animation has idle clip: ${asset.id}`);
+      assert(typeof asset.animation?.walk === "string" && asset.animation.walk.length > 0, `character animation has walk clip: ${asset.id}`);
+      const notes = String(asset.notes ?? "");
+      const attackFallback = /attack-fallback:(translation-only|pose|generic)/.test(notes);
+      const lootFallback = /loot-fallback:(translation-only|pose|generic)/.test(notes);
+      assert(
+        (typeof asset.animation?.attack === "string" && asset.animation.attack.length > 0) || attackFallback,
+        `character animation has attack clip or explicit fallback: ${asset.id}`,
+      );
+      assert(
+        (typeof asset.animation?.loot === "string" && asset.animation.loot.length > 0) ||
+          (typeof asset.animation?.generic === "string" && asset.animation.generic.length > 0) ||
+          lootFallback,
+        `character animation has loot/generic clip or explicit fallback: ${asset.id}`,
+      );
+      if (/attack-fallback:translation-only|motion-fallback:translation-only/.test(notes)) {
+        translationOnlyFallbacks += 1;
+      }
+      if (asset.attachBone == null) {
+        assert(/attachBone-fallback:handOffset/.test(notes), `character without attachBone documents handOffset fallback: ${asset.id}`);
+      } else {
+        assert(typeof asset.attachBone === "string" && asset.attachBone.length > 0, `character attachBone is a string: ${asset.id}`);
+      }
     } else if (asset.category === "weapon") {
       weapons.add(asset.weaponName);
       assert(asset.attachBone || asset.handOffset, `weapon asset has socket metadata: ${asset.id}`);
@@ -320,10 +421,22 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
       environmentRoles.add(asset.environmentRole);
     }
   }
+  assert(characters.length === 8, "manifest exposes exactly 8 character assets");
+  assert(personas.size === 8, "manifest exposes exactly 8 persona slots");
   for (const persona of ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]) {
     assert(personas.has(persona), `manifest maps persona ${persona}`);
   }
-  assert(characterSources.size >= 3, "manifest character assets represent at least 3 source lanes");
+  assert(sourceCounts.size === 8, "manifest character assets expose 8 distinct body sourceKey values");
+  for (const sourceKey of priorSources) {
+    const familyCount = [...sourceCounts.keys()].filter((key) => key.includes(sourceKey)).length;
+    assert(familyCount <= 1, `prior sourceKey reuse cap respected: ${sourceKey}`);
+  }
+  for (const [sourceKey, count] of sourceCounts) {
+    if (!priorSources.has(sourceKey)) {
+      assert(count === 1, `new sourceKey is unique: ${sourceKey}`);
+    }
+  }
+  assert(translationOnlyFallbacks <= 1, "manifest documents at most one translation-only motion fallback");
   for (const weapon of ["rusty_blade", "dagger", "sword", "axe", "greatsword", "warhammer"]) {
     assert(weapons.has(weapon), `manifest maps weapon ${weapon}`);
   }
@@ -444,7 +557,7 @@ if (godotBin && existsSync(path.join(appDir, "scripts/verify-gd-parse.gd"))) {
   // walrus type-inference errors that surfaced in round-4 blind UAT. The
   // narrow regex below targets the specific shapes that bit us, complementing
   // this smoke as a known-pattern regression lock.
-  const passed = parse.status === 0 && /verify-gd-parse PASS/.test(combined);
+  const passed = parse.status === 0 && /verify-gd-parse PASS/.test(combined) && !/SCRIPT ERROR|ERROR:/.test(combined);
   if (!passed) {
     console.error("--- godot --script verify-gd-parse.gd output ---");
     console.error(stdout);
@@ -455,6 +568,30 @@ if (godotBin && existsSync(path.join(appDir, "scripts/verify-gd-parse.gd"))) {
 } else {
   console.warn(
     "WARN: godot binary not found — skipping GDScript native-parse smoke. " +
+      "Set GODOT_BIN to enable.",
+  );
+}
+
+if (godotBin && existsSync(path.join(appDir, "scripts/verify-character-rigs.gd"))) {
+  const rigCheck = spawnSync(
+    godotBin,
+    ["--headless", "--script", "res://scripts/verify-character-rigs.gd"],
+    { cwd: appDir, encoding: "utf8" },
+  );
+  const stdout = rigCheck.stdout ?? "";
+  const stderr = rigCheck.stderr ?? "";
+  const combined = `${stdout}\n${stderr}`;
+  const passed = rigCheck.status === 0 && /verify-character-rigs PASS/.test(combined) && !/SCRIPT ERROR|ERROR:/.test(combined);
+  if (!passed) {
+    console.error("--- godot --script verify-character-rigs.gd output ---");
+    console.error(stdout);
+    console.error(stderr);
+    console.error("--- end godot output ---");
+  }
+  assert(passed, "all manifest character rigs load and resolve manifest animation clips");
+} else {
+  console.warn(
+    "WARN: godot binary not found — skipping character rig structural check. " +
       "Set GODOT_BIN to enable.",
   );
 }

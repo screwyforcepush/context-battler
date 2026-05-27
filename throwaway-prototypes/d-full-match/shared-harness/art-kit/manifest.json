@@ -1,52 +1,77 @@
 {
-  "schemaVersion": 2,
-  "kitName": "d-full-match-round-4-spectacle-art-kit",
-  "purpose": "Multi-source Round-4 R&D art kit for d-full-match: deterministic persona models, equipment meshes, corpse, and cyberpunk-Diablo material placeholders.",
+  "schemaVersion": 3,
+  "kitName": "d-full-match-round-5-spectacle-art-kit",
+  "purpose": "Multi-source Round-5 R&D art kit for d-full-match: eight distinct sourced character lanes, rigged animation clips, equipment material tiers, corpse, blood-splatter texture, and cyberpunk-Diablo environment materials.",
   "notes": [
     "Throwaway prototype art kit: breadth and deterministic mapping matter more than uniform art polish.",
-    "Character sources represented: Kenney Blocky Characters 2.0, Robin Lamb Animated Low Poly Hero, Quaternius Ultimate Space Kit mech, and context-battler local primitive humanoids.",
-    "Primitive weapons, armour, corpse, two character silhouettes, and textures are generated CC0 R&D placeholders so WP4 can wire mesh-on-equip and VFX timing without waiting on bespoke art.",
-    "The original root-level fixed-kit files are retained for compatibility with pre-integration renderer code; Round-4 manifest entries point at lowercase category-folder assets."
+    "Character body sourceKey values are normalized pack identities; aggregators and Mixamo-style animation sources do not consume body-source identity.",
+    "Round 5 samples eight distinct sourced character lanes, one per persona; no local primitive character slot remains in the active manifest.",
+    "Per-persona palettes provide base, accent, and emissive channels for spawn-time material overrides.",
+    "Blood pools use the CC0 AlejandroHaibi blood splatter texture with the web-compatible QuadMesh alpha fallback path documented in the closing readout."
   ],
   "assets": [
     {
       "id": "character.rat",
       "category": "character",
       "personaSlot": "rat",
-      "file": "characters/rat-kenney-blocky-a.glb",
+      "sourceKey": "kaykit",
+      "file": "characters/rat-kaykit-rogue-hooded.glb",
       "pivotYOffset": 0,
-      "attachBone": null,
+      "attachBone": "handslot.r",
+      "animation": {
+        "idle": "Idle",
+        "walk": "Walking_A",
+        "attack": "Dualwield_Melee_Attack_Chop",
+        "loot": "PickUp"
+      },
+      "palette": {
+        "base": "#32402f",
+        "accent": "#78f28a",
+        "emissive": "#d7ff63"
+      },
       "source": {
-        "title": "Blocky Characters 2.0",
-        "creator": "Kenney",
-        "repository": "OpenGameArt",
-        "pageUrl": "https://opengameart.org/content/blocky-characters",
-        "downloadUrl": "https://opengameart.org/sites/default/files/kenney_blocky-characters_2.0.zip"
+        "title": "KayKit - Character Pack: Adventurers",
+        "creator": "Kay Lousberg / KayKit",
+        "repository": "GitHub",
+        "pageUrl": "https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0",
+        "downloadUrl": "https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0"
       },
       "license": {
         "spdx": "CC0-1.0",
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "Kenney License.txt declares Blocky Characters 2.0 as CC0."
+        "notes": "Repository LICENSE marks the 3D character pack CC0."
       },
       "extraction": {
-        "sourceArchive": "/tmp/context-battler-r4-assets/kenney_blocky-characters_2.0.zip",
-        "sourceArchiveSha256": "5e123859aa0c1598342b600c6db197024a1d63eb9ec531398b310725f589887e",
-        "sourceArchivePath": "Models/GLB format/character-a.glb",
+        "sourceArchive": "/tmp/kaykit-adventures",
+        "sourceArchiveSha256": null,
+        "sourceArchivePath": "addons/kaykit_character_pack_adventures/Characters/gltf/Rogue_Hooded.glb",
         "selectedOnly": true
       },
-      "notes": "Small blocky scavenger silhouette; chosen as the rat baseline because it reads scrappy rather than heroic.",
-      "sizeBytes": 113596,
-      "sha256": "8ee5dae167ec589863f6bba222467eb90ace8be357a4c5abfcab289290181616"
+      "notes": "Hooded rogue gives rat a sourced scavenger silhouette and full melee/walk/pickup animation breadth.",
+      "sizeBytes": 3597652,
+      "sha256": "93e6e25213009952276d9cf34f5d96a243767334c66f280db0433ddfabb91545"
     },
     {
       "id": "character.duelist",
       "category": "character",
       "personaSlot": "duelist",
+      "sourceKey": "robin-lamb",
       "file": "characters/duelist-robin-lamb-hero.glb",
       "pivotYOffset": 0,
-      "attachBone": null,
+      "attachBone": "hand.r",
+      "animation": {
+        "idle": "idle",
+        "walk": "walk",
+        "attack": "attack",
+        "generic": "jump"
+      },
+      "palette": {
+        "base": "#51242e",
+        "accent": "#f2c46b",
+        "emissive": "#ff304d"
+      },
       "source": {
         "title": "Animated Low Poly Hero with Sword and Shield",
         "creator": "Robin Lamb",
@@ -67,7 +92,7 @@
         "sourceArchivePath": "hero/character.glb",
         "selectedOnly": true
       },
-      "notes": "Sword-and-shield humanoid gives the duelist a clear combat silhouette distinct from the blocky set.",
+      "notes": "Duelist keeps the high-effort sword-and-shield lane from Round 4 as the one Robin Lamb reuse; loot-fallback:generic uses jump for non-combat action timing.",
       "sizeBytes": 268504,
       "sha256": "d611bc2ccd01a797fcf1b4f6fd2239c8acd6f34e51d5ded8c148369b7880388d"
     },
@@ -75,41 +100,64 @@
       "id": "character.trader",
       "category": "character",
       "personaSlot": "trader",
-      "file": "characters/trader-local-neon-broker.glb",
+      "sourceKey": "interglactic",
+      "file": "characters/trader-oga-simple-char/simple_char.gltf",
       "pivotYOffset": 0,
-      "attachBone": null,
+      "attachBone": "H.R",
+      "animation": {
+        "idle": "idle",
+        "walk": "walk",
+        "attack": "jump",
+        "generic": "jump"
+      },
+      "palette": {
+        "base": "#173b42",
+        "accent": "#f5a642",
+        "emissive": "#16f2ff"
+      },
       "source": {
-        "title": "context-battler Round-4 primitive humanoid characters",
-        "creator": "context-battler prototype humanoid",
-        "repository": "local generated asset",
-        "pageUrl": "local://context-battler/round-4-primitive-humanoid-character-generator",
-        "downloadUrl": "local://workspace/throwaway-prototypes/d-full-match/shared-harness/art-kit/characters/trader-local-neon-broker.glb"
+        "title": "simple 3d rigged character with animation",
+        "creator": "interglactic",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/simple-3d-rigged-character-with-animation",
+        "downloadUrl": "https://opengameart.org/sites/default/files/simple_char.zip"
       },
       "license": {
         "spdx": "CC0-1.0",
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "Generated R&D placeholder character art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+        "notes": "OpenGameArt entry lists CC0."
       },
       "extraction": {
-        "sourceArchive": "local://generated-in-workspace",
-        "sourceArchiveSha256": null,
-        "sourceArchivePath": "throwaway-prototypes/d-full-match/shared-harness/art-kit/characters/trader-local-neon-broker.glb",
-        "generatedBy": "inline Node GLB primitive humanoid generator during render-rnd round-4 asset R&D breadth lane",
+        "sourceArchive": "/tmp/oga/simple_char.zip",
+        "sourceArchiveSha256": "096947ea2876b4a497cbbf445bc22b83f298ad3284f5346dae06468e6313fc08",
+        "sourceArchivePath": "simple_char/simple_char.gltf",
         "selectedOnly": true
       },
-      "notes": "Local primitive neon broker silhouette swaps trader out of the Kenney lane; mask, sash, and cyan chest glow push market opportunism toward cyberpunk x Diablo without chasing polish.",
-      "sizeBytes": 11452,
-      "sha256": "9cc2fb087c1075e19c77e67362077d3b836233e239010cb84da1ca42d5b5b0c2"
+      "notes": "Minimal humanoid trader lane samples a simple CC0 rig; attack-fallback:generic and loot-fallback:generic use jump because the source provides idle/walk/jump only.",
+      "sizeBytes": 329763,
+      "sha256": "6bd8db747827e068c4f3d6c4a51b28445bd0d6c336beae94cea1b6ae2e38095f"
     },
     {
       "id": "character.opportunist",
       "category": "character",
       "personaSlot": "opportunist",
+      "sourceKey": "quaternius",
       "file": "characters/opportunist-quaternius-space-mech.glb",
       "pivotYOffset": -0.05,
       "attachBone": null,
+      "animation": {
+        "idle": "RobotArmature|Idle",
+        "walk": "RobotArmature|Walk",
+        "attack": "RobotArmature|Shoot_Big",
+        "loot": "RobotArmature|Pickup"
+      },
+      "palette": {
+        "base": "#263245",
+        "accent": "#8df0ff",
+        "emissive": "#ff5c18"
+      },
       "source": {
         "title": "Ultimate Space Kit",
         "creator": "Quaternius",
@@ -131,7 +179,7 @@
         "sourceArchivePath": "Mech.glb",
         "selectedOnly": true
       },
-      "notes": "Non-astronaut Quaternius mech replaces the rejected astronaut baseline; bulky machine limbs read as scavenged cyberpunk muscle with a darker dungeon-combat silhouette for opportunist.",
+      "notes": "Bulky mech remains the Quaternius comparison lane for opportunist, now driven by imported AnimationPlayer clips; attachBone-fallback:handOffset because the mech rig has no hand bone in Godot import.",
       "sizeBytes": 426804,
       "sha256": "795d137e3413ca0412835c8624f3fce56d69243f86e50481c72effea1354a488"
     },
@@ -139,126 +187,173 @@
       "id": "character.paranoid",
       "category": "character",
       "personaSlot": "paranoid",
-      "file": "characters/paranoid-kenney-blocky-r.glb",
+      "sourceKey": "gdquest",
+      "file": "characters/paranoid-gdquest-mannequiny.glb",
       "pivotYOffset": 0,
-      "attachBone": null,
+      "attachBone": "hand.r",
+      "animation": {
+        "idle": "idle",
+        "walk": "run",
+        "attack": "fight_punch",
+        "generic": "fight_kick"
+      },
+      "palette": {
+        "base": "#202338",
+        "accent": "#caa6ff",
+        "emissive": "#6affd2"
+      },
       "source": {
-        "title": "Blocky Characters 2.0",
-        "creator": "Kenney",
-        "repository": "OpenGameArt",
-        "pageUrl": "https://opengameart.org/content/blocky-characters",
-        "downloadUrl": "https://opengameart.org/sites/default/files/kenney_blocky-characters_2.0.zip"
+        "title": "Godot 3D Mannequin / Mannequiny",
+        "creator": "GDQuest and contributors",
+        "repository": "GitHub",
+        "pageUrl": "https://github.com/gdquest-demos/godot-3d-mannequin",
+        "downloadUrl": "https://github.com/gdquest-demos/godot-3d-mannequin"
       },
       "license": {
-        "spdx": "CC0-1.0",
-        "name": "CC0 1.0 Universal / Public Domain",
-        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false,
-        "notes": "Kenney License.txt declares Blocky Characters 2.0 as CC0."
+        "spdx": "CC-BY-4.0",
+        "name": "Creative Commons Attribution 4.0 International",
+        "url": "https://creativecommons.org/licenses/by/4.0/",
+        "attributionRequired": true,
+        "notes": "Repository license marks source code MIT and art assets CC-BY 4.0; attribution required and retained in manifest/readout."
       },
       "extraction": {
-        "sourceArchive": "/tmp/context-battler-r4-assets/kenney_blocky-characters_2.0.zip",
-        "sourceArchiveSha256": "5e123859aa0c1598342b600c6db197024a1d63eb9ec531398b310725f589887e",
-        "sourceArchivePath": "Models/GLB format/character-r.glb",
+        "sourceArchive": "/tmp/gdquest-mannequiny",
+        "sourceArchiveSha256": null,
+        "sourceArchivePath": "godot/assets/3d/mannequiny/mannequiny-0.3.0.glb",
         "selectedOnly": true
       },
-      "notes": "High-contrast blocky variant reserved for paranoid so it can pop when circling walls and cover.",
-      "sizeBytes": 113596,
-      "sha256": "b880654e0bcf4cfda119750d1ae0842ccfb73ae22f7844ab95015122b746808a"
+      "notes": "Paranoid samples a clean Godot-native mannequin with fight-punch and fight-kick clips for nervous action timing; loot-fallback:generic uses fight_kick.",
+      "sizeBytes": 1843984,
+      "sha256": "8005cc2ab9221ad605be2d1cbb89eea894583e72bd5f50a5fbe40243a64f0493"
     },
     {
       "id": "character.camper",
       "category": "character",
       "personaSlot": "camper",
-      "file": "characters/camper-kenney-blocky-n.glb",
+      "sourceKey": "mesh2motion",
+      "file": "characters/camper-mesh2motion-human-base.glb",
       "pivotYOffset": 0,
-      "attachBone": null,
+      "attachBone": "hand_r",
+      "animation": {
+        "idle": "Idle",
+        "walk": "Walk",
+        "attack": "Sword_Attack",
+        "loot": "PickUp_Table"
+      },
+      "palette": {
+        "base": "#23351e",
+        "accent": "#c7d072",
+        "emissive": "#ff8f2e"
+      },
       "source": {
-        "title": "Blocky Characters 2.0",
-        "creator": "Kenney",
-        "repository": "OpenGameArt",
-        "pageUrl": "https://opengameart.org/content/blocky-characters",
-        "downloadUrl": "https://opengameart.org/sites/default/files/kenney_blocky-characters_2.0.zip"
+        "title": "Mesh2Motion Human Base Animations",
+        "creator": "Scott Petrovic / Mesh2Motion",
+        "repository": "GitHub",
+        "pageUrl": "https://github.com/scottpetrovic/mesh2motion-app",
+        "downloadUrl": "https://github.com/scottpetrovic/mesh2motion-app"
       },
       "license": {
         "spdx": "CC0-1.0",
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "Kenney License.txt declares Blocky Characters 2.0 as CC0."
+        "notes": "LICENSE-CC0.MD states 3D models, blend files, rigs, and animations are CC0."
       },
       "extraction": {
-        "sourceArchive": "/tmp/context-battler-r4-assets/kenney_blocky-characters_2.0.zip",
-        "sourceArchiveSha256": "5e123859aa0c1598342b600c6db197024a1d63eb9ec531398b310725f589887e",
-        "sourceArchivePath": "Models/GLB format/character-n.glb",
+        "sourceArchive": "/tmp/mesh2motion",
+        "sourceArchiveSha256": null,
+        "sourceArchivePath": "static/animations/human-base-animations.glb",
         "selectedOnly": true
       },
-      "notes": "Muted Kenney variant for the camper; intentionally quieter than duelist and sprinter.",
-      "sizeBytes": 113596,
-      "sha256": "1ea5a0cb0c65f51d6a1b40caa15a27f625365d341f33392a2bd926b0bf695394"
+      "notes": "Camper uses a reserved human rig with broad utility clips, including sword attack and pickup/table interaction for loot.",
+      "sizeBytes": 6066008,
+      "sha256": "578542d26d334805bdeadfc1f394e86a4d470dbc70b4eb277c8fe38b7387c7cd"
     },
     {
       "id": "character.sprinter",
       "category": "character",
       "personaSlot": "sprinter",
-      "file": "characters/sprinter-local-crimson-stalker.glb",
+      "sourceKey": "xcvg-systems",
+      "file": "characters/sprinter-oga-animated-humanoid.fbx",
       "pivotYOffset": 0,
-      "attachBone": null,
+      "attachBone": "Hand.R",
+      "animation": {
+        "idle": "Armature|Standing",
+        "walk": "Armature|Run",
+        "attack": "Armature|Punch",
+        "generic": "Armature|CrouchDefault"
+      },
+      "palette": {
+        "base": "#43211c",
+        "accent": "#ff4e38",
+        "emissive": "#ffe14a"
+      },
       "source": {
-        "title": "context-battler Round-4 primitive humanoid characters",
-        "creator": "context-battler prototype humanoid",
-        "repository": "local generated asset",
-        "pageUrl": "local://context-battler/round-4-primitive-humanoid-character-generator",
-        "downloadUrl": "local://workspace/throwaway-prototypes/d-full-match/shared-harness/art-kit/characters/sprinter-local-crimson-stalker.glb"
+        "title": "Rigged and Animated Humanoid",
+        "creator": "XCVG",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/rigged-and-animated-humanoid",
+        "downloadUrl": "https://opengameart.org/sites/default/files/animated%20humanoid.zip"
       },
       "license": {
         "spdx": "CC0-1.0",
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "Generated R&D placeholder character art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+        "notes": "OpenGameArt entry lists CC0 and the copyright notice waives rights to the extent possible."
       },
       "extraction": {
-        "sourceArchive": "local://generated-in-workspace",
-        "sourceArchiveSha256": null,
-        "sourceArchivePath": "throwaway-prototypes/d-full-match/shared-harness/art-kit/characters/sprinter-local-crimson-stalker.glb",
-        "generatedBy": "inline Node GLB primitive humanoid generator during render-rnd round-4 asset R&D breadth lane",
+        "sourceArchive": "/tmp/oga/animated_humanoid.zip",
+        "sourceArchiveSha256": "8f90ddc45c250f0d47cf0cda5db6cbdc6e438689f8884118dc4c7e67153040f9",
+        "sourceArchivePath": "person_animated.fbx",
         "selectedOnly": true
       },
-      "notes": "Local primitive crimson stalker swaps sprinter out of the Kenney lane; long limbs, violet visor, and claw blocks favor motion readability and the darker cyberpunk x Diablo brief over uniform polish.",
-      "sizeBytes": 12696,
-      "sha256": "2f41e4a5679ece3687fed8356ac7b2701da4c51431f0377044b4e3f69ea5b0c4"
+      "notes": "Sprinter uses a low-poly humanoid with run/walk/punch clips; source format is FBX imported structurally by Godot; loot-fallback:generic uses crouch default.",
+      "sizeBytes": 4826620,
+      "sha256": "e46057d1988a6bd558365bc27d13d850b09d74faf36384ecd799226c26922599"
     },
     {
       "id": "character.vulture",
       "category": "character",
       "personaSlot": "vulture",
-      "file": "characters/vulture-kenney-blocky-q.glb",
+      "sourceKey": "styloo",
+      "file": "characters/vulture-styloo-robot/robot.gltf",
       "pivotYOffset": 0,
-      "attachBone": null,
+      "attachBone": "handup.001",
+      "animation": {
+        "idle": "iddle",
+        "walk": "walking",
+        "attack": "attackwithhand",
+        "loot": "grab"
+      },
+      "palette": {
+        "base": "#2c2d31",
+        "accent": "#a7ff4f",
+        "emissive": "#ff2868"
+      },
       "source": {
-        "title": "Blocky Characters 2.0",
-        "creator": "Kenney",
-        "repository": "OpenGameArt",
-        "pageUrl": "https://opengameart.org/content/blocky-characters",
-        "downloadUrl": "https://opengameart.org/sites/default/files/kenney_blocky-characters_2.0.zip"
+        "title": "Robot character",
+        "creator": "styloo",
+        "repository": "itch.io",
+        "pageUrl": "https://styloo.itch.io/robot-character",
+        "downloadUrl": "https://styloo.itch.io/robot-character"
       },
       "license": {
         "spdx": "CC0-1.0",
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "Kenney License.txt declares Blocky Characters 2.0 as CC0."
+        "notes": "itch page lists Creative Commons Zero v1.0 Universal and author comment confirms CC0 reuse."
       },
       "extraction": {
-        "sourceArchive": "/tmp/context-battler-r4-assets/kenney_blocky-characters_2.0.zip",
-        "sourceArchiveSha256": "5e123859aa0c1598342b600c6db197024a1d63eb9ec531398b310725f589887e",
-        "sourceArchivePath": "Models/GLB format/character-q.glb",
+        "sourceArchive": "/tmp/styloo/styloo-robot-fbx-gltf.zip",
+        "sourceArchiveSha256": "bbeb0df0dea80c2b8d2d112be12bb61ea630eb820e486e250ffb9298d7aabaf8",
+        "sourceArchivePath": "GLTFrobot/robot.gltf",
         "selectedOnly": true
       },
-      "notes": "Sharper dark Kenney variant mapped to vulture for a scavenger profile distinct from rat.",
-      "sizeBytes": 113596,
-      "sha256": "9193d03bc9ee1cfb080a1d561522f45806fe0b522b9807ef2b7c451b77547999"
+      "notes": "Vulture samples a second robot lane distinct from Quaternius, with grab and hand-attack clips for scavenger action timing.",
+      "sizeBytes": 1213026,
+      "sha256": "63a8dc1eaa61d441701124f9315eb112b3e524b0e23c33b02834f9ab13463e5a"
     },
     {
       "id": "weapon.rusty_blade",
@@ -897,6 +992,36 @@
       "notes": "Extra crate wear texture for empty/fading crate state experiments.",
       "sizeBytes": 2490,
       "sha256": "6a46143c0e24e67bf91a85698306710ec7023f8f16fb9b9f97858b7ce475fc43"
+    },
+    {
+      "id": "vfx.blood_splatter_texture",
+      "category": "vfx",
+      "vfxRole": "bloodPoolFallbackA",
+      "file": "textures/blood-splatter-alexandrohaibi.png",
+      "sourceKey": "opengameart-alejandrohaibi-liquid-splatter",
+      "source": {
+        "title": "Liquid Splatter Pixel Texture - blood_splatter_0.png",
+        "creator": "AlejandroHaibi",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/liquid-splatter-pixel-texture-bloodsplatter0png",
+        "downloadUrl": "https://opengameart.org/sites/default/files/blood_splatter_0.png"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "OpenGameArt entry lists CC0."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/blood/blood-splatter.png",
+        "sourceArchiveSha256": "171fba1113203f375e097d4bb2cff2ae2c0e896ee433f8b8e4eb65b9adf0f7f8",
+        "sourceArchivePath": "blood_splatter_0.png",
+        "selectedOnly": true
+      },
+      "notes": "Alpha splatter texture for blood-pool pipeline fallback; replaces circular mesh disk pools.",
+      "sizeBytes": 10305,
+      "sha256": "171fba1113203f375e097d4bb2cff2ae2c0e896ee433f8b8e4eb65b9adf0f7f8"
     }
   ]
 }

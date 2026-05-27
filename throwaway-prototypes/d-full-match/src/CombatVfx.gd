@@ -5,6 +5,9 @@ const MAX_PARTICLE_BURST := 96
 const MAX_GORE_CHUNKS := 5
 const BURST_LIFETIME := 1.05
 const CHUNK_LIFETIME := 1.8
+const ACTION_PHASE_START := 0.65
+const WALL_SLAM_PHASE_START := 0.95
+const BLOOD_POOL_TEXTURE := "res://shared-harness/art-kit/textures/blood-splatter-alexandrohaibi.png"
 
 var snapshot: Dictionary = {}
 var scene_builder: Node
@@ -13,10 +16,11 @@ var camera_rig: Node
 var attacks_by_turn: Dictionary = {}
 var loots_by_turn: Dictionary = {}
 var blocked_movements_by_turn: Dictionary = {}
-var last_triggered_turn := -1
+var actions_fired_through_turn := -1
+var wall_slams_fired_through_turn := -1
 var active_bursts: Array = []
 var active_chunks: Array = []
-var blood_pools: Array[MeshInstance3D] = []
+var blood_pools: Array[Node3D] = []
 var mat_blood: StandardMaterial3D
 var mat_blood_dark: StandardMaterial3D
 var mat_miss_spray: StandardMaterial3D
@@ -35,7 +39,8 @@ func configure(root: Dictionary, builder: Node, renderer: Node) -> void:
 	_clear_effects()
 	_make_materials()
 	_index_events()
-	last_triggered_turn = -1
+	actions_fired_through_turn = _initial_actions_fired_through_turn()
+	wall_slams_fired_through_turn = _initial_actions_fired_through_turn()
 
 
 func set_camera_rig(rig: Node) -> void:
@@ -44,13 +49,22 @@ func set_camera_rig(rig: Node) -> void:
 
 func update_to_turn(turn_value: float, delta: float) -> void:
 	var turn_int := int(floor(turn_value))
-	if turn_int < last_triggered_turn:
+	var fraction := _turn_fraction_for_value(turn_value)
+	var action_resolved_through := _resolved_action_through_turn(turn_int, fraction)
+	var wall_slam_resolved_through := _resolved_wall_slam_through_turn(turn_int, fraction)
+	if action_resolved_through < actions_fired_through_turn or wall_slam_resolved_through < wall_slams_fired_through_turn:
 		_clear_effects()
-		last_triggered_turn = -1
-	if turn_int != last_triggered_turn:
-		for event_turn in range(last_triggered_turn + 1, turn_int + 1):
-			_trigger_turn(event_turn)
-		last_triggered_turn = turn_int
+		var initial_turn := _initial_actions_fired_through_turn()
+		actions_fired_through_turn = initial_turn
+		wall_slams_fired_through_turn = initial_turn
+	if wall_slam_resolved_through > wall_slams_fired_through_turn:
+		for event_turn in range(wall_slams_fired_through_turn + 1, wall_slam_resolved_through + 1):
+			_trigger_wall_slams_for_turn(event_turn)
+		wall_slams_fired_through_turn = wall_slam_resolved_through
+	if action_resolved_through > actions_fired_through_turn:
+		for event_turn in range(actions_fired_through_turn + 1, action_resolved_through + 1):
+			_trigger_action_turn(event_turn)
+		actions_fired_through_turn = action_resolved_through
 	_update_bursts(delta)
 	_update_chunks(delta)
 
@@ -79,10 +93,13 @@ func _bucket(bucket: Dictionary, turn: int, event: Dictionary) -> void:
 	bucket[turn] = events
 
 
-func _trigger_turn(turn: int) -> void:
+func _trigger_wall_slams_for_turn(turn: int) -> void:
 	for movement in blocked_movements_by_turn.get(turn, []):
 		if typeof(movement) == TYPE_DICTIONARY:
 			_trigger_wall_face_slam(movement)
+
+
+func _trigger_action_turn(turn: int) -> void:
 	for attack in attacks_by_turn.get(turn, []):
 		if typeof(attack) == TYPE_DICTIONARY:
 			_trigger_attack(attack)
@@ -97,7 +114,7 @@ func _trigger_attack(event: Dictionary) -> void:
 	var weapon := str(event.get("weapon", ""))
 	var hit := bool(event.get("hit", false))
 	var lethal := bool(event.get("lethal", false))
-	var event_turn := int(event.get("turn", last_triggered_turn))
+	var event_turn := int(event.get("turn", actions_fired_through_turn))
 	var attacker_pos := _character_world_for_event(attacker_id, event_turn)
 	var target_pos := _character_world_for_event(target_id, event_turn)
 	var direction := _flat_direction(attacker_pos, target_pos)
@@ -129,7 +146,7 @@ func _trigger_wall_face_slam(event: Dictionary) -> void:
 
 func _trigger_loot(event: Dictionary) -> void:
 	var character_id := str(event.get("characterId", ""))
-	var origin := _character_world_for_event(character_id, int(event.get("turn", last_triggered_turn)))
+	var origin := _character_world_for_event(character_id, int(event.get("turn", actions_fired_through_turn)))
 	_spawn_loot_flourish(origin + Vector3(0.0, 0.32, 0.0))
 	if entity_renderer != null:
 		if entity_renderer.has_method("mark_loot_source"):
@@ -186,18 +203,18 @@ func _spawn_loot_flourish(origin: Vector3) -> void:
 func _spawn_blood_pool(origin: Vector3) -> void:
 	var pool := MeshInstance3D.new()
 	pool.name = "persistent-blood-pool"
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = randf_range(0.20, 0.42)
-	mesh.bottom_radius = mesh.top_radius
-	mesh.height = 0.012
+	var mesh := QuadMesh.new()
+	var size := randf_range(0.42, 0.86)
+	mesh.size = Vector2(size, size * randf_range(0.70, 1.15))
 	pool.mesh = mesh
 	pool.material_override = mat_blood_dark
-	pool.position = Vector3(origin.x + randf_range(-0.07, 0.07), 0.018, origin.z + randf_range(-0.07, 0.07))
+	pool.position = Vector3(origin.x + randf_range(-0.07, 0.07), 0.021, origin.z + randf_range(-0.07, 0.07))
+	pool.rotation_degrees.x = -90.0
 	pool.rotation.y = randf() * TAU
 	add_child(pool)
 	blood_pools.append(pool)
 	while blood_pools.size() > MAX_BLOOD_POOLS:
-		var oldest := blood_pools.pop_front()
+		var oldest: Node3D = blood_pools.pop_front()
 		if oldest != null and is_instance_valid(oldest):
 			oldest.queue_free()
 
@@ -280,6 +297,40 @@ func _clear_effects() -> void:
 	active_bursts.clear()
 	active_chunks.clear()
 	blood_pools.clear()
+
+
+func _initial_actions_fired_through_turn() -> int:
+	var playback: Dictionary = snapshot.get("playback", {})
+	return int(playback.get("startTurn", 1)) - 1
+
+
+func _end_turn_from_snapshot() -> int:
+	var playback: Dictionary = snapshot.get("playback", {})
+	return int(playback.get("endTurn", playback.get("turnCount", _initial_actions_fired_through_turn() + 1)))
+
+
+func _turn_fraction_for_value(turn_value: float) -> float:
+	return clamp(turn_value - floor(turn_value), 0.0, 1.0)
+
+
+func _resolved_action_through_turn(turn_int: int, fraction: float) -> int:
+	var resolved_through := turn_int - 1
+	if fraction >= ACTION_PHASE_START:
+		resolved_through = turn_int
+	var end_turn := _end_turn_from_snapshot()
+	if turn_int >= end_turn:
+		resolved_through = end_turn
+	return resolved_through
+
+
+func _resolved_wall_slam_through_turn(turn_int: int, fraction: float) -> int:
+	var resolved_through := turn_int - 1
+	if fraction >= WALL_SLAM_PHASE_START:
+		resolved_through = turn_int
+	var end_turn := _end_turn_from_snapshot()
+	if turn_int >= end_turn:
+		resolved_through = end_turn
+	return resolved_through
 
 
 func _character_world(character_id: String) -> Vector3:
@@ -424,6 +475,9 @@ func _make_materials() -> void:
 		return
 	mat_blood = _mat(Color(0.86, 0.0, 0.035, 0.68), Color(1.0, 0.0, 0.04), 1.2, true)
 	mat_blood_dark = _mat(Color(0.32, 0.0, 0.02, 0.72), Color(0.65, 0.0, 0.03), 0.45, true)
+	mat_blood_dark.albedo_texture = load(BLOOD_POOL_TEXTURE)
+	mat_blood_dark.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	mat_blood_dark.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mat_miss_spray = _mat(Color(0.95, 0.05, 0.08, 0.42), Color(1.0, 0.06, 0.08), 0.75, true)
 	mat_dust = _mat(Color(0.64, 0.55, 0.38, 0.46), Color(1.0, 0.48, 0.14), 0.32, true)
 	mat_loot = _mat(Color(0.0, 0.92, 1.0, 0.58), Color(0.0, 1.0, 1.0), 1.35, true)

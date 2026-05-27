@@ -5,7 +5,6 @@ const ART_ROOT := "res://shared-harness/art-kit/"
 const WEAPON_SOCKET_NAME := "weapon_socket"
 const ARMOUR_SOCKET_NAME := "armour_socket"
 const WEAPON_ATTACHMENT_SCALE := 0.22
-const ARMOUR_ATTACHMENT_SCALE := 0.24
 
 var manifest: Dictionary = {}
 var character_assets_by_persona: Dictionary = {}
@@ -16,6 +15,7 @@ var corpse_asset: Dictionary = {}
 var loaded_scenes: Dictionary = {}
 var registered_characters: Dictionary = {}
 var equipped_state_by_character: Dictionary = {}
+var body_materials_by_character: Dictionary = {}
 var mat_weapon_low: StandardMaterial3D
 var mat_weapon_mid: StandardMaterial3D
 var mat_weapon_high: StandardMaterial3D
@@ -28,6 +28,7 @@ var mat_swap_flash: StandardMaterial3D
 func configure(_root: Dictionary = {}) -> void:
 	registered_characters.clear()
 	equipped_state_by_character.clear()
+	body_materials_by_character.clear()
 	_make_materials()
 	_load_manifest()
 
@@ -61,12 +62,28 @@ func corpse_pivot_y() -> float:
 func register_character(character_id: String, character_node: Node3D, persona: String) -> void:
 	if character_id.is_empty() or character_node == null:
 		return
+	var asset: Dictionary = character_assets_by_persona.get(persona, {})
+	var visual := _visual_root(character_node)
+	var skeleton := _first_descendant_of_class(visual, "Skeleton3D") as Skeleton3D
+	var animation_player := _first_descendant_of_class(visual, "AnimationPlayer") as AnimationPlayer
+	var body_meshes := _mesh_descendants(visual)
+	var weapon_socket := _ensure_weapon_socket(character_node, skeleton, str(asset.get("attachBone", "")))
 	registered_characters[character_id] = {
 		"node": character_node,
 		"persona": persona,
+		"asset": asset,
+		"visual": visual,
+		"skeleton": skeleton,
+		"animationPlayer": animation_player,
+		"animationClips": asset.get("animation", {}),
+		"currentClip": "",
+		"attachBone": str(asset.get("attachBone", "")),
+		"weaponSocket": weapon_socket,
+		"bodyMeshes": body_meshes,
+		"flashAge": 999.0,
+		"armourTier": 0,
 	}
-	_ensure_socket(character_node, WEAPON_SOCKET_NAME, Vector3(0.15, 0.31, -0.10))
-	_ensure_socket(character_node, ARMOUR_SOCKET_NAME, Vector3(0.0, 0.28, 0.0))
+	_apply_persona_palette(character_id, 0)
 
 
 func update_equipment(equipped_by_character: Dictionary) -> void:
@@ -89,42 +106,86 @@ func play_loot_swap(character_id: String, item: Dictionary) -> void:
 	if not registered_characters.has(character_id):
 		return
 	var category := str(item.get("category", ""))
-	var socket_name := WEAPON_SOCKET_NAME if category == "weapon" else ARMOUR_SOCKET_NAME
 	var character: Dictionary = registered_characters.get(character_id, {})
-	var character_node: Node3D = character.get("node")
-	if character_node == null:
+	if category == "armour":
+		character["flashAge"] = 0.0
+		registered_characters[character_id] = character
 		return
-	var socket := character_node.get_node_or_null(socket_name) as Node3D
-	if socket == null:
-		return
-	socket.scale = Vector3.ONE * 1.28
-	var flash := socket.get_node_or_null("swap_flash") as MeshInstance3D
-	if flash == null:
-		flash = MeshInstance3D.new()
-		flash.name = "swap_flash"
-		var mesh := SphereMesh.new()
-		mesh.radius = 0.08
-		mesh.height = 0.10
-		flash.mesh = mesh
-		flash.material_override = mat_swap_flash
-		socket.add_child(flash)
-	flash.visible = true
+	var socket := _weapon_socket_for_character(character_id)
+	if socket != null:
+		socket.scale = Vector3.ONE * 1.28
+	var flash := _swap_flash_for_character(character_id)
+	if flash != null:
+		flash.visible = true
+
+
+func play_character_clip(character_id: String, kind: String) -> bool:
+	var clip := clip_name_for_character(character_id, kind)
+	if clip.is_empty():
+		return false
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var player := character.get("animationPlayer") as AnimationPlayer
+	if player == null or not player.has_animation(clip):
+		return false
+	if str(character.get("currentClip", "")) != clip or not player.is_playing():
+		player.play(clip)
+		character["currentClip"] = clip
+		registered_characters[character_id] = character
+	return true
+
+
+func has_event_clip(character_id: String, kind: String) -> bool:
+	var clip := clip_name_for_character(character_id, kind)
+	if clip.is_empty():
+		return false
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var player := character.get("animationPlayer") as AnimationPlayer
+	return player != null and player.has_animation(clip)
+
+
+func clip_name_for_character(character_id: String, kind: String) -> String:
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var animation = character.get("animationClips", {})
+	if typeof(animation) != TYPE_DICTIONARY:
+		return ""
+	var animation_dict := animation as Dictionary
+	var clip := str(animation_dict.get(kind, ""))
+	if clip.is_empty() and kind == "loot":
+		clip = str(animation_dict.get("generic", ""))
+	if clip.is_empty() and kind == "attack":
+		clip = str(animation_dict.get("generic", ""))
+	return clip
+
+
+func play_character_animation(character_id: String, kind: String) -> bool:
+	return play_character_clip(character_id, kind)
+
+
+func has_rigged_animation(character_id: String, kind: String) -> bool:
+	return has_event_clip(character_id, kind)
+
+
+func animation_clip_for_character(character_id: String, kind: String) -> String:
+	return clip_name_for_character(character_id, kind)
+
+
+func weapon_socket_for_character(character_id: String) -> Node3D:
+	return _weapon_socket_for_character(character_id)
 
 
 func tick(delta: float) -> void:
 	for character_id in registered_characters.keys():
 		var character: Dictionary = registered_characters.get(character_id, {})
-		var character_node: Node3D = character.get("node")
-		if character_node == null:
-			continue
-		for socket_name in [WEAPON_SOCKET_NAME, ARMOUR_SOCKET_NAME]:
-			var socket := character_node.get_node_or_null(socket_name) as Node3D
-			if socket == null:
-				continue
+		var socket := _weapon_socket_for_character(character_id)
+		if socket != null:
 			socket.scale = socket.scale.lerp(Vector3.ONE, clamp(delta * 9.0, 0.0, 1.0))
-			var flash := socket.get_node_or_null("swap_flash") as MeshInstance3D
-			if flash != null:
-				flash.visible = socket.scale.x > 1.04
+		var flash_age := float(character.get("flashAge", 999.0)) + delta
+		character["flashAge"] = flash_age
+		registered_characters[character_id] = character
+		var flash := _swap_flash_for_character(character_id)
+		if flash != null:
+			flash.visible = flash_age < 0.36 or (socket != null and socket.scale.x > 1.04)
+			flash.scale = Vector3.ONE * (0.92 + max(0.0, 1.0 - flash_age / 0.36) * 0.45)
 
 
 func _load_manifest() -> void:
@@ -185,11 +246,13 @@ func _scene_for_asset(asset) -> PackedScene:
 
 
 func _swap_weapon(character_id: String, weapon_name: String) -> void:
-	var character: Dictionary = registered_characters.get(character_id, {})
-	var character_node: Node3D = character.get("node")
-	if character_node == null:
-		return
-	var socket := _ensure_socket(character_node, WEAPON_SOCKET_NAME, Vector3(0.15, 0.31, -0.10))
+	var socket := _weapon_socket_for_character(character_id)
+	if socket == null:
+		var character: Dictionary = registered_characters.get(character_id, {})
+		var character_node: Node3D = character.get("node")
+		if character_node == null:
+			return
+		socket = _ensure_socket(character_node, WEAPON_SOCKET_NAME, Vector3(0.15, 0.31, -0.10))
 	_clear_visual(socket, "weapon_visual")
 	if weapon_name.is_empty():
 		return
@@ -202,20 +265,64 @@ func _swap_weapon(character_id: String, weapon_name: String) -> void:
 
 
 func _swap_armour(character_id: String, armour_name: String) -> void:
+	var tier := 0
+	if armour_name.is_empty():
+		_apply_persona_palette(character_id, tier)
+		return
+	var asset: Dictionary = armour_assets_by_name.get(armour_name, {})
+	tier = int(asset.get("tier", 1))
+	_apply_persona_palette(character_id, tier)
+	var character: Dictionary = registered_characters.get(character_id, {})
+	character["flashAge"] = 0.0
+	registered_characters[character_id] = character
+
+
+func _ensure_weapon_socket(character_node: Node3D, skeleton: Skeleton3D, attach_bone: String) -> Node3D:
+	var existing := character_node.get_node_or_null(WEAPON_SOCKET_NAME) as Node3D
+	if existing != null:
+		return existing
+	var attachment: Node3D = null
+	if not attach_bone.is_empty():
+		attachment = _first_descendant_named(character_node, attach_bone) as Node3D
+	if attachment != null:
+		return attachment
+	if skeleton != null and not attach_bone.is_empty() and skeleton.find_bone(attach_bone) >= 0:
+		var bone_socket := BoneAttachment3D.new()
+		bone_socket.name = WEAPON_SOCKET_NAME
+		bone_socket.bone_name = attach_bone
+		skeleton.add_child(bone_socket)
+		return bone_socket
+	return _ensure_socket(character_node, WEAPON_SOCKET_NAME, Vector3(0.15, 0.31, -0.10))
+
+
+func _weapon_socket_for_character(character_id: String) -> Node3D:
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var socket := character.get("weaponSocket") as Node3D
+	if socket != null and is_instance_valid(socket):
+		return socket
+	var character_node: Node3D = character.get("node")
+	if character_node == null:
+		return null
+	return character_node.get_node_or_null(WEAPON_SOCKET_NAME) as Node3D
+
+
+func _swap_flash_for_character(character_id: String) -> MeshInstance3D:
 	var character: Dictionary = registered_characters.get(character_id, {})
 	var character_node: Node3D = character.get("node")
 	if character_node == null:
-		return
-	var socket := _ensure_socket(character_node, ARMOUR_SOCKET_NAME, Vector3(0.0, 0.28, 0.0))
-	_clear_visual(socket, "armour_visual")
-	if armour_name.is_empty():
-		return
-	var asset: Dictionary = armour_assets_by_name.get(armour_name, {})
-	var visual := _instance_asset_or_fallback(asset, "armour", armour_name)
-	visual.name = "armour_visual"
-	_apply_attachment_transform(visual, asset, "armour")
-	_apply_tier_material(visual, int(asset.get("tier", 1)), "armour")
-	socket.add_child(visual)
+		return null
+	var flash := character_node.get_node_or_null("swap_flash") as MeshInstance3D
+	if flash == null:
+		flash = MeshInstance3D.new()
+		flash.name = "swap_flash"
+		var mesh := SphereMesh.new()
+		mesh.radius = 0.12
+		mesh.height = 0.16
+		flash.mesh = mesh
+		flash.material_override = mat_swap_flash
+		flash.position = Vector3(0.0, 0.34, 0.0)
+		character_node.add_child(flash)
+	return flash
 
 
 func _ensure_socket(character_node: Node3D, socket_name: String, fallback_position: Vector3) -> Node3D:
@@ -259,14 +366,12 @@ func _instance_asset_or_fallback(asset: Dictionary, slot: String, item_name: Str
 
 
 func _apply_attachment_transform(visual: Node3D, asset: Dictionary, slot: String) -> void:
-	var offset: Dictionary = asset.get("handOffset", {}) if slot == "weapon" else {}
-	var default_position := Vector3(0.15, 0.31, -0.10) if slot == "weapon" else Vector3(0.0, 0.0, -0.02)
+	var offset: Dictionary = asset.get("handOffset", {})
+	var default_position := Vector3(0.15, 0.31, -0.10)
 	visual.position = _vector3_from_array(offset.get("position", []), default_position)
 	visual.rotation_degrees = _vector3_from_array(offset.get("rotationDeg", []), Vector3.ZERO)
 	var scale_value := float(offset.get("scale", 1.0))
-	visual.scale = Vector3.ONE * scale_value * (WEAPON_ATTACHMENT_SCALE if slot == "weapon" else ARMOUR_ATTACHMENT_SCALE)
-	if slot == "armour":
-		visual.scale *= 0.85 + float(asset.get("tier", 1)) * 0.06
+	visual.scale = Vector3.ONE * scale_value * WEAPON_ATTACHMENT_SCALE
 
 
 func _apply_tier_material(node: Node, tier: int, slot: String) -> void:
@@ -289,6 +394,106 @@ func _material_for_tier(tier: int, slot: String) -> StandardMaterial3D:
 	if tier >= 3:
 		return mat_armour_mid
 	return mat_armour_low
+
+
+func _apply_persona_palette(character_id: String, armour_tier: int) -> void:
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var asset: Dictionary = character.get("asset", {})
+	var palette: Dictionary = asset.get("palette", {})
+	var meshes: Array = character.get("bodyMeshes", [])
+	for i in range(meshes.size()):
+		var mesh := meshes[i] as MeshInstance3D
+		if mesh == null or not is_instance_valid(mesh):
+			continue
+		mesh.material_override = _palette_material(palette, i, armour_tier)
+	character["armourTier"] = armour_tier
+	registered_characters[character_id] = character
+
+
+func _palette_material(palette: Dictionary, index: int, armour_tier: int) -> StandardMaterial3D:
+	var base := _color_from_hex(str(palette.get("base", "#666666")), Color(0.45, 0.45, 0.45))
+	var accent := _color_from_hex(str(palette.get("accent", "#00e5ff")), Color(0.0, 0.9, 1.0))
+	var emissive := _color_from_hex(str(palette.get("emissive", "#ff3050")), Color(1.0, 0.18, 0.3))
+	var tier_amount: float = clamp(float(armour_tier) / 4.0, 0.0, 1.0)
+	var channel := base
+	if index % 3 == 1:
+		channel = accent
+	elif index % 3 == 2:
+		channel = base.lerp(accent, 0.45)
+	var material := StandardMaterial3D.new()
+	material.albedo_color = channel.lerp(Color(0.68, 0.72, 0.78), tier_amount * 0.28)
+	material.emission_enabled = true
+	material.emission = emissive
+	material.emission_energy_multiplier = 0.18 + tier_amount * 0.95
+	material.metallic = 0.04 + tier_amount * 0.56
+	material.roughness = 0.62 - tier_amount * 0.28
+	material.next_pass = _palette_accent_pass(accent, emissive, tier_amount)
+	return material
+
+
+func _palette_accent_pass(accent: Color, emissive: Color, tier_amount: float) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(accent.r, accent.g, accent.b, 0.16 + tier_amount * 0.10)
+	material.emission_enabled = true
+	material.emission = emissive
+	material.emission_energy_multiplier = 0.35 + tier_amount * 0.75
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return material
+
+
+func _color_from_hex(value: String, fallback: Color) -> Color:
+	var hex := value.strip_edges().trim_prefix("#")
+	if hex.length() < 6:
+		return fallback
+	var r := float(hex.substr(0, 2).hex_to_int()) / 255.0
+	var g := float(hex.substr(2, 2).hex_to_int()) / 255.0
+	var b := float(hex.substr(4, 2).hex_to_int()) / 255.0
+	return Color(r, g, b)
+
+
+func _visual_root(character_node: Node3D) -> Node3D:
+	var visual := character_node.get_node_or_null("visual") as Node3D
+	return visual if visual != null else character_node
+
+
+func _first_descendant_of_class(node: Node, target_class: String) -> Node:
+	if node == null:
+		return null
+	if node.is_class(target_class):
+		return node
+	for child in node.get_children():
+		var found := _first_descendant_of_class(child, target_class)
+		if found != null:
+			return found
+	return null
+
+
+func _first_descendant_named(node: Node, node_name: String) -> Node:
+	if node == null or node_name.is_empty():
+		return null
+	if node.name == node_name:
+		return node
+	for child in node.get_children():
+		var found := _first_descendant_named(child, node_name)
+		if found != null:
+			return found
+	return null
+
+
+func _mesh_descendants(node: Node) -> Array:
+	var out := []
+	_collect_mesh_descendants(node, out)
+	return out
+
+
+func _collect_mesh_descendants(node: Node, out: Array) -> void:
+	if node == null:
+		return
+	if node is MeshInstance3D:
+		out.append(node)
+	for child in node.get_children():
+		_collect_mesh_descendants(child, out)
 
 
 func _slot_name(slots, slot: String) -> String:

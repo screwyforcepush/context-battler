@@ -12,12 +12,15 @@ const CHARACTER_ANCHOR_Y := 0.22
 const FALLBACK_CHARACTER_HALF_HEIGHT := 0.17
 const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
 const COMBAT_VFX_SCRIPT := "res://src/CombatVfx.gd"
+const ACTION_PHASE_START := 0.65
 
 var snapshot: Dictionary = {}
 var frames: Array = []
 var scene_builder: Node
 var camera_rig: Node
 var movements_by_turn_character: Dictionary = {}
+var attacks_by_turn_character: Dictionary = {}
+var loots_by_turn_character: Dictionary = {}
 var character_nodes: Dictionary = {}
 var character_personas: Dictionary = {}
 var corpse_nodes: Dictionary = {}
@@ -32,7 +35,7 @@ var lethal_targets_by_character: Dictionary = {}
 var loot_source_marks: Dictionary = {}
 var mist_nodes: Array[MeshInstance3D] = []
 var mist_age := 999.0
-var last_effect_turn := -1
+var environmental_effects_fired_through_turn := -1
 var previous_turn_value := -1.0
 var current_turn_value := 1.0
 var crate_scene: PackedScene
@@ -55,6 +58,7 @@ func configure(root: Dictionary, builder: Node) -> void:
 	_ensure_equipment_attachment()
 	equipment_attachment.configure(snapshot)
 	_index_movements()
+	_index_action_events()
 	_clear()
 	_make_materials()
 	_load_models()
@@ -66,7 +70,7 @@ func configure(root: Dictionary, builder: Node) -> void:
 	combat_vfx.configure(snapshot, scene_builder, self)
 	if camera_rig != null:
 		combat_vfx.set_camera_rig(camera_rig)
-	last_effect_turn = -1
+	environmental_effects_fired_through_turn = _initial_environmental_effects_fired_through_turn()
 	previous_turn_value = -1.0
 
 
@@ -83,7 +87,8 @@ func update_to_turn(turn_value: float) -> void:
 	_update_crates(sample)
 	_update_airdrops(sample)
 	_update_equipment_for_turn(turn_value)
-	_update_environmental_effects(int(floor(turn_value)))
+	_update_environmental_effects(turn_value)
+	_update_character_animation_clips(turn_value)
 	_update_attack_poses(delta)
 	_update_loot_source_marks()
 	if equipment_attachment != null and equipment_attachment.has_method("tick"):
@@ -147,6 +152,10 @@ func play_attack_pose(character_id: String, target_world: Vector3, weapon: Strin
 	if heading.length() > 0.001:
 		last_heading_by_character[character_id] = heading.normalized()
 		node.rotation.y = _yaw_for_heading(heading.normalized())
+	if equipment_attachment != null and equipment_attachment.has_method("has_rigged_animation"):
+		if equipment_attachment.has_rigged_animation(character_id, "attack"):
+			equipment_attachment.play_character_animation(character_id, "attack")
+			return
 	attack_pose_by_character[character_id] = {
 		"age": 0.0,
 		"duration": 0.62 if lethal else 0.48,
@@ -170,7 +179,13 @@ func play_wall_slam(character_id: String, _wall_world: Vector3) -> void:
 
 
 func play_loot_pickup(character_id: String, item: Dictionary) -> void:
-	loot_pose_by_character[character_id] = {"age": 0.0, "duration": 0.42}
+	var rigged_loot := false
+	if equipment_attachment != null and equipment_attachment.has_method("has_rigged_animation"):
+		rigged_loot = equipment_attachment.has_rigged_animation(character_id, "loot")
+		if rigged_loot:
+			equipment_attachment.play_character_animation(character_id, "loot")
+	if not rigged_loot:
+		loot_pose_by_character[character_id] = {"age": 0.0, "duration": 0.42}
 	if equipment_attachment != null and equipment_attachment.has_method("play_loot_swap"):
 		equipment_attachment.play_loot_swap(character_id, item)
 
@@ -243,6 +258,33 @@ func _index_movements() -> void:
 		var by_character: Dictionary = movements_by_turn_character[turn]
 		by_character[character_id] = movement
 		movements_by_turn_character[turn] = by_character
+
+
+func _index_action_events() -> void:
+	attacks_by_turn_character.clear()
+	loots_by_turn_character.clear()
+	for attack in snapshot.get("attacks", []):
+		if typeof(attack) != TYPE_DICTIONARY:
+			continue
+		_bucket_action_event(attacks_by_turn_character, int(attack.get("turn", -1)), str(attack.get("attackerId", "")), attack)
+	for loot in snapshot.get("loots", []):
+		if typeof(loot) != TYPE_DICTIONARY:
+			continue
+		_bucket_action_event(loots_by_turn_character, int(loot.get("turn", -1)), str(loot.get("characterId", "")), loot)
+
+
+func _bucket_action_event(bucket: Dictionary, turn: int, character_id: String, event: Dictionary) -> void:
+	if turn < 0 or character_id.is_empty():
+		return
+	if not bucket.has(turn):
+		bucket[turn] = {}
+	var by_character: Dictionary = bucket[turn]
+	if not by_character.has(character_id):
+		by_character[character_id] = []
+	var events: Array = by_character[character_id]
+	events.append(event)
+	by_character[character_id] = events
+	bucket[turn] = by_character
 
 
 func _load_models() -> void:
@@ -383,7 +425,7 @@ func _tile_along_path(path: Array, progress: float) -> Dictionary:
 	var segment_count := points.size() - 1
 	var scaled: float = clamp(progress, 0.0, 1.0) * float(segment_count)
 	var segment_index: int = min(int(floor(scaled)), segment_count - 1)
-	var local_t := clamp(scaled - float(segment_index), 0.0, 1.0)
+	var local_t: float = clamp(scaled - float(segment_index), 0.0, 1.0)
 	var a: Dictionary = points[segment_index]
 	var b: Dictionary = points[segment_index + 1]
 	return {
@@ -515,10 +557,19 @@ func _update_airdrops(sample: Dictionary) -> void:
 			root.scale *= 0.72
 
 
-func _update_environmental_effects(turn: int) -> void:
-	if turn == last_effect_turn:
+func _update_environmental_effects(turn_value: float) -> void:
+	var resolved_through := _resolved_action_turn_for_value(turn_value)
+	if resolved_through < environmental_effects_fired_through_turn:
+		_clear_mist_effects()
+		environmental_effects_fired_through_turn = _initial_environmental_effects_fired_through_turn()
+	if resolved_through <= environmental_effects_fired_through_turn:
 		return
-	last_effect_turn = turn
+	for event_turn in range(environmental_effects_fired_through_turn + 1, resolved_through + 1):
+		_trigger_environmental_effects_for_turn(event_turn)
+	environmental_effects_fired_through_turn = resolved_through
+
+
+func _trigger_environmental_effects_for_turn(turn: int) -> void:
 	for event in snapshot.get("killFeed", []):
 		if typeof(event) != TYPE_DICTIONARY:
 			continue
@@ -538,6 +589,36 @@ func _trigger_mist(origin: Vector3) -> void:
 		mist.visible = true
 
 
+func _update_character_animation_clips(turn_value: float) -> void:
+	if equipment_attachment == null or not equipment_attachment.has_method("play_character_animation"):
+		return
+	var turn_int := int(floor(turn_value))
+	var fraction := _turn_fraction_for_value(turn_value)
+	var action_phase := fraction >= ACTION_PHASE_START or turn_int >= _end_turn_from_snapshot()
+	for character_id in character_nodes.keys():
+		var node: Node3D = character_nodes.get(character_id)
+		if node == null or not node.visible:
+			continue
+		var kind := "idle"
+		var has_attack := _has_action_for_character(attacks_by_turn_character, turn_int, character_id)
+		var has_loot := _has_action_for_character(loots_by_turn_character, turn_int, character_id)
+		if action_phase and has_attack:
+			kind = "attack"
+		elif action_phase and has_loot:
+			kind = "loot"
+		elif not _active_movement_for_character(character_id).is_empty():
+			kind = "walk"
+		equipment_attachment.play_character_animation(character_id, kind)
+
+
+func _has_action_for_character(bucket: Dictionary, turn: int, character_id: String) -> bool:
+	var by_character = bucket.get(turn, {})
+	if typeof(by_character) != TYPE_DICTIONARY:
+		return false
+	var events = by_character.get(character_id, [])
+	return typeof(events) == TYPE_ARRAY and not events.is_empty()
+
+
 func _update_mist(delta: float) -> void:
 	if mist_age > 2.4:
 		return
@@ -546,6 +627,12 @@ func _update_mist(delta: float) -> void:
 	for mist in mist_nodes:
 		mist.visible = fade > 0.02
 		mist.scale = Vector3.ONE * (1.0 + (1.0 - fade) * 2.7)
+
+
+func _clear_mist_effects() -> void:
+	mist_age = 999.0
+	for mist in mist_nodes:
+		mist.visible = false
 
 
 func _interpolate_frames(a: Dictionary, b: Dictionary, t: float) -> Dictionary:
@@ -674,10 +761,19 @@ func _ensure_combat_vfx() -> void:
 func _update_equipment_for_turn(turn_value: float) -> void:
 	if equipment_attachment == null or not equipment_attachment.has_method("update_equipment"):
 		return
-	var frame := _contract_frame_for_turn(int(floor(turn_value)))
+	var frame := _contract_frame_for_turn(_equipment_turn_for_value(turn_value))
 	var equipped = frame.get("equippedByCharacter", {})
 	if typeof(equipped) == TYPE_DICTIONARY:
 		equipment_attachment.update_equipment(equipped)
+
+
+func _equipment_turn_for_value(turn_value: float) -> int:
+	var turn_int := int(floor(turn_value))
+	if turn_int >= _end_turn_from_snapshot():
+		return _end_turn_from_snapshot()
+	var fraction := _turn_fraction_for_value(turn_value)
+	var equip_turn := turn_int if fraction >= ACTION_PHASE_START else turn_int - 1
+	return max(equip_turn, _start_turn_from_snapshot())
 
 
 func _contract_frame_for_turn(turn: int) -> Dictionary:
@@ -701,12 +797,15 @@ func _update_attack_poses(delta: float) -> void:
 		if node == null:
 			attack_pose_by_character.erase(character_id)
 			continue
+		if _character_uses_rigged_animation(character_id, "attack"):
+			attack_pose_by_character.erase(character_id)
+			continue
 		var age := float(pose.get("age", 0.0)) + delta
 		var duration := float(pose.get("duration", 0.48))
-		var phase := clamp(age / max(duration, 0.001), 0.0, 1.0)
-		var swing := sin(phase * PI)
+		var phase: float = clamp(age / max(duration, 0.001), 0.0, 1.0)
+		var swing: float = sin(phase * PI)
 		var weapon := str(pose.get("weapon", ""))
-		var weapon_socket := node.get_node_or_null("weapon_socket") as Node3D
+		var weapon_socket := _weapon_socket_for_character(character_id, node)
 		var visual := node.get_node_or_null("visual") as Node3D
 		if visual != null:
 			visual.rotation_degrees.x = -8.0 * swing if bool(pose.get("hit", false)) else 6.0 * swing
@@ -728,7 +827,7 @@ func _update_attack_poses(delta: float) -> void:
 			continue
 		var age := float(slam.get("age", 0.0)) + delta
 		var duration := float(slam.get("duration", 0.34))
-		var phase := clamp(age / max(duration, 0.001), 0.0, 1.0)
+		var phase: float = clamp(age / max(duration, 0.001), 0.0, 1.0)
 		var visual := node.get_node_or_null("visual") as Node3D
 		if visual != null:
 			visual.rotation_degrees.x = -18.0 * sin(phase * PI)
@@ -743,9 +842,12 @@ func _update_attack_poses(delta: float) -> void:
 		if node == null:
 			loot_pose_by_character.erase(character_id)
 			continue
+		if _character_uses_rigged_animation(character_id, "loot"):
+			loot_pose_by_character.erase(character_id)
+			continue
 		var age := float(loot.get("age", 0.0)) + delta
 		var duration := float(loot.get("duration", 0.42))
-		var phase := clamp(age / max(duration, 0.001), 0.0, 1.0)
+		var phase: float = clamp(age / max(duration, 0.001), 0.0, 1.0)
 		var visual := node.get_node_or_null("visual") as Node3D
 		if visual != null:
 			visual.position.y = sin(phase * PI) * 0.055
@@ -754,6 +856,20 @@ func _update_attack_poses(delta: float) -> void:
 		if age >= duration:
 			_reset_character_pose(node)
 			loot_pose_by_character.erase(character_id)
+
+
+func _character_uses_rigged_animation(character_id: String, kind: String) -> bool:
+	if equipment_attachment == null or not equipment_attachment.has_method("has_rigged_animation"):
+		return false
+	return equipment_attachment.has_rigged_animation(character_id, kind)
+
+
+func _weapon_socket_for_character(character_id: String, node: Node3D) -> Node3D:
+	if equipment_attachment != null and equipment_attachment.has_method("weapon_socket_for_character"):
+		var socket = equipment_attachment.weapon_socket_for_character(character_id)
+		if socket is Node3D:
+			return socket
+	return node.get_node_or_null("weapon_socket") as Node3D
 
 
 func _reset_character_pose(node: Node3D) -> void:
@@ -784,6 +900,8 @@ func _clear_event_marks() -> void:
 	loot_pose_by_character.clear()
 	lethal_targets_by_character.clear()
 	loot_source_marks.clear()
+	environmental_effects_fired_through_turn = _initial_environmental_effects_fired_through_turn()
+	_clear_mist_effects()
 	if combat_vfx != null:
 		combat_vfx.configure(snapshot, scene_builder, self)
 		if camera_rig != null:
@@ -832,3 +950,33 @@ func _mat(albedo: Color, emission: Color, energy: float, texture_resource: Resou
 	material.emission_energy_multiplier = energy
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if albedo.a < 1.0 else BaseMaterial3D.TRANSPARENCY_DISABLED
 	return material
+
+
+func _start_turn_from_snapshot() -> int:
+	var playback: Dictionary = snapshot.get("playback", {})
+	return int(playback.get("startTurn", 1))
+
+
+func _end_turn_from_snapshot() -> int:
+	var playback: Dictionary = snapshot.get("playback", {})
+	return int(playback.get("endTurn", playback.get("turnCount", _start_turn_from_snapshot())))
+
+
+func _initial_environmental_effects_fired_through_turn() -> int:
+	return _start_turn_from_snapshot() - 1
+
+
+func _turn_fraction_for_value(turn_value: float) -> float:
+	return clamp(turn_value - floor(turn_value), 0.0, 1.0)
+
+
+func _resolved_action_turn_for_value(turn_value: float) -> int:
+	var turn_int := int(floor(turn_value))
+	var fraction := _turn_fraction_for_value(turn_value)
+	var resolved_through := turn_int - 1
+	if fraction >= ACTION_PHASE_START:
+		resolved_through = turn_int
+	var end_turn := _end_turn_from_snapshot()
+	if turn_int >= end_turn:
+		resolved_through = end_turn
+	return resolved_through

@@ -20,23 +20,36 @@ to survive; this Godot project is only the blind full-match probe.
 - Director camera plus anchored follow camera. Anchored cycling includes alive,
   dead, and extracted characters.
 - Manifest-driven character/corpse/equipment assets:
-  rat = Kenney blocky A; duelist = Robin Lamb hero; trader = local neon broker;
-  opportunist = Quaternius space mech; paranoid = Kenney blocky R;
-  camper = Kenney blocky N; sprinter = local crimson stalker; vulture = Kenney blocky Q.
-  Character source lanes: Kenney, Robin Lamb, Quaternius, and context-battler
-  local primitive humanoids. Weapon/armour/corpse R&D placeholders are recorded
-  per asset with license, size, and SHA-256 in
-  `shared-harness/art-kit/manifest.json`.
-- Equipment mesh-on-equip: all six weapon names and five armour names map through
-  manifest metadata to deterministic socket attachments with tier-tinted material
-  variation.
-- Combat spectacle pass: attack poses oriented attacker-to-target; hit splash,
-  miss spray, lethal disintegration chunks, persistent blood pools capped at 64,
-  camera punch, wall face-slam dust placed at the `wallRectId` contact face, and
-  loot pickup flourishes. Environmental deaths still use the original red-mist beat.
+  rat = KayKit rogue; duelist = Robin Lamb hero; trader = interglactic simple
+  character; opportunist = Quaternius mech; paranoid = GDQuest Mannequiny;
+  camper = Mesh2Motion human base; sprinter = XCVG animated humanoid;
+  vulture = styloo robot. The manifest is schemaVersion 3 and records sourceKey,
+  license, size, SHA-256, palette, and clip names per persona.
+- Rigged animation pass: EntityRenderer selects idle, walk, attack, and loot or
+  generic clips from the manifest and EquipmentMeshAttachment plays them through
+  each character's AnimationPlayer. Whole-body attack/loot poses are bypassed
+  when a rigged clip resolves.
+- Equipment pipeline: weapons still attach through manifest hand metadata,
+  preferring BoneAttachment3D when an attach bone resolves. Armour no longer
+  spawns a separate wearable mesh; armour tiers modify the character material
+  with metallic, emissive, and color-ramp changes.
+- Combat spectacle pass: attack clips/poses orient attacker-to-target; hit
+  splash, miss spray, lethal disintegration chunks, persistent splatter-textured
+  blood pools capped at 64, camera punch, wall face-slam dust placed at the
+  `wallRectId` contact face, and loot pickup flourishes. Environmental deaths
+  still use the original red-mist beat.
+- Round-5 WP-A timing fix: action VFX, loot/equipment swaps, and environmental
+  red mist now wait for `ACTION_PHASE_START = 0.65` instead of firing at the
+  integer turn boundary. Fired-through counters initialize from `startTurn - 1`,
+  reset on backward scrub, and clamp at `endTurn` so final-turn events are not
+  stranded by the playback clock. Wall face-slams use the chosen movement-end
+  semantic, `WALL_SLAM_PHASE_START = 0.95`; direct dead-stop wall hits can be a
+  delayed stationary slam because the snapshot path is `[from]`, while wall-slide
+  or partial-contact traces align the slam with the path end.
 - Scene material reconciliation: the five manifest PNG textures are now loaded
   by renderer code for floor, walls, cover, evac, airdrop/crate markers, and
-  actual crate materials; procedural noise remains a fallback path.
+  actual crate materials; procedural noise remains a fallback path. Round 5 adds
+  generated normal-map noise and metallic/roughness values for PBR language.
 - Forward-only replay guard: `MatchPlayer` rejects non-v3 snapshots before scene
   configuration so stale cached v2 data fails loudly.
 - Right-side panel: Director summary in FREE mode; anchored Identity,
@@ -79,22 +92,28 @@ to survive; this Godot project is only the blind full-match probe.
 - Watch all five maps for geometry scale, camera framing, and wall/cover
   readability.
 - Confirm anchored mode remains ground truth: all entities stay visible.
-- Check each persona's model silhouette and each equipped weapon/armour tier for
-  readability. The astronaut comparison slot was removed; opportunist now uses
-  the Quaternius mech, with trader and sprinter moved to local primitive lanes.
-- Check attacks, lethal deaths, wall face-slams, environmental red mist, and loot
-  pickups for timing against the kill feed and turn scrubber. Wall face-slams
-  should land at the wall contact face, not at the character's start tile.
+- Check each persona's sourced character lane, palette, and rigged idle/walk/
+  attack/loot motion. The active manifest has eight distinct sourceKeys and no
+  local primitive character slots.
+- Check each equipped weapon and armour tier for readability. Armour should read
+  as a material tier on the character, not as a separate floating body piece.
+- Check attacks, lethal deaths, equipment swaps, environmental red mist, and loot
+  pickups for move-then-action timing against the kill feed and turn scrubber.
+  Wall face-slams should land near movement end at the wall contact face, not at
+  the character's start tile.
 
 ## Technical Ceilings
 
 - Combat bursts use pooled lightweight mesh particles and primitive chunk meshes
   instead of bespoke rigged dismemberment. This keeps the web export budgeted but
-  means the gore reads as body-disintegration rather than per-limb authored
+  means gore still reads as body-disintegration rather than per-limb authored
   breakage.
-- Socket attachment is deterministic offset-based because the R&D models do not
+- Blood pools use the web-compatible QuadMesh plus alpha splatter fallback, not
+  Godot Decal nodes. This preserves the pipeline-language read while avoiding
+  compatibility risk in the current export target.
+- Socket attachment is still mixed quality because the sampled packs do not
   share a reliable humanoid bone map. The manifest records `attachBone` metadata,
-  but the runtime falls back to stable hand/spine offsets.
-- Two persona models (trader and sprinter) are local primitive humanoids. They
-  increase R&D source breadth and silhouette contrast, but they are intentionally
-  rough placeholders rather than final art-direction picks.
+  and the runtime falls back to stable hand offsets when a bone is missing.
+- Trader uses jump as its attack/generic action clip because that CC0 source
+  only ships idle, walk, and jump. It is still rigged limb motion, but it is a
+  clear candidate for replacement if that lane is kept.
