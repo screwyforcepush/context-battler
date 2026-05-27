@@ -1,6 +1,10 @@
 # Round 5 Spectacle Closing Readout
 
 Date: 2026-05-27
+Spec: [`round-5-spectacle-spec.md`](./round-5-spectacle-spec.md)
+Previous: [Round 4 closing readout](./round-4-closing-readout.md) (schemaVersion 3 contract + spectacle polish + 4-source asset R&D)
+
+> **Render R&D sequence:** Round 1 (substrate survey) → Round 2 (Godot/WASM ratified) → Round 3 (full-match playback proven) → Round 4 (event-stream contract + spectacle polish + 4-source asset breadth) → **Round 5** (8-source rigged-anim breadth + within-turn timing + VFX pipeline rework). Still pre-§10-gate R&D; breadth-first sampling, user UATs locally, next round picked from user feedback.
 
 ## Scope Delivered
 
