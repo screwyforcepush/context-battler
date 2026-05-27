@@ -5,6 +5,7 @@ const ART_ROOT := "res://shared-harness/art-kit/"
 const WEAPON_SOCKET_NAME := "weapon_socket"
 const ARMOUR_SOCKET_NAME := "armour_socket"
 const WEAPON_ATTACHMENT_SCALE := 0.22
+const FALLBACK_CHARACTER_HALF_HEIGHT := 0.17
 
 var manifest: Dictionary = {}
 var character_assets_by_persona: Dictionary = {}
@@ -42,6 +43,45 @@ func pivot_y_for_persona(persona: String) -> float:
 	return float(asset.get("pivotYOffset", 0.0))
 
 
+func scale_multiplier_for_persona(persona: String) -> float:
+	var asset: Dictionary = character_assets_by_persona.get(persona, {})
+	var value = asset.get("modelScaleMultiplier", 1.0)
+	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+		return float(value)
+	return 1.0
+
+
+func instantiate_persona_character(persona: String, label: String, fallback_material: Material, base_scale: float) -> Node3D:
+	var asset: Dictionary = character_assets_by_persona.get(persona, {})
+	var root := Node3D.new()
+	root.name = label
+	var scene := _scene_for_asset(asset)
+	var multiplier := scale_multiplier_for_persona(persona)
+	var pivot_y := float(asset.get("pivotYOffset", 0.0))
+	if scene != null:
+		var instance = scene.instantiate()
+		if instance is Node3D:
+			var visual := instance as Node3D
+			visual.name = "visual"
+			visual.scale = Vector3.ONE * base_scale * multiplier
+			visual.position.y = pivot_y
+			_apply_material(visual, fallback_material)
+			root.add_child(visual)
+			return root
+		if instance != null:
+			instance.queue_free()
+	var fallback := MeshInstance3D.new()
+	fallback.name = "visual"
+	var mesh := CapsuleMesh.new()
+	mesh.radius = 0.09
+	mesh.height = FALLBACK_CHARACTER_HALF_HEIGHT * 2.0
+	fallback.mesh = mesh
+	fallback.material_override = fallback_material
+	fallback.position.y = FALLBACK_CHARACTER_HALF_HEIGHT
+	root.add_child(fallback)
+	return root
+
+
 func environment_scene_for_role(role: String) -> PackedScene:
 	return _scene_for_asset(environment_assets_by_role.get(role, {}))
 
@@ -77,6 +117,7 @@ func register_character(character_id: String, character_node: Node3D, persona: S
 		"animationPlayer": animation_player,
 		"animationClips": asset.get("animation", {}),
 		"currentClip": "",
+		"animationState": _empty_animation_state("idle"),
 		"attachBone": str(asset.get("attachBone", "")),
 		"weaponSocket": weapon_socket,
 		"bodyMeshes": body_meshes,
@@ -120,7 +161,9 @@ func play_loot_swap(character_id: String, item: Dictionary) -> void:
 
 
 func play_character_clip(character_id: String, kind: String) -> bool:
-	var clip := clip_name_for_character(character_id, kind)
+	var resolution := resolve_animation_clip(character_id, kind)
+	var clip := str(resolution.get("clip", ""))
+	_store_animation_state(character_id, resolution)
 	if clip.is_empty():
 		return false
 	var character: Dictionary = registered_characters.get(character_id, {})
@@ -130,7 +173,11 @@ func play_character_clip(character_id: String, kind: String) -> bool:
 	if str(character.get("currentClip", "")) != clip or not player.is_playing():
 		player.play(clip)
 		character["currentClip"] = clip
+		character["animationState"] = resolution
 		registered_characters[character_id] = character
+		var finish_callable := _handle_animation_finished.bind(player, character_id, clip, kind)
+		if not player.animation_finished.is_connected(finish_callable):
+			player.animation_finished.connect(finish_callable, Object.CONNECT_ONE_SHOT)
 	return true
 
 
@@ -144,17 +191,25 @@ func has_event_clip(character_id: String, kind: String) -> bool:
 
 
 func clip_name_for_character(character_id: String, kind: String) -> String:
+	return str(resolve_animation_clip(character_id, kind).get("clip", ""))
+
+
+func resolve_animation_clip(character_id: String, kind: String) -> Dictionary:
 	var character: Dictionary = registered_characters.get(character_id, {})
 	var animation = character.get("animationClips", {})
 	if typeof(animation) != TYPE_DICTIONARY:
-		return ""
+		return _empty_animation_state(kind)
 	var animation_dict := animation as Dictionary
-	var clip := str(animation_dict.get(kind, ""))
-	if clip.is_empty() and kind == "loot":
-		clip = str(animation_dict.get("generic", ""))
-	if clip.is_empty() and kind == "attack":
-		clip = str(animation_dict.get("generic", ""))
-	return clip
+	for candidate_kind in _fallback_chain_for_kind(kind):
+		var clip := str(animation_dict.get(candidate_kind, ""))
+		if not clip.is_empty():
+			return {
+				"clip": clip,
+				"requested_kind": kind,
+				"resolved_kind": candidate_kind,
+				"is_fallback": candidate_kind != kind,
+			}
+	return _empty_animation_state(kind)
 
 
 func play_character_animation(character_id: String, kind: String) -> bool:
@@ -167,6 +222,17 @@ func has_rigged_animation(character_id: String, kind: String) -> bool:
 
 func animation_clip_for_character(character_id: String, kind: String) -> String:
 	return clip_name_for_character(character_id, kind)
+
+
+func animation_state_for_character(character_id: String) -> Dictionary:
+	if not registered_characters.has(character_id):
+		return {}
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var state: Dictionary = character.get("animationState", {})
+	var out := state.duplicate(true)
+	var player := character.get("animationPlayer") as AnimationPlayer
+	out["is_playing"] = player != null and player.is_playing()
+	return out
 
 
 func weapon_socket_for_character(character_id: String) -> Node3D:
@@ -262,6 +328,53 @@ func _swap_weapon(character_id: String, weapon_name: String) -> void:
 	_apply_attachment_transform(visual, asset, "weapon")
 	_apply_tier_material(visual, int(asset.get("tier", 1)), "weapon")
 	socket.add_child(visual)
+
+
+func _fallback_chain_for_kind(kind: String) -> Array[String]:
+	match kind:
+		"attack_armed":
+			return ["attack_armed", "attack", "generic"]
+		"attack_unarmed":
+			return ["attack_unarmed", "attack", "generic"]
+		"take_hit":
+			return ["take_hit", "generic", "idle"]
+		"death":
+			return ["death", "take_hit", "generic", "idle"]
+		"loot":
+			return ["loot", "generic"]
+		"attack":
+			return ["attack", "generic"]
+		_:
+			return [kind]
+
+
+func _empty_animation_state(kind: String) -> Dictionary:
+	return {
+		"clip": "",
+		"requested_kind": kind,
+		"resolved_kind": "",
+		"is_fallback": true,
+	}
+
+
+func _store_animation_state(character_id: String, state: Dictionary) -> void:
+	if not registered_characters.has(character_id):
+		return
+	var character: Dictionary = registered_characters.get(character_id, {})
+	character["animationState"] = state
+	registered_characters[character_id] = character
+
+
+func _handle_animation_finished(animation_name: StringName, player: AnimationPlayer, character_id: String, expected_clip: String, requested_kind: String) -> void:
+	if player == null or not is_instance_valid(player) or str(animation_name) != expected_clip:
+		return
+	var character: Dictionary = registered_characters.get(character_id, {})
+	if str(character.get("currentClip", "")) != expected_clip:
+		return
+	if requested_kind == "death":
+		player.pause()
+	else:
+		player.play(expected_clip)
 
 
 func _swap_armour(character_id: String, armour_name: String) -> void:
@@ -382,6 +495,13 @@ func _apply_tier_material(node: Node, tier: int, slot: String) -> void:
 		_apply_tier_material(child, tier, slot)
 
 
+func _apply_material(node: Node, material: Material) -> void:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).material_override = material
+	for child in node.get_children():
+		_apply_material(child, material)
+
+
 func _material_for_tier(tier: int, slot: String) -> StandardMaterial3D:
 	if slot == "weapon":
 		if tier >= 3:
@@ -389,9 +509,9 @@ func _material_for_tier(tier: int, slot: String) -> StandardMaterial3D:
 		if tier >= 2:
 			return mat_weapon_mid
 		return mat_weapon_low
-	if tier >= 4:
-		return mat_armour_high
 	if tier >= 3:
+		return mat_armour_high
+	if tier >= 2:
 		return mat_armour_mid
 	return mat_armour_low
 

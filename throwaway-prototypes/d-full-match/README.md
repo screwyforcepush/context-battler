@@ -6,6 +6,7 @@ This is a throwaway prototype for the render R&D path. It exists only at
 Spec and assignment anchors:
 
 - [Full-match Godot/WASM renderer spec](../../docs/project/phases/render-rnd/full-match-godot-spec.md)
+- [Round-6 Showroom spec](../../docs/project/phases/render-rnd/round-6-showroom-spec.md)
 - [Mental model section 10 and 13](../../docs/project/spec/mental-model.md)
 - Assignment: full-match Godot/WASM replay probe, WP1 through WP4
 
@@ -34,6 +35,11 @@ Built here:
 - Side panel script that reads the snapshot, `PlaybackClock`, and
   `CameraRig` signals. FREE mode is a compact Director summary; ANCHORED
   mode shows Identity, Equipment, Scratchpad, Prompt, and Speech tabs.
+- Showroom mode from the home screen's `Showroom` button. It displays all 8
+  personas side by side on a sample wall/cover/floor stage, exposes 7 animation
+  triggers, and applies Weapon/Armor tier selectors across every persona.
+- Per-persona calibrated `modelScaleMultiplier` values in the art manifest keep
+  the 8 sourced character packs in the same apparent-height band.
 
 Not built here: visual UAT, browsertools, Chromium, screenshots, UAT
 artifacts, live subscription, fog/LOS/perception overlays, or 3D speech
@@ -50,9 +56,22 @@ Play/Pause, scrub, and speed controls.
   count.
 - ANCHORED mode: right-edge sections for Identity, Equipment, Scratchpad,
   Prompt, and Speech.
-- Equipment tier visualization is sidebar-label-only for v0. No 3D
-  equipment tier materials were added.
+- Equipment tiers render through attached weapon meshes and character-material
+  armour swaps; the sidebar mirrors the same snapshot equipment state.
 - Speech is sidebar-log-only. No 3D speech bubbles were added.
+
+## Showroom
+
+Use the home screen's `Showroom` button to open the Round-6 comparison surface.
+The showroom has 7 animation triggers: idle, walk, attack unarmed, attack
+armed, loot, take hit, and death. Weapon and Armor rows provide None, Low, Mid,
+and High tier selectors that update all 8 personas together. The camera stays
+in free camera mode for orbit, pan, and zoom around the lineup; `Esc` or Back
+returns to the picker.
+
+The lineup uses the shared manifest factory and calibrated multipliers rather
+than a second character-loading path. The blind posture remains NO UAT; the
+implementer does not perform visual checks.
 
 ## Convex URL
 

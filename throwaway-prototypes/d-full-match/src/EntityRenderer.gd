@@ -2,14 +2,13 @@ extends Node3D
 
 const CHARACTER_MODEL_SCALE := 0.21
 const CRATE_MODEL_SCALE := 0.17
-const AIRDROP_CRATE_MODEL_SCALE := 0.21
-const CORPSE_MODEL_SCALE := 0.21
+const AIRDROP_CRATE_MODEL_SCALE := CHARACTER_MODEL_SCALE
+const CORPSE_MODEL_SCALE := CHARACTER_MODEL_SCALE
 const CHARACTER_GROUND_Y := 0.0
 const CRATE_GROUND_Y := 0.0
 const AIRDROP_GROUND_Y := 0.0
 const CORPSE_GROUND_Y := 0.0
 const CHARACTER_ANCHOR_Y := 0.22
-const FALLBACK_CHARACTER_HALF_HEIGHT := 0.17
 const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
 const COMBAT_VFX_SCRIPT := "res://src/CombatVfx.gd"
 const ACTION_PHASE_START := 0.65
@@ -299,9 +298,12 @@ func _spawn_characters(characters: Array) -> void:
 			continue
 		var id := str(character.get("characterId", ""))
 		var persona := str(character.get("personaId", ""))
-		var scene: PackedScene = equipment_attachment.character_scene_for_persona(persona) if equipment_attachment != null else null
-		var pivot_y: float = equipment_attachment.pivot_y_for_persona(persona) if equipment_attachment != null else 0.0
-		var node := _instance_or_capsule(scene, "character-%s" % id, mat_agent[i % mat_agent.size()], pivot_y)
+		var node: Node3D = equipment_attachment.instantiate_persona_character(
+			persona,
+			"character-%s" % id,
+			mat_agent[i % mat_agent.size()],
+			CHARACTER_MODEL_SCALE
+		)
 		add_child(node)
 		character_nodes[id] = node
 		character_personas[id] = persona
@@ -317,7 +319,7 @@ func _spawn_crates() -> void:
 		if typeof(crate) != TYPE_DICTIONARY:
 			continue
 		var id := str(crate.get("id", ""))
-		var node := _instance_or_box(crate_scene, "crate-%s" % id, mat_closed, Vector3(0.17, 0.21, 0.17), CRATE_MODEL_SCALE)
+		var node := _instance_or_box(crate_scene, "crate-%s" % id, mat_closed, Vector3(CRATE_MODEL_SCALE, CHARACTER_MODEL_SCALE, CRATE_MODEL_SCALE), CRATE_MODEL_SCALE)
 		if equipment_attachment != null:
 			var pivot_y: float = equipment_attachment.pivot_y_for_environment_role("crate")
 			var visual := node.get_node_or_null("visual") as Node3D
@@ -336,7 +338,7 @@ func _spawn_airdrops() -> void:
 		var id := str(drop.get("id", ""))
 		var root := Node3D.new()
 		root.name = "airdrop-%s" % id
-		var crate := _instance_or_box(crate_scene, "crate", mat_airdrop, Vector3(0.21, 0.21, 0.21), AIRDROP_CRATE_MODEL_SCALE)
+		var crate := _instance_or_box(crate_scene, "crate", mat_airdrop, Vector3.ONE * CHARACTER_MODEL_SCALE, AIRDROP_CRATE_MODEL_SCALE)
 		root.add_child(crate)
 		var beam := MeshInstance3D.new()
 		beam.name = "telegraphed-beam"
@@ -662,29 +664,6 @@ func _tile_to_world(pos: Dictionary, y: float = 0.0) -> Vector3:
 	if scene_builder != null and scene_builder.has_method("tile_to_world"):
 		return scene_builder.tile_to_world(pos, y)
 	return Vector3(float(pos.get("x", 0)), y, float(pos.get("y", 0)))
-
-
-func _instance_or_capsule(scene: PackedScene, label: String, material: Material, pivot_y: float = 0.0) -> Node3D:
-	var root := Node3D.new()
-	root.name = label
-	if scene != null:
-		var visual := scene.instantiate() as Node3D
-		visual.name = "visual"
-		visual.scale = Vector3.ONE * CHARACTER_MODEL_SCALE
-		visual.position.y = pivot_y
-		_apply_material(visual, material)
-		root.add_child(visual)
-		return root
-	var fallback := MeshInstance3D.new()
-	fallback.name = "visual"
-	var mesh := CapsuleMesh.new()
-	mesh.radius = 0.09
-	mesh.height = FALLBACK_CHARACTER_HALF_HEIGHT * 2.0
-	fallback.mesh = mesh
-	fallback.material_override = material
-	fallback.position.y = FALLBACK_CHARACTER_HALF_HEIGHT
-	root.add_child(fallback)
-	return root
 
 
 func _instance_or_corpse(scene: PackedScene, label: String, material: Material) -> Node3D:

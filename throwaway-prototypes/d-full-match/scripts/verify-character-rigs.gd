@@ -65,6 +65,8 @@ func _verify_character(asset: Dictionary, fallback: bool) -> void:
 	if skeleton != null:
 		_verify_attach_bone(label, asset, skeleton)
 	var player := state["player"] as AnimationPlayer
+	if player != null:
+		print("%s clip inventory: %s" % [label, ", ".join(PackedStringArray(player.get_animation_list()))])
 	var animation: Dictionary = asset.get("animation", {})
 	for clip_kind in ["idle", "walk", "attack"]:
 		_verify_clip(label, player, animation, clip_kind, fallback)
@@ -74,6 +76,9 @@ func _verify_character(asset: Dictionary, fallback: bool) -> void:
 		_verify_clip(label, player, animation, "loot", fallback)
 	else:
 		_verify_clip(label, player, animation, "generic", fallback)
+	for optional_kind in ["attack_unarmed", "attack_armed", "take_hit", "death"]:
+		if animation.has(optional_kind):
+			_verify_clip(label, player, animation, optional_kind, fallback)
 	root.queue_free()
 
 

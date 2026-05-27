@@ -7,6 +7,7 @@ var loading := false
 @onready var status_label: Label = %StatusLabel
 @onready var retry_button: Button = %RetryButton
 @onready var refresh_button: Button = %RefreshButton
+@onready var showroom_button: Button = %ShowroomButton
 @onready var match_list: ItemList = %MatchList
 
 
@@ -16,6 +17,7 @@ func _ready() -> void:
 	convex_url_label.text = "Convex: %s" % AppState.get_convex_url()
 	retry_button.pressed.connect(_load_matches)
 	refresh_button.pressed.connect(_load_matches)
+	showroom_button.pressed.connect(_on_showroom_pressed)
 	match_list.item_activated.connect(_on_item_activated)
 	AppState.signal_boot_state("picker_ready")
 	_load_matches()
@@ -103,6 +105,10 @@ func _on_item_activated(index: int) -> void:
 		return
 	AppState.select_match(match_id)
 	get_tree().change_scene_to_file("res://scenes/MatchPlayer.tscn")
+
+
+func _on_showroom_pressed() -> void:
+	get_tree().change_scene_to_file("res://scenes/Showroom.tscn")
 
 
 func _compare_match_desc(a, b) -> bool:

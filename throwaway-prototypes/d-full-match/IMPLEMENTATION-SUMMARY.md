@@ -23,8 +23,9 @@ to survive; this Godot project is only the blind full-match probe.
   rat = KayKit rogue; duelist = Robin Lamb hero; trader = interglactic simple
   character; opportunist = Quaternius mech; paranoid = GDQuest Mannequiny;
   camper = Mesh2Motion human base; sprinter = XCVG animated humanoid;
-  vulture = styloo robot. The manifest is schemaVersion 3 and records sourceKey,
-  license, size, SHA-256, palette, and clip names per persona.
+  vulture = styloo robot. The manifest is schemaVersion 4 and records sourceKey,
+  license, size, SHA-256, palette, clip names, and `modelScaleMultiplier` per
+  persona.
 - Rigged animation pass: EntityRenderer selects idle, walk, attack, and loot or
   generic clips from the manifest and EquipmentMeshAttachment plays them through
   each character's AnimationPlayer. Whole-body attack/loot poses are bypassed
@@ -59,6 +60,10 @@ to survive; this Godot project is only the blind full-match probe.
 - Sidebar-only speech. There are no 3D speech bubbles.
 - Ground-truth render. There is no fog, LOS filtering, ghost marker, or
   perception overlay code.
+- Round-6 scale calibration: `EquipmentMeshAttachment.instantiate_persona_character`
+  applies `EntityRenderer.CHARACTER_MODEL_SCALE * modelScaleMultiplier` for both
+  replay and showroom paths. The base `0.21` constant remains declared once in
+  `EntityRenderer.gd`.
 
 ## Controls
 
@@ -69,6 +74,42 @@ to survive; this Godot project is only the blind full-match probe.
 - Mouse wheel: zoom.
 - Bottom HUD: Play/Pause, scrub slider, speed selector.
 - `Esc` or Back: return to picker.
+
+## Showroom Mode
+
+The home screen exposes a `Showroom` button. The Showroom scene is a
+side-by-side curation surface for all 8 personas on a sample floor, wall, and
+cover stage built through `SceneBuilder.build_from_snapshot`. Back or `Esc`
+returns to `MatchPicker.tscn`.
+
+Controls and selectors:
+
+- 7 animation triggers fire across all personas: idle, walk, attack unarmed,
+  attack armed, loot, take hit, and death.
+- Weapon tiers are None, Low, Mid, and High. They map to manifest numeric tiers
+  0, 1, 2, and 3; first representatives are none, `rusty_blade`, `sword`, and
+  `greatsword`.
+- Armor tiers are None, Low, Mid, and High. They map to manifest numeric tiers
+  0, 1, 2, and 3; first representatives are none, `cloth`, `leather`, and
+  `chain`.
+- The camera is a locked free camera for orbit, pan, and zoom around the lineup.
+- Each persona has a name/source label plus an active-clip label. Fallback clips
+  are surfaced from `animation_state_for_character`.
+
+Calibration target: median idle@0 source height 3.9748.
+
+| Persona | Source key | idle@0 source height | modelScaleMultiplier |
+|---|---:|---:|---:|
+| rat | kaykit | 2.6688 | 1.4894 |
+| duelist | robin-lamb | 6.6452 | 0.5981 |
+| trader | interglactic | 3.7740 | 1.0532 |
+| opportunist | quaternius | 5.2077 | 0.7633 |
+| paranoid | gdquest | 1.7979 | 2.2108 |
+| camper | mesh2motion | 1.8296 | 2.1725 |
+| sprinter | xcvg-systems | 4.1756 | 0.9519 |
+| vulture | styloo | 8.1073 | 0.4903 |
+
+Blind posture: no visual checks by implementer.
 
 ## Differs From `c-godot-wasm`
 

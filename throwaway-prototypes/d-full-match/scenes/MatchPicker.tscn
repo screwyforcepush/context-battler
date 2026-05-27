@@ -45,6 +45,11 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Refresh"
 
+[node name="ShowroomButton" type="Button" parent="Root/Panel/VBox/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Showroom"
+
 [node name="ConvexUrlLabel" type="Label" parent="Root/Panel/VBox"]
 unique_name_in_owner = true
 layout_mode = 2

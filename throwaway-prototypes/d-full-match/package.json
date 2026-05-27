@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Throwaway Godot 4 WASM full-match replay prototype.",
   "scripts": {
-    "test": "node scripts/verify-scaffold.mjs",
+    "test": "node scripts/verify-scaffold.mjs && if [ -n \"$GODOT_BIN\" ]; then \"$GODOT_BIN\" --path . --headless --script res://scripts/audit-character-scales.gd -- --assert; else echo \"audit-character-scales: skipped (GODOT_BIN unset)\"; fi",
     "build": "node scripts/export-web.mjs",
     "serve": "node scripts/serve.mjs"
   }

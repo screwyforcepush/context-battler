@@ -16,11 +16,13 @@ const requiredFiles = [
   "export_presets.cfg",
   "scenes/MatchPicker.tscn",
   "scenes/MatchPlayer.tscn",
+  "scenes/Showroom.tscn",
   "src/AppState.gd",
   "src/ConvexClient.gd",
   "src/MatchPicker.gd",
   "src/MatchPlayer.gd",
   "src/SceneBuilder.gd",
+  "src/Showroom.gd",
   "src/EntityRenderer.gd",
   "src/PlaybackClock.gd",
   "src/TimelineHud.gd",
@@ -29,11 +31,27 @@ const requiredFiles = [
   "src/EquipmentMeshAttachment.gd",
   "scripts/export-web.mjs",
   "scripts/serve.mjs",
+  "scripts/audit-character-scales.gd",
   "scripts/verify-character-rigs.gd",
   "shared-harness/art-kit/manifest.json",
 ];
 
 const checks = [];
+const showroomPersonas = ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"];
+const showroomTriggerKinds = ["idle", "walk", "attack_unarmed", "attack_armed", "loot", "take_hit", "death"];
+const equipmentAssetNameLiterals = [
+  "rusty_blade",
+  "dagger",
+  "sword",
+  "axe",
+  "greatsword",
+  "warhammer",
+  "cloth",
+  "leather",
+  "chain",
+  "plate",
+  "riot_plate",
+];
 
 function read(relativePath) {
   return readFileSync(path.join(appDir, relativePath), "utf8");
@@ -55,9 +73,22 @@ function assertMatches(source, pattern, message) {
   assert(pattern.test(source), message);
 }
 
+function assertNotMatches(source, pattern, message) {
+  assert(!pattern.test(source), message);
+}
+
 function numericConstant(source, name) {
   const match = source.match(new RegExp(`const\\s+${name}\\s*:=\\s*([0-9]+(?:\\.[0-9]+)?)`));
   return match ? Number(match[1]) : Number.NaN;
+}
+
+function showroomSyntheticMapWidth(source) {
+  const widthLiterals = [...source.matchAll(/["']w["']\s*:\s*([0-9]+)/g)].map((match) => Number(match[1]));
+  const widthBindings = [
+    ...source.matchAll(/\b(?:const|var)\s+\w*MAP_WIDTH\w*\s*(?::\s*\w+\s*)?(?::=|=)\s*([0-9]+)/gi),
+    ...source.matchAll(/\b(?:const|var)\s+\w*SHOWROOM_WIDTH\w*\s*(?::\s*\w+\s*)?(?::=|=)\s*([0-9]+)/gi),
+  ].map((match) => Number(match[1]));
+  return Math.max(Number.NEGATIVE_INFINITY, ...widthLiterals, ...widthBindings);
 }
 
 function sha256(relativePath) {
@@ -104,6 +135,7 @@ if (existsSync(path.join(appDir, "src/MatchPicker.gd"))) {
   assert(picker.includes("Retry"), "MatchPicker has retry handling");
   assert(picker.includes("item_activated"), "MatchPicker supports row activation");
   assert(picker.includes("MatchPlayer.tscn"), "MatchPicker routes to MatchPlayer");
+  assert(picker.includes("Showroom.tscn"), "MatchPicker routes to Showroom");
   assert(picker.includes("sort_custom"), "MatchPicker sorts loaded rows");
 }
 
@@ -168,7 +200,12 @@ if (existsSync(path.join(appDir, "src/EntityRenderer.gd"))) {
   assertNotIncludes(entityRenderer, "speech", "EntityRenderer does not render speech in 3D");
   assertIncludes(entityRenderer, "EquipmentMeshAttachment", "EntityRenderer wires manifest-driven equipment attachment");
   assertIncludes(entityRenderer, "CombatVfx", "EntityRenderer wires CombatVfx event consumer");
-  assertIncludes(entityRenderer, "character_scene_for_persona", "EntityRenderer loads persona models from manifest");
+  assertIncludes(entityRenderer, "instantiate_persona_character", "EntityRenderer delegates persona model instancing to EquipmentMeshAttachment factory");
+  assertMatches(
+    entityRenderer,
+    /instantiate_persona_character\([\s\S]*CHARACTER_MODEL_SCALE/,
+    "EntityRenderer passes CHARACTER_MODEL_SCALE through the persona factory",
+  );
   assertIncludes(entityRenderer, "personaId", "EntityRenderer maps snapshot personaId to manifest personaSlot");
   assertIncludes(entityRenderer, "corpse_scene", "EntityRenderer uses manifest corpse asset");
   assertIncludes(entityRenderer, "update_equipment", "EntityRenderer updates equipment attachment from equippedByCharacter");
@@ -207,6 +244,7 @@ if (existsSync(path.join(appDir, "src/EntityRenderer.gd"))) {
   assertIncludes(entityRenderer, "cosmetic_wall_inset", "EntityRenderer applies render-only wall inset");
   assertNotIncludes(entityRenderer, "node.rotation.y = sin(Time.get_ticks_msec", "EntityRenderer removed decorative sine rotation");
   assertMatches(entityRenderer, /CHARACTER_MODEL_SCALE\s*:=\s*0\.21/, "EntityRenderer halves character model scale to 0.21");
+  assert((entityRenderer.match(/0\.21/g) ?? []).length === 1, "EntityRenderer keeps 0.21 only in the CHARACTER_MODEL_SCALE declaration");
   assertMatches(entityRenderer, /CRATE_MODEL_SCALE\s*:=\s*0\.17/, "EntityRenderer halves crate model scale to 0.17");
   for (const banned of ["a_star", "astar", "find_path", "bresenham", "dijkstra", "breadth_first_search", "manual_collision"]) {
     assertNotIncludes(entityRenderer, banned, `EntityRenderer avoids renderer pathing token ${banned}`);
@@ -290,6 +328,11 @@ if (existsSync(path.join(appDir, "src/EquipmentMeshAttachment.gd"))) {
     "AnimationPlayer",
     "BoneAttachment3D",
     "find_bone",
+    "scale_multiplier_for_persona",
+    "instantiate_persona_character",
+    "base_scale",
+    "resolve_animation_clip",
+    "animation_state_for_character",
     "animation_clip_for_character",
     "has_rigged_animation",
     "play_character_animation",
@@ -298,6 +341,49 @@ if (existsSync(path.join(appDir, "src/EquipmentMeshAttachment.gd"))) {
   ]) {
     assertIncludes(equipment, token, `EquipmentMeshAttachment handles ${token}`);
   }
+  assertNotIncludes(equipment, "CHARACTER_MODEL_SCALE", "EquipmentMeshAttachment receives base scale by parameter");
+  assertNotIncludes(equipment, "0.21", "EquipmentMeshAttachment does not duplicate the character base scale literal");
+  assertMatches(
+    equipment,
+    /func\s+instantiate_persona_character\([\s\S]*base_scale:\s*float[\s\S]*\)\s*->\s*Node3D/,
+    "EquipmentMeshAttachment exposes persona character factory with base_scale parameter",
+  );
+  assertMatches(
+    equipment,
+    /visual\.scale\s*=\s*Vector3\.ONE\s*\*\s*base_scale\s*\*\s*multiplier/,
+    "EquipmentMeshAttachment factory applies base scale times per-persona multiplier",
+  );
+  assertMatches(
+    equipment,
+    /func\s+resolve_animation_clip\(\s*character_id:\s*String,\s*kind:\s*String\s*\)\s*->\s*Dictionary/,
+    "EquipmentMeshAttachment exposes structured animation resolver",
+  );
+  for (const token of ['"clip"', '"requested_kind"', '"resolved_kind"', '"is_fallback"', '"is_playing"']) {
+    assertIncludes(equipment, token, `EquipmentMeshAttachment animation state includes ${token}`);
+  }
+  assertMatches(
+    equipment,
+    /"attack_armed"[\s\S]*\["attack_armed",\s*"attack",\s*"generic"\]/,
+    "EquipmentMeshAttachment falls back attack_armed through attack/generic",
+  );
+  assertMatches(
+    equipment,
+    /"attack_unarmed"[\s\S]*\["attack_unarmed",\s*"attack",\s*"generic"\]/,
+    "EquipmentMeshAttachment falls back attack_unarmed through attack/generic",
+  );
+  assertMatches(
+    equipment,
+    /"take_hit"[\s\S]*\["take_hit",\s*"generic",\s*"idle"\]/,
+    "EquipmentMeshAttachment falls back take_hit through generic/idle",
+  );
+  assertMatches(
+    equipment,
+    /"death"[\s\S]*\["death",\s*"take_hit",\s*"generic",\s*"idle"\]/,
+    "EquipmentMeshAttachment falls back death through take_hit/generic/idle",
+  );
+  assertIncludes(equipment, "animation_finished", "EquipmentMeshAttachment uses animation_finished for death pose hold");
+  assertIncludes(equipment, "player.pause()", "EquipmentMeshAttachment pauses finished death animation");
+  assertNotMatches(equipment, /\bloop_mode\s*=/, "EquipmentMeshAttachment does not assign Animation.loop_mode");
   assertNotIncludes(equipment, "armour_visual", "EquipmentMeshAttachment does not attach floating armour visuals");
 }
 
@@ -324,6 +410,7 @@ if (existsSync(path.join(appDir, "src/CameraRig.gd"))) {
   for (const token of ["signal anchor_changed", "signal mode_changed", "MODE_FREE", "MODE_ANCHORED", "cycle_anchor", "KEY_C", "KEY_BRACKETLEFT", "KEY_BRACKETRIGHT"]) {
     assertIncludes(cameraRig, token, `CameraRig provides ${token}`);
   }
+  assertIncludes(cameraRig, "lock_free_mode", "CameraRig exposes lock_free_mode for Showroom");
   assertIncludes(cameraRig, "including dead/extracted", "CameraRig documents all-character anchor cycling");
   assertMatches(cameraRig, /DEFAULT_DIRECTOR_RADIUS\s*:=\s*26\.0/, "CameraRig preserves director default radius");
   assertMatches(cameraRig, /DEFAULT_ANCHORED_RADIUS\s*:=\s*14\.0/, "CameraRig tightens anchored default radius");
@@ -343,9 +430,54 @@ if (existsSync(path.join(appDir, "scenes/MatchPlayer.tscn"))) {
   }
 }
 
+if (existsSync(path.join(appDir, "scenes/MatchPicker.tscn"))) {
+  const scene = read("scenes/MatchPicker.tscn");
+  assertIncludes(scene, "ShowroomButton", "MatchPicker scene contains ShowroomButton");
+  assertIncludes(scene, "Showroom", "MatchPicker scene labels Showroom entry point");
+}
+
+if (existsSync(path.join(appDir, "scenes/Showroom.tscn"))) {
+  const scene = read("scenes/Showroom.tscn");
+  for (const token of ["Showroom", "Showroom.gd"]) {
+    assertIncludes(scene, token, `Showroom scene contains ${token}`);
+  }
+}
+
+if (existsSync(path.join(appDir, "src/Showroom.gd"))) {
+  const showroom = read("src/Showroom.gd");
+  assertIncludes(showroom, "MatchPicker.tscn", "Showroom routes back to MatchPicker");
+  assertIncludes(showroom, "EntityRendererScript.CHARACTER_MODEL_SCALE", "Showroom reads CHARACTER_MODEL_SCALE from EntityRenderer");
+  assertIncludes(showroom, "instantiate_persona_character", "Showroom instantiates personas through EquipmentMeshAttachment factory");
+  assertIncludes(showroom, "build_from_snapshot", "Showroom builds sample environment through SceneBuilder");
+  assertIncludes(showroom, "play_character_animation", "Showroom triggers animations through EquipmentMeshAttachment");
+  assertIncludes(showroom, "update_equipment", "Showroom applies tier selections through EquipmentMeshAttachment");
+  assertIncludes(showroom, '"name"', "Showroom passes equipment slots as dictionaries with name fields");
+  assertIncludes(showroom, "Label3D", "Showroom uses Label3D for per-persona labels");
+  assertIncludes(showroom, "animation_state_for_character", "Showroom reads animation state through public accessor");
+  assertIncludes(showroom, "MODE_FREE", "Showroom configures CameraRig in MODE_FREE");
+  assertIncludes(showroom, "lock_free_mode", "Showroom locks CameraRig free mode");
+  for (const kind of showroomTriggerKinds) {
+    assertIncludes(showroom, `"${kind}"`, `Showroom references animation trigger literal ${kind}`);
+  }
+  for (const persona of showroomPersonas) {
+    assertIncludes(showroom, `"${persona}"`, `Showroom references persona literal ${persona}`);
+  }
+  const mapWidth = showroomSyntheticMapWidth(showroom);
+  assert(Number.isFinite(mapWidth) && mapWidth * 0.38 > 11.2, "Showroom synthetic floor width covers the 8-persona row");
+  assertNotIncludes(showroom, "registered_characters", "Showroom does not read EquipmentMeshAttachment private registered_characters");
+  assertNotIncludes(showroom, "0.21", "Showroom does not duplicate CHARACTER_MODEL_SCALE literal");
+  assertNotMatches(showroom, /\bloop_mode\s*=/, "Showroom does not assign Animation.loop_mode");
+  assertNotMatches(showroom, /\bmode\s*=\s*.*MODE_ANCHORED/, "Showroom does not initialize CameraRig in MODE_ANCHORED");
+  assertNotIncludes(showroom, "ConvexClient", "Showroom does not use ConvexClient");
+  assertNotIncludes(showroom, "/replay", "Showroom does not call replay endpoints");
+  for (const assetName of equipmentAssetNameLiterals) {
+    assertNotMatches(showroom, new RegExp(`["']${assetName}["']`), `Showroom does not hardcode equipment asset literal ${assetName}`);
+  }
+}
+
 if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   const manifest = JSON.parse(read("shared-harness/art-kit/manifest.json"));
-  assert(manifest.schemaVersion === 3, "d-full-match art manifest uses schemaVersion 3");
+  assert(manifest.schemaVersion === 4, "d-full-match art manifest uses schemaVersion 4");
   assert(!("source" in manifest), "art manifest has no singleton top-level source");
   assert(!("license" in manifest), "art manifest has no singleton top-level license");
   assert(!("extraction" in manifest), "art manifest has no singleton top-level extraction");
@@ -380,6 +512,13 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
       assert(typeof asset.sourceKey === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(asset.sourceKey), `character asset has normalized sourceKey: ${asset.id}`);
       sourceCounts.set(asset.sourceKey, (sourceCounts.get(asset.sourceKey) ?? 0) + 1);
       assert("pivotYOffset" in asset, `character asset has pivotYOffset: ${asset.id}`);
+      assert(
+        typeof asset.modelScaleMultiplier === "number" &&
+          Number.isFinite(asset.modelScaleMultiplier) &&
+          asset.modelScaleMultiplier >= 0.4 &&
+          asset.modelScaleMultiplier <= 3.0,
+        `character asset has modelScaleMultiplier in [0.4, 3.0]: ${asset.id}`,
+      );
       assert(asset.palette && typeof asset.palette === "object", `character asset has palette block: ${asset.id}`);
       for (const channel of ["base", "accent", "emissive"]) {
         assert(typeof asset.palette?.[channel] === "string" && /^#[0-9a-fA-F]{6}$/.test(asset.palette[channel]), `character palette has ${channel}: ${asset.id}`);
@@ -449,12 +588,25 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   }
 }
 
+if (existsSync(path.join(appDir, "package.json"))) {
+  const pkg = JSON.parse(read("package.json"));
+  const testScript = String(pkg.scripts?.test ?? "");
+  assertIncludes(testScript, "GODOT_BIN", "package test gates character scale audit on GODOT_BIN");
+  assertIncludes(testScript, "--path .", "package test runs character scale audit from the Godot project path");
+  assertIncludes(testScript, "--headless", "package test invokes Godot headless for character scale audit");
+  assertIncludes(testScript, "scripts/audit-character-scales.gd", "package test invokes audit-character-scales.gd");
+  assertIncludes(testScript, "--assert", "package test runs character scale audit in assert mode");
+  assertIncludes(testScript, "audit-character-scales: skipped (GODOT_BIN unset)", "package test logs clear scale-audit skip when GODOT_BIN is unset");
+}
+
 for (const codeFile of [
   "src/CombatVfx.gd",
   "src/EquipmentMeshAttachment.gd",
   "src/EntityRenderer.gd",
   "src/CameraRig.gd",
   "src/MatchPlayer.gd",
+  "src/Showroom.gd",
+  "scenes/Showroom.tscn",
   "IMPLEMENTATION-SUMMARY.md",
 ]) {
   if (!existsSync(path.join(appDir, codeFile))) continue;
@@ -468,8 +620,21 @@ if (existsSync(path.join(appDir, "README.md"))) {
   const readme = read("README.md");
   assert(/throwaway/i.test(readme), "README labels prototype throwaway");
   assert(readme.includes("docs/project/phases/render-rnd/full-match-godot-spec.md"), "README links full-match spec");
+  assert(readme.includes("round-6-showroom-spec.md"), "README links Round-6 Showroom spec");
+  assert(readme.includes("Showroom"), "README documents Showroom mode");
   assert(readme.includes("#convex="), "README documents convex hash plumbing");
   assert(readme.includes("NO UAT"), "README documents blind/no-UAT posture");
+}
+
+if (existsSync(path.join(appDir, "IMPLEMENTATION-SUMMARY.md"))) {
+  const summary = read("IMPLEMENTATION-SUMMARY.md");
+  assertIncludes(summary, "## Showroom Mode", "IMPLEMENTATION-SUMMARY documents Showroom mode");
+  assertIncludes(summary, "7 animation triggers", "IMPLEMENTATION-SUMMARY documents Showroom trigger count");
+  assertIncludes(summary, "Weapon", "IMPLEMENTATION-SUMMARY documents weapon tier selectors");
+  assertIncludes(summary, "Armor", "IMPLEMENTATION-SUMMARY documents armor tier selectors");
+  assertIncludes(summary, "free camera", "IMPLEMENTATION-SUMMARY documents Showroom free camera");
+  assertIncludes(summary, "modelScaleMultiplier", "IMPLEMENTATION-SUMMARY documents calibrated modelScaleMultiplier table");
+  assertIncludes(summary, "no visual checks by implementer", "IMPLEMENTATION-SUMMARY documents blind implementer posture");
 }
 
 if (existsSync(path.join(appDir, "scripts/export-web.mjs"))) {

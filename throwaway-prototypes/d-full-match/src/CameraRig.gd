@@ -31,6 +31,7 @@ var panning := false
 var last_pointer := Vector2.ZERO
 var punch_offset := Vector3.ZERO
 var punch_velocity := Vector3.ZERO
+@export var lock_free_mode := false
 var mode_button: Button
 var prev_button: Button
 var next_button: Button
@@ -57,6 +58,8 @@ func configure(root: Dictionary, renderer: Node, builder: Node, playback_clock: 
 	anchor_id = str(characters[0].get("characterId", "")) if not characters.is_empty() and typeof(characters[0]) == TYPE_DICTIONARY else ""
 	director_radius = DEFAULT_DIRECTOR_RADIUS
 	anchored_radius = DEFAULT_ANCHORED_RADIUS
+	if lock_free_mode:
+		mode = MODE_FREE
 	radius = _radius_for_mode()
 	free_anchor = Vector3.ZERO
 	smooth_anchor = _anchor_world()
@@ -64,6 +67,7 @@ func configure(root: Dictionary, renderer: Node, builder: Node, playback_clock: 
 	anchor_changed.emit(anchor_id)
 	mode_changed.emit(mode)
 	_update_button_text()
+	_apply_lock_free_controls()
 
 
 func update_camera(delta: float) -> void:
@@ -110,7 +114,7 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo:
-			if key.keycode == KEY_C:
+			if key.keycode == KEY_C and not lock_free_mode:
 				toggle_mode()
 			elif key.keycode == KEY_BRACKETLEFT:
 				cycle_anchor(-1)
@@ -119,6 +123,13 @@ func _input(event: InputEvent) -> void:
 
 
 func toggle_mode() -> void:
+	if lock_free_mode:
+		mode = MODE_FREE
+		free_anchor = smooth_anchor
+		radius = _radius_for_mode()
+		mode_changed.emit(mode)
+		_update_button_text()
+		return
 	_store_radius_for_mode()
 	if mode == MODE_FREE:
 		mode = MODE_ANCHORED
@@ -131,6 +142,8 @@ func toggle_mode() -> void:
 
 
 func cycle_anchor(delta_int: int) -> void:
+	if lock_free_mode:
+		return
 	var characters: Array = snapshot.get("characters", [])
 	if characters.is_empty():
 		return
@@ -212,9 +225,19 @@ func _make_controls() -> void:
 	next_button.text = "]"
 	next_button.pressed.connect(func() -> void: cycle_anchor(1))
 	row.add_child(next_button)
+	_apply_lock_free_controls()
 
 
 func _update_button_text() -> void:
 	if mode_button == null:
 		return
 	mode_button.text = "Anchored" if mode == MODE_ANCHORED else "Director"
+
+
+func _apply_lock_free_controls() -> void:
+	if mode_button != null:
+		mode_button.visible = not lock_free_mode
+	if prev_button != null:
+		prev_button.visible = not lock_free_mode
+	if next_button != null:
+		next_button.visible = not lock_free_mode
