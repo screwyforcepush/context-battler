@@ -38,7 +38,6 @@ var environmental_effects_fired_through_turn := -1
 var previous_turn_value := -1.0
 var current_turn_value := 1.0
 var crate_scene: PackedScene
-var corpse_scene: PackedScene
 var equipment_attachment: Node
 var combat_vfx: Node
 var mat_agent: Array[StandardMaterial3D] = []
@@ -202,7 +201,6 @@ func mark_loot_source(source: String, source_id: String) -> void:
 		drop_node.scale = Vector3.ONE * 0.68
 	elif source == "corpse" and corpse_nodes.has(source_id):
 		var corpse_node: Node3D = corpse_nodes[source_id]
-		_apply_material(corpse_node, mat_corpse)
 		corpse_node.scale = Vector3(0.9, 0.78, 0.9)
 
 
@@ -288,7 +286,6 @@ func _bucket_action_event(bucket: Dictionary, turn: int, character_id: String, e
 
 func _load_models() -> void:
 	crate_scene = equipment_attachment.environment_scene_for_role("crate") if equipment_attachment != null else null
-	corpse_scene = equipment_attachment.corpse_scene() if equipment_attachment != null else null
 
 
 func _spawn_characters(characters: Array) -> void:
@@ -506,7 +503,13 @@ func _update_corpses(sample: Dictionary) -> void:
 		var id := str(corpse.get("characterId", ""))
 		var node: Node3D = corpse_nodes.get(id)
 		if node == null:
-			node = _instance_or_corpse(corpse_scene, "corpse-%s" % id, mat_corpse)
+			var persona := _persona_for_corpse(id, corpse)
+			node = equipment_attachment.instantiate_persona_corpse(
+				persona,
+				"corpse-%s" % id,
+				mat_corpse,
+				CORPSE_MODEL_SCALE
+			)
 			add_child(node)
 			corpse_nodes[id] = node
 		node.position = _tile_to_world(corpse.get("pos", {}), CORPSE_GROUND_Y)
@@ -517,6 +520,16 @@ func _update_corpses(sample: Dictionary) -> void:
 		if not live_corpses.has(id):
 			var node: Node3D = corpse_nodes[id]
 			node.visible = false
+
+
+func _persona_for_corpse(character_id: String, corpse: Dictionary) -> String:
+	if character_personas.has(character_id):
+		return str(character_personas.get(character_id, ""))
+	for key in ["personaId", "persona", "personaSlot"]:
+		var persona := str(corpse.get(key, ""))
+		if not persona.is_empty():
+			return persona
+	return "rat"
 
 
 func _update_crates(sample: Dictionary) -> void:
@@ -664,33 +677,6 @@ func _tile_to_world(pos: Dictionary, y: float = 0.0) -> Vector3:
 	if scene_builder != null and scene_builder.has_method("tile_to_world"):
 		return scene_builder.tile_to_world(pos, y)
 	return Vector3(float(pos.get("x", 0)), y, float(pos.get("y", 0)))
-
-
-func _instance_or_corpse(scene: PackedScene, label: String, material: Material) -> Node3D:
-	var root := Node3D.new()
-	root.name = label
-	if scene != null:
-		var visual := scene.instantiate() as Node3D
-		visual.name = "visual"
-		visual.scale = Vector3.ONE * CORPSE_MODEL_SCALE
-		visual.position.y = equipment_attachment.corpse_pivot_y() if equipment_attachment != null else 0.0
-		visual.rotation_degrees = Vector3(0.0, 0.0, 0.0)
-		_apply_material(visual, material)
-		root.add_child(visual)
-		return root
-	var body := _make_box("corpse-body", Vector3(0.48, 0.10, 0.20), material)
-	body.position.y = 0.05
-	root.add_child(body)
-	var head := MeshInstance3D.new()
-	head.name = "corpse-head"
-	var head_mesh := SphereMesh.new()
-	head_mesh.radius = 0.09
-	head_mesh.height = 0.12
-	head.mesh = head_mesh
-	head.material_override = material
-	head.position = Vector3(0.33, 0.08, 0.0)
-	root.add_child(head)
-	return root
 
 
 func _instance_or_box(scene: PackedScene, label: String, material: Material, size: Vector3, scene_scale: float) -> Node3D:

@@ -142,14 +142,23 @@ How the substrate is grown, stated as enduring intent rather than a phase log:
 
 - **POC posture.** While in POC, breaking schema and resetting state beats migration shims. Single forward shape, no backward-compat branches.
 
-- **R&D rounds sample breadth before consolidating.** A pre-§10-gate
-  R&D probe (the throwaway render prototypes are the live example)
-  iterates by *sampling* — e.g. one distinct character-pack source per
-  persona, intentionally inconsistent — before any *curation* pass that
-  consolidates onto a single lane. Inconsistency across slots is the
-  data the user reads to pick a direction; premature consolidation
-  destroys that signal. Consolidation/curation is a deliberate later
-  round, not the next-obvious thing to do once breadth lands.
+- **R&D rounds sample breadth before consolidating, recursively on
+  finer axes.** A pre-§10-gate R&D probe (the throwaway render
+  prototypes are the live example) iterates by *sampling* — e.g. one
+  distinct character-pack source per persona, intentionally
+  inconsistent — before any *curation* pass that consolidates onto a
+  single lane. Inconsistency across slots is the data the user reads
+  to pick a direction; premature consolidation destroys that signal.
+  Consolidation/curation is a deliberate later round, not the
+  next-obvious thing to do once breadth lands. **The pattern is
+  recursive:** once one axis consolidates (e.g. body model), the next
+  finer axis becomes breadth-able in turn (skin technique, then
+  material approach, then gore treatment, then accessory style, etc.).
+  Each loop is: *sample breadth on the current finest open axis →
+  evaluate side-by-side in the showroom → consolidate → reveal the
+  next finer axis*. Resist collapsing multiple axes in one round; the
+  user's pick is only legible when one variable moves at a time
+  (consistent with §10's overall "one variable at a time" discipline).
 
 - **Breadth needs a dedicated viewing surface.** Once breadth-sampling
   is wide, chasing comparison moments in replay scrubs does not scale

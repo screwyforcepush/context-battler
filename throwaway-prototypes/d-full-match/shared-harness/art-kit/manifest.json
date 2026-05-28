@@ -1,388 +1,596 @@
 {
-  "schemaVersion": 4,
-  "kitName": "d-full-match-round-5-spectacle-art-kit",
-  "purpose": "Multi-source Round-5 R&D art kit for d-full-match: eight distinct sourced character lanes, rigged animation clips, equipment material tiers, corpse, blood-splatter texture, and cyberpunk-Diablo environment materials.",
+  "schemaVersion": 5,
+  "kitName": "d-full-match-round-7-skin-rnd-art-kit",
+  "purpose": "Round-7 consolidated mesh2motion body plus eight distinct skin-technique samples and eight distinct extreme corpse-gore samples for d-full-match.",
   "notes": [
-    "Throwaway prototype art kit: breadth and deterministic mapping matter more than uniform art polish.",
-    "Character body sourceKey values are normalized pack identities; aggregators and Mixamo-style animation sources do not consume body-source identity.",
-    "Round 5 samples eight distinct sourced character lanes, one per persona; no local primitive character slot remains in the active manifest.",
-    "Per-persona palettes provide base, accent, and emissive channels for spawn-time material overrides.",
-    "Blood pools use the CC0 AlejandroHaibi blood splatter texture with the web-compatible QuadMesh alpha fallback path documented in the closing readout."
+    "Throwaway prototype art kit: Round-7 consolidates all personas onto the shared mesh2motion human-base body and re-samples breadth on skin technique and corpse gore technique.",
+    "Root body and corpseBody both reference characters/camper-mesh2motion-human-base.glb; per-character entries carry only persona-distinct skin/accessory/corpse metadata.",
+    "Accessories are deliberately skipped this round; every character accessories field is null so skin/gore breadth remains the isolated comparison axis.",
+    "Skin and gore textures under textures/skin and textures/gore are small local generated CC0 prototype PNGs authored for this R&D pass; PNG .import sidecars are committed beside each generated source.",
+    "Shader files under shaders/ are local prototype Godot shaders authored for this R&D pass and dedicated CC0 for reuse inside the project.",
+    "Weapons, armour, environment, and existing VFX manifest entries are preserved from Round 5/Round 6; armour remains a material-swap pipeline, while body.armourAttachBone is reserved for future use."
   ],
+  "body": {
+    "file": "characters/camper-mesh2motion-human-base.glb",
+    "sourceKey": "mesh2motion",
+    "modelScaleMultiplier": 2.1725,
+    "pivotYOffset": 0,
+    "attachBone": "hand_r",
+    "armourAttachBone": "spine",
+    "animation": {
+      "idle": "Idle",
+      "walk": "Walk",
+      "attack": "Sword_Attack",
+      "attack_unarmed": "Punch_Jab",
+      "attack_armed": "Sword_Attack",
+      "take_hit": "Hit_Chest",
+      "death": "Death01",
+      "loot": "PickUp_Table"
+    },
+    "source": {
+      "title": "Mesh2Motion Human Base Animations",
+      "creator": "Scott Petrovic / Mesh2Motion",
+      "repository": "GitHub",
+      "pageUrl": "https://github.com/scottpetrovic/mesh2motion-app",
+      "downloadUrl": "https://github.com/scottpetrovic/mesh2motion-app"
+    },
+    "license": {
+      "spdx": "CC0-1.0",
+      "name": "CC0 1.0 Universal / Public Domain",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionRequired": false,
+      "notes": "LICENSE-CC0.MD states 3D models, blend files, rigs, and animations are CC0."
+    },
+    "extraction": {
+      "sourceArchive": "/tmp/mesh2motion",
+      "sourceArchiveSha256": null,
+      "sourceArchivePath": "static/animations/human-base-animations.glb",
+      "selectedOnly": true
+    },
+    "notes": "Shared Round-7 consolidated mesh2motion body for all personas; Scott Petrovic / Mesh2Motion CC0 human-base animation GLB selected after Round-6 showroom evaluation.",
+    "sizeBytes": 6066008,
+    "sha256": "578542d26d334805bdeadfc1f394e86a4d470dbc70b4eb277c8fe38b7387c7cd"
+  },
+  "corpseBody": {
+    "file": "characters/camper-mesh2motion-human-base.glb",
+    "sourceKey": "mesh2motion",
+    "deathPoseClip": "Death01",
+    "modelScaleMultiplier": 2.1725,
+    "pivotYOffset": 0,
+    "notes": "Shared mesh2motion body, paused on the Death01 final frame. Per-persona corpse-skin variants apply at instance time; no standalone corpse GLB remains."
+  },
   "assets": [
     {
       "id": "character.rat",
       "category": "character",
       "personaSlot": "rat",
-      "sourceKey": "kaykit",
-      "file": "characters/rat-kaykit-rogue-hooded.glb",
-      "pivotYOffset": 0,
-      "modelScaleMultiplier": 1.4894,
-      "attachBone": "handslot.r",
-      "animation": {
-        "idle": "Idle",
-        "walk": "Walking_A",
-        "attack": "Dualwield_Melee_Attack_Chop",
-        "attack_unarmed": "Unarmed_Melee_Attack_Punch_A",
-        "attack_armed": "Dualwield_Melee_Attack_Chop",
-        "take_hit": "Hit_A",
-        "death": "Death_A",
-        "loot": "PickUp"
+      "skin": {
+        "approach": "palette_flat",
+        "rationale": "Round-5 palette baseline retained as the control sample so the other seven skin techniques have a no-technique anchor.",
+        "params": {
+          "palette": {
+            "base": "#32402f",
+            "accent": "#78f28a",
+            "emissive": "#d7ff63"
+          }
+        }
       },
-      "palette": {
-        "base": "#32402f",
-        "accent": "#78f28a",
-        "emissive": "#d7ff63"
+      "accessories": null,
+      "corpse": {
+        "approach": "blood_saturation_overlay",
+        "rationale": "Whole-body deep blood saturation keeps the cheapest gore path loud, wet, and readable on the shared body.",
+        "params": {
+          "tint": "#5a0008",
+          "saturation": 0.92,
+          "factor": 0.85,
+          "wetness": 0.65
+        }
       },
-      "source": {
-        "title": "KayKit - Character Pack: Adventurers",
-        "creator": "Kay Lousberg / KayKit",
-        "repository": "GitHub",
-        "pageUrl": "https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0",
-        "downloadUrl": "https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0"
-      },
-      "license": {
-        "spdx": "CC0-1.0",
-        "name": "CC0 1.0 Universal / Public Domain",
-        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false,
-        "notes": "Repository LICENSE marks the 3D character pack CC0."
-      },
-      "extraction": {
-        "sourceArchive": "/tmp/kaykit-adventures",
-        "sourceArchiveSha256": null,
-        "sourceArchivePath": "addons/kaykit_character_pack_adventures/Characters/gltf/Rogue_Hooded.glb",
-        "selectedOnly": true
-      },
-      "notes": "Hooded rogue gives rat a sourced scavenger silhouette and full melee/walk/pickup animation breadth; modelScaleMultiplier:1.4894 from idle@0 AABB scale audit to normalize source height 2.6688 toward median 3.9748.",
-      "sizeBytes": 3597652,
-      "sha256": "93e6e25213009952276d9cf34f5d96a243767334c66f280db0433ddfabb91545"
+      "notes": "rat persona: palette_flat skin control + blood_saturation_overlay corpse gore. All Round-7 skin/gore assets are local generated CC0 prototypes unless otherwise noted."
     },
     {
       "id": "character.duelist",
       "category": "character",
       "personaSlot": "duelist",
-      "sourceKey": "robin-lamb",
-      "file": "characters/duelist-robin-lamb-hero.glb",
-      "pivotYOffset": 0,
-      "modelScaleMultiplier": 0.5981,
-      "attachBone": "hand.r",
-      "animation": {
-        "idle": "idle",
-        "walk": "walk",
-        "attack": "attack",
-        "attack_armed": "attack",
-        "take_hit": "hurt",
-        "death": "die",
-        "generic": "jump"
+      "skin": {
+        "approach": "pbr_texture_atlas",
+        "rationale": "A compact PBR atlas sample makes the duelist read as crafted, weighted, and materially richer than the palette-only baseline.",
+        "params": {
+          "albedo": "textures/skin/duelist-pbr-albedo.png",
+          "normal": "textures/skin/duelist-pbr-normal.png",
+          "roughness": "textures/skin/duelist-pbr-roughness.png",
+          "metallic": "textures/skin/duelist-pbr-metallic.png",
+          "ao": "textures/skin/duelist-pbr-ao.png",
+          "uv1_scale": [
+            1,
+            1
+          ]
+        }
       },
-      "palette": {
-        "base": "#51242e",
-        "accent": "#f2c46b",
-        "emissive": "#ff304d"
+      "accessories": null,
+      "corpse": {
+        "approach": "wound_cluster_decals",
+        "rationale": "A cluster of torso slash and puncture marks reads as close-quarters overkill for the weapon-forward persona.",
+        "params": {
+          "decals": [
+            {
+              "file": "textures/gore/wound-slash-a.png",
+              "offset": [
+                0,
+                0.48,
+                0.13
+              ],
+              "size": [
+                0.34,
+                0.22,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -18
+              ]
+            },
+            {
+              "file": "textures/gore/wound-slash-b.png",
+              "offset": [
+                -0.16,
+                0.28,
+                0.14
+              ],
+              "size": [
+                0.28,
+                0.2,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                22
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "offset": [
+                0.18,
+                0.36,
+                0.15
+              ],
+              "size": [
+                0.2,
+                0.14,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "file": "textures/gore/wound-slash-a.png",
+              "offset": [
+                0.06,
+                0.18,
+                0.14
+              ],
+              "size": [
+                0.24,
+                0.16,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                36
+              ]
+            }
+          ]
+        }
       },
-      "source": {
-        "title": "Animated Low Poly Hero with Sword and Shield",
-        "creator": "Robin Lamb",
-        "repository": "OpenGameArt",
-        "pageUrl": "https://opengameart.org/content/animated-low-poly-hero-with-sword-and-shield",
-        "downloadUrl": "https://opengameart.org/sites/default/files/hero_1.zip"
-      },
-      "license": {
-        "spdx": "CC0-1.0",
-        "name": "CC0 1.0 Universal / Public Domain",
-        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false,
-        "notes": "Provided local source bundle is marked CC0 for this R&D pass."
-      },
-      "extraction": {
-        "sourceArchive": "/tmp/context-battler-r4-assets/robin_lamb_hero.zip",
-        "sourceArchiveSha256": "26eac1b512bb2d5074f135d152e52fc1c9e993c055845d9a550ce960ed15e603",
-        "sourceArchivePath": "hero/character.glb",
-        "selectedOnly": true
-      },
-      "notes": "Duelist keeps the high-effort sword-and-shield lane from Round 4 as the one Robin Lamb reuse; loot-fallback:generic uses jump for non-combat action timing; modelScaleMultiplier:0.5981 from idle@0 AABB scale audit to normalize source height 6.6452 toward median 3.9748.",
-      "sizeBytes": 268504,
-      "sha256": "d611bc2ccd01a797fcf1b4f6fd2239c8acd6f34e51d5ded8c148369b7880388d"
+      "notes": "duelist persona: pbr_texture_atlas skin using local generated prototype PBR maps + wound_cluster_decals corpse gore."
     },
     {
       "id": "character.trader",
       "category": "character",
       "personaSlot": "trader",
-      "sourceKey": "interglactic",
-      "file": "characters/trader-oga-simple-char/simple_char.gltf",
-      "pivotYOffset": 0,
-      "modelScaleMultiplier": 1.0532,
-      "attachBone": "H.R",
-      "animation": {
-        "idle": "idle",
-        "walk": "walk",
-        "attack": "jump",
-        "generic": "jump"
+      "skin": {
+        "approach": "pattern_texture",
+        "rationale": "A tiled hex/circuit pattern makes the trader read as data-market and broker-coded without changing the shared body.",
+        "params": {
+          "albedo": "textures/skin/trader-hex-pattern.png",
+          "uv1_scale": [
+            4,
+            4
+          ],
+          "tint": "#f5a642",
+          "baseColor": "#173b42"
+        }
       },
-      "palette": {
-        "base": "#173b42",
-        "accent": "#f5a642",
-        "emissive": "#16f2ff"
+      "accessories": null,
+      "corpse": {
+        "approach": "gore_pool_decal",
+        "rationale": "A wide floor-projected blood pool implies slow bleed-out and creates a distinct corpse treatment without changing body geometry.",
+        "params": {
+          "decals": [
+            {
+              "file": "textures/gore/blood-pool-large.png",
+              "offset": [
+                0,
+                -0.05,
+                0
+              ],
+              "size": [
+                1.55,
+                0.05,
+                1.55
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ],
+              "projection": "floor"
+            }
+          ],
+          "poolColor": "#64000b"
+        }
       },
-      "source": {
-        "title": "simple 3d rigged character with animation",
-        "creator": "interglactic",
-        "repository": "OpenGameArt",
-        "pageUrl": "https://opengameart.org/content/simple-3d-rigged-character-with-animation",
-        "downloadUrl": "https://opengameart.org/sites/default/files/simple_char.zip"
-      },
-      "license": {
-        "spdx": "CC0-1.0",
-        "name": "CC0 1.0 Universal / Public Domain",
-        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false,
-        "notes": "OpenGameArt entry lists CC0."
-      },
-      "extraction": {
-        "sourceArchive": "/tmp/oga/simple_char.zip",
-        "sourceArchiveSha256": "096947ea2876b4a497cbbf445bc22b83f298ad3284f5346dae06468e6313fc08",
-        "sourceArchivePath": "simple_char/simple_char.gltf",
-        "selectedOnly": true
-      },
-      "notes": "Minimal humanoid trader lane samples a simple CC0 rig; attack-fallback:generic and loot-fallback:generic use jump because the source provides idle/walk/jump only; modelScaleMultiplier:1.0532 from idle@0 AABB scale audit to normalize source height 3.7740 toward median 3.9748.",
-      "sizeBytes": 329763,
-      "sha256": "6bd8db747827e068c4f3d6c4a51b28445bd0d6c336beae94cea1b6ae2e38095f"
+      "notes": "trader persona: pattern_texture skin using local generated hex pattern + gore_pool_decal corpse gore."
     },
     {
       "id": "character.opportunist",
       "category": "character",
       "personaSlot": "opportunist",
-      "sourceKey": "quaternius",
-      "file": "characters/opportunist-quaternius-space-mech.glb",
-      "pivotYOffset": -0.05,
-      "modelScaleMultiplier": 0.7633,
-      "attachBone": null,
-      "animation": {
-        "idle": "RobotArmature|Idle",
-        "walk": "RobotArmature|Walk",
-        "attack": "RobotArmature|Shoot_Big",
-        "attack_unarmed": "RobotArmature|Kick",
-        "attack_armed": "RobotArmature|Shoot_Big",
-        "take_hit": "RobotArmature|HitRecieve_1",
-        "death": "RobotArmature|Death",
-        "loot": "RobotArmature|Pickup"
+      "skin": {
+        "approach": "decal_stickers",
+        "rationale": "Projected sticker marks sell scavenged identity and painted-over loyalties while keeping the underlying body consolidated.",
+        "params": {
+          "basePalette": {
+            "base": "#263245",
+            "accent": "#8df0ff",
+            "emissive": "#ff5c18"
+          },
+          "decals": [
+            {
+              "file": "textures/skin/opportunist-decal-logo.png",
+              "offset": [
+                0,
+                0.42,
+                0.16
+              ],
+              "size": [
+                0.26,
+                0.26,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "file": "textures/skin/opportunist-decal-scar.png",
+              "offset": [
+                -0.15,
+                0.23,
+                0.15
+              ],
+              "size": [
+                0.24,
+                0.3,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -16
+              ]
+            },
+            {
+              "file": "textures/skin/opportunist-decal-dirt.png",
+              "offset": [
+                0.14,
+                0.05,
+                0.14
+              ],
+              "size": [
+                0.32,
+                0.22,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                18
+              ]
+            }
+          ]
+        }
       },
-      "palette": {
-        "base": "#263245",
-        "accent": "#8df0ff",
-        "emissive": "#ff5c18"
+      "accessories": null,
+      "corpse": {
+        "approach": "charred_burned_texture",
+        "rationale": "Charred albedo plus hot ember emission makes the opportunist look fatally fried and burned through.",
+        "params": {
+          "albedo": "textures/gore/charred-albedo.png",
+          "emissionMap": "textures/gore/charred-emission.png",
+          "emission": "#ff5c18",
+          "emissionEnergy": 0.75,
+          "sootTint": "#080606"
+        }
       },
-      "source": {
-        "title": "Ultimate Space Kit",
-        "creator": "Quaternius",
-        "repository": "OpenGameArt",
-        "pageUrl": "https://opengameart.org/content/ultimate-space-kit-by-quaternius",
-        "downloadUrl": "https://opengameart.org/sites/default/files/ultimate_space_kit-glb.zip",
-        "upstreamPackPage": "https://quaternius.com/packs/ultimatespacekit.html"
-      },
-      "license": {
-        "spdx": "CC0-1.0",
-        "name": "CC0 1.0 Universal / Public Domain",
-        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false,
-        "notes": "OpenGameArt and Quaternius provenance from the local Ultimate Space Kit bundle list the pack as CC0."
-      },
-      "extraction": {
-        "sourceArchive": "/tmp/context-battler-assets/ultimate_space_kit-glb.zip",
-        "sourceArchiveSha256": "61ee5a5199d1abe419bb15ca580ab047449c3c4500b73962d4be01faa11bf8a0",
-        "sourceArchivePath": "Mech.glb",
-        "selectedOnly": true
-      },
-      "notes": "Bulky mech remains the Quaternius comparison lane for opportunist, now driven by imported AnimationPlayer clips; attachBone-fallback:handOffset because the mech rig has no hand bone in Godot import; modelScaleMultiplier:0.7633 from idle@0 AABB scale audit to normalize source height 5.2077 toward median 3.9748.",
-      "sizeBytes": 426804,
-      "sha256": "795d137e3413ca0412835c8624f3fce56d69243f86e50481c72effea1354a488"
+      "notes": "opportunist persona: decal_stickers skin with three local generated sticker marks + charred_burned_texture corpse gore."
     },
     {
       "id": "character.paranoid",
       "category": "character",
       "personaSlot": "paranoid",
-      "sourceKey": "gdquest",
-      "file": "characters/paranoid-gdquest-mannequiny.glb",
-      "pivotYOffset": 0,
-      "modelScaleMultiplier": 2.2108,
-      "attachBone": "hand.r",
-      "animation": {
-        "idle": "idle",
-        "walk": "run",
-        "attack": "fight_punch",
-        "attack_unarmed": "fight_punch",
-        "attack_armed": "fight_kick",
-        "generic": "fight_kick"
+      "skin": {
+        "approach": "toon_cel_shader",
+        "rationale": "A hard-ramped toon shader turns the paranoid into a graphic-novel panic silhouette and samples non-PBR shader styling.",
+        "params": {
+          "shader": "shaders/toon_cel.gdshader",
+          "rampSteps": 3,
+          "outlineColor": "#050713",
+          "baseColor": "#202338",
+          "accentColor": "#caa6ff",
+          "shadowColor": "#0a0d1e"
+        }
       },
-      "palette": {
-        "base": "#202338",
-        "accent": "#caa6ff",
-        "emissive": "#6affd2"
+      "accessories": null,
+      "corpse": {
+        "approach": "exposed_bone_decals",
+        "rationale": "Projected red gashes with pale exposed bone literalize the persona's nightmare as an extreme corpse read.",
+        "params": {
+          "decals": [
+            {
+              "file": "textures/gore/bone-gash-a.png",
+              "offset": [
+                0,
+                0.46,
+                0.15
+              ],
+              "size": [
+                0.32,
+                0.24,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -24
+              ]
+            },
+            {
+              "file": "textures/gore/bone-gash-b.png",
+              "offset": [
+                -0.18,
+                0.22,
+                0.13
+              ],
+              "size": [
+                0.28,
+                0.22,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                28
+              ]
+            },
+            {
+              "file": "textures/gore/bone-gash-c.png",
+              "offset": [
+                0.2,
+                0.12,
+                0.14
+              ],
+              "size": [
+                0.22,
+                0.16,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                6
+              ]
+            }
+          ],
+          "boneColor": "#eee5ca"
+        }
       },
-      "source": {
-        "title": "Godot 3D Mannequin / Mannequiny",
-        "creator": "GDQuest and contributors",
-        "repository": "GitHub",
-        "pageUrl": "https://github.com/gdquest-demos/godot-3d-mannequin",
-        "downloadUrl": "https://github.com/gdquest-demos/godot-3d-mannequin"
-      },
-      "license": {
-        "spdx": "CC-BY-4.0",
-        "name": "Creative Commons Attribution 4.0 International",
-        "url": "https://creativecommons.org/licenses/by/4.0/",
-        "attributionRequired": true,
-        "notes": "Repository license marks source code MIT and art assets CC-BY 4.0; attribution required and retained in manifest/readout."
-      },
-      "extraction": {
-        "sourceArchive": "/tmp/gdquest-mannequiny",
-        "sourceArchiveSha256": null,
-        "sourceArchivePath": "godot/assets/3d/mannequiny/mannequiny-0.3.0.glb",
-        "selectedOnly": true
-      },
-      "notes": "Paranoid samples a clean Godot-native mannequin with fight-punch and fight-kick clips for nervous action timing; loot-fallback:generic uses fight_kick; modelScaleMultiplier:2.2108 from idle@0 AABB scale audit to normalize source height 1.7979 toward median 3.9748.",
-      "sizeBytes": 1843984,
-      "sha256": "8005cc2ab9221ad605be2d1cbb89eea894583e72bd5f50a5fbe40243a64f0493"
+      "notes": "paranoid persona: toon_cel_shader skin from local shader + exposed_bone_decals corpse gore."
     },
     {
       "id": "character.camper",
       "category": "character",
       "personaSlot": "camper",
-      "sourceKey": "mesh2motion",
-      "file": "characters/camper-mesh2motion-human-base.glb",
-      "pivotYOffset": 0,
-      "modelScaleMultiplier": 2.1725,
-      "attachBone": "hand_r",
-      "animation": {
-        "idle": "Idle",
-        "walk": "Walk",
-        "attack": "Sword_Attack",
-        "attack_unarmed": "Punch_Jab",
-        "attack_armed": "Sword_Attack",
-        "take_hit": "Hit_Chest",
-        "death": "Death01",
-        "loot": "PickUp_Table"
+      "skin": {
+        "approach": "emissive_trim_shader",
+        "rationale": "Dark body with neon trim samples cyberpunk glow without depending on bloom and fits the held-position camper read.",
+        "params": {
+          "shader": "shaders/emissive_trim.gdshader",
+          "trimMask": "textures/skin/camper-trim-mask.png",
+          "trimColor": "#ff8f2e",
+          "trimEnergy": 1.8,
+          "baseColor": "#23351e"
+        }
       },
-      "palette": {
-        "base": "#23351e",
-        "accent": "#c7d072",
-        "emissive": "#ff8f2e"
+      "accessories": null,
+      "corpse": {
+        "approach": "viscera_projection",
+        "rationale": "Chest and abdomen viscera projections make the death-pose body look opened up rather than merely tinted.",
+        "params": {
+          "decals": [
+            {
+              "file": "textures/gore/viscera-chest.png",
+              "offset": [
+                0,
+                0.45,
+                0.16
+              ],
+              "size": [
+                0.32,
+                0.24,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "file": "textures/gore/viscera-abdomen.png",
+              "offset": [
+                0.04,
+                0.2,
+                0.15
+              ],
+              "size": [
+                0.36,
+                0.26,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -10
+              ]
+            }
+          ],
+          "organColor": "#740016"
+        }
       },
-      "source": {
-        "title": "Mesh2Motion Human Base Animations",
-        "creator": "Scott Petrovic / Mesh2Motion",
-        "repository": "GitHub",
-        "pageUrl": "https://github.com/scottpetrovic/mesh2motion-app",
-        "downloadUrl": "https://github.com/scottpetrovic/mesh2motion-app"
-      },
-      "license": {
-        "spdx": "CC0-1.0",
-        "name": "CC0 1.0 Universal / Public Domain",
-        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false,
-        "notes": "LICENSE-CC0.MD states 3D models, blend files, rigs, and animations are CC0."
-      },
-      "extraction": {
-        "sourceArchive": "/tmp/mesh2motion",
-        "sourceArchiveSha256": null,
-        "sourceArchivePath": "static/animations/human-base-animations.glb",
-        "selectedOnly": true
-      },
-      "notes": "Camper uses a reserved human rig with broad utility clips, including sword attack and pickup/table interaction for loot; modelScaleMultiplier:2.1725 from idle@0 AABB scale audit to normalize source height 1.8296 toward median 3.9748.",
-      "sizeBytes": 6066008,
-      "sha256": "578542d26d334805bdeadfc1f394e86a4d470dbc70b4eb277c8fe38b7387c7cd"
+      "notes": "camper persona: emissive_trim_shader skin with local trim mask + viscera_projection corpse gore."
     },
     {
       "id": "character.sprinter",
       "category": "character",
       "personaSlot": "sprinter",
-      "sourceKey": "xcvg-systems",
-      "file": "characters/sprinter-oga-animated-humanoid.fbx",
-      "pivotYOffset": 0,
-      "modelScaleMultiplier": 0.9519,
-      "attachBone": "Hand.R",
-      "animation": {
-        "idle": "Armature|Standing",
-        "walk": "Armature|Run",
-        "attack": "Armature|Punch",
-        "attack_unarmed": "Armature|Punch",
-        "attack_armed": "Armature|Swing",
-        "generic": "Armature|CrouchDefault"
+      "skin": {
+        "approach": "multi_material_split",
+        "rationale": "Per-part material assignments sample mismatched speed-build body segmentation without adding accessories or changing the mesh.",
+        "params": {
+          "bodyParts": {
+            "head": {
+              "base": "#43211c",
+              "metallic": 0.15,
+              "roughness": 0.7
+            },
+            "chest": {
+              "base": "#ff4e38",
+              "metallic": 0.45,
+              "roughness": 0.38
+            },
+            "legs": {
+              "base": "#1a3440",
+              "metallic": 0.25,
+              "roughness": 0.5
+            },
+            "arms": {
+              "base": "#ffe14a",
+              "metallic": 0.62,
+              "roughness": 0.32
+            }
+          },
+          "partAssignmentByMeshIndex": [
+            0,
+            1,
+            2,
+            3,
+            1,
+            2,
+            3,
+            0
+          ]
+        }
       },
-      "palette": {
-        "base": "#43211c",
-        "accent": "#ff4e38",
-        "emissive": "#ffe14a"
+      "accessories": null,
+      "corpse": {
+        "approach": "dismemberment_baked",
+        "rationale": "Shared-body-only bone hiding with stump gore tests a mesh-level dismemberment read without introducing a second corpse GLB.",
+        "params": {
+          "method": "bone_hide",
+          "hideBones": [
+            "thigh_l",
+            "lowerarm_r"
+          ],
+          "stumpDecals": [
+            {
+              "file": "textures/gore/stump-gore.png",
+              "offset": [
+                -0.18,
+                0.05,
+                0.12
+              ],
+              "size": [
+                0.22,
+                0.18,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -8
+              ]
+            },
+            {
+              "file": "textures/gore/stump-gore.png",
+              "offset": [
+                0.2,
+                0.28,
+                0.14
+              ],
+              "size": [
+                0.2,
+                0.16,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                18
+              ]
+            }
+          ],
+          "fallbackBoneScale": 0.01
+        }
       },
-      "source": {
-        "title": "Rigged and Animated Humanoid",
-        "creator": "XCVG",
-        "repository": "OpenGameArt",
-        "pageUrl": "https://opengameart.org/content/rigged-and-animated-humanoid",
-        "downloadUrl": "https://opengameart.org/sites/default/files/animated%20humanoid.zip"
-      },
-      "license": {
-        "spdx": "CC0-1.0",
-        "name": "CC0 1.0 Universal / Public Domain",
-        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false,
-        "notes": "OpenGameArt entry lists CC0 and the copyright notice waives rights to the extent possible."
-      },
-      "extraction": {
-        "sourceArchive": "/tmp/oga/animated_humanoid.zip",
-        "sourceArchiveSha256": "8f90ddc45c250f0d47cf0cda5db6cbdc6e438689f8884118dc4c7e67153040f9",
-        "sourceArchivePath": "person_animated.fbx",
-        "selectedOnly": true
-      },
-      "notes": "Sprinter uses a low-poly humanoid with run/walk/punch clips; source format is FBX imported structurally by Godot; loot-fallback:generic uses crouch default; modelScaleMultiplier:0.9519 from idle@0 AABB scale audit to normalize source height 4.1756 toward median 3.9748.",
-      "sizeBytes": 4826620,
-      "sha256": "e46057d1988a6bd558365bc27d13d850b09d74faf36384ecd799226c26922599"
+      "notes": "sprinter persona: multi_material_split skin + dismemberment_baked corpse gore restricted to shared-body-only bone_hide per Round-7 amendment A1."
     },
     {
       "id": "character.vulture",
       "category": "character",
       "personaSlot": "vulture",
-      "sourceKey": "styloo",
-      "file": "characters/vulture-styloo-robot/robot.gltf",
-      "pivotYOffset": 0,
-      "modelScaleMultiplier": 0.4903,
-      "attachBone": "handup.001",
-      "animation": {
-        "idle": "iddle",
-        "walk": "walking",
-        "attack": "attackwithhand",
-        "attack_unarmed": "attackwithhand",
-        "attack_armed": "attackminiguns",
-        "loot": "grab"
+      "skin": {
+        "approach": "rim_fresnel_shader",
+        "rationale": "View-dependent rim light makes the vulture feel scavenger-ghost and samples a fresnel shader branch distinct from toon and trim.",
+        "params": {
+          "shader": "shaders/rim_fresnel.gdshader",
+          "rimColor": "#a7ff4f",
+          "rimPower": 2.5,
+          "rimEnergy": 1.35,
+          "baseColor": "#2c2d31"
+        }
       },
-      "palette": {
-        "base": "#2c2d31",
-        "accent": "#a7ff4f",
-        "emissive": "#ff2868"
+      "accessories": null,
+      "corpse": {
+        "approach": "decay_desaturation",
+        "rationale": "Immediate drained desaturation makes the corpse look dead-cold and sickly rather than freshly wet.",
+        "params": {
+          "shader": "shaders/decay_desaturation.gdshader",
+          "desatAmount": 0.85,
+          "darkenAmount": 0.4,
+          "tint": "#6f7b66",
+          "bruiseColor": "#2b1730"
+        }
       },
-      "source": {
-        "title": "Robot character",
-        "creator": "styloo",
-        "repository": "itch.io",
-        "pageUrl": "https://styloo.itch.io/robot-character",
-        "downloadUrl": "https://styloo.itch.io/robot-character"
-      },
-      "license": {
-        "spdx": "CC0-1.0",
-        "name": "CC0 1.0 Universal / Public Domain",
-        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false,
-        "notes": "itch page lists Creative Commons Zero v1.0 Universal and author comment confirms CC0 reuse."
-      },
-      "extraction": {
-        "sourceArchive": "/tmp/styloo/styloo-robot-fbx-gltf.zip",
-        "sourceArchiveSha256": "bbeb0df0dea80c2b8d2d112be12bb61ea630eb820e486e250ffb9298d7aabaf8",
-        "sourceArchivePath": "GLTFrobot/robot.gltf",
-        "selectedOnly": true
-      },
-      "notes": "Vulture samples a second robot lane distinct from Quaternius, with grab and hand-attack clips for scavenger action timing; modelScaleMultiplier:0.4903 from idle@0 AABB scale audit to normalize source height 8.1073 toward median 3.9748.",
-      "sizeBytes": 1213026,
-      "sha256": "63a8dc1eaa61d441701124f9315eb112b3e524b0e23c33b02834f9ab13463e5a"
+      "notes": "vulture persona: rim_fresnel_shader skin from local shader + decay_desaturation corpse gore from local shader."
     },
     {
       "id": "weapon.rusty_blade",
@@ -770,31 +978,6 @@
       "notes": "Hero shield repurposed as a bulky riot-plate accessory so top-tier armour is unmistakable.",
       "sizeBytes": 10240,
       "sha256": "fc27f95c1a619fdc37f2a0fc9ef0883cece85e9b6d6738340235f413d13953e2"
-    },
-    {
-      "id": "corpse.prone_humanoid",
-      "category": "corpse",
-      "file": "corpse/prone-humanoid-prototype.glb",
-      "corpseKind": "prone-humanoid",
-      "pivotYOffset": 0,
-      "attachBone": null,
-      "source": {
-        "title": "context-battler Round-4 prototype primitive",
-        "creator": "context-battler prototype",
-        "repository": "local generated asset",
-        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
-        "downloadUrl": null
-      },
-      "license": {
-        "spdx": "CC0-1.0",
-        "name": "CC0 1.0 Universal / Public Domain",
-        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false,
-        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
-      },
-      "notes": "Project-created prone low-poly body replaces the prior flat blob while leaving gore to WP4 VFX.",
-      "sizeBytes": 9900,
-      "sha256": "cca57cd872514fa8a3e435f002f3f6e8edc83481d466577c8c7e4e3b345d38fa"
     },
     {
       "id": "environment.floor_texture",

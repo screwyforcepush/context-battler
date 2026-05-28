@@ -12,6 +12,7 @@ var weapon_by_tier := {0: "", 1: "", 2: "", 3: ""}
 var armour_by_tier := {0: "", 1: "", 2: "", 3: ""}
 var clip_labels: Dictionary = {}
 var selected_tier_buttons: Dictionary = {}
+var current_skin_mode: Dictionary = {}
 var fallback_material: StandardMaterial3D
 
 @onready var scene_builder: Node3D = %SceneBuilder
@@ -95,6 +96,7 @@ func _spawn_persona_station(station: Node3D, persona: String) -> void:
 	var clip_label := _make_label("ClipLabel", "(idle/none)", Vector3(0.0, 1.06, 0.0), 0.0040, 12)
 	station.add_child(clip_label)
 	clip_labels[showroom_id] = clip_label
+	current_skin_mode[showroom_id] = "skin"
 
 
 func _make_label(label_name: String, label_text: String, label_position: Vector3, pixel_size: float, font_size: int) -> Label3D:
@@ -201,7 +203,16 @@ func _make_tier_row(parent: Node, label_text: String, slot: String) -> void:
 
 func _trigger_animation(kind: String) -> void:
 	for persona in PERSONAS:
-		equipment_attachment.play_character_animation(_showroom_id(str(persona)), kind)
+		var showroom_id := _showroom_id(str(persona))
+		if kind == "death":
+			equipment_attachment.play_character_animation(showroom_id, kind)
+			equipment_attachment.apply_corpse_skin_to_live_character(showroom_id)
+			current_skin_mode[showroom_id] = "corpse"
+		else:
+			if str(current_skin_mode.get(showroom_id, "skin")) == "corpse":
+				equipment_attachment.restore_persona_skin_to_live_character(showroom_id)
+			current_skin_mode[showroom_id] = "skin"
+			equipment_attachment.play_character_animation(showroom_id, kind)
 	_update_clip_labels()
 
 
@@ -224,6 +235,10 @@ func _apply_equipment() -> void:
 			"armour": {"name": armour_name},
 		}
 	equipment_attachment.update_equipment(equipped)
+	for persona in PERSONAS:
+		var showroom_id := _showroom_id(str(persona))
+		if str(current_skin_mode.get(showroom_id, "skin")) == "corpse":
+			equipment_attachment.apply_corpse_skin_to_live_character(showroom_id)
 
 
 func _build_tier_maps() -> void:
@@ -319,7 +334,15 @@ func _source_key_for_persona(persona: String) -> String:
 	var asset = (assets as Dictionary).get(persona, {})
 	if typeof(asset) != TYPE_DICTIONARY:
 		return "unknown"
-	return str((asset as Dictionary).get("sourceKey", "unknown"))
+	var source_key := str((asset as Dictionary).get("sourceKey", ""))
+	if not source_key.is_empty():
+		return source_key
+	var manifest = equipment_attachment.get("manifest")
+	if typeof(manifest) == TYPE_DICTIONARY:
+		var body = (manifest as Dictionary).get("body", {})
+		if typeof(body) == TYPE_DICTIONARY:
+			return str((body as Dictionary).get("sourceKey", "unknown"))
+	return "unknown"
 
 
 func _showroom_id(persona: String) -> String:

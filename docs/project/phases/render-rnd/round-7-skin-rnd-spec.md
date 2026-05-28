@@ -1,6 +1,7 @@
 # Round-7 Spec — Mesh2Motion Consolidation + Skin-Technique Breadth Sample
 
-> **Status: PLAN (drafted 2026-05-28)**
+> **Status: DELIVERED (2026-05-28)** —
+> Closing readout: [`round-7-closing-readout.md`](./round-7-closing-readout.md).
 > Follow-up to Round 6
 > ([`round-6-showroom-spec.md`](./round-6-showroom-spec.md),
 > [`round-6-closing-readout.md`](./round-6-closing-readout.md)).

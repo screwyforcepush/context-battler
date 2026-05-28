@@ -56,12 +56,18 @@ func _read_manifest() -> Dictionary:
 
 func _character_assets(manifest: Dictionary) -> Array:
 	var assets := []
+	var body_defaults: Dictionary = manifest.get("body", {}) if int(manifest.get("schemaVersion", 0)) >= 5 else {}
 	for asset in manifest.get("assets", []):
 		if typeof(asset) != TYPE_DICTIONARY:
 			continue
 		var asset_dict := asset as Dictionary
 		if str(asset_dict.get("category", "")) == "character":
-			assets.append(asset_dict)
+			if body_defaults.is_empty():
+				assets.append(asset_dict)
+			else:
+				var merged := body_defaults.duplicate(true)
+				merged.merge(asset_dict, true)
+				assets.append(merged)
 	return assets
 
 

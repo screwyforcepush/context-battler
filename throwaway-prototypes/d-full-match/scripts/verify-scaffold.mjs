@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -32,7 +31,9 @@ const requiredFiles = [
   "scripts/export-web.mjs",
   "scripts/serve.mjs",
   "scripts/audit-character-scales.gd",
+  "scripts/audit-mesh2motion-clips.gd",
   "scripts/verify-character-rigs.gd",
+  "scripts/audit-replay-load.gd",
   "shared-harness/art-kit/manifest.json",
 ];
 
@@ -52,6 +53,41 @@ const equipmentAssetNameLiterals = [
   "plate",
   "riot_plate",
 ];
+const expectedBodyAnimationKinds = ["idle", "walk", "attack", "attack_unarmed", "attack_armed", "take_hit", "death", "loot"];
+const expectedCharacterForbiddenKeys = [
+  "sourceKey",
+  "file",
+  "modelScaleMultiplier",
+  "pivotYOffset",
+  "attachBone",
+  "animation",
+  "source",
+  "license",
+  "extraction",
+  "sha256",
+  "sizeBytes",
+  "palette",
+];
+const expectedSkinHelperGroups = [
+  ["_apply_skin_palette_flat"],
+  ["_apply_skin_pbr_texture_atlas", "_apply_skin_pbr_texture"],
+  ["_apply_skin_pattern_texture"],
+  ["_apply_skin_decal_stickers"],
+  ["_apply_skin_toon_cel"],
+  ["_apply_skin_emissive_trim"],
+  ["_apply_skin_multi_material"],
+  ["_apply_skin_rim_fresnel"],
+];
+const expectedCorpseHelperGroups = [
+  ["_apply_corpse_blood_saturation"],
+  ["_apply_corpse_wound_cluster_decals", "_apply_corpse_wound_decals"],
+  ["_apply_corpse_gore_pool"],
+  ["_apply_corpse_charred_burned_texture", "_apply_corpse_charred"],
+  ["_apply_corpse_exposed_bone_decals", "_apply_corpse_exposed_bone"],
+  ["_apply_corpse_viscera_projection", "_apply_corpse_viscera"],
+  ["_apply_corpse_dismemberment_baked", "_apply_corpse_dismemberment"],
+  ["_apply_corpse_decay_desaturation", "_apply_corpse_decay"],
+];
 
 function read(relativePath) {
   return readFileSync(path.join(appDir, relativePath), "utf8");
@@ -63,6 +99,10 @@ function assert(condition, message) {
 
 function assertIncludes(source, needle, message) {
   assert(source.includes(needle), message);
+}
+
+function assertAnyIncludes(source, needles, message) {
+  assert(needles.some((needle) => source.includes(needle)), message);
 }
 
 function assertNotIncludes(source, needle, message) {
@@ -97,6 +137,52 @@ function sha256(relativePath) {
 
 function manifestAssetPath(asset) {
   return path.join("shared-harness/art-kit", asset.file);
+}
+
+function artKitRelativePath(relativePath) {
+  return path.join("shared-harness/art-kit", relativePath);
+}
+
+function isSafeRelativeArtKitPath(relativePath) {
+  return (
+    typeof relativePath === "string" &&
+    relativePath.length > 0 &&
+    !relativePath.startsWith("res://") &&
+    !path.isAbsolute(relativePath) &&
+    !relativePath.split(/[\\/]+/).includes("..")
+  );
+}
+
+function assertArtKitPath(relativePath, context) {
+  assert(isSafeRelativeArtKitPath(relativePath), `${context} is an art-kit-relative path: ${relativePath}`);
+  if (!isSafeRelativeArtKitPath(relativePath)) return;
+  const fullPath = path.join(appDir, artKitRelativePath(relativePath));
+  assert(existsSync(fullPath), `${context} exists: ${relativePath}`);
+  if (/\.png$/i.test(relativePath)) {
+    assert(existsSync(`${fullPath}.import`), `${context} has Godot import sidecar: ${relativePath}`);
+  }
+}
+
+function collectNestedParamPaths(value, trail = "params") {
+  const found = [];
+  if (typeof value === "string") {
+    if (/\.(png|gdshader)$/i.test(value)) {
+      found.push({ value, trail });
+    }
+    return found;
+  }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      found.push(...collectNestedParamPaths(value[i], `${trail}[${i}]`));
+    }
+    return found;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, nested] of Object.entries(value)) {
+      found.push(...collectNestedParamPaths(nested, `${trail}.${key}`));
+    }
+  }
+  return found;
 }
 
 for (const file of requiredFiles) {
@@ -207,7 +293,8 @@ if (existsSync(path.join(appDir, "src/EntityRenderer.gd"))) {
     "EntityRenderer passes CHARACTER_MODEL_SCALE through the persona factory",
   );
   assertIncludes(entityRenderer, "personaId", "EntityRenderer maps snapshot personaId to manifest personaSlot");
-  assertIncludes(entityRenderer, "corpse_scene", "EntityRenderer uses manifest corpse asset");
+  assertIncludes(entityRenderer, "instantiate_persona_corpse", "EntityRenderer uses persona corpse factory for Round-7 corpse path");
+  assertNotIncludes(entityRenderer, "corpse_scene", "EntityRenderer no longer caches a standalone manifest corpse scene");
   assertIncludes(entityRenderer, "update_equipment", "EntityRenderer updates equipment attachment from equippedByCharacter");
   assertIncludes(entityRenderer, "equippedByCharacter", "EntityRenderer reads frame equippedByCharacter");
   assertIncludes(entityRenderer, "play_attack_pose", "EntityRenderer exposes attack animation hook");
@@ -312,12 +399,13 @@ if (existsSync(path.join(appDir, "src/EquipmentMeshAttachment.gd"))) {
   const equipment = read("src/EquipmentMeshAttachment.gd");
   for (const token of [
     "manifest.json",
+    "body",
+    "corpseBody",
     "weaponName",
     "armourName",
     "personaSlot",
     "handOffset",
     "character_scene_for_persona",
-    "corpse_scene",
     "environment_scene_for_role",
     "register_character",
     "update_equipment",
@@ -336,11 +424,25 @@ if (existsSync(path.join(appDir, "src/EquipmentMeshAttachment.gd"))) {
     "animation_clip_for_character",
     "has_rigged_animation",
     "play_character_animation",
-    "_apply_persona_palette",
+    "_apply_persona_skin",
+    "_apply_persona_corpse_skin",
+    "instantiate_persona_corpse",
+    "apply_corpse_skin_to_live_character",
+    "restore_persona_skin_to_live_character",
+    "_apply_projected_mark",
+    "Decal.new(",
+    "QuadMesh.new(",
     "_palette_material",
   ]) {
     assertIncludes(equipment, token, `EquipmentMeshAttachment handles ${token}`);
   }
+  for (const helperGroup of expectedSkinHelperGroups) {
+    assertAnyIncludes(equipment, helperGroup, `EquipmentMeshAttachment includes skin helper ${helperGroup.join(" or ")}`);
+  }
+  for (const helperGroup of expectedCorpseHelperGroups) {
+    assertAnyIncludes(equipment, helperGroup, `EquipmentMeshAttachment includes corpse helper ${helperGroup.join(" or ")}`);
+  }
+  assertNotIncludes(equipment, "_apply_persona_palette", "EquipmentMeshAttachment retired old _apply_persona_palette token");
   assertNotIncludes(equipment, "CHARACTER_MODEL_SCALE", "EquipmentMeshAttachment receives base scale by parameter");
   assertNotIncludes(equipment, "0.21", "EquipmentMeshAttachment does not duplicate the character base scale literal");
   assertMatches(
@@ -450,6 +552,8 @@ if (existsSync(path.join(appDir, "src/Showroom.gd"))) {
   assertIncludes(showroom, "instantiate_persona_character", "Showroom instantiates personas through EquipmentMeshAttachment factory");
   assertIncludes(showroom, "build_from_snapshot", "Showroom builds sample environment through SceneBuilder");
   assertIncludes(showroom, "play_character_animation", "Showroom triggers animations through EquipmentMeshAttachment");
+  assertIncludes(showroom, "apply_corpse_skin_to_live_character", "Showroom Death trigger applies corpse skin variants");
+  assertIncludes(showroom, "restore_persona_skin_to_live_character", "Showroom non-death triggers restore persona skins");
   assertIncludes(showroom, "update_equipment", "Showroom applies tier selections through EquipmentMeshAttachment");
   assertIncludes(showroom, '"name"', "Showroom passes equipment slots as dictionaries with name fields");
   assertIncludes(showroom, "Label3D", "Showroom uses Label3D for per-persona labels");
@@ -477,75 +581,88 @@ if (existsSync(path.join(appDir, "src/Showroom.gd"))) {
 
 if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   const manifest = JSON.parse(read("shared-harness/art-kit/manifest.json"));
-  assert(manifest.schemaVersion === 4, "d-full-match art manifest uses schemaVersion 4");
+  assert(manifest.schemaVersion === 5, "d-full-match art manifest uses schemaVersion 5");
   assert(!("source" in manifest), "art manifest has no singleton top-level source");
   assert(!("license" in manifest), "art manifest has no singleton top-level license");
   assert(!("extraction" in manifest), "art manifest has no singleton top-level extraction");
+  assert(manifest.body && typeof manifest.body === "object", "art manifest exposes root body block");
+  assert(manifest.body?.sourceKey === "mesh2motion", 'manifest.body.sourceKey is "mesh2motion"');
+  assert(manifest.body?.file === "characters/camper-mesh2motion-human-base.glb", "manifest.body.file is the shared mesh2motion body");
+  assert(manifest.body?.armourAttachBone === "spine", 'manifest.body.armourAttachBone preserves reserved value "spine"');
+  assertArtKitPath(manifest.body?.file, "manifest.body.file");
+  assert(manifest.body?.animation && typeof manifest.body.animation === "object", "manifest.body exposes animation block");
+  for (const clipKind of expectedBodyAnimationKinds) {
+    assert(
+      typeof manifest.body?.animation?.[clipKind] === "string" && manifest.body.animation[clipKind].length > 0,
+      `manifest.body.animation has ${clipKind} clip`,
+    );
+  }
+  assert(manifest.corpseBody && typeof manifest.corpseBody === "object", "art manifest exposes root corpseBody block");
+  assert(manifest.corpseBody?.file === manifest.body?.file, "manifest.corpseBody uses the shared mesh2motion body file");
+  assert(typeof manifest.corpseBody?.deathPoseClip === "string" && manifest.corpseBody.deathPoseClip.length > 0, "manifest.corpseBody has deathPoseClip");
   assert(Array.isArray(manifest.assets), "art manifest exposes assets array");
   const assets = manifest.assets ?? [];
   const personas = new Set();
   const characters = [];
-  const sourceCounts = new Map();
-  const priorSources = new Set(["kenney", "quaternius", "robin-lamb"]);
-  let translationOnlyFallbacks = 0;
+  const skinApproaches = new Set();
+  const corpseApproaches = new Set();
+  const accessoryPersonas = new Set();
   const weapons = new Set();
   const armours = new Set();
   const corpseAssets = [];
   const environmentRoles = new Set();
   for (const asset of assets) {
-    const relativePath = manifestAssetPath(asset);
-    assert(typeof asset.file === "string" && asset.file.length > 0, `manifest asset has file: ${asset.id}`);
-    assert(existsSync(path.join(appDir, relativePath)), `manifest asset file exists: ${asset.file}`);
-    assert(asset.source && asset.source.pageUrl, `manifest asset has source URL: ${asset.id}`);
-    assert(asset.license && asset.license.name && asset.license.url, `manifest asset has license metadata: ${asset.id}`);
-    assert(typeof asset.notes === "string" && asset.notes.length > 0, `manifest asset has notes: ${asset.id}`);
-    if (existsSync(path.join(appDir, relativePath))) {
-      assert(statSync(path.join(appDir, relativePath)).size === asset.sizeBytes, `manifest sizeBytes matches: ${asset.file}`);
-      assert(sha256(relativePath) === asset.sha256, `manifest sha256 matches: ${asset.file}`);
-      if (/\.(glb|gltf|fbx|png)$/i.test(asset.file)) {
-        assert(existsSync(path.join(appDir, `${relativePath}.import`)), `Godot import sidecar exists: ${asset.file}`);
+    if (asset.category !== "character") {
+      const relativePath = manifestAssetPath(asset);
+      assert(typeof asset.file === "string" && asset.file.length > 0, `manifest asset has file: ${asset.id}`);
+      assert(existsSync(path.join(appDir, relativePath)), `manifest asset file exists: ${asset.file}`);
+      assert(asset.source && asset.source.pageUrl, `manifest asset has source URL: ${asset.id}`);
+      assert(asset.license && asset.license.name && asset.license.url, `manifest asset has license metadata: ${asset.id}`);
+      if (existsSync(path.join(appDir, relativePath))) {
+        assert(statSync(path.join(appDir, relativePath)).size === asset.sizeBytes, `manifest sizeBytes matches: ${asset.file}`);
+        assert(sha256(relativePath) === asset.sha256, `manifest sha256 matches: ${asset.file}`);
+        if (/\.(glb|gltf|fbx|png)$/i.test(asset.file)) {
+          assert(existsSync(path.join(appDir, `${relativePath}.import`)), `Godot import sidecar exists: ${asset.file}`);
+        }
       }
     }
+    assert(typeof asset.notes === "string" && asset.notes.length > 0, `manifest asset has notes: ${asset.id}`);
     if (asset.category === "character") {
       personas.add(asset.personaSlot);
       characters.push(asset);
-      assert(typeof asset.sourceKey === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(asset.sourceKey), `character asset has normalized sourceKey: ${asset.id}`);
-      sourceCounts.set(asset.sourceKey, (sourceCounts.get(asset.sourceKey) ?? 0) + 1);
-      assert("pivotYOffset" in asset, `character asset has pivotYOffset: ${asset.id}`);
-      assert(
-        typeof asset.modelScaleMultiplier === "number" &&
-          Number.isFinite(asset.modelScaleMultiplier) &&
-          asset.modelScaleMultiplier >= 0.4 &&
-          asset.modelScaleMultiplier <= 3.0,
-        `character asset has modelScaleMultiplier in [0.4, 3.0]: ${asset.id}`,
-      );
-      assert(asset.palette && typeof asset.palette === "object", `character asset has palette block: ${asset.id}`);
-      for (const channel of ["base", "accent", "emissive"]) {
-        assert(typeof asset.palette?.[channel] === "string" && /^#[0-9a-fA-F]{6}$/.test(asset.palette[channel]), `character palette has ${channel}: ${asset.id}`);
+      assert(typeof asset.personaSlot === "string" && asset.personaSlot.length > 0, `character has personaSlot: ${asset.id}`);
+      for (const forbiddenKey of expectedCharacterForbiddenKeys) {
+        assert(!(forbiddenKey in asset), `Round-7 character omits per-character ${forbiddenKey}: ${asset.id}`);
       }
-      assert(asset.animation && typeof asset.animation === "object", `character asset has animation block: ${asset.id}`);
-      assert(typeof asset.animation?.idle === "string" && asset.animation.idle.length > 0, `character animation has idle clip: ${asset.id}`);
-      assert(typeof asset.animation?.walk === "string" && asset.animation.walk.length > 0, `character animation has walk clip: ${asset.id}`);
-      const notes = String(asset.notes ?? "");
-      const attackFallback = /attack-fallback:(translation-only|pose|generic)/.test(notes);
-      const lootFallback = /loot-fallback:(translation-only|pose|generic)/.test(notes);
-      assert(
-        (typeof asset.animation?.attack === "string" && asset.animation.attack.length > 0) || attackFallback,
-        `character animation has attack clip or explicit fallback: ${asset.id}`,
-      );
-      assert(
-        (typeof asset.animation?.loot === "string" && asset.animation.loot.length > 0) ||
-          (typeof asset.animation?.generic === "string" && asset.animation.generic.length > 0) ||
-          lootFallback,
-        `character animation has loot/generic clip or explicit fallback: ${asset.id}`,
-      );
-      if (/attack-fallback:translation-only|motion-fallback:translation-only/.test(notes)) {
-        translationOnlyFallbacks += 1;
+      assert(asset.skin && typeof asset.skin === "object", `character has skin block: ${asset.id}`);
+      assert(typeof asset.skin?.approach === "string" && asset.skin.approach.length > 0, `character skin has approach: ${asset.id}`);
+      assert(typeof asset.skin?.rationale === "string" && asset.skin.rationale.length > 0, `character skin has rationale: ${asset.id}`);
+      assert(asset.skin?.params && typeof asset.skin.params === "object", `character skin has params: ${asset.id}`);
+      if (typeof asset.skin?.approach === "string" && asset.skin.approach.length > 0) {
+        skinApproaches.add(asset.skin.approach);
       }
-      if (asset.attachBone == null) {
-        assert(/attachBone-fallback:handOffset/.test(notes), `character without attachBone documents handOffset fallback: ${asset.id}`);
-      } else {
-        assert(typeof asset.attachBone === "string" && asset.attachBone.length > 0, `character attachBone is a string: ${asset.id}`);
+      for (const ref of collectNestedParamPaths(asset.skin?.params, `${asset.id}.skin.params`)) {
+        assertArtKitPath(ref.value, ref.trail);
+      }
+      assert("accessories" in asset, `character declares accessories field: ${asset.id}`);
+      if (asset.accessories != null) {
+        accessoryPersonas.add(asset.personaSlot);
+        assert(typeof asset.accessories === "object" && Array.isArray(asset.accessories.items), `character accessories has items array: ${asset.id}`);
+        for (const item of asset.accessories.items ?? []) {
+          if (item && typeof item.file === "string") {
+            assertArtKitPath(item.file, `${asset.id}.accessories.items.file`);
+          }
+        }
+      }
+      assert(asset.corpse && typeof asset.corpse === "object", `character has corpse block: ${asset.id}`);
+      assert(typeof asset.corpse?.approach === "string" && asset.corpse.approach.length > 0, `character corpse has approach: ${asset.id}`);
+      assert(typeof asset.corpse?.rationale === "string" && asset.corpse.rationale.length > 0, `character corpse has rationale: ${asset.id}`);
+      assert(asset.corpse?.params && typeof asset.corpse.params === "object", `character corpse has params: ${asset.id}`);
+      if (typeof asset.corpse?.approach === "string" && asset.corpse.approach.length > 0) {
+        corpseApproaches.add(asset.corpse.approach);
+      }
+      for (const ref of collectNestedParamPaths(asset.corpse?.params, `${asset.id}.corpse.params`)) {
+        assertArtKitPath(ref.value, ref.trail);
       }
     } else if (asset.category === "weapon") {
       weapons.add(asset.weaponName);
@@ -565,24 +682,16 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   for (const persona of ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]) {
     assert(personas.has(persona), `manifest maps persona ${persona}`);
   }
-  assert(sourceCounts.size === 8, "manifest character assets expose 8 distinct body sourceKey values");
-  for (const sourceKey of priorSources) {
-    const familyCount = [...sourceCounts.keys()].filter((key) => key.includes(sourceKey)).length;
-    assert(familyCount <= 1, `prior sourceKey reuse cap respected: ${sourceKey}`);
-  }
-  for (const [sourceKey, count] of sourceCounts) {
-    if (!priorSources.has(sourceKey)) {
-      assert(count === 1, `new sourceKey is unique: ${sourceKey}`);
-    }
-  }
-  assert(translationOnlyFallbacks <= 1, "manifest documents at most one translation-only motion fallback");
+  assert(skinApproaches.size === 8, "manifest exposes 8 distinct skin.approach values");
+  assert(corpseApproaches.size === 8, "manifest exposes 8 distinct corpse.approach values");
+  assert(accessoryPersonas.size === 0 || accessoryPersonas.size < characters.length, "accessories are null for all personas or not coupled 1:1 to all skins");
   for (const weapon of ["rusty_blade", "dagger", "sword", "axe", "greatsword", "warhammer"]) {
     assert(weapons.has(weapon), `manifest maps weapon ${weapon}`);
   }
   for (const armour of ["cloth", "leather", "chain", "plate", "riot_plate"]) {
     assert(armours.has(armour), `manifest maps armour ${armour}`);
   }
-  assert(corpseAssets.length >= 1, "manifest includes corpse asset");
+  assert(corpseAssets.length === 0, "manifest no longer includes standalone corpse assets");
   for (const role of ["floor", "wall", "cover", "evac", "crate"]) {
     assert(environmentRoles.has(role), `manifest includes environment role ${role}`);
   }
@@ -595,8 +704,12 @@ if (existsSync(path.join(appDir, "package.json"))) {
   assertIncludes(testScript, "--path .", "package test runs character scale audit from the Godot project path");
   assertIncludes(testScript, "--headless", "package test invokes Godot headless for character scale audit");
   assertIncludes(testScript, "scripts/audit-character-scales.gd", "package test invokes audit-character-scales.gd");
+  assertIncludes(testScript, "scripts/audit-mesh2motion-clips.gd", "package test invokes audit-mesh2motion-clips.gd");
+  assertIncludes(testScript, "scripts/verify-character-rigs.gd", "package test invokes verify-character-rigs.gd");
+  assertIncludes(testScript, "scripts/audit-replay-load.gd", "package test invokes audit-replay-load.gd");
   assertIncludes(testScript, "--assert", "package test runs character scale audit in assert mode");
   assertIncludes(testScript, "audit-character-scales: skipped (GODOT_BIN unset)", "package test logs clear scale-audit skip when GODOT_BIN is unset");
+  assertIncludes(testScript, "Round-7 Godot audits: skipped (GODOT_BIN unset)", "package test logs clear Round-7 audit skip when GODOT_BIN is unset");
 }
 
 for (const codeFile of [
@@ -611,7 +724,7 @@ for (const codeFile of [
 ]) {
   if (!existsSync(path.join(appDir, codeFile))) continue;
   const source = read(codeFile);
-  for (const banned of ["browsertools", "chromium", "playwright", "puppeteer", "screenshot", "visual uat", "browser-mediated"]) {
+  for (const banned of ["browsertools", "chromium", "playwright", "puppeteer", "screenshot", "visual uat", "browser-mediated", "headless visual"]) {
     assertNotIncludes(source, banned, `${codeFile} avoids forbidden blind-validation token ${banned}`);
   }
 }
@@ -633,7 +746,6 @@ if (existsSync(path.join(appDir, "IMPLEMENTATION-SUMMARY.md"))) {
   assertIncludes(summary, "Weapon", "IMPLEMENTATION-SUMMARY documents weapon tier selectors");
   assertIncludes(summary, "Armor", "IMPLEMENTATION-SUMMARY documents armor tier selectors");
   assertIncludes(summary, "free camera", "IMPLEMENTATION-SUMMARY documents Showroom free camera");
-  assertIncludes(summary, "modelScaleMultiplier", "IMPLEMENTATION-SUMMARY documents calibrated modelScaleMultiplier table");
   assertIncludes(summary, "no visual checks by implementer", "IMPLEMENTATION-SUMMARY documents blind implementer posture");
 }
 
@@ -684,29 +796,7 @@ if (existsSync(artKitDir)) {
 // --script to exercise the SAME load() codepath the game uses, catching
 // any future drift before the user opens a browser. Skips gracefully if
 // the godot binary isn't on this machine.
-const godotCandidates = [
-  process.env.GODOT_BIN,
-  `/tmp/context-battler-godot/Godot_v4.6.2-stable_linux.${os.arch() === "arm64" ? "arm64" : "x86_64"}`,
-  "godot4",
-  "godot",
-].filter(Boolean);
-let godotBin = null;
-for (const candidate of godotCandidates) {
-  if (candidate.includes("/")) {
-    if (existsSync(candidate) && statSync(candidate).isFile()) {
-      godotBin = candidate;
-      break;
-    }
-  } else {
-    const found = spawnSync("bash", ["-lc", `command -v ${JSON.stringify(candidate)}`], {
-      encoding: "utf8",
-    });
-    if (found.status === 0 && found.stdout.trim()) {
-      godotBin = found.stdout.trim();
-      break;
-    }
-  }
-}
+const godotBin = process.env.GODOT_BIN || null;
 if (godotBin && existsSync(path.join(appDir, "scripts/verify-gd-parse.gd"))) {
   const parse = spawnSync(
     godotBin,
