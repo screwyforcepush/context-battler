@@ -703,8 +703,10 @@ func _apply_skin_pattern_texture(character_id: String, skin: Dictionary, armour_
 	var texture := _load_art_texture(str(params.get("albedo", "")))
 	if texture != null:
 		material.albedo_texture = texture
-	var uv_scale := _vector2_from_array(params.get("uv1_scale", []), Vector2(4.0, 4.0))
-	material.uv1_scale = Vector3(uv_scale.x, uv_scale.y, 1.0)
+	var triplanar_scale := _triplanar_scale_from_params(params, Vector3(4.0, 4.0, 4.0))
+	material.uv1_triplanar = true
+	material.uv1_scale = triplanar_scale
+	material.uv1_triplanar_sharpness = clamp(float(params.get("triplanarSharpness", params.get("uv1_triplanar_sharpness", 1.0))), 0.01, 150.0)
 	_apply_armour_tier_to_standard_material(material, armour_tier)
 	_apply_material_to_body_meshes(character_id, material)
 
@@ -736,10 +738,17 @@ func _apply_skin_emissive_trim(character_id: String, skin: Dictionary, armour_ti
 
 func _apply_skin_multi_material(character_id: String, skin: Dictionary, armour_tier: int) -> void:
 	var params := _params_from_block(skin)
+	var region_material := _body_region_shader_material(params, armour_tier)
+	if region_material != null:
+		_apply_material_to_body_meshes(character_id, region_material)
+		return
 	var body_parts: Dictionary = params.get("bodyParts", {})
 	var assignments := _array_from_value(params.get("partAssignmentByMeshIndex", []))
 	var default_order := ["head", "chest", "legs", "arms"]
 	var meshes := _body_meshes_for_character(character_id)
+	if meshes.size() <= 1:
+		_apply_material_to_body_meshes(character_id, _standard_material_from_body_regions(params, armour_tier))
+		return
 	for i in range(meshes.size()):
 		var mesh := meshes[i] as MeshInstance3D
 		if mesh == null or not is_instance_valid(mesh):
@@ -890,6 +899,7 @@ func _apply_corpse_decay(character_id: String, corpse_block: Dictionary, armour_
 func _apply_projected_mark(parent: Node3D, mark_spec: Dictionary) -> Node3D:
 	if parent == null:
 		return null
+	var target_parent := _projected_mark_parent(parent, mark_spec)
 	var renderer := str(ProjectSettings.get_setting("rendering/renderer/rendering_method", "")).to_lower()
 	var force_quad := bool(mark_spec.get("forceQuad", false))
 	var use_quad := force_quad or renderer.contains("compatibility") or renderer.contains("gl_compatibility")
@@ -906,8 +916,8 @@ func _apply_projected_mark(parent: Node3D, mark_spec: Dictionary) -> Node3D:
 		mark.rotation_degrees = _vector3_from_array(mark_spec.get("rotationDeg", []), Vector3.ZERO)
 		if projection == "floor":
 			mark.rotation_degrees.x -= 90.0
-		parent.add_child(mark)
-		return mark
+		target_parent.add_child(mark)
+		return target_parent if target_parent != parent else mark
 	var decal := Decal.new()
 	decal.name = str(mark_spec.get("name", "projected_mark"))
 	decal.size = _vector3_from_array(mark_spec.get("size", []), Vector3(0.24, 0.24, 0.12))
@@ -916,8 +926,8 @@ func _apply_projected_mark(parent: Node3D, mark_spec: Dictionary) -> Node3D:
 	var texture := _load_art_texture(str(mark_spec.get("file", "")))
 	if texture != null:
 		decal.texture_albedo = texture
-	parent.add_child(decal)
-	return decal
+	target_parent.add_child(decal)
+	return target_parent if target_parent != parent else decal
 
 
 func _params_from_block(block: Dictionary) -> Dictionary:
@@ -931,6 +941,80 @@ func _array_from_value(value) -> Array:
 	if typeof(value) == TYPE_ARRAY:
 		return value
 	return []
+
+
+func _triplanar_scale_from_params(params: Dictionary, fallback: Vector3) -> Vector3:
+	var value = params.get("triplanarScale", params.get("uv1_scale", fallback))
+	var scale := fallback
+	match typeof(value):
+		TYPE_INT, TYPE_FLOAT:
+			var scalar: float = max(float(value), 0.01)
+			scale = Vector3.ONE * scalar
+		TYPE_VECTOR2:
+			var vector2: Vector2 = value
+			scale = Vector3(vector2.x, vector2.y, (vector2.x + vector2.y) * 0.5)
+		TYPE_VECTOR3:
+			scale = value
+		TYPE_ARRAY:
+			var values := _array_from_value(value)
+			if values.size() >= 3:
+				scale = Vector3(float(values[0]), float(values[1]), float(values[2]))
+			elif values.size() >= 2:
+				var x := float(values[0])
+				var y := float(values[1])
+				scale = Vector3(x, y, (x + y) * 0.5)
+			elif values.size() == 1:
+				scale = Vector3.ONE * float(values[0])
+	return Vector3(max(scale.x, 0.01), max(scale.y, 0.01), max(scale.z, 0.01))
+
+
+func _projected_mark_parent(parent: Node3D, mark_spec: Dictionary) -> Node3D:
+	var bone_name := str(mark_spec.get("bone", ""))
+	if bone_name.is_empty():
+		return parent
+	var skeleton := _skeleton_for_projected_mark(parent, mark_spec)
+	if skeleton == null or not is_instance_valid(skeleton) or skeleton.find_bone(bone_name) < 0:
+		return parent
+	var attachment := BoneAttachment3D.new()
+	attachment.name = "%s_%s_attachment" % [str(mark_spec.get("name", "projected_mark")), bone_name]
+	attachment.bone_name = bone_name
+	skeleton.add_child(attachment)
+	return attachment
+
+
+func _skeleton_for_projected_mark(parent: Node3D, mark_spec: Dictionary) -> Skeleton3D:
+	var spec_skeleton := mark_spec.get("skeleton", null) as Skeleton3D
+	if spec_skeleton != null and is_instance_valid(spec_skeleton):
+		return spec_skeleton
+	var character_id := str(mark_spec.get("characterId", mark_spec.get("character_id", "")))
+	if not character_id.is_empty() and registered_characters.has(character_id):
+		var explicit_character: Dictionary = registered_characters.get(character_id, {})
+		var explicit_skeleton := explicit_character.get("skeleton") as Skeleton3D
+		if explicit_skeleton != null and is_instance_valid(explicit_skeleton):
+			return explicit_skeleton
+	var descendant_skeleton := _first_descendant_of_class(parent, "Skeleton3D") as Skeleton3D
+	if descendant_skeleton != null and is_instance_valid(descendant_skeleton):
+		return descendant_skeleton
+	for registered_id in registered_characters.keys():
+		var character: Dictionary = registered_characters.get(registered_id, {})
+		var root := character.get("node") as Node
+		var visual := character.get("visual") as Node
+		if _node_contains(root, parent) or _node_contains(visual, parent):
+			var registered_skeleton := character.get("skeleton") as Skeleton3D
+			if registered_skeleton != null and is_instance_valid(registered_skeleton):
+				return registered_skeleton
+	var cursor: Node = parent
+	while cursor != null:
+		if cursor is Skeleton3D:
+			return cursor as Skeleton3D
+		cursor = cursor.get_parent()
+	return null
+
+
+func _node_contains(root: Node, candidate: Node) -> bool:
+	if root == null or candidate == null or not is_instance_valid(root) or not is_instance_valid(candidate):
+		return false
+	return root == candidate or root.is_ancestor_of(candidate)
 
 
 func _body_meshes_for_character(character_id: String) -> Array:
@@ -963,6 +1047,50 @@ func _apply_material_to_body_meshes(character_id: String, material: Material) ->
 		mesh_instance.material_override = material
 
 
+func _body_region_shader_material(params: Dictionary, armour_tier: int) -> Material:
+	var mask_path := _string_param_from_aliases(params, ["bodyRegionMask", "regionMask", "body_region_mask", "region_mask"])
+	var shader_path := str(params.get("shader", ""))
+	if shader_path.is_empty() and not mask_path.is_empty():
+		shader_path = "shaders/multi_material_split.gdshader"
+	if shader_path.is_empty() or mask_path.is_empty():
+		return null
+	var shader := _load_art_shader(shader_path)
+	var mask := _load_art_texture(mask_path)
+	if shader == null or mask == null:
+		return null
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	_set_shader_parameters_from_dictionary(material, params)
+	_set_shader_texture_aliases(material, ["bodyRegionMask", "body_region_mask", "regionMask", "region_mask"], mask)
+	_set_shader_color_aliases(material, "head", _body_region_color(params, "head", Color(0.27, 0.13, 0.11)))
+	_set_shader_color_aliases(material, "chest", _body_region_color(params, "chest", Color(1.0, 0.31, 0.22)))
+	_set_shader_color_aliases(material, "legs", _body_region_color(params, "legs", Color(0.10, 0.20, 0.25)))
+	_set_shader_color_aliases(material, "arms", _body_region_color(params, "arms", Color(1.0, 0.88, 0.29)))
+	material.set_shader_parameter("armour_tier", armour_tier)
+	material.set_shader_parameter("armour_amount", clamp(float(armour_tier) / 4.0, 0.0, 1.0))
+	return material
+
+
+func _standard_material_from_body_regions(params: Dictionary, armour_tier: int) -> StandardMaterial3D:
+	var head := _body_region_color(params, "head", Color(0.27, 0.13, 0.11))
+	var chest := _body_region_color(params, "chest", Color(1.0, 0.31, 0.22))
+	var legs := _body_region_color(params, "legs", Color(0.10, 0.20, 0.25))
+	var arms := _body_region_color(params, "arms", Color(1.0, 0.88, 0.29))
+	var material := StandardMaterial3D.new()
+	material.albedo_color = chest.lerp(legs, 0.32).lerp(head, 0.16)
+	material.metallic = clamp((_body_region_float(params, "head", "metallic", 0.15) + _body_region_float(params, "chest", "metallic", 0.45) + _body_region_float(params, "legs", "metallic", 0.25) + _body_region_float(params, "arms", "metallic", 0.62)) * 0.25, 0.0, 1.0)
+	material.roughness = clamp((_body_region_float(params, "head", "roughness", 0.70) + _body_region_float(params, "chest", "roughness", 0.38) + _body_region_float(params, "legs", "roughness", 0.50) + _body_region_float(params, "arms", "roughness", 0.32)) * 0.25, 0.02, 1.0)
+	var mask := _load_art_texture(_string_param_from_aliases(params, ["bodyRegionMask", "regionMask", "body_region_mask", "region_mask"]))
+	if mask != null:
+		material.albedo_texture = mask
+	material.emission_enabled = true
+	material.emission = arms.lerp(chest, 0.25)
+	material.emission_energy_multiplier = 0.22
+	material.next_pass = _body_region_accent_pass(head, legs, arms)
+	_apply_armour_tier_to_standard_material(material, armour_tier)
+	return material
+
+
 func _standard_material_from_part(part_spec: Dictionary, armour_tier: int) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = _color_from_hex(str(part_spec.get("base", "#666666")), Color(0.42, 0.42, 0.42))
@@ -974,6 +1102,81 @@ func _standard_material_from_part(part_spec: Dictionary, armour_tier: int) -> St
 		material.emission_energy_multiplier = float(part_spec.get("emissionEnergy", 0.35))
 	_apply_armour_tier_to_standard_material(material, armour_tier)
 	return material
+
+
+func _body_region_accent_pass(head: Color, legs: Color, arms: Color) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(arms.r, arms.g, arms.b, 0.18)
+	material.emission_enabled = true
+	material.emission = head.lerp(legs, 0.5)
+	material.emission_energy_multiplier = 0.32
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return material
+
+
+func _body_region_color(params: Dictionary, region: String, fallback: Color) -> Color:
+	var camel_key := "%sColor" % region
+	var snake_key := "%s_color" % region
+	if params.has(camel_key):
+		return _color_from_param(params.get(camel_key), fallback)
+	if params.has(snake_key):
+		return _color_from_param(params.get(snake_key), fallback)
+	var part_spec := _body_region_part_spec(params, region)
+	return _color_from_param(part_spec.get("base", fallback), fallback)
+
+
+func _body_region_float(params: Dictionary, region: String, key: String, fallback: float) -> float:
+	var part_spec := _body_region_part_spec(params, region)
+	var value = part_spec.get(key, fallback)
+	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+		return float(value)
+	return fallback
+
+
+func _body_region_part_spec(params: Dictionary, region: String) -> Dictionary:
+	var body_parts = params.get("bodyParts", {})
+	if typeof(body_parts) != TYPE_DICTIONARY:
+		return {}
+	var part_spec = (body_parts as Dictionary).get(region, {})
+	if typeof(part_spec) == TYPE_DICTIONARY:
+		return part_spec as Dictionary
+	return {}
+
+
+func _string_param_from_aliases(params: Dictionary, keys: Array[String]) -> String:
+	for key in keys:
+		var value = params.get(key, "")
+		if typeof(value) == TYPE_STRING:
+			var text := str(value).strip_edges()
+			if not text.is_empty():
+				return text
+	return ""
+
+
+func _color_from_param(value, fallback: Color) -> Color:
+	match typeof(value):
+		TYPE_COLOR:
+			return value
+		TYPE_STRING:
+			return _color_from_hex(str(value), fallback)
+		TYPE_ARRAY:
+			var values := _array_from_value(value)
+			if values.size() >= 4:
+				return Color(float(values[0]), float(values[1]), float(values[2]), float(values[3]))
+			if values.size() >= 3:
+				return Color(float(values[0]), float(values[1]), float(values[2]))
+	return fallback
+
+
+func _set_shader_texture_aliases(material: ShaderMaterial, keys: Array[String], texture: Texture2D) -> void:
+	for key in keys:
+		material.set_shader_parameter(key, texture)
+
+
+func _set_shader_color_aliases(material: ShaderMaterial, region: String, color: Color) -> void:
+	material.set_shader_parameter("%sColor" % region, color)
+	material.set_shader_parameter("%s_color" % region, color)
 
 
 func _shader_material_or_fallback(params: Dictionary, fallback_shader: String, fallback_color: Color, armour_tier: int) -> Material:
@@ -1046,6 +1249,20 @@ func _shader_parameter_alias(key: String) -> String:
 			return "trim_color"
 		"trimEnergy":
 			return "trim_energy"
+		"trimTileScale":
+			return "trim_tile_scale"
+		"bodyRegionMask":
+			return "body_region_mask"
+		"regionMask":
+			return "region_mask"
+		"headColor":
+			return "head_color"
+		"chestColor":
+			return "chest_color"
+		"legsColor":
+			return "legs_color"
+		"armsColor":
+			return "arms_color"
 		"rimColor":
 			return "rim_color"
 		"rimPower":

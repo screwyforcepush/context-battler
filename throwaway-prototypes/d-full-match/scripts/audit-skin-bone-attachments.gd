@@ -1,0 +1,474 @@
+extends SceneTree
+
+const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
+const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
+const BASE_SCALE := 0.21
+const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
+const BODY_REGION_SHADER_TOKENS := ["body-region", "body_region", "bodyregion", "multi-material", "multi_material", "multimaterial", "multi_material_split"]
+
+var manifest: Dictionary = {}
+var failures: Array[String] = []
+var warnings: Array[String] = []
+var persona_failures: Dictionary = {}
+var persona_warnings: Dictionary = {}
+var equipment_attachment: Node
+var fallback_material: StandardMaterial3D
+
+
+func _init() -> void:
+	_run.call_deferred()
+
+
+func _run() -> void:
+	manifest = _read_manifest()
+	if manifest.is_empty():
+		_fail("manifest did not parse")
+		_finish()
+		return
+	_make_fallback_material()
+	equipment_attachment = _new_equipment_attachment()
+	if equipment_attachment == null:
+		_finish()
+		return
+	get_root().add_child(equipment_attachment)
+	if equipment_attachment.has_method("configure"):
+		equipment_attachment.configure({})
+	else:
+		_fail("EquipmentMeshAttachment missing configure")
+		_finish()
+		return
+	await process_frame
+	var assets_by_persona := _character_assets_by_persona(manifest)
+	for persona in PERSONAS:
+		if not assets_by_persona.has(str(persona)):
+			_fail_persona(str(persona), "missing character asset in manifest")
+	for persona in PERSONAS:
+		if not assets_by_persona.has(str(persona)):
+			_print_persona_summary(str(persona))
+			continue
+		await _audit_persona(str(persona), assets_by_persona.get(str(persona), {}))
+	if equipment_attachment != null:
+		equipment_attachment.queue_free()
+	_finish()
+
+
+func _read_manifest() -> Dictionary:
+	var text := FileAccess.get_file_as_string(MANIFEST_PATH)
+	var parsed = JSON.parse_string(text)
+	return parsed if typeof(parsed) == TYPE_DICTIONARY else {}
+
+
+func _character_assets_by_persona(source_manifest: Dictionary) -> Dictionary:
+	var out := {}
+	for asset in source_manifest.get("assets", []):
+		if typeof(asset) != TYPE_DICTIONARY:
+			continue
+		var asset_dict := asset as Dictionary
+		if str(asset_dict.get("category", "")) != "character":
+			continue
+		var persona := str(asset_dict.get("personaSlot", ""))
+		if not persona.is_empty():
+			out[persona] = asset_dict
+	return out
+
+
+func _new_equipment_attachment() -> Node:
+	var script = load(EQUIPMENT_ATTACHMENT_SCRIPT)
+	if script == null:
+		_fail("EquipmentMeshAttachment script did not load")
+		return null
+	var node = script.new()
+	if not node is Node:
+		_fail("EquipmentMeshAttachment did not instantiate as Node")
+		return null
+	(node as Node).name = "AuditSkinBoneEquipmentAttachment"
+	return node
+
+
+func _audit_persona(persona: String, asset: Dictionary) -> void:
+	var character_id := "audit-skin-bone-%s" % persona
+	var character_node := _instantiate_runtime_character(persona, character_id)
+	if character_node == null:
+		_print_persona_summary(persona)
+		return
+	get_root().add_child(character_node)
+	await process_frame
+	if equipment_attachment.has_method("register_character"):
+		equipment_attachment.register_character(character_id, character_node, persona)
+	else:
+		_fail_persona(persona, "EquipmentMeshAttachment missing register_character")
+		character_node.queue_free()
+		_print_persona_summary(persona)
+		return
+	await process_frame
+	_apply_live_skin(persona, character_id)
+	await process_frame
+	var character := _registered_character(character_id)
+	if character.is_empty():
+		_fail_persona(persona, "missing registered_character record after register_character")
+	else:
+		_audit_persona_specific_material(persona, character_id)
+		_audit_live_body_marks(persona, character_id, asset)
+	var corpse_specs := _mark_specs_from_block(asset.get("corpse", {}), ["decals", "stumpDecals", "marks"])
+	if not corpse_specs.is_empty():
+		if equipment_attachment.has_method("apply_corpse_skin_to_live_character"):
+			equipment_attachment.apply_corpse_skin_to_live_character(character_id)
+			await process_frame
+			_audit_corpse_marks(persona, character_id, asset, corpse_specs)
+		else:
+			_fail_persona(persona, "EquipmentMeshAttachment missing apply_corpse_skin_to_live_character")
+	character_node.queue_free()
+	_print_persona_summary(persona)
+
+
+func _instantiate_runtime_character(persona: String, character_id: String) -> Node3D:
+	if not equipment_attachment.has_method("instantiate_persona_character"):
+		_fail_persona(persona, "EquipmentMeshAttachment missing instantiate_persona_character")
+		return null
+	var node = equipment_attachment.instantiate_persona_character(persona, "audit-character-%s" % character_id, fallback_material, BASE_SCALE)
+	if not node is Node3D:
+		_fail_persona(persona, "instantiate_persona_character did not return Node3D")
+		return null
+	return node
+
+
+func _apply_live_skin(persona: String, character_id: String) -> void:
+	if equipment_attachment.has_method("apply_persona_skin"):
+		equipment_attachment.call("apply_persona_skin", character_id, 0)
+		return
+	if equipment_attachment.has_method("_apply_persona_skin"):
+		equipment_attachment.call("_apply_persona_skin", character_id, 0)
+		return
+	_fail_persona(persona, "EquipmentMeshAttachment missing apply_persona_skin")
+
+
+func _audit_persona_specific_material(persona: String, character_id: String) -> void:
+	match persona:
+		"trader":
+			_assert_trader_triplanar_material(persona, character_id)
+		"sprinter":
+			_assert_sprinter_body_region_shader(persona, character_id)
+
+
+func _assert_trader_triplanar_material(persona: String, character_id: String) -> void:
+	var materials := _unique_materials(_body_materials_for_character(character_id))
+	if materials.is_empty():
+		_fail_persona(persona, "no body materials found after live skin application")
+		return
+	var checked := 0
+	for material in materials:
+		if not material is StandardMaterial3D:
+			_fail_persona(persona, "body material is %s, expected StandardMaterial3D with uv1_triplanar" % _class_name(material))
+			continue
+		checked += 1
+		var standard := material as StandardMaterial3D
+		if not bool(standard.get("uv1_triplanar")):
+			_fail_persona(persona, "StandardMaterial3D uv1_triplanar is false")
+	if checked == materials.size() and not _persona_has_failures(persona):
+		print("OK %s trader material uses StandardMaterial3D uv1_triplanar" % persona)
+
+
+func _assert_sprinter_body_region_shader(persona: String, character_id: String) -> void:
+	var materials := _unique_materials(_body_materials_for_character(character_id))
+	if materials.is_empty():
+		_fail_persona(persona, "no body materials found after live skin application")
+		return
+	for material in materials:
+		if material is StandardMaterial3D:
+			_fail_persona(persona, "body material is StandardMaterial3D, expected ShaderMaterial body-region/multi-material shader")
+			continue
+		if not material is ShaderMaterial:
+			_fail_persona(persona, "body material is %s, expected ShaderMaterial" % _class_name(material))
+			continue
+		var shader_material := material as ShaderMaterial
+		var shader := shader_material.shader
+		if shader == null:
+			_fail_persona(persona, "ShaderMaterial has no shader")
+			continue
+		var shader_label := "%s %s" % [shader.resource_path, shader.resource_name]
+		if not _contains_any_token(shader_label.to_lower(), BODY_REGION_SHADER_TOKENS):
+			_fail_persona(persona, "ShaderMaterial shader is not body-region/multi-material: %s" % shader_label)
+	if not _persona_has_failures(persona):
+		print("OK %s sprinter material uses body-region/multi-material ShaderMaterial" % persona)
+
+
+func _audit_live_body_marks(persona: String, character_id: String, asset: Dictionary) -> void:
+	var specs := _mark_specs_from_block(asset.get("skin", {}), ["decals", "marks"])
+	if specs.is_empty():
+		return
+	_audit_mark_specs(persona, character_id, specs, "skin_mark_nodes_by_character", "body skin")
+
+
+func _audit_corpse_marks(persona: String, character_id: String, _asset: Dictionary, corpse_specs: Array) -> void:
+	_audit_mark_specs(persona, character_id, corpse_specs, "corpse_mark_nodes_by_character", "corpse skin")
+
+
+func _audit_mark_specs(persona: String, character_id: String, specs: Array, bucket_name: String, label: String) -> void:
+	var mark_nodes := _tracked_mark_nodes(character_id, bucket_name)
+	if mark_nodes.size() < specs.size():
+		var character := _registered_character(character_id)
+		var root := character.get("node") as Node
+		mark_nodes = _collect_projected_mark_nodes(root)
+	if mark_nodes.size() < specs.size():
+		_fail_persona(persona, "%s produced %d mark nodes for %d manifest specs" % [label, mark_nodes.size(), specs.size()])
+	var character_record := _registered_character(character_id)
+	var skeleton := character_record.get("skeleton") as Skeleton3D
+	var count: int = min(mark_nodes.size(), specs.size())
+	for i in range(count):
+		var spec_info := specs[i] as Dictionary
+		var spec: Dictionary = spec_info.get("spec", {})
+		var mark := mark_nodes[i] as Node
+		_assert_mark_parent(persona, label, spec_info, spec, mark, skeleton)
+	if mark_nodes.size() >= specs.size() and not _persona_has_failures(persona):
+		print("OK %s %s mark count=%d" % [persona, label, specs.size()])
+
+
+func _assert_mark_parent(persona: String, label: String, spec_info: Dictionary, spec: Dictionary, mark: Node, skeleton: Skeleton3D) -> void:
+	var spec_label := "%s.%s[%d]" % [label, str(spec_info.get("key", "marks")), int(spec_info.get("index", 0))]
+	if mark == null or not is_instance_valid(mark):
+		_fail_persona(persona, "%s produced invalid mark node" % spec_label)
+		return
+	if _is_floor_projection(spec):
+		print("OK %s %s floor/root projection: %s" % [persona, spec_label, mark.get_path()])
+		return
+	var bone_name := _bone_name_from_spec(spec)
+	if bone_name.is_empty():
+		_warn_persona(persona, "%s has no bone spec; fallback/root attachment accepted at %s" % [spec_label, mark.get_path()])
+		return
+	if skeleton == null:
+		_warn_persona(persona, "%s requests bone %s but no Skeleton3D is registered; fallback accepted" % [spec_label, bone_name])
+		return
+	if skeleton.find_bone(bone_name) < 0:
+		_warn_persona(persona, "%s requests missing bone %s; fallback accepted" % [spec_label, bone_name])
+		return
+	var attachment := _bone_attachment_in_parent_chain(mark)
+	if attachment == null:
+		_fail_persona(persona, "%s mark is not parented under BoneAttachment3D for bone %s: %s" % [spec_label, bone_name, mark.get_path()])
+		return
+	var attached_bone := str(attachment.bone_name)
+	if not attached_bone.is_empty() and attached_bone != bone_name:
+		_fail_persona(persona, "%s mark parent BoneAttachment3D uses bone %s, expected %s" % [spec_label, attached_bone, bone_name])
+		return
+	print("OK %s %s BoneAttachment3D=%s bone=%s" % [persona, spec_label, attachment.get_path(), bone_name])
+
+
+func _mark_specs_from_block(block_value, keys: Array) -> Array:
+	var out := []
+	if typeof(block_value) != TYPE_DICTIONARY:
+		return out
+	var block := block_value as Dictionary
+	var params = block.get("params", {})
+	if typeof(params) != TYPE_DICTIONARY:
+		return out
+	var params_dict := params as Dictionary
+	for key in keys:
+		var values = params_dict.get(str(key), [])
+		if typeof(values) != TYPE_ARRAY:
+			continue
+		var values_array := values as Array
+		for i in range(values_array.size()):
+			if typeof(values_array[i]) != TYPE_DICTIONARY:
+				continue
+			out.append({
+				"key": str(key),
+				"index": i,
+				"spec": values_array[i],
+			})
+	return out
+
+
+func _tracked_mark_nodes(character_id: String, bucket_name: String) -> Array:
+	var out := []
+	var bucket = equipment_attachment.get(bucket_name)
+	if typeof(bucket) != TYPE_DICTIONARY:
+		return out
+	var values = (bucket as Dictionary).get(character_id, [])
+	if typeof(values) != TYPE_ARRAY:
+		return out
+	for value in (values as Array):
+		var node := value as Node
+		if node != null and is_instance_valid(node):
+			out.append(node)
+	return out
+
+
+func _collect_projected_mark_nodes(root: Node) -> Array:
+	var out := []
+	_collect_projected_mark_nodes_recursive(root, out)
+	return out
+
+
+func _collect_projected_mark_nodes_recursive(node: Node, out: Array) -> void:
+	if node == null:
+		return
+	if _is_projected_mark_node(node):
+		out.append(node)
+	for child in node.get_children():
+		_collect_projected_mark_nodes_recursive(child, out)
+
+
+func _is_projected_mark_node(node: Node) -> bool:
+	if node is Decal:
+		return true
+	if node is MeshInstance3D:
+		var mesh := (node as MeshInstance3D).mesh
+		return mesh is QuadMesh
+	return false
+
+
+func _bone_attachment_in_parent_chain(node: Node) -> BoneAttachment3D:
+	var current := node
+	while current != null:
+		if current is BoneAttachment3D:
+			return current as BoneAttachment3D
+		current = current.get_parent()
+	return null
+
+
+func _bone_name_from_spec(spec: Dictionary) -> String:
+	for key in ["bone", "boneName", "attachBone"]:
+		var value := str(spec.get(str(key), ""))
+		if not value.is_empty():
+			return value
+	return ""
+
+
+func _is_floor_projection(spec: Dictionary) -> bool:
+	return str(spec.get("projection", "")).to_lower() == "floor"
+
+
+func _body_materials_for_character(character_id: String) -> Array:
+	var out := []
+	for mesh_value in _body_meshes_for_character(character_id):
+		var mesh := mesh_value as MeshInstance3D
+		if mesh == null or not is_instance_valid(mesh):
+			continue
+		if mesh.material_override != null:
+			out.append(mesh.material_override)
+			continue
+		if mesh.mesh == null:
+			continue
+		for surface in range(mesh.mesh.get_surface_count()):
+			var override := mesh.get_surface_override_material(surface)
+			if override != null:
+				out.append(override)
+				continue
+			var active := mesh.get_active_material(surface)
+			if active != null:
+				out.append(active)
+				continue
+			var source := mesh.mesh.surface_get_material(surface)
+			if source != null:
+				out.append(source)
+	return out
+
+
+func _body_meshes_for_character(character_id: String) -> Array:
+	var character := _registered_character(character_id)
+	var meshes = character.get("bodyMeshes", [])
+	if typeof(meshes) == TYPE_ARRAY and not (meshes as Array).is_empty():
+		return meshes as Array
+	var out := []
+	var visual := character.get("visual") as Node
+	_collect_body_meshes(visual, out)
+	return out
+
+
+func _collect_body_meshes(node: Node, out: Array) -> void:
+	if node == null:
+		return
+	if node is MeshInstance3D and not _is_projected_mark_node(node):
+		out.append(node)
+	for child in node.get_children():
+		_collect_body_meshes(child, out)
+
+
+func _unique_materials(materials: Array) -> Array:
+	var out := []
+	for material in materials:
+		if material == null:
+			continue
+		if not out.has(material):
+			out.append(material)
+	return out
+
+
+func _registered_character(character_id: String) -> Dictionary:
+	var registry = equipment_attachment.get("registered_characters")
+	if typeof(registry) != TYPE_DICTIONARY:
+		return {}
+	var character = (registry as Dictionary).get(character_id, {})
+	return character if typeof(character) == TYPE_DICTIONARY else {}
+
+
+func _contains_any_token(value: String, tokens: Array) -> bool:
+	for token in tokens:
+		if value.contains(str(token)):
+			return true
+	return false
+
+
+func _class_name(value) -> String:
+	if value == null:
+		return "<null>"
+	if value is Object:
+		return (value as Object).get_class()
+	return type_string(typeof(value))
+
+
+func _make_fallback_material() -> void:
+	fallback_material = StandardMaterial3D.new()
+	fallback_material.albedo_color = Color(0.45, 0.56, 0.64)
+	fallback_material.emission_enabled = true
+	fallback_material.emission = Color(0.08, 0.48, 0.9)
+	fallback_material.emission_energy_multiplier = 0.16
+
+
+func _fail(message: String) -> void:
+	failures.append(message)
+
+
+func _fail_persona(persona: String, message: String) -> void:
+	var full := "%s: %s" % [persona, message]
+	failures.append(full)
+	var persona_messages: Array = persona_failures.get(persona, [])
+	persona_messages.append(message)
+	persona_failures[persona] = persona_messages
+
+
+func _warn_persona(persona: String, message: String) -> void:
+	var full := "%s: %s" % [persona, message]
+	warnings.append(full)
+	var persona_messages: Array = persona_warnings.get(persona, [])
+	persona_messages.append(message)
+	persona_warnings[persona] = persona_messages
+	push_warning(full)
+
+
+func _persona_has_failures(persona: String) -> bool:
+	var persona_messages: Array = persona_failures.get(persona, [])
+	return not persona_messages.is_empty()
+
+
+func _print_persona_summary(persona: String) -> void:
+	var persona_fail_count := (persona_failures.get(persona, []) as Array).size()
+	var persona_warn_count := (persona_warnings.get(persona, []) as Array).size()
+	if persona_fail_count > 0:
+		print("FAIL %s (%d fail, %d warn)" % [persona, persona_fail_count, persona_warn_count])
+	elif persona_warn_count > 0:
+		print("WARN %s (%d warn)" % [persona, persona_warn_count])
+	else:
+		print("OK %s" % persona)
+
+
+func _finish() -> void:
+	for warning in warnings:
+		print("WARN %s" % warning)
+	if failures.is_empty():
+		print("audit-skin-bone-attachments PASS")
+		quit(0)
+		return
+	for failure in failures:
+		push_error(failure)
+	print("audit-skin-bone-attachments FAIL")
+	quit(1)

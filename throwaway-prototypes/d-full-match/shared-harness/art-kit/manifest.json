@@ -115,14 +115,15 @@
           "decals": [
             {
               "file": "textures/gore/wound-slash-a.png",
+              "bone": "spine_03",
               "offset": [
                 0,
-                0.48,
-                0.13
+                0.02,
+                0.11
               ],
               "size": [
-                0.34,
-                0.22,
+                0.42,
+                0.3,
                 0.08
               ],
               "rotationDeg": [
@@ -133,14 +134,15 @@
             },
             {
               "file": "textures/gore/wound-slash-b.png",
+              "bone": "spine_02",
               "offset": [
-                -0.16,
-                0.28,
-                0.14
+                -0.08,
+                -0.02,
+                0.12
               ],
               "size": [
+                0.36,
                 0.28,
-                0.2,
                 0.08
               ],
               "rotationDeg": [
@@ -151,14 +153,15 @@
             },
             {
               "file": "textures/gore/wound-puncture.png",
+              "bone": "spine_03",
               "offset": [
-                0.18,
-                0.36,
-                0.15
+                0.09,
+                -0.01,
+                0.12
               ],
               "size": [
-                0.2,
-                0.14,
+                0.28,
+                0.22,
                 0.08
               ],
               "rotationDeg": [
@@ -169,14 +172,15 @@
             },
             {
               "file": "textures/gore/wound-slash-a.png",
+              "bone": "spine_01",
               "offset": [
-                0.06,
-                0.18,
-                0.14
+                0.04,
+                0.03,
+                0.12
               ],
               "size": [
+                0.34,
                 0.24,
-                0.16,
                 0.08
               ],
               "rotationDeg": [
@@ -200,9 +204,12 @@
         "params": {
           "albedo": "textures/skin/trader-hex-pattern.png",
           "uv1_scale": [
-            4,
-            4
+            1,
+            1
           ],
+          "samplingMode": "triplanar",
+          "triplanarScale": 1.35,
+          "triplanarSharpness": 5,
           "tint": "#f5a642",
           "baseColor": "#173b42"
         }
@@ -254,14 +261,15 @@
           "decals": [
             {
               "file": "textures/skin/opportunist-decal-logo.png",
+              "bone": "spine_03",
               "offset": [
                 0,
-                0.42,
-                0.16
+                0.02,
+                0.13
               ],
               "size": [
-                0.26,
-                0.26,
+                0.34,
+                0.34,
                 0.08
               ],
               "rotationDeg": [
@@ -272,14 +280,15 @@
             },
             {
               "file": "textures/skin/opportunist-decal-scar.png",
+              "bone": "upperarm_l",
               "offset": [
-                -0.15,
-                0.23,
-                0.15
+                0,
+                0.06,
+                0.04
               ],
               "size": [
-                0.24,
                 0.3,
+                0.42,
                 0.08
               ],
               "rotationDeg": [
@@ -290,14 +299,15 @@
             },
             {
               "file": "textures/skin/opportunist-decal-dirt.png",
+              "bone": "spine_01",
               "offset": [
-                0.14,
-                0.05,
-                0.14
+                0.06,
+                -0.02,
+                0.12
               ],
               "size": [
+                0.42,
                 0.32,
-                0.22,
                 0.08
               ],
               "rotationDeg": [
@@ -347,14 +357,15 @@
           "decals": [
             {
               "file": "textures/gore/bone-gash-a.png",
+              "bone": "spine_03",
               "offset": [
                 0,
-                0.46,
-                0.15
+                0.02,
+                0.12
               ],
               "size": [
+                0.44,
                 0.32,
-                0.24,
                 0.08
               ],
               "rotationDeg": [
@@ -365,14 +376,15 @@
             },
             {
               "file": "textures/gore/bone-gash-b.png",
+              "bone": "spine_02",
               "offset": [
-                -0.18,
-                0.22,
-                0.13
+                -0.08,
+                -0.01,
+                0.12
               ],
               "size": [
-                0.28,
-                0.22,
+                0.38,
+                0.3,
                 0.08
               ],
               "rotationDeg": [
@@ -383,14 +395,15 @@
             },
             {
               "file": "textures/gore/bone-gash-c.png",
+              "bone": "spine_01",
               "offset": [
-                0.2,
-                0.12,
-                0.14
+                0.08,
+                0,
+                0.11
               ],
               "size": [
-                0.22,
-                0.16,
+                0.34,
+                0.24,
                 0.08
               ],
               "rotationDeg": [
@@ -417,6 +430,7 @@
           "trimMask": "textures/skin/camper-trim-mask.png",
           "trimColor": "#ff8f2e",
           "trimEnergy": 1.8,
+          "trimTileScale": 0.18,
           "baseColor": "#23351e"
         }
       },
@@ -428,14 +442,15 @@
           "decals": [
             {
               "file": "textures/gore/viscera-chest.png",
+              "bone": "spine_03",
               "offset": [
                 0,
-                0.45,
-                0.16
+                0,
+                0.13
               ],
               "size": [
-                0.32,
-                0.24,
+                0.46,
+                0.34,
                 0.08
               ],
               "rotationDeg": [
@@ -446,14 +461,15 @@
             },
             {
               "file": "textures/gore/viscera-abdomen.png",
+              "bone": "spine_01",
               "offset": [
-                0.04,
-                0.2,
-                0.15
+                0.02,
+                0.02,
+                0.12
               ],
               "size": [
-                0.36,
-                0.26,
+                0.46,
+                0.34,
                 0.08
               ],
               "rotationDeg": [
@@ -476,6 +492,30 @@
         "approach": "multi_material_split",
         "rationale": "Per-part material assignments sample mismatched speed-build body segmentation without adding accessories or changing the mesh.",
         "params": {
+          "shader": "shaders/multi_material_split.gdshader",
+          "bodyRegionMask": "textures/skin/sprinter-body-regions.png",
+          "regionBlendSoftness": 0.025,
+          "region_blend_softness": 0.025,
+          "headColor": "#43211c",
+          "headMetallic": 0.15,
+          "head_metallic": 0.15,
+          "headRoughness": 0.7,
+          "head_roughness": 0.7,
+          "chestColor": "#ff4e38",
+          "chestMetallic": 0.45,
+          "chest_metallic": 0.45,
+          "chestRoughness": 0.38,
+          "chest_roughness": 0.38,
+          "legsColor": "#1a3440",
+          "legsMetallic": 0.25,
+          "legs_metallic": 0.25,
+          "legsRoughness": 0.5,
+          "legs_roughness": 0.5,
+          "armsColor": "#ffe14a",
+          "armsMetallic": 0.62,
+          "arms_metallic": 0.62,
+          "armsRoughness": 0.32,
+          "arms_roughness": 0.32,
           "bodyParts": {
             "head": {
               "base": "#43211c",
@@ -523,14 +563,15 @@
           "stumpDecals": [
             {
               "file": "textures/gore/stump-gore.png",
+              "bone": "thigh_l",
               "offset": [
-                -0.18,
-                0.05,
-                0.12
+                0,
+                -0.01,
+                0.08
               ],
               "size": [
-                0.22,
-                0.18,
+                0.34,
+                0.28,
                 0.08
               ],
               "rotationDeg": [
@@ -541,14 +582,15 @@
             },
             {
               "file": "textures/gore/stump-gore.png",
+              "bone": "lowerarm_r",
               "offset": [
-                0.2,
-                0.28,
-                0.14
+                0,
+                0.02,
+                0.06
               ],
               "size": [
-                0.2,
-                0.16,
+                0.3,
+                0.24,
                 0.08
               ],
               "rotationDeg": [

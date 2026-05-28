@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Throwaway Godot 4 WASM full-match replay prototype.",
   "scripts": {
-    "test": "node scripts/verify-scaffold.mjs && if [ -n \"$GODOT_BIN\" ]; then \"$GODOT_BIN\" --path . --headless --script res://scripts/audit-character-scales.gd -- --assert && \"$GODOT_BIN\" --path . --headless --script res://scripts/audit-mesh2motion-clips.gd && \"$GODOT_BIN\" --path . --headless --script res://scripts/verify-character-rigs.gd && \"$GODOT_BIN\" --path . --headless --script res://scripts/audit-replay-load.gd; else echo \"audit-character-scales: skipped (GODOT_BIN unset)\" && echo \"Round-7 Godot audits: skipped (GODOT_BIN unset)\"; fi",
+    "test": "node scripts/verify-scaffold.mjs && if [ -n \"$GODOT_BIN\" ]; then \"$GODOT_BIN\" --path . --headless --script res://scripts/audit-character-scales.gd -- --assert && \"$GODOT_BIN\" --path . --headless --script res://scripts/audit-mesh2motion-clips.gd && \"$GODOT_BIN\" --path . --headless --script res://scripts/verify-character-rigs.gd && \"$GODOT_BIN\" --path . --headless --script res://scripts/audit-replay-load.gd && \"$GODOT_BIN\" --path . --headless --script res://scripts/audit-skin-bone-attachments.gd; else echo \"audit-character-scales: skipped (GODOT_BIN unset)\" && echo \"Round-7 Godot audits: skipped (GODOT_BIN unset); audit-skin-bone-attachments included in GODOT_BIN gate\"; fi",
     "build": "node scripts/export-web.mjs",
     "serve": "node scripts/serve.mjs"
   }
