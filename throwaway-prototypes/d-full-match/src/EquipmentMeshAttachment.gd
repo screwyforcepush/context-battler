@@ -6,6 +6,10 @@ const WEAPON_SOCKET_NAME := "weapon_socket"
 const ARMOUR_SOCKET_NAME := "armour_socket"
 const WEAPON_ATTACHMENT_SCALE := 0.22
 const FALLBACK_CHARACTER_HALF_HEIGHT := 0.17
+const ADHERENCE_BONE_ATTACHED := "adherence_bone_attached"
+const ADHERENCE_MESH_BAKED := "adherence_mesh_baked"
+const ADHERENCE_UV_PAINTED := "adherence_uv_painted"
+const ADHERENCE_MODULAR_SUBMESH := "adherence_modular_submesh"
 
 var manifest: Dictionary = {}
 var character_assets_by_persona: Dictionary = {}
@@ -20,6 +24,7 @@ var body_materials_by_character: Dictionary = {}
 var skin_mark_nodes_by_character: Dictionary = {}
 var corpse_mark_nodes_by_character: Dictionary = {}
 var corpse_bone_mutations_by_character: Dictionary = {}
+var armor_overlay_nodes_by_character: Dictionary = {}
 var last_applied_skin_approach: Dictionary = {}
 var last_applied_corpse_approach: Dictionary = {}
 var mat_weapon_low: StandardMaterial3D
@@ -38,6 +43,7 @@ func configure(_root: Dictionary = {}) -> void:
 	skin_mark_nodes_by_character.clear()
 	corpse_mark_nodes_by_character.clear()
 	corpse_bone_mutations_by_character.clear()
+	armor_overlay_nodes_by_character.clear()
 	last_applied_skin_approach.clear()
 	last_applied_corpse_approach.clear()
 	_make_materials()
@@ -174,6 +180,7 @@ func _register_character_record(character_id: String, character_node: Node3D, pe
 		"animationState": _empty_animation_state("idle"),
 		"attachBone": str(asset.get("attachBone", "")),
 		"weaponSocket": weapon_socket,
+		"armorOverlay": asset.get("armorOverlay", null),
 		"bodyMeshes": _mesh_descendants(visual),
 		"flashAge": 999.0,
 		"armourTier": armour_tier,
@@ -450,14 +457,151 @@ func _handle_animation_finished(animation_name: StringName, player: AnimationPla
 func _swap_armour(character_id: String, armour_name: String) -> void:
 	var tier := 0
 	if armour_name.is_empty():
+		_clear_modular_submesh_armor(character_id)
 		_apply_persona_skin(character_id, tier)
 		return
 	var asset: Dictionary = armour_assets_by_name.get(armour_name, {})
 	tier = int(asset.get("tier", 1))
+	var armor_overlay := _armor_overlay_for_character(character_id)
+	if not armor_overlay.is_empty():
+		_apply_persona_skin(character_id, 0)
+		if _apply_modular_submesh_armor(character_id, armor_overlay, tier):
+			var modular_character: Dictionary = registered_characters.get(character_id, {})
+			modular_character["armourTier"] = tier
+			modular_character["usesModularArmour"] = true
+			modular_character["flashAge"] = 0.0
+			registered_characters[character_id] = modular_character
+			return
+	_clear_modular_submesh_armor(character_id)
 	_apply_persona_skin(character_id, tier)
 	var character: Dictionary = registered_characters.get(character_id, {})
+	character["usesModularArmour"] = false
 	character["flashAge"] = 0.0
 	registered_characters[character_id] = character
+
+
+func _armor_overlay_for_character(character_id: String) -> Dictionary:
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var overlay = character.get("armorOverlay", null)
+	if typeof(overlay) == TYPE_DICTIONARY:
+		return overlay as Dictionary
+	return {}
+
+
+func _apply_modular_submesh_armor(character_id: String, armor_overlay_block: Dictionary, armour_tier: int = 0) -> bool:
+	# adherence_modular_submesh: separately skinned armor meshes share the character Skeleton3D.
+	_clear_modular_submesh_armor(character_id)
+	if armor_overlay_block.is_empty() or not registered_characters.has(character_id):
+		return false
+	var scene := _scene_for_asset(armor_overlay_block)
+	if scene == null:
+		push_warning("armorOverlay.file did not resolve for %s: %s" % [character_id, str(armor_overlay_block.get("file", ""))])
+		return false
+	var source_instance = scene.instantiate()
+	if not source_instance is Node3D:
+		if source_instance != null:
+			source_instance.queue_free()
+		push_warning("armorOverlay.file did not instantiate as Node3D for %s" % character_id)
+		return false
+	var source_root := source_instance as Node3D
+	var meshes := _mesh_descendants(source_root)
+	if meshes.is_empty():
+		source_root.queue_free()
+		push_warning("armorOverlay.file had no MeshInstance3D descendants for %s" % character_id)
+		return false
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var skeleton := character.get("skeleton") as Skeleton3D
+	var visual := character.get("visual") as Node3D
+	var attach_parent: Node3D = skeleton if skeleton != null and is_instance_valid(skeleton) else visual
+	if attach_parent == null or not is_instance_valid(attach_parent):
+		source_root.queue_free()
+		push_warning("armorOverlay has no valid Skeleton3D or visual parent for %s" % character_id)
+		return false
+	var attached_meshes := []
+	for mesh_value in meshes:
+		var mesh := mesh_value as MeshInstance3D
+		if mesh == null or not is_instance_valid(mesh):
+			continue
+		var local_transform := _source_local_transform_for_mesh(mesh, source_root)
+		var parent := mesh.get_parent()
+		if parent != null:
+			parent.remove_child(mesh)
+		mesh.name = _unique_child_name(attach_parent, "armor_overlay_%s" % str(mesh.name))
+		mesh.owner = null
+		attach_parent.add_child(mesh)
+		mesh.transform = local_transform
+		if skeleton != null and is_instance_valid(skeleton):
+			mesh.skeleton = mesh.get_path_to(skeleton)
+			_ensure_modular_armor_skin(mesh, skeleton, armor_overlay_block)
+		_apply_tier_material(mesh, armour_tier, "armour")
+		attached_meshes.append(mesh)
+	source_root.queue_free()
+	if attached_meshes.is_empty():
+		return false
+	armor_overlay_nodes_by_character[character_id] = attached_meshes
+	return true
+
+
+func _clear_modular_submesh_armor(character_id: String) -> void:
+	var nodes: Array = armor_overlay_nodes_by_character.get(character_id, [])
+	for node_value in nodes:
+		var node := node_value as Node
+		if node != null and is_instance_valid(node):
+			node.queue_free()
+	armor_overlay_nodes_by_character.erase(character_id)
+	if registered_characters.has(character_id):
+		var character: Dictionary = registered_characters.get(character_id, {})
+		character["usesModularArmour"] = false
+		registered_characters[character_id] = character
+
+
+func _source_local_transform_for_mesh(mesh: MeshInstance3D, source_root: Node3D) -> Transform3D:
+	var transform := mesh.transform
+	var parent := mesh.get_parent()
+	while parent != null and parent != source_root:
+		if parent is Node3D:
+			transform = (parent as Node3D).transform * transform
+		parent = parent.get_parent()
+	return transform
+
+
+func _unique_child_name(parent: Node, desired_name: String) -> String:
+	var clean_name := desired_name.strip_edges()
+	if clean_name.is_empty():
+		clean_name = "armor_overlay_mesh"
+	var candidate := clean_name
+	var suffix := 2
+	while parent.get_node_or_null(candidate) != null:
+		candidate = "%s_%d" % [clean_name, suffix]
+		suffix += 1
+	return candidate
+
+
+func _ensure_modular_armor_skin(mesh: MeshInstance3D, skeleton: Skeleton3D, armor_overlay_block: Dictionary) -> void:
+	if mesh == null or skeleton == null:
+		return
+	if mesh.skin != null and int(mesh.skin.call("get_bind_count")) > 0:
+		return
+	var bind_bone := str(armor_overlay_block.get("bindBone", "spine_03"))
+	if bind_bone.is_empty() or skeleton.find_bone(bind_bone) < 0:
+		for candidate in ["spine_03", "spine_02", "spine_01", "head", "hand_l", "hand_r"]:
+			if skeleton.find_bone(str(candidate)) >= 0:
+				bind_bone = str(candidate)
+				break
+	if bind_bone.is_empty() or skeleton.find_bone(bind_bone) < 0:
+		return
+	var skin := Skin.new()
+	if skin.has_method("add_named_bind"):
+		skin.call("add_named_bind", bind_bone, Transform3D.IDENTITY)
+	elif skin.has_method("add_bind"):
+		skin.call("add_bind", skeleton.find_bone(bind_bone), Transform3D.IDENTITY)
+	if int(skin.call("get_bind_count")) <= 0:
+		return
+	if skin.has_method("set_bind_bone"):
+		skin.call("set_bind_bone", 0, skeleton.find_bone(bind_bone))
+	if skin.has_method("set_bind_name"):
+		skin.call("set_bind_name", 0, bind_bone)
+	mesh.skin = skin
 
 
 func _ensure_weapon_socket(character_node: Node3D, skeleton: Skeleton3D, attach_bone: String) -> Node3D:
@@ -703,10 +847,11 @@ func _apply_skin_pattern_texture(character_id: String, skin: Dictionary, armour_
 	var texture := _load_art_texture(str(params.get("albedo", "")))
 	if texture != null:
 		material.albedo_texture = texture
-	var triplanar_scale := _triplanar_scale_from_params(params, Vector3(4.0, 4.0, 4.0))
-	material.uv1_triplanar = true
-	material.uv1_scale = triplanar_scale
-	material.uv1_triplanar_sharpness = clamp(float(params.get("triplanarSharpness", params.get("uv1_triplanar_sharpness", 1.0))), 0.01, 150.0)
+	var sampling_mode := str(params.get("samplingMode", "uv"))
+	material.uv1_triplanar = sampling_mode == "triplanar"
+	material.uv1_scale = _triplanar_scale_from_params(params, Vector3(1.0, 1.0, 1.0))
+	if material.uv1_triplanar:
+		material.uv1_triplanar_sharpness = clamp(float(params.get("triplanarSharpness", params.get("uv1_triplanar_sharpness", 1.0))), 0.01, 150.0)
 	_apply_armour_tier_to_standard_material(material, armour_tier)
 	_apply_material_to_body_meshes(character_id, material)
 
@@ -737,6 +882,7 @@ func _apply_skin_emissive_trim(character_id: String, skin: Dictionary, armour_ti
 
 
 func _apply_skin_multi_material(character_id: String, skin: Dictionary, armour_tier: int) -> void:
+	# adherence_uv_painted: body-region masks wrap effects through the mesh UVs.
 	var params := _params_from_block(skin)
 	var region_material := _body_region_shader_material(params, armour_tier)
 	if region_material != null:
@@ -856,6 +1002,7 @@ func _apply_corpse_viscera(character_id: String, corpse_block: Dictionary, armou
 
 
 func _apply_corpse_dismemberment(character_id: String, corpse_block: Dictionary, armour_tier: int) -> void:
+	# adherence_mesh_baked: whole-body corpse state is baked into skeleton/mesh transforms.
 	_apply_corpse_blood_saturation(character_id, {"params": {"tint": "#4d0007", "factor": 0.68, "saturation": 0.85}}, armour_tier)
 	var params := _params_from_block(corpse_block)
 	var visual := _visual_for_character(character_id)
@@ -897,6 +1044,7 @@ func _apply_corpse_decay(character_id: String, corpse_block: Dictionary, armour_
 
 
 func _apply_projected_mark(parent: Node3D, mark_spec: Dictionary) -> Node3D:
+	# adherence_bone_attached: projected marks can pin to a BoneAttachment3D when a bone is declared.
 	if parent == null:
 		return null
 	var target_parent := _projected_mark_parent(parent, mark_spec)
@@ -1358,14 +1506,8 @@ func _apply_corpse_mark_specs(character_id: String, corpse_block: Dictionary, ke
 
 
 func _load_art_texture(relative_path: String) -> Texture2D:
-	var resource_path := _art_resource_path(relative_path)
-	if resource_path.is_empty():
-		return null
-	var extension := resource_path.get_extension().to_lower()
-	if extension in ["png", "jpg", "jpeg", "webp"]:
-		var image := Image.new()
-		if image.load(ProjectSettings.globalize_path(resource_path)) == OK:
-			return ImageTexture.create_from_image(image)
+	# Use Godot's resource loader so the .pck path works in web export.
+	# Image.load() reads the host filesystem, which doesn't exist in the browser.
 	var resource := _load_art_resource(relative_path)
 	return resource as Texture2D
 

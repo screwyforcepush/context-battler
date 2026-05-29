@@ -1,19 +1,17 @@
 {
-  "schemaVersion": 5,
-  "kitName": "d-full-match-round-7-skin-rnd-art-kit",
-  "purpose": "Round-7 consolidated mesh2motion body plus eight distinct skin-technique samples and eight distinct extreme corpse-gore samples for d-full-match.",
+  "schemaVersion": 6,
+  "kitName": "d-full-match-round-8-sourced-adherence-art-kit",
+  "purpose": "Round-8 sourced CC0 skin/gore/weapon/armor variety manifest for the d-full-match Showroom, preserving the shared mesh2motion body while documenting adherence approaches per persona.",
   "notes": [
-    "Throwaway prototype art kit: Round-7 consolidates all personas onto the shared mesh2motion human-base body and re-samples breadth on skin technique and corpse gore technique.",
-    "Root body and corpseBody both reference characters/camper-mesh2motion-human-base.glb; per-character entries carry only persona-distinct skin/accessory/corpse metadata.",
-    "Accessories are deliberately skipped this round; every character accessories field is null so skin/gore breadth remains the isolated comparison axis.",
-    "Skin and gore textures under textures/skin and textures/gore are small local generated CC0 prototype PNGs authored for this R&D pass; PNG .import sidecars are committed beside each generated source.",
-    "Shader files under shaders/ are local prototype Godot shaders authored for this R&D pass and dedicated CC0 for reuse inside the project.",
-    "Weapons, armour, environment, and existing VFX manifest entries are preserved from Round 5/Round 6; armour remains a material-swap pipeline, while body.armourAttachBone is reserved for future use."
+    "Round-8 schema 6 manifest: shared mesh2motion body plus per-persona skin/corpse sourcePack and adherenceApproach metadata for sourced CC0 R&D comparison.",
+    "Weapons are primarily sourced CC0 Quaternius Ultimate RPG Items FBX assets, with the Robin Lamb sword retained as a known-good Round-4 control.",
+    "Three personas declare armorOverlay modular_submesh prototypes under art-kit/armour; remaining personas keep the Round-5 material-swap armor path as controls."
   ],
   "body": {
     "file": "characters/camper-mesh2motion-human-base.glb",
     "sourceKey": "mesh2motion",
-    "modelScaleMultiplier": 2.1725,
+    "modelScaleMultiplier": 0.92918305,
+    "targetWorldHeight": 1.7,
     "pivotYOffset": 0,
     "attachBone": "hand_r",
     "armourAttachBone": "spine",
@@ -55,7 +53,8 @@
     "file": "characters/camper-mesh2motion-human-base.glb",
     "sourceKey": "mesh2motion",
     "deathPoseClip": "Death01",
-    "modelScaleMultiplier": 2.1725,
+    "modelScaleMultiplier": 0.92918305,
+    "targetWorldHeight": 1.7,
     "pivotYOffset": 0,
     "notes": "Shared mesh2motion body, paused on the Death01 final frame. Per-persona corpse-skin variants apply at instance time; no standalone corpse GLB remains."
   },
@@ -73,7 +72,9 @@
             "accent": "#78f28a",
             "emissive": "#d7ff63"
           }
-        }
+        },
+        "adherenceApproach": "uv_painted",
+        "sourcePack": "engineer-procedural-fallback (Round-5 palette_flat control; retained intentionally per Round-8 research log)"
       },
       "accessories": null,
       "corpse": {
@@ -84,9 +85,19 @@
           "saturation": 0.92,
           "factor": 0.85,
           "wetness": 0.65
-        }
+        },
+        "adherenceApproach": "uv_painted",
+        "sourcePack": "OGA-LiquidSplatterPixelTexture-CC0 + material-saturation fallback"
       },
-      "notes": "rat persona: palette_flat skin control + blood_saturation_overlay corpse gore. All Round-7 skin/gore assets are local generated CC0 prototypes unless otherwise noted."
+      "notes": "rat persona: palette_flat skin control + blood_saturation_overlay corpse gore. All Round-7 skin/gore assets are local generated CC0 prototypes unless otherwise noted. Round-8 WP-D: skin.sourcePack=engineer-procedural-fallback (Round-5 palette_flat control; retained intentionally per Round-8 research log); corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0 + material-saturation fallback; armorOverlay=null material-swap control; preferred showroom weapon=rusty_blade.",
+      "armorOverlay": null,
+      "round8Evaluation": {
+        "skinTreatment": "palette_flat control",
+        "goreVariant": "blood_saturation_overlay control",
+        "weapon": "rusty_blade / Quaternius-UltimateRPGItemsPack-CC0 sword FBX",
+        "armor": "Round-5 material-swap control",
+        "adherence": "uv_painted material control"
+      }
     },
     {
       "id": "character.duelist",
@@ -105,7 +116,9 @@
             1,
             1
           ]
-        }
+        },
+        "adherenceApproach": "uv_painted",
+        "sourcePack": "ambientCG-MetalPlates017A-CC0"
       },
       "accessories": null,
       "corpse": {
@@ -114,7 +127,7 @@
         "params": {
           "decals": [
             {
-              "file": "textures/gore/wound-slash-a.png",
+              "file": "textures/gore/oga-bloodsplatterandgibs.png",
               "bone": "spine_03",
               "offset": [
                 0,
@@ -133,7 +146,7 @@
               ]
             },
             {
-              "file": "textures/gore/wound-slash-b.png",
+              "file": "textures/gore/oga-bloodsplatterandgibs.png",
               "bone": "spine_02",
               "offset": [
                 -0.08,
@@ -152,7 +165,7 @@
               ]
             },
             {
-              "file": "textures/gore/wound-puncture.png",
+              "file": "textures/gore/oga-bloodsplatterandgibs.png",
               "bone": "spine_03",
               "offset": [
                 0.09,
@@ -171,7 +184,7 @@
               ]
             },
             {
-              "file": "textures/gore/wound-slash-a.png",
+              "file": "textures/gore/oga-bloodsplatterandgibs.png",
               "bone": "spine_01",
               "offset": [
                 0.04,
@@ -190,9 +203,29 @@
               ]
             }
           ]
-        }
+        },
+        "adherenceApproach": "bone_attached",
+        "sourcePack": "OGA-BloodSplatterAndGibs-CC0"
       },
-      "notes": "duelist persona: pbr_texture_atlas skin using local generated prototype PBR maps + wound_cluster_decals corpse gore."
+      "notes": "duelist persona: pbr_texture_atlas skin using ambientCG MetalPlates017A 1K-PNG (CC0, https://ambientcg.com/view?id=MetalPlates017A) for all 5 PBR maps + wound_cluster_decals corpse gore. Round-7.1 touch-up: replaced near-blank engineer-procedural maps with the real ambientCG set; other skin/gore textures regenerated procedurally with visible content at 512x512. Round-8 WP-D: skin.sourcePack=ambientCG-MetalPlates017A-CC0; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0; armorOverlay=quaternius_chest_plate; preferred showroom weapon=sword.",
+      "armorOverlay": {
+        "name": "quaternius_chest_plate",
+        "slot": "chest",
+        "adherenceApproach": "modular_submesh",
+        "file": "armour/quaternius-rpg-armor-metal.fbx",
+        "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
+        "bindBone": "spine_03",
+        "rationale": "Chest piece tests the Round-8 modular sub-mesh armor path against the torso where wrapping matters most.",
+        "notes": "Rigid CC0 Quaternius armor prop; WP-C injects a Skin bind to the mesh2motion spine_03 bone for the modular_submesh prototype.",
+        "approach": "modular_submesh"
+      },
+      "round8Evaluation": {
+        "skinTreatment": "pbr_texture_atlas sourced metal control",
+        "goreVariant": "torso wound_cluster_decals from CC0 gib/splatter sheet",
+        "weapon": "sword / Robin Lamb CC0 known-good control",
+        "armor": "Quaternius chest modular_submesh",
+        "adherence": "bone_attached gore plus modular_submesh armor"
+      }
     },
     {
       "id": "character.trader",
@@ -200,19 +233,19 @@
       "personaSlot": "trader",
       "skin": {
         "approach": "pattern_texture",
-        "rationale": "A tiled hex/circuit pattern makes the trader read as data-market and broker-coded without changing the shared body.",
+        "rationale": "A sourced cloth pattern gives the trader a data-market read while staying on the body UVs instead of world-space sampling.",
         "params": {
-          "albedo": "textures/skin/trader-hex-pattern.png",
+          "albedo": "textures/skin/ambientcg-fabric029-color.png",
           "uv1_scale": [
-            1,
-            1
+            1.45,
+            1.45
           ],
-          "samplingMode": "triplanar",
-          "triplanarScale": 1.35,
-          "triplanarSharpness": 5,
-          "tint": "#f5a642",
-          "baseColor": "#173b42"
-        }
+          "samplingMode": "uv",
+          "tint": "#d8b58a",
+          "baseColor": "#1b3034"
+        },
+        "adherenceApproach": "uv_painted",
+        "sourcePack": "ambientCG-Fabric029-CC0"
       },
       "accessories": null,
       "corpse": {
@@ -221,7 +254,7 @@
         "params": {
           "decals": [
             {
-              "file": "textures/gore/blood-pool-large.png",
+              "file": "textures/gore/oga-liquid-splatter-pixel-texture.png",
               "offset": [
                 0,
                 -0.05,
@@ -241,9 +274,19 @@
             }
           ],
           "poolColor": "#64000b"
-        }
+        },
+        "adherenceApproach": "bone_attached",
+        "sourcePack": "OGA-LiquidSplatterPixelTexture-CC0"
       },
-      "notes": "trader persona: pattern_texture skin using local generated hex pattern + gore_pool_decal corpse gore."
+      "notes": "trader persona: pattern_texture skin using local generated hex pattern + gore_pool_decal corpse gore. Round-8 WP-D: skin.sourcePack=ambientCG-MetalPlates017A-CC0; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0; armorOverlay=null material-swap control; preferred showroom weapon=dagger.",
+      "armorOverlay": null,
+      "round8Evaluation": {
+        "skinTreatment": "pattern_texture using sourced ambientCG Fabric029 UV control",
+        "goreVariant": "floor gore_pool_decal sourced splatter control",
+        "weapon": "dagger / Quaternius-UltimateRPGItemsPack-CC0",
+        "armor": "Round-5 material-swap control",
+        "adherence": "bone_attached/projected mark control"
+      }
     },
     {
       "id": "character.opportunist",
@@ -317,7 +360,9 @@
               ]
             }
           ]
-        }
+        },
+        "adherenceApproach": "bone_attached",
+        "sourcePack": "OGA-TheNess-HumanBodyTexture-CC0 + engineer-procedural decal fallback"
       },
       "accessories": null,
       "corpse": {
@@ -329,9 +374,19 @@
           "emission": "#ff5c18",
           "emissionEnergy": 0.75,
           "sootTint": "#080606"
-        }
+        },
+        "adherenceApproach": "uv_painted",
+        "sourcePack": "engineer-procedural-fallback (no CC0 full-body charred mesh2motion overlay found; see Round-8 research log)"
       },
-      "notes": "opportunist persona: decal_stickers skin with three local generated sticker marks + charred_burned_texture corpse gore."
+      "notes": "opportunist persona: decal_stickers skin with three local generated sticker marks + charred_burned_texture corpse gore. Round-8 WP-D: skin.sourcePack=OGA-TheNess-HumanBodyTexture-CC0 + engineer-procedural decal fallback; corpse.sourcePack=engineer-procedural-fallback (no CC0 full-body charred mesh2motion overlay found; see Round-8 research log); armorOverlay=null material-swap control; preferred showroom weapon=warhammer.",
+      "armorOverlay": null,
+      "round8Evaluation": {
+        "skinTreatment": "decal_stickers single-point pinning",
+        "goreVariant": "charred_burned_texture fallback body material",
+        "weapon": "warhammer / Quaternius-UltimateRPGItemsPack-CC0",
+        "armor": "Round-5 material-swap control",
+        "adherence": "bone_attached skin marks"
+      }
     },
     {
       "id": "character.paranoid",
@@ -347,7 +402,9 @@
           "baseColor": "#202338",
           "accentColor": "#caa6ff",
           "shadowColor": "#0a0d1e"
-        }
+        },
+        "adherenceApproach": "uv_painted",
+        "sourcePack": "ambientCG-Leather034B-CC0 visual-material reference + toon shader fallback"
       },
       "accessories": null,
       "corpse": {
@@ -356,7 +413,7 @@
         "params": {
           "decals": [
             {
-              "file": "textures/gore/bone-gash-a.png",
+              "file": "textures/gore/oga-liquid-splatter-pixel-texture.png",
               "bone": "spine_03",
               "offset": [
                 0,
@@ -375,7 +432,7 @@
               ]
             },
             {
-              "file": "textures/gore/bone-gash-b.png",
+              "file": "textures/gore/oga-liquid-splatter-pixel-texture.png",
               "bone": "spine_02",
               "offset": [
                 -0.08,
@@ -394,7 +451,7 @@
               ]
             },
             {
-              "file": "textures/gore/bone-gash-c.png",
+              "file": "textures/gore/oga-liquid-splatter-pixel-texture.png",
               "bone": "spine_01",
               "offset": [
                 0.08,
@@ -414,9 +471,29 @@
             }
           ],
           "boneColor": "#eee5ca"
-        }
+        },
+        "adherenceApproach": "bone_attached",
+        "sourcePack": "OGA-LiquidSplatterPixelTexture-CC0"
       },
-      "notes": "paranoid persona: toon_cel_shader skin from local shader + exposed_bone_decals corpse gore."
+      "notes": "paranoid persona: toon_cel_shader skin from local shader + exposed_bone_decals corpse gore. Round-8 WP-D: skin.sourcePack=ambientCG-Leather034B-CC0 visual-material reference + toon shader fallback; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0; armorOverlay=quaternius_crown_helmet; preferred showroom weapon=dagger.",
+      "armorOverlay": {
+        "name": "quaternius_crown_helmet",
+        "slot": "helmet",
+        "adherenceApproach": "modular_submesh",
+        "file": "armour/quaternius-rpg-crown-helmet.fbx",
+        "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
+        "bindBone": "head",
+        "rationale": "Helmet tests modular_submesh armor at a high-motion head attachment point distinct from torso armor.",
+        "notes": "Rigid CC0 Quaternius helmet prop; WP-C injects a Skin bind to the mesh2motion head bone for the modular_submesh prototype.",
+        "approach": "modular_submesh"
+      },
+      "round8Evaluation": {
+        "skinTreatment": "toon_cel_shader sourced-material style control",
+        "goreVariant": "exposed_bone_decals using imported CC0 liquid splatter source",
+        "weapon": "dagger / Quaternius-UltimateRPGItemsPack-CC0",
+        "armor": "Quaternius helmet modular_submesh",
+        "adherence": "bone_attached gore plus modular_submesh armor"
+      }
     },
     {
       "id": "character.camper",
@@ -432,7 +509,9 @@
           "trimEnergy": 1.8,
           "trimTileScale": 0.18,
           "baseColor": "#23351e"
-        }
+        },
+        "adherenceApproach": "uv_painted",
+        "sourcePack": "ambientCG-Fabric029-CC0 + engineer-procedural trim-mask fallback"
       },
       "accessories": null,
       "corpse": {
@@ -441,7 +520,7 @@
         "params": {
           "decals": [
             {
-              "file": "textures/gore/viscera-chest.png",
+              "file": "textures/gore/oga-bloodsplatterandgibs.png",
               "bone": "spine_03",
               "offset": [
                 0,
@@ -460,7 +539,7 @@
               ]
             },
             {
-              "file": "textures/gore/viscera-abdomen.png",
+              "file": "textures/gore/oga-bloodsplatterandgibs.png",
               "bone": "spine_01",
               "offset": [
                 0.02,
@@ -480,9 +559,19 @@
             }
           ],
           "organColor": "#740016"
-        }
+        },
+        "adherenceApproach": "bone_attached",
+        "sourcePack": "OGA-BloodSplatterAndGibs-CC0"
       },
-      "notes": "camper persona: emissive_trim_shader skin with local trim mask + viscera_projection corpse gore."
+      "notes": "camper persona: emissive_trim_shader skin with local trim mask + viscera_projection corpse gore. Round-8 WP-D: skin.sourcePack=ambientCG-Fabric029-CC0 + engineer-procedural trim-mask fallback; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0; armorOverlay=null material-swap control; preferred showroom weapon=axe.",
+      "armorOverlay": null,
+      "round8Evaluation": {
+        "skinTreatment": "emissive_trim_shader with sourced fabric base reference",
+        "goreVariant": "viscera_projection sourced gib-sheet control",
+        "weapon": "axe / Quaternius-UltimateRPGItemsPack-CC0",
+        "armor": "Round-5 material-swap control",
+        "adherence": "bone_attached viscera projection"
+      }
     },
     {
       "id": "character.sprinter",
@@ -548,7 +637,9 @@
             3,
             0
           ]
-        }
+        },
+        "adherenceApproach": "uv_painted",
+        "sourcePack": "OGA-MakeHuman-AnnotatedSkin-CC0 + engineer-procedural mesh2motion-region fallback"
       },
       "accessories": null,
       "corpse": {
@@ -562,7 +653,7 @@
           ],
           "stumpDecals": [
             {
-              "file": "textures/gore/stump-gore.png",
+              "file": "textures/gore/oga-bloodsplatterandgibs.png",
               "bone": "thigh_l",
               "offset": [
                 0,
@@ -581,7 +672,7 @@
               ]
             },
             {
-              "file": "textures/gore/stump-gore.png",
+              "file": "textures/gore/oga-bloodsplatterandgibs.png",
               "bone": "lowerarm_r",
               "offset": [
                 0,
@@ -601,9 +692,19 @@
             }
           ],
           "fallbackBoneScale": 0.01
-        }
+        },
+        "adherenceApproach": "mesh_baked",
+        "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + mesh-baked dismemberment transform"
       },
-      "notes": "sprinter persona: multi_material_split skin + dismemberment_baked corpse gore restricted to shared-body-only bone_hide per Round-7 amendment A1."
+      "notes": "sprinter persona: multi_material_split skin + dismemberment_baked corpse gore restricted to shared-body-only bone_hide per Round-7 amendment A1. Round-8 WP-D: skin.sourcePack=OGA-MakeHuman-AnnotatedSkin-CC0 + engineer-procedural mesh2motion-region fallback; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0 + mesh-baked dismemberment transform; armorOverlay=null material-swap control; preferred showroom weapon=rusty_blade.",
+      "armorOverlay": null,
+      "round8Evaluation": {
+        "skinTreatment": "multi_material_split body-region shader",
+        "goreVariant": "dismemberment_baked sourced gib-sheet stump marks",
+        "weapon": "rusty_blade / Quaternius-UltimateRPGItemsPack-CC0 sword FBX",
+        "armor": "Round-5 material-swap control",
+        "adherence": "mesh_baked corpse state plus uv_painted skin"
+      }
     },
     {
       "id": "character.vulture",
@@ -618,7 +719,9 @@
           "rimPower": 2.5,
           "rimEnergy": 1.35,
           "baseColor": "#2c2d31"
-        }
+        },
+        "adherenceApproach": "uv_painted",
+        "sourcePack": "OGA-TheNess-HumanBodyTexture-CC0 + rim shader fallback"
       },
       "accessories": null,
       "corpse": {
@@ -630,15 +733,35 @@
           "darkenAmount": 0.4,
           "tint": "#6f7b66",
           "bruiseColor": "#2b1730"
-        }
+        },
+        "adherenceApproach": "uv_painted",
+        "sourcePack": "OGA-LiquidSplatterPixelTexture-CC0 + decay shader fallback"
       },
-      "notes": "vulture persona: rim_fresnel_shader skin from local shader + decay_desaturation corpse gore from local shader."
+      "notes": "vulture persona: rim_fresnel_shader skin from local shader + decay_desaturation corpse gore from local shader. Round-8 WP-D: skin.sourcePack=OGA-TheNess-HumanBodyTexture-CC0 + rim shader fallback; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0 + decay shader fallback; armorOverlay=quaternius_gauntlet; preferred showroom weapon=greatsword.",
+      "armorOverlay": {
+        "name": "quaternius_gauntlet",
+        "slot": "gauntlet",
+        "adherenceApproach": "modular_submesh",
+        "file": "armour/quaternius-rpg-glove-gauntlet.fbx",
+        "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
+        "bindBone": "hand_l",
+        "rationale": "Gauntlet tests modular_submesh armor on a limb endpoint so users can compare it against bone-attached flat decals.",
+        "notes": "Rigid CC0 Quaternius gauntlet prop; WP-C injects a Skin bind to the mesh2motion hand_l bone for the modular_submesh prototype.",
+        "approach": "modular_submesh"
+      },
+      "round8Evaluation": {
+        "skinTreatment": "rim_fresnel_shader sourced skin-reference control",
+        "goreVariant": "decay_desaturation shader control",
+        "weapon": "greatsword / Quaternius-UltimateRPGItemsPack-CC0",
+        "armor": "Quaternius gauntlet modular_submesh",
+        "adherence": "modular_submesh armor with uv_painted shader controls"
+      }
     },
     {
       "id": "weapon.rusty_blade",
       "category": "weapon",
       "weaponName": "rusty_blade",
-      "file": "weapons/rusty-blade-prototype.glb",
+      "file": "weapons/quaternius-rpg-sword.fbx",
       "tier": 1,
       "dpsBucket": "low",
       "attachBone": "right_hand",
@@ -657,28 +780,36 @@
         "scale": 1
       },
       "source": {
-        "title": "context-battler Round-4 prototype primitive",
-        "creator": "context-battler prototype",
-        "repository": "local generated asset",
-        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
-        "downloadUrl": null
+        "title": "Ultimate RPG Items Bundle",
+        "creator": "Quaternius",
+        "repository": "Poly Pizza",
+        "pageUrl": "https://poly.pizza/bundle/Ultimate-RPG-Items-Bundle-h8mhlZ0dG8",
+        "downloadUrl": "https://poly.pizza/bundle/Ultimate-RPG-Items-Bundle-h8mhlZ0dG8",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
       },
       "license": {
         "spdx": "CC0-1.0",
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+        "notes": "Poly Pizza bundle page exposes CC0 and attributes Quaternius as creator."
       },
-      "notes": "Jagged rust-coloured primitive blade; intentionally low-tier and rough.",
-      "sizeBytes": 4344,
-      "sha256": "a7c323e25f68bc0f5e54d118f497a0c7db5f575fda303ca90b05bccd82464a1e"
+      "notes": "Round-8 sourced CC0 Quaternius sword FBX occupies the low-tier rusty_blade slot as a sourced control against the old primitive blade.",
+      "sizeBytes": 32236,
+      "sha256": "298d38fda4d00b16682b8145e391dd73f6dd618ebb8b6baa0eced045de681c60",
+      "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
+      "extraction": {
+        "sourceArchive": "/tmp/round-8-assets/quaternius-low-poly-rpg-pack.zip",
+        "sourceArchiveSha256": "7079818e9a02bb0291c3f2b595ec0306ce138fabc26718e86889b19e81077834",
+        "sourceArchivePath": "quaternius-rpg-sword.fbx",
+        "selectedOnly": true
+      }
     },
     {
       "id": "weapon.dagger",
       "category": "weapon",
       "weaponName": "dagger",
-      "file": "weapons/dagger-prototype.glb",
+      "file": "weapons/quaternius-rpg-dagger.fbx",
       "tier": 1,
       "dpsBucket": "low",
       "attachBone": "right_hand",
@@ -694,32 +825,41 @@
           0,
           -10
         ],
-        "scale": 0.85
+        "scale": 0.9
       },
       "source": {
-        "title": "context-battler Round-4 prototype primitive",
-        "creator": "context-battler prototype",
-        "repository": "local generated asset",
-        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
-        "downloadUrl": null
+        "title": "Ultimate RPG Items Bundle",
+        "creator": "Quaternius",
+        "repository": "Poly Pizza",
+        "pageUrl": "https://poly.pizza/bundle/Ultimate-RPG-Items-Bundle-h8mhlZ0dG8",
+        "downloadUrl": "https://poly.pizza/bundle/Ultimate-RPG-Items-Bundle-h8mhlZ0dG8",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
       },
       "license": {
         "spdx": "CC0-1.0",
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+        "notes": "Poly Pizza bundle page exposes CC0 and attributes Quaternius as creator."
       },
-      "notes": "Short cyan-guard primitive for quick melee reads without needing a bespoke asset.",
-      "sizeBytes": 4324,
-      "sha256": "ab397967a57ccdf1a783fcfc8b2d1a758a1e82e88b0d8426d74379eb1d0283cc"
+      "notes": "Round-8 sourced CC0 Quaternius dagger FBX replaces the primitive dagger for the low-tier quick melee lane.",
+      "sizeBytes": 30956,
+      "sha256": "95f770f204b44740d45355838aa78d50e975d48d14510e7e4dfc9aa0261468df",
+      "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
+      "extraction": {
+        "sourceArchive": "/tmp/round-8-assets/quaternius-low-poly-rpg-pack.zip",
+        "sourceArchiveSha256": "7079818e9a02bb0291c3f2b595ec0306ce138fabc26718e86889b19e81077834",
+        "sourceArchivePath": "quaternius-rpg-dagger.fbx",
+        "selectedOnly": true
+      }
     },
     {
-      "id": "weapon.sword",
-      "category": "weapon",
-      "weaponName": "sword",
-      "file": "weapons/sword-robin-lamb-hero.glb",
-      "tier": 2,
+    "id": "weapon.sword",
+    "category": "weapon",
+    "weaponName": "sword",
+    "file": "weapons/sword-robin-lamb-hero.glb",
+    "sourcePack": "RobinLamb-HeroSword-CC0",
+    "tier": 2,
       "dpsBucket": "mid",
       "attachBone": "right_hand",
       "pivotYOffset": 0,
@@ -764,7 +904,7 @@
       "id": "weapon.axe",
       "category": "weapon",
       "weaponName": "axe",
-      "file": "weapons/axe-prototype.glb",
+      "file": "weapons/quaternius-rpg-axe-double.fbx",
       "tier": 2,
       "dpsBucket": "mid",
       "attachBone": "right_hand",
@@ -783,28 +923,36 @@
         "scale": 1
       },
       "source": {
-        "title": "context-battler Round-4 prototype primitive",
-        "creator": "context-battler prototype",
-        "repository": "local generated asset",
-        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
-        "downloadUrl": null
+        "title": "Ultimate RPG Items Bundle",
+        "creator": "Quaternius",
+        "repository": "Poly Pizza",
+        "pageUrl": "https://poly.pizza/bundle/Ultimate-RPG-Items-Bundle-h8mhlZ0dG8",
+        "downloadUrl": "https://poly.pizza/bundle/Ultimate-RPG-Items-Bundle-h8mhlZ0dG8",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
       },
       "license": {
         "spdx": "CC0-1.0",
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+        "notes": "Poly Pizza bundle page exposes CC0 and attributes Quaternius as creator."
       },
-      "notes": "Wide-head primitive axe gives a different swing silhouette from sword and dagger.",
-      "sizeBytes": 4364,
-      "sha256": "c2549690cf6033d3fb474060634fd502de62fb79d88a78e4f394742c0fad7e81"
+      "notes": "Round-8 sourced CC0 Quaternius double axe FBX replaces the primitive axe for a broader mid-tier silhouette.",
+      "sizeBytes": 42684,
+      "sha256": "2bcd76c01e5e25fcc6f941b24d92f9764203065c832e29ccb42592a98d710845",
+      "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
+      "extraction": {
+        "sourceArchive": "/tmp/round-8-assets/quaternius-low-poly-rpg-pack.zip",
+        "sourceArchiveSha256": "7079818e9a02bb0291c3f2b595ec0306ce138fabc26718e86889b19e81077834",
+        "sourceArchivePath": "quaternius-rpg-axe-double.fbx",
+        "selectedOnly": true
+      }
     },
     {
       "id": "weapon.greatsword",
       "category": "weapon",
       "weaponName": "greatsword",
-      "file": "weapons/greatsword-prototype.glb",
+      "file": "weapons/quaternius-rpg-greatsword.fbx",
       "tier": 3,
       "dpsBucket": "high",
       "attachBone": "right_hand",
@@ -820,31 +968,39 @@
           0,
           -20
         ],
-        "scale": 1.15
+        "scale": 1.12
       },
       "source": {
-        "title": "context-battler Round-4 prototype primitive",
-        "creator": "context-battler prototype",
-        "repository": "local generated asset",
-        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
-        "downloadUrl": null
+        "title": "Ultimate RPG Items Bundle",
+        "creator": "Quaternius",
+        "repository": "Poly Pizza",
+        "pageUrl": "https://poly.pizza/bundle/Ultimate-RPG-Items-Bundle-h8mhlZ0dG8",
+        "downloadUrl": "https://poly.pizza/bundle/Ultimate-RPG-Items-Bundle-h8mhlZ0dG8",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
       },
       "license": {
         "spdx": "CC0-1.0",
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+        "notes": "Poly Pizza bundle page exposes CC0 and attributes Quaternius as creator."
       },
-      "notes": "Oversized crimson-guard primitive makes high-tier melee obvious at a glance.",
-      "sizeBytes": 4356,
-      "sha256": "0ecaa1c4ab84b2cf34362df234f9d7187d3b8d6ebeba8125471a604142d2a135"
+      "notes": "Round-8 sourced CC0 Quaternius greatsword FBX replaces the primitive greatsword for the high-tier heavy blade lane.",
+      "sizeBytes": 31596,
+      "sha256": "d27573fc1f15a8a531cf7ea22eca79149038b6ff3ea0d4b386c4ff2f5e98f6d8",
+      "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
+      "extraction": {
+        "sourceArchive": "/tmp/round-8-assets/quaternius-low-poly-rpg-pack.zip",
+        "sourceArchiveSha256": "7079818e9a02bb0291c3f2b595ec0306ce138fabc26718e86889b19e81077834",
+        "sourceArchivePath": "quaternius-rpg-greatsword.fbx",
+        "selectedOnly": true
+      }
     },
     {
       "id": "weapon.warhammer",
       "category": "weapon",
       "weaponName": "warhammer",
-      "file": "weapons/warhammer-prototype.glb",
+      "file": "weapons/quaternius-rpg-warhammer.fbx",
       "tier": 3,
       "dpsBucket": "high",
       "attachBone": "right_hand",
@@ -860,25 +1016,33 @@
           0,
           -30
         ],
-        "scale": 1.1
+        "scale": 1.08
       },
       "source": {
-        "title": "context-battler Round-4 prototype primitive",
-        "creator": "context-battler prototype",
-        "repository": "local generated asset",
-        "pageUrl": "local://context-battler/round-4-prototype-primitive-generator",
-        "downloadUrl": null
+        "title": "Ultimate RPG Items Bundle",
+        "creator": "Quaternius",
+        "repository": "Poly Pizza",
+        "pageUrl": "https://poly.pizza/bundle/Ultimate-RPG-Items-Bundle-h8mhlZ0dG8",
+        "downloadUrl": "https://poly.pizza/bundle/Ultimate-RPG-Items-Bundle-h8mhlZ0dG8",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
       },
       "license": {
         "spdx": "CC0-1.0",
         "name": "CC0 1.0 Universal / Public Domain",
         "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false,
-        "notes": "Generated R&D placeholder art for this throwaway prototype; dedicated CC0 for reuse inside the project."
+        "notes": "Poly Pizza bundle page exposes CC0 and attributes Quaternius as creator."
       },
-      "notes": "Chunky hammer head and cyan impact core signal heavy-hit VFX timing for WP4.",
-      "sizeBytes": 4364,
-      "sha256": "3b62b9bf0982ac85e61d1412dbb611b24bf5896edb87467306252ad2f1020d59"
+      "notes": "Round-8 sourced CC0 Quaternius warhammer FBX replaces the primitive hammer for the high-tier impact lane.",
+      "sizeBytes": 46476,
+      "sha256": "f0a70566a3230737507034319031786fbba9e63324c4fa121ef5a492a48a12d9",
+      "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
+      "extraction": {
+        "sourceArchive": "/tmp/round-8-assets/quaternius-low-poly-rpg-pack.zip",
+        "sourceArchiveSha256": "7079818e9a02bb0291c3f2b595ec0306ce138fabc26718e86889b19e81077834",
+        "sourceArchivePath": "quaternius-rpg-warhammer.fbx",
+        "selectedOnly": true
+      }
     },
     {
       "id": "armour.cloth",

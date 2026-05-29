@@ -1,8 +1,8 @@
 extends Node3D
 
-const CHARACTER_MODEL_SCALE := 0.21
+const CHARACTER_MODEL_SCALE := 1.0
 const CRATE_MODEL_SCALE := 0.17
-const AIRDROP_CRATE_MODEL_SCALE := CHARACTER_MODEL_SCALE
+const AIRDROP_CRATE_MODEL_SCALE := 0.21
 const CORPSE_MODEL_SCALE := CHARACTER_MODEL_SCALE
 const CHARACTER_GROUND_Y := 0.0
 const CRATE_GROUND_Y := 0.0
@@ -316,7 +316,7 @@ func _spawn_crates() -> void:
 		if typeof(crate) != TYPE_DICTIONARY:
 			continue
 		var id := str(crate.get("id", ""))
-		var node := _instance_or_box(crate_scene, "crate-%s" % id, mat_closed, Vector3(CRATE_MODEL_SCALE, CHARACTER_MODEL_SCALE, CRATE_MODEL_SCALE), CRATE_MODEL_SCALE)
+		var node := _instance_or_box(crate_scene, "crate-%s" % id, mat_closed, Vector3.ONE * CRATE_MODEL_SCALE, CRATE_MODEL_SCALE)
 		if equipment_attachment != null:
 			var pivot_y: float = equipment_attachment.pivot_y_for_environment_role("crate")
 			var visual := node.get_node_or_null("visual") as Node3D
@@ -335,7 +335,7 @@ func _spawn_airdrops() -> void:
 		var id := str(drop.get("id", ""))
 		var root := Node3D.new()
 		root.name = "airdrop-%s" % id
-		var crate := _instance_or_box(crate_scene, "crate", mat_airdrop, Vector3.ONE * CHARACTER_MODEL_SCALE, AIRDROP_CRATE_MODEL_SCALE)
+		var crate := _instance_or_box(crate_scene, "crate", mat_airdrop, Vector3.ONE * AIRDROP_CRATE_MODEL_SCALE, AIRDROP_CRATE_MODEL_SCALE)
 		root.add_child(crate)
 		var beam := MeshInstance3D.new()
 		beam.name = "telegraphed-beam"

@@ -2,8 +2,9 @@ extends SceneTree
 
 const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
 const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
-const BASE_SCALE := 0.21
+const BASE_SCALE := 1.0
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
+const ADHERENCE_APPROACHES := ["bone_attached", "mesh_baked", "uv_painted", "modular_submesh"]
 const BODY_REGION_SHADER_TOKENS := ["body-region", "body_region", "bodyregion", "multi-material", "multi_material", "multimaterial", "multi_material_split"]
 
 var manifest: Dictionary = {}
@@ -11,6 +12,9 @@ var failures: Array[String] = []
 var warnings: Array[String] = []
 var persona_failures: Dictionary = {}
 var persona_warnings: Dictionary = {}
+var adherence_coverage: Dictionary = {}
+var armor_overlay_field_count := 0
+var modular_armor_overlay_count := 0
 var equipment_attachment: Node
 var fallback_material: StandardMaterial3D
 
@@ -42,11 +46,13 @@ func _run() -> void:
 	for persona in PERSONAS:
 		if not assets_by_persona.has(str(persona)):
 			_fail_persona(str(persona), "missing character asset in manifest")
+	_audit_manifest_round8_fields(assets_by_persona)
 	for persona in PERSONAS:
 		if not assets_by_persona.has(str(persona)):
 			_print_persona_summary(str(persona))
 			continue
 		await _audit_persona(str(persona), assets_by_persona.get(str(persona), {}))
+	_audit_adherence_coverage()
 	if equipment_attachment != null:
 		equipment_attachment.queue_free()
 	_finish()
@@ -70,6 +76,66 @@ func _character_assets_by_persona(source_manifest: Dictionary) -> Dictionary:
 		if not persona.is_empty():
 			out[persona] = asset_dict
 	return out
+
+
+func _audit_manifest_round8_fields(assets_by_persona: Dictionary) -> void:
+	for persona_value in PERSONAS:
+		var persona := str(persona_value)
+		if not assets_by_persona.has(persona):
+			continue
+		var asset: Dictionary = assets_by_persona.get(persona, {})
+		_audit_adherence_block(persona, "skin", asset.get("skin", null), true)
+		_audit_adherence_block(persona, "corpse", asset.get("corpse", null), true)
+		if not asset.has("armorOverlay"):
+			_fail_persona(persona, "missing armorOverlay field")
+			continue
+		armor_overlay_field_count += 1
+		var overlay = asset.get("armorOverlay", null)
+		if typeof(overlay) == TYPE_NIL:
+			continue
+		if typeof(overlay) != TYPE_DICTIONARY:
+			_fail_persona(persona, "armorOverlay must be null or a Dictionary")
+			continue
+		modular_armor_overlay_count += 1
+		var overlay_dict := overlay as Dictionary
+		_audit_adherence_block(persona, "armorOverlay", overlay_dict, true)
+		if str(overlay_dict.get("adherenceApproach", "")) != "modular_submesh":
+			_fail_persona(persona, "armorOverlay.adherenceApproach must be modular_submesh")
+
+
+func _audit_adherence_block(persona: String, slot: String, block_value, require_source_pack: bool) -> void:
+	if typeof(block_value) != TYPE_DICTIONARY:
+		_fail_persona(persona, "%s block must be a Dictionary" % slot)
+		return
+	var block := block_value as Dictionary
+	var approach := str(block.get("adherenceApproach", ""))
+	if not ADHERENCE_APPROACHES.has(approach):
+		_fail_persona(persona, "%s.adherenceApproach invalid: %s" % [slot, approach])
+	else:
+		adherence_coverage[approach] = true
+	if require_source_pack and not _has_source_pack(block.get("sourcePack", null)):
+		_fail_persona(persona, "%s.sourcePack missing or empty" % slot)
+
+
+func _has_source_pack(value) -> bool:
+	match typeof(value):
+		TYPE_STRING:
+			return not str(value).strip_edges().is_empty()
+		TYPE_DICTIONARY:
+			return not str((value as Dictionary).get("name", "")).strip_edges().is_empty()
+		_:
+			return false
+
+
+func _audit_adherence_coverage() -> void:
+	if armor_overlay_field_count != PERSONAS.size():
+		_fail("armorOverlay field declared on %d/%d personas" % [armor_overlay_field_count, PERSONAS.size()])
+	if modular_armor_overlay_count < 3:
+		_fail("expected at least 3 non-null armorOverlay entries, found %d" % modular_armor_overlay_count)
+	for approach_value in ADHERENCE_APPROACHES:
+		var approach := str(approach_value)
+		if not adherence_coverage.has(approach):
+			_fail("adherenceApproach coverage missing %s" % approach)
 
 
 func _new_equipment_attachment() -> Node:
@@ -107,7 +173,7 @@ func _audit_persona(persona: String, asset: Dictionary) -> void:
 	if character.is_empty():
 		_fail_persona(persona, "missing registered_character record after register_character")
 	else:
-		_audit_persona_specific_material(persona, character_id)
+		_audit_persona_specific_material(persona, character_id, asset)
 		_audit_live_body_marks(persona, character_id, asset)
 	var corpse_specs := _mark_specs_from_block(asset.get("corpse", {}), ["decals", "stumpDecals", "marks"])
 	if not corpse_specs.is_empty():
@@ -142,15 +208,23 @@ func _apply_live_skin(persona: String, character_id: String) -> void:
 	_fail_persona(persona, "EquipmentMeshAttachment missing apply_persona_skin")
 
 
-func _audit_persona_specific_material(persona: String, character_id: String) -> void:
-	match persona:
-		"trader":
-			_assert_trader_triplanar_material(persona, character_id)
-		"sprinter":
+func _audit_persona_specific_material(persona: String, character_id: String, asset: Dictionary) -> void:
+	var skin = asset.get("skin", {})
+	if typeof(skin) != TYPE_DICTIONARY:
+		return
+	var approach := str((skin as Dictionary).get("approach", ""))
+	match approach:
+		"pattern_texture":
+			_assert_pattern_material(persona, character_id, skin as Dictionary)
+		"multi_material_split":
 			_assert_sprinter_body_region_shader(persona, character_id)
 
 
-func _assert_trader_triplanar_material(persona: String, character_id: String) -> void:
+func _assert_pattern_material(persona: String, character_id: String, skin: Dictionary) -> void:
+	var params = skin.get("params", {})
+	var expected_triplanar := false
+	if typeof(params) == TYPE_DICTIONARY:
+		expected_triplanar = str((params as Dictionary).get("samplingMode", "uv")) == "triplanar"
 	var materials := _unique_materials(_body_materials_for_character(character_id))
 	if materials.is_empty():
 		_fail_persona(persona, "no body materials found after live skin application")
@@ -158,14 +232,15 @@ func _assert_trader_triplanar_material(persona: String, character_id: String) ->
 	var checked := 0
 	for material in materials:
 		if not material is StandardMaterial3D:
-			_fail_persona(persona, "body material is %s, expected StandardMaterial3D with uv1_triplanar" % _class_name(material))
+			_fail_persona(persona, "body material is %s, expected StandardMaterial3D pattern material" % _class_name(material))
 			continue
 		checked += 1
 		var standard := material as StandardMaterial3D
-		if not bool(standard.get("uv1_triplanar")):
-			_fail_persona(persona, "StandardMaterial3D uv1_triplanar is false")
+		if bool(standard.get("uv1_triplanar")) != expected_triplanar:
+			_fail_persona(persona, "StandardMaterial3D uv1_triplanar=%s expected %s" % [str(standard.get("uv1_triplanar")), str(expected_triplanar)])
 	if checked == materials.size() and not _persona_has_failures(persona):
-		print("OK %s trader material uses StandardMaterial3D uv1_triplanar" % persona)
+		var sampling := "triplanar" if expected_triplanar else "uv"
+		print("OK %s pattern material uses StandardMaterial3D %s sampling" % [persona, sampling])
 
 
 func _assert_sprinter_body_region_shader(persona: String, character_id: String) -> void:

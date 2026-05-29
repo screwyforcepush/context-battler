@@ -1,6 +1,7 @@
 extends SceneTree
 
 const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
+const ENTITY_RENDERER_PATH := "res://src/EntityRenderer.gd"
 const ART_ROOT := "res://shared-harness/art-kit/"
 const MIN_MULTIPLIER := 0.4
 const MAX_MULTIPLIER := 3.0
@@ -20,6 +21,12 @@ func _run() -> void:
 		_fail("manifest did not parse")
 		_finish()
 		return
+	var character_model_scale := _character_model_scale()
+	if character_model_scale <= EPSILON:
+		_fail("CHARACTER_MODEL_SCALE did not parse from args or EntityRenderer.gd")
+		_finish()
+		return
+	var target_world_height := _target_world_height(manifest)
 	var records := []
 	for asset in _character_assets(manifest):
 		var record = await _measure_character(asset)
@@ -38,13 +45,17 @@ func _run() -> void:
 		if bool(record.get("ok", false)) and source_median > EPSILON:
 			var source_height := float(record.get("source_height", 0.0))
 			var suggested: float = clamp(source_median / source_height, MIN_MULTIPLIER, MAX_MULTIPLIER)
+			if target_world_height > EPSILON:
+				suggested = clamp(target_world_height / (source_height * character_model_scale), MIN_MULTIPLIER, MAX_MULTIPLIER)
 			var committed := float(record.get("modelScaleMultiplier", 1.0))
 			record["suggested_multiplier"] = suggested
-			record["post_scale_height"] = source_height * committed
+			record["character_model_scale"] = character_model_scale
+			record["target_world_height"] = target_world_height
+			record["post_scale_height"] = source_height * character_model_scale * committed
 			records[i] = record
-	_print_table(records, source_median)
+	_print_table(records, source_median, character_model_scale, target_world_height)
 	if _assert_mode():
-		_assert_records(records)
+		_assert_records(records, target_world_height)
 	_finish()
 
 
@@ -170,7 +181,7 @@ func _has_volume(aabb: AABB) -> bool:
 	return aabb.size.x > EPSILON and aabb.size.y > EPSILON and aabb.size.z > EPSILON
 
 
-func _assert_records(records: Array) -> void:
+func _assert_records(records: Array, target_world_height: float) -> void:
 	var post_heights := []
 	for record in records:
 		if not bool(record.get("ok", false)):
@@ -184,21 +195,21 @@ func _assert_records(records: Array) -> void:
 			_fail("%s modelScaleMultiplier %.4f outside [%.1f, %.1f]" % [persona, multiplier, MIN_MULTIPLIER, MAX_MULTIPLIER])
 			continue
 		post_heights.append(float(record.get("post_scale_height", 0.0)))
-	var post_median := _median(post_heights)
-	var lower := post_median * (1.0 - ASSERT_TOLERANCE)
-	var upper := post_median * (1.0 + ASSERT_TOLERANCE)
+	var center := target_world_height if target_world_height > EPSILON else _median(post_heights)
+	var lower := center * (1.0 - ASSERT_TOLERANCE)
+	var upper := center * (1.0 + ASSERT_TOLERANCE)
 	for record in records:
 		if not bool(record.get("ok", false)) or not bool(record.get("has_modelScaleMultiplier", false)):
 			continue
 		var persona := str(record.get("persona", "unknown"))
 		var post_height := float(record.get("post_scale_height", 0.0))
 		if post_height < lower or post_height > upper:
-			_fail("%s post-scale height %.4f outside %.4f..%.4f (median %.4f)" % [persona, post_height, lower, upper, post_median])
+			_fail("%s effective world height %.4f outside %.4f..%.4f (target %.4f)" % [persona, post_height, lower, upper, center])
 
 
-func _print_table(records: Array, source_median: float) -> void:
-	print("audit-character-scales source_median=%.4f" % source_median)
-	print("persona       source_h   suggested  committed  post_h    pose")
+func _print_table(records: Array, source_median: float, character_model_scale: float, target_world_height: float) -> void:
+	print("audit-character-scales source_median=%.4f character_model_scale=%.4f target_world_height=%.4f" % [source_median, character_model_scale, target_world_height])
+	print("persona       source_h   suggested  committed  world_h   pose")
 	for record in records:
 		if not bool(record.get("ok", false)):
 			print("%-12s FAIL       -          -          -         -     %s" % [str(record.get("persona", "unknown")), str(record.get("failure", ""))])
@@ -236,13 +247,61 @@ func _failure_record(persona: String, message: String) -> Dictionary:
 
 
 func _assert_mode() -> bool:
-	for arg in OS.get_cmdline_user_args():
-		if str(arg) == "--assert":
-			return true
-	for arg in OS.get_cmdline_args():
+	for arg in _all_args():
 		if str(arg) == "--assert":
 			return true
 	return false
+
+
+func _character_model_scale() -> float:
+	var arg_value := _numeric_arg("--character-model-scale", -1.0)
+	if arg_value > EPSILON:
+		return arg_value
+	var source := FileAccess.get_file_as_string(ENTITY_RENDERER_PATH)
+	if source.is_empty():
+		return 0.0
+	var regex := RegEx.new()
+	if regex.compile("const\\s+CHARACTER_MODEL_SCALE\\s*:=\\s*([0-9]+(?:\\.[0-9]+)?)") != OK:
+		return 0.0
+	var found := regex.search(source)
+	if found == null:
+		return 0.0
+	return float(found.get_string(1))
+
+
+func _target_world_height(manifest: Dictionary) -> float:
+	var arg_value := _numeric_arg("--target-world-height", -1.0)
+	if arg_value > EPSILON:
+		return arg_value
+	var body = manifest.get("body", {})
+	if typeof(body) == TYPE_DICTIONARY:
+		var value = (body as Dictionary).get("targetWorldHeight", null)
+		if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+			return float(value)
+	return 0.0
+
+
+func _numeric_arg(flag: String, default_value: float) -> float:
+	var args := _all_args()
+	var prefix := "%s=" % flag
+	for i in range(args.size()):
+		var arg := str(args[i])
+		if arg == flag and i + 1 < args.size():
+			return float(args[i + 1])
+		if arg.begins_with(prefix):
+			return float(arg.substr(prefix.length()))
+	return default_value
+
+
+func _all_args() -> Array:
+	var args := []
+	for arg in OS.get_cmdline_user_args():
+		args.append(str(arg))
+	for arg in OS.get_cmdline_args():
+		var value := str(arg)
+		if not args.has(value):
+			args.append(value)
+	return args
 
 
 func _fail(message: String) -> void:

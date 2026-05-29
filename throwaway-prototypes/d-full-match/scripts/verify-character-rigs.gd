@@ -3,7 +3,7 @@ extends SceneTree
 const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
 const ART_ROOT := "res://shared-harness/art-kit/"
 const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
-const BASE_SCALE := 0.21
+const BASE_SCALE := 1.0
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
 const REQUIRED_BONES := ["hand_r"]
 const REQUIRED_ANIMATION_KINDS := ["idle", "walk", "attack", "attack_unarmed", "attack_armed", "take_hit", "death", "loot"]
@@ -59,8 +59,8 @@ func _read_manifest() -> Dictionary:
 
 
 func _assert_manifest_shape(manifest: Dictionary) -> void:
-	if int(manifest.get("schemaVersion", -1)) != 5:
-		_fail("manifest schemaVersion is not 5")
+	if int(manifest.get("schemaVersion", -1)) != 6:
+		_fail("manifest schemaVersion is not 6")
 	var body: Dictionary = manifest.get("body", {})
 	if body.is_empty():
 		_fail("manifest.body is missing")
