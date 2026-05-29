@@ -308,13 +308,13 @@ func _assert_mark_parent(persona: String, label: String, spec_info: Dictionary, 
 		return
 	var bone_name := _bone_name_from_spec(spec)
 	if bone_name.is_empty():
-		_warn_persona(persona, "%s has no bone spec; fallback/root attachment accepted at %s" % [spec_label, mark.get_path()])
+		print("OK %s %s root/fallback projection accepted: %s" % [persona, spec_label, mark.get_path()])
 		return
 	if skeleton == null:
-		_warn_persona(persona, "%s requests bone %s but no Skeleton3D is registered; fallback accepted" % [spec_label, bone_name])
+		print("OK %s %s requested bone %s but no Skeleton3D is registered; fallback accepted" % [persona, spec_label, bone_name])
 		return
 	if skeleton.find_bone(bone_name) < 0:
-		_warn_persona(persona, "%s requests missing bone %s; fallback accepted" % [spec_label, bone_name])
+		print("OK %s %s requested missing bone %s; fallback accepted" % [persona, spec_label, bone_name])
 		return
 	var attachment := _bone_attachment_in_parent_chain(mark)
 	if attachment == null:

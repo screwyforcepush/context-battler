@@ -83,7 +83,7 @@ func _character_assets(manifest: Dictionary) -> Array:
 
 func _audit_persona(asset: Dictionary, armor_overlay: Dictionary) -> void:
 	var persona := str(asset.get("personaSlot", asset.get("id", "")))
-	_assert_overlay_manifest_shape(persona, armor_overlay)
+	_assert_overlay_manifest_shape(asset, persona, armor_overlay)
 	var character_id := "audit-modular-armor-%s" % persona
 	var character_node := _instantiate_runtime_character(persona, character_id)
 	if character_node == null:
@@ -111,6 +111,9 @@ func _audit_persona(asset: Dictionary, armor_overlay: Dictionary) -> void:
 	var skeleton := character.get("skeleton") as Skeleton3D
 	if skeleton == null:
 		_fail("%s registered character has no Skeleton3D" % persona)
+	var expected_bind_bone := _expected_armour_bind_bone(asset, armor_overlay)
+	if skeleton != null and not expected_bind_bone.is_empty() and skeleton.find_bone(expected_bind_bone) < 0:
+		_fail("%s expected armour bind bone does not resolve on active body: %s" % [persona, expected_bind_bone])
 	var armor_nodes := _tracked_armor_nodes(character_id)
 	if armor_nodes.is_empty():
 		_fail("%s no tracked armor_overlay_nodes_by_character entries" % persona)
@@ -125,7 +128,7 @@ func _audit_persona(asset: Dictionary, armor_overlay: Dictionary) -> void:
 			var resolved_skeleton := mesh.get_node_or_null(mesh.skeleton) as Skeleton3D
 			if resolved_skeleton != skeleton:
 				_fail("%s armor mesh skeleton path does not resolve to character Skeleton3D: %s" % [persona, str(mesh.skeleton)])
-			_assert_skin_matches_skeleton(persona, mesh, skeleton)
+			_assert_skin_matches_skeleton(persona, mesh, skeleton, expected_bind_bone)
 	if equipment_attachment.has_method("_clear_modular_submesh_armor"):
 		equipment_attachment.call("_clear_modular_submesh_armor", character_id)
 		await process_frame
@@ -135,9 +138,14 @@ func _audit_persona(asset: Dictionary, armor_overlay: Dictionary) -> void:
 	character_node.queue_free()
 
 
-func _assert_overlay_manifest_shape(persona: String, armor_overlay: Dictionary) -> void:
+func _assert_overlay_manifest_shape(asset: Dictionary, persona: String, armor_overlay: Dictionary) -> void:
 	if str(armor_overlay.get("adherenceApproach", "")) != "modular_submesh":
 		_fail("%s armorOverlay.adherenceApproach is not modular_submesh" % persona)
+	var body_override = asset.get("bodyOverride", {})
+	if typeof(body_override) == TYPE_DICTIONARY and not (body_override as Dictionary).is_empty():
+		var armour_attach_bone := str((body_override as Dictionary).get("armourAttachBone", ""))
+		if armour_attach_bone.is_empty():
+			_fail("%s bodyOverride.armourAttachBone is required when armorOverlay is non-null" % persona)
 	if not _has_source_pack(armor_overlay.get("sourcePack", null)):
 		_fail("%s armorOverlay.sourcePack missing or empty" % persona)
 	var file := str(armor_overlay.get("file", ""))
@@ -165,7 +173,7 @@ func _has_source_pack(value) -> bool:
 			return false
 
 
-func _assert_skin_matches_skeleton(persona: String, mesh: MeshInstance3D, skeleton: Skeleton3D) -> void:
+func _assert_skin_matches_skeleton(persona: String, mesh: MeshInstance3D, skeleton: Skeleton3D, expected_bind_bone: String) -> void:
 	var skin := mesh.skin
 	if skin == null:
 		_fail("%s armor mesh has no Skin resource: %s" % [persona, mesh.get_path()])
@@ -178,10 +186,23 @@ func _assert_skin_matches_skeleton(persona: String, mesh: MeshInstance3D, skelet
 		var bone_index := int(skin.call("get_bind_bone", bind_index)) if skin.has_method("get_bind_bone") else -1
 		var bind_name := str(skin.call("get_bind_name", bind_index)) if skin.has_method("get_bind_name") else ""
 		if bone_index >= 0 and bone_index < skeleton.get_bone_count():
+			if not expected_bind_bone.is_empty() and skeleton.get_bone_name(bone_index) != expected_bind_bone:
+				_fail("%s armor mesh Skin bind %d uses %s, expected %s" % [persona, bind_index, skeleton.get_bone_name(bone_index), expected_bind_bone])
 			continue
 		if not bind_name.is_empty() and skeleton.find_bone(bind_name) >= 0:
+			if not expected_bind_bone.is_empty() and bind_name != expected_bind_bone:
+				_fail("%s armor mesh Skin bind %d uses %s, expected %s" % [persona, bind_index, bind_name, expected_bind_bone])
 			continue
 		_fail("%s armor mesh Skin bind %d does not resolve on character skeleton (bone=%d name=%s)" % [persona, bind_index, bone_index, bind_name])
+
+
+func _expected_armour_bind_bone(asset: Dictionary, armor_overlay: Dictionary) -> String:
+	var body_override = asset.get("bodyOverride", {})
+	if typeof(body_override) == TYPE_DICTIONARY:
+		var override_bone := str((body_override as Dictionary).get("armourAttachBone", ""))
+		if not override_bone.is_empty():
+			return override_bone
+	return str(armor_overlay.get("bindBone", ""))
 
 
 func _instantiate_runtime_character(persona: String, character_id: String) -> Node3D:

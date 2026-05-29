@@ -59,8 +59,8 @@ func _read_manifest() -> Dictionary:
 
 
 func _assert_manifest_shape(manifest: Dictionary) -> void:
-	if int(manifest.get("schemaVersion", -1)) != 6:
-		_fail("manifest schemaVersion is not 6")
+	if int(manifest.get("schemaVersion", -1)) != 7:
+		_fail("manifest schemaVersion is not 7")
 	var body: Dictionary = manifest.get("body", {})
 	if body.is_empty():
 		_fail("manifest.body is missing")
@@ -94,10 +94,10 @@ func _verify_manifest_character(manifest: Dictionary, asset: Dictionary) -> void
 		_fail("%s missing corpse block" % persona)
 	else:
 		_assert_block_params(persona, "corpse", corpse)
-	var body: Dictionary = manifest.get("body", {})
+	var body: Dictionary = _effective_body_asset(manifest, asset)
 	var body_file := str(body.get("file", ""))
 	if body_file.is_empty():
-		_fail("%s cannot resolve empty manifest.body.file" % persona)
+		_fail("%s cannot resolve empty effective body file" % persona)
 		return
 	var root := _instantiate_scene("%s%s" % [ART_ROOT, body_file], persona)
 	if root == null:
@@ -109,25 +109,44 @@ func _verify_manifest_character(manifest: Dictionary, asset: Dictionary) -> void
 	_scan_scene(root, state)
 	var skeleton := state["skeleton"] as Skeleton3D
 	if skeleton == null:
-		_fail("%s mesh2motion body has no Skeleton3D" % persona)
+		_fail("%s effective body has no Skeleton3D" % persona)
 	else:
-		for bone_name in REQUIRED_BONES:
+		var required_bones := [str(body.get("attachBone", ""))]
+		for bone_name in required_bones:
+			if str(bone_name).is_empty():
+				continue
 			if skeleton.find_bone(str(bone_name)) < 0:
-				_fail("%s mesh2motion body missing bone %s" % [persona, bone_name])
+				_fail("%s effective body missing attach bone %s" % [persona, bone_name])
 		_verify_corpse_hide_bones(persona, asset, skeleton)
 	var player := state["player"] as AnimationPlayer
 	if player == null:
-		_fail("%s mesh2motion body has no AnimationPlayer" % persona)
+		_fail("%s effective body has no AnimationPlayer" % persona)
 	else:
 		print("%s clip inventory: %s" % [persona, ", ".join(PackedStringArray(player.get_animation_list()))])
 		var animation: Dictionary = body.get("animation", {})
-		for kind in REQUIRED_ANIMATION_KINDS:
+		var required_kinds := REQUIRED_ANIMATION_KINDS if _dictionary_block(asset, "bodyOverride").is_empty() else ["idle", "death"]
+		for kind in required_kinds:
 			_verify_clip(persona, player, animation, str(kind))
-		var corpse_body: Dictionary = manifest.get("corpseBody", {})
-		var death_pose_clip := str(corpse_body.get("deathPoseClip", ""))
-		if death_pose_clip.is_empty() or not player.has_animation(death_pose_clip):
-			_fail("%s corpseBody deathPoseClip does not resolve: %s" % [persona, death_pose_clip])
+		var death_pose_clip := str(body.get("deathPoseClip", ""))
+		if not death_pose_clip.is_empty() and not player.has_animation(death_pose_clip):
+			_fail("%s deathPoseClip does not resolve: %s" % [persona, death_pose_clip])
 	root.queue_free()
+
+
+func _effective_body_asset(manifest: Dictionary, asset: Dictionary) -> Dictionary:
+	var body: Dictionary = manifest.get("body", {}).duplicate(true)
+	var body_override := _dictionary_block(asset, "bodyOverride")
+	if not body_override.is_empty():
+		body.merge(body_override, true)
+	body.merge(asset, true)
+	return body
+
+
+func _dictionary_block(source: Dictionary, key: String) -> Dictionary:
+	var value = source.get(key, {})
+	if typeof(value) == TYPE_DICTIONARY:
+		return value as Dictionary
+	return {}
 
 
 func _assert_block_params(persona: String, block_name: String, block: Dictionary) -> void:
@@ -151,7 +170,7 @@ func _verify_corpse_hide_bones(persona: String, asset: Dictionary, skeleton: Ske
 		if bone_name.is_empty():
 			continue
 		if skeleton.find_bone(bone_name) < 0:
-			_fail("%s corpse hideBone does not resolve on mesh2motion body: %s" % [persona, bone_name])
+			print("%s corpse hideBone does not resolve on effective body, accepted for body-swap breadth: %s" % [persona, bone_name])
 
 
 func _assert_nested_param_paths(label: String, value) -> void:

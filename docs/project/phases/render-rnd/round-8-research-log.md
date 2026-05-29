@@ -283,3 +283,96 @@ Scope: WP-B only. This pass stages CC0 assets and records manifest mapping recom
 - Camera and scale were not changed by WP-B.
 - Several Quaternius and OGA files were already staged in the shared tree during this pass. They are documented above only where a CC0 source URL and local sha256 could be confirmed.
 - No manifest edits were made; `sourcePack` strings above are stable references for the integration batch.
+
+## Round 8.1 - Targeted Character-Body Pack Integration
+
+Date: 2026-05-29
+Source of truth: `throwaway-prototypes/d-full-match/shared-harness/art-kit/manifest.json` schema 7 plus staged body/source archive files inspected during the Round 8.1 implementation/documentation pass.
+
+Round 8.1 completed the targeted body-swap follow-up that Round 8 left open. The root mesh2motion body remains only as the rat control; seven personas now declare `bodyOverride` entries from downloaded CC0 character body packs. No procedural character body/skin fallback was used for any Round 8.1 body-pack replacement. The only procedural skin text still present is inherited Round-5/Round-8 control or UV-layout fallback metadata, not a Round 8.1 substitute for a missing character pack.
+
+### Mechanism Summary
+
+| Pack / branch | Mechanism fired | Outcome |
+|---|---|---|
+| `Quaternius-ModularCharacterOutfitsFantasy-CC0` target | Mechanism 1 used for metadata/license only; Mechanism 2 skipped because `ITCHIO_SESSION` was absent; Mechanism 3 fired | Official Quaternius/itch target is CC0 but gated for anonymous headless download, so four individual Quaternius CC0 Poly Pizza GLBs were integrated. |
+| `OGA-BlackScorp-LowPolyWarrior-CC0` | R3 rigging inspection branch fired | Archive inspected and rejected for body integration because it is OBJ/MTL/PNG only and unrigged. |
+| `Kaykit-Adventurers-CC0` | R3 rigged-warrior alternate; manifest `downloadMechanism: "itch-anonymous-free-flow"` | Integrated paranoid as the rigged CC0 alternate for the BlackScorp slot. |
+| `Kenney-MiniCharacters-CC0` | Manifest `downloadMechanism: "kenney-direct"` | Integrated trader and sprinter from the no-auth Kenney ZIP. |
+
+### Quaternius Character Bodies
+
+Target pack:
+
+- Official page: <https://quaternius.com/packs/modularcharacteroutfitsfantasy.html>
+- Itch page: <https://quaternius.itch.io/modular-character-outfits-fantasy>
+- License: `CC0-1.0` / CC0 1.0 Universal / Public Domain. The current manifest records that the Poly Pizza model pages report Public Domain (CC0) and that the Quaternius target pack metadata also reports CC0.
+- Download path: the official modular outfit archive was not downloaded. `ITCHIO_SESSION` was absent, so Mechanism 2 was skipped and Mechanism 3 (`poly.pizza` individual models) delivered the integrated bodies.
+- Official archive sha256: unknown / not downloaded.
+- Procedural fallback: none. The fallback was sourced CC0 Quaternius individual GLBs, not generated character bodies or skins.
+
+Integrated Quaternius Poly Pizza bodies:
+
+| Persona | Body | Page URL | Download URL | License | GLB sha256 | Source archive sha256 | Mechanism |
+|---|---|---|---|---|---|---|---|
+| duelist | `characters/quaternius-shaun.glb` / `Characters Shaun` | <https://poly.pizza/m/eJFT9MxzOM> | <https://static.poly.pizza/c8ecc219-6a19-4fd1-ae1a-6ceeda529eaf.glb> | `CC0-1.0`; CC0 1.0 Universal / Public Domain | `16633fc8b960b025247b6016f0199f848f38c0c6bb2c91c37b81fadc9005d5a5` | `16633fc8b960b025247b6016f0199f848f38c0c6bb2c91c37b81fadc9005d5a5` (`/tmp/round-8-1-assets/quaternius-polypizza/shaun.glb`) | Mechanism 3 |
+| opportunist | `characters/quaternius-anne.glb` / `Anne` | <https://poly.pizza/m/tZYaOQ4l94> | <https://static.poly.pizza/1cc2232d-b43e-4fc0-b97f-134b4a528bf8.glb> | `CC0-1.0`; CC0 1.0 Universal / Public Domain | `cfee1b57f380ff4b51fc0b88c9d4750ea1748936eb8b7d5557291913077d1e30` | `cfee1b57f380ff4b51fc0b88c9d4750ea1748936eb8b7d5557291913077d1e30` (`/tmp/round-8-1-assets/quaternius-polypizza/anne.glb`) | Mechanism 3 |
+| camper | `characters/quaternius-henry.glb` / `Henry` | <https://poly.pizza/m/yEdSk8tRKc> | <https://static.poly.pizza/b91485bd-aaa0-4a9a-802c-b16e08ae05e7.glb> | `CC0-1.0`; CC0 1.0 Universal / Public Domain | `ae91c5ec699f1f97f980628ab6d54fffaa20c0ed30d3680245fde56eea2204cf` | `ae91c5ec699f1f97f980628ab6d54fffaa20c0ed30d3680245fde56eea2204cf` (`/tmp/round-8-1-assets/quaternius-polypizza/henry.glb`) | Mechanism 3 |
+| vulture | `characters/quaternius-pirate-captain.glb` / `Pirate Captain` | <https://poly.pizza/m/sN18LyyHAU> | <https://static.poly.pizza/c814c745-1cf5-4d92-bd85-200c66eb7843.glb> | `CC0-1.0`; CC0 1.0 Universal / Public Domain | `688b0db0487dadaa6dbbf9e5613793aa9c1280902255212bd51bc46ff17f695d` | `688b0db0487dadaa6dbbf9e5613793aa9c1280902255212bd51bc46ff17f695d` (`/tmp/round-8-1-assets/quaternius-polypizza/pirate-captain.glb`) | Mechanism 3 |
+
+Round 8.1 armor preservation notes: duelist keeps `quaternius_chest_plate` with `bodyOverride.armourAttachBone: "Torso"`; vulture keeps `quaternius_gauntlet` with `bodyOverride.armourAttachBone: "Middle1.L"`.
+
+### BlackScorp Rigging Inspection
+
+- Pack: `OGA-BlackScorp-LowPolyWarrior-CC0`
+- Source URL: <https://opengameart.org/content/low-poly-warrior>
+- License: `CC0-1.0`; OpenGameArt page exposes CC0 1.0 per the Round 8 log.
+- Archive: `/tmp/round-8-assets/oga-blackscorp-low-poly-warrior.zip`
+- Archive sha256: `7f6ecd8044093b6c8ab2e594224a3524c2510317ae0b8ec6d2cf742877137c04`
+- Inspected extracted files: `base-char-male.obj`, `base-char-male.mtl`, `metal2.png`, `skin.png`
+- Rigging outcome: unrigged. The archive contains no GLB/FBX, no skeleton-bearing asset, and no animation clips, so it was not integrated as a Round 8.1 persona body.
+- Mechanism fired: R3 BlackScorp rigging inspection branch; branch ii selected the rigged CC0 alternate.
+- Integrated personas: none.
+
+### Kaykit Adventurers Rigged Alternate
+
+- Pack: `Kaykit-Adventurers-CC0`
+- Source URL: <https://kaylousberg.itch.io/kaykit-adventurers>
+- Manifest download URL: `https://kaylousberg.itch.io/kaykit-adventurers/download_url + signed R2 upload 15363167`
+- License: `CC0-1.0`; manifest notes state the Itch page advertises rigged/animated characters, free commercial use, no attribution required, and Creative Commons Zero v1.0 Universal metadata.
+- Mechanism fired: R3 rigged-warrior alternate via manifest `downloadMechanism: "itch-anonymous-free-flow"`
+- Source archive: `/tmp/round-8-1-assets/kaykit-adventurers-free-2.0.zip`
+- Source archive sha256: `abe48f4763fba0896bab486ee9e6d08ca6b5b3884b9601f235c8847ae94dc479`
+- Source archive path: `Characters/gltf/Knight.glb + Animations/gltf/Rig_Medium/Rig_Medium_General.glb + Rig_Medium_MovementBasic.glb`
+- Integrated persona: paranoid
+- Integrated GLB: `characters/kaykit-adventurers-knight.glb`
+- Integrated GLB sha256: `c892ed861d1a327b60380d1f59e3cd7d84f5fcb41b130e1372459dd1d01cfb7b`
+- Armor preservation: paranoid keeps `quaternius_crown_helmet` with `bodyOverride.armourAttachBone: "head"`.
+
+### Kenney Mini Characters
+
+- Pack: `Kenney-MiniCharacters-CC0`
+- Source URL: <https://kenney.nl/assets/mini-characters>
+- Download URL: <https://kenney.nl/media/pages/assets/mini-characters/bfc7e272b4-1774770718/kenney_mini-characters.zip>
+- License: `CC0-1.0`; manifest notes state the Kenney page and archive `License.txt` declare CC0 1.0 Universal.
+- Mechanism fired: manifest `downloadMechanism: "kenney-direct"` (direct no-auth Kenney ZIP)
+- Source archive: `/tmp/round-8-1-assets/kenney-mini-characters.zip`
+- Source archive sha256: `9e1d48e6d7b8479ebbe84df71eb5bd8e1b3f0da546dea641890dccc8a02d0999`
+
+| Persona | Integrated body | Source archive path | License | GLB sha256 | Source archive sha256 | Mechanism |
+|---|---|---|---|---|---|---|
+| trader | `characters/kenney-mini-characters-trader.glb` | `Models/GLB format/character-female-b.glb` | `CC0-1.0`; CC0 1.0 Universal / Public Domain | `2288438e7baf9acc91a870c82dc00d66710bb486592cfc3474ef8ed93a03863a` | `9e1d48e6d7b8479ebbe84df71eb5bd8e1b3f0da546dea641890dccc8a02d0999` | `kenney-direct` |
+| sprinter | `characters/kenney-mini-characters-sprinter.glb` | `Models/GLB format/character-male-c.glb` | `CC0-1.0`; CC0 1.0 Universal / Public Domain | `672a6506f7475bbd655da1d7ff712c1729a430f134c62385a4e5d3c1378acb40` | `9e1d48e6d7b8479ebbe84df71eb5bd8e1b3f0da546dea641890dccc8a02d0999` | `kenney-direct` |
+
+### Round 8.1 Persona Body Allocation
+
+| Persona | Effective body source | Integrated body file | Pack / license | Mechanism |
+|---|---|---|---|---|
+| rat | mesh2motion control | `characters/camper-mesh2motion-human-base.glb` | `mesh2motion`; `CC0-1.0` | Existing root control, no Round 8.1 download |
+| duelist | Quaternius Poly Pizza | `characters/quaternius-shaun.glb` | `Quaternius-PolyPizzaIndividual-CC0`; `CC0-1.0` | Mechanism 3 |
+| trader | Kenney Mini Characters | `characters/kenney-mini-characters-trader.glb` | `Kenney-MiniCharacters-CC0`; `CC0-1.0` | `kenney-direct` |
+| opportunist | Quaternius Poly Pizza | `characters/quaternius-anne.glb` | `Quaternius-PolyPizzaIndividual-CC0`; `CC0-1.0` | Mechanism 3 |
+| paranoid | Kaykit Adventurers | `characters/kaykit-adventurers-knight.glb` | `Kaykit-Adventurers-CC0`; `CC0-1.0` | `itch-anonymous-free-flow` |
+| camper | Quaternius Poly Pizza | `characters/quaternius-henry.glb` | `Quaternius-PolyPizzaIndividual-CC0`; `CC0-1.0` | Mechanism 3 |
+| sprinter | Kenney Mini Characters | `characters/kenney-mini-characters-sprinter.glb` | `Kenney-MiniCharacters-CC0`; `CC0-1.0` | `kenney-direct` |
+| vulture | Quaternius Poly Pizza | `characters/quaternius-pirate-captain.glb` | `Quaternius-PolyPizzaIndividual-CC0`; `CC0-1.0` | Mechanism 3 |

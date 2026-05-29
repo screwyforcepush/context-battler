@@ -77,6 +77,9 @@ func _character_assets(manifest: Dictionary) -> Array:
 				assets.append(asset_dict)
 			else:
 				var merged := body_defaults.duplicate(true)
+				var body_override = asset_dict.get("bodyOverride", {})
+				if typeof(body_override) == TYPE_DICTIONARY and not (body_override as Dictionary).is_empty():
+					merged.merge(body_override as Dictionary, true)
 				merged.merge(asset_dict, true)
 				assets.append(merged)
 	return assets

@@ -1,11 +1,12 @@
 {
-  "schemaVersion": 6,
-  "kitName": "d-full-match-round-8-sourced-adherence-art-kit",
-  "purpose": "Round-8 sourced CC0 skin/gore/weapon/armor variety manifest for the d-full-match Showroom, preserving the shared mesh2motion body while documenting adherence approaches per persona.",
+  "schemaVersion": 7,
+  "kitName": "d-full-match-round-8-1-character-body-variety-art-kit",
+  "purpose": "Round-8.1 targeted CC0 character-body variety manifest for the d-full-match Showroom, preserving Round-8 skin/gore/weapon/armor work while swapping seven persona bodies via bodyOverride.",
   "notes": [
-    "Round-8 schema 6 manifest: shared mesh2motion body plus per-persona skin/corpse sourcePack and adherenceApproach metadata for sourced CC0 R&D comparison.",
-    "Weapons are primarily sourced CC0 Quaternius Ultimate RPG Items FBX assets, with the Robin Lamb sword retained as a known-good Round-4 control.",
-    "Three personas declare armorOverlay modular_submesh prototypes under art-kit/armour; remaining personas keep the Round-5 material-swap armor path as controls."
+    "Round-8.1 schema 7 manifest: root mesh2motion body remains as the rat control; seven personas use per-persona bodyOverride entries from Quaternius Poly Pizza, Kenney Mini Characters, and Kaykit Adventurers.",
+    "Quaternius Modular Character Outfits Fantasy was not anonymously downloadable without ITCHIO_SESSION, so the Quaternius body allocation uses Poly Pizza individual Quaternius CC0 GLBs per the approved Mechanism-3 fallback.",
+    "BlackScorp Low Poly Warrior was verified OBJ-only and unrigged; paranoid uses the rigged CC0 Kaykit Adventurers Knight alternate.",
+    "Round-8 weapons, ambientCG/OGA skin and gore inputs, and Quaternius modular armor overlays remain declared; armor overlays are rebound through bodyOverride.armourAttachBone where personas now use non-mesh2motion skeletons."
   ],
   "body": {
     "file": "characters/camper-mesh2motion-human-base.glb",
@@ -89,7 +90,7 @@
         "adherenceApproach": "uv_painted",
         "sourcePack": "OGA-LiquidSplatterPixelTexture-CC0 + material-saturation fallback"
       },
-      "notes": "rat persona: palette_flat skin control + blood_saturation_overlay corpse gore. All Round-7 skin/gore assets are local generated CC0 prototypes unless otherwise noted. Round-8 WP-D: skin.sourcePack=engineer-procedural-fallback (Round-5 palette_flat control; retained intentionally per Round-8 research log); corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0 + material-saturation fallback; armorOverlay=null material-swap control; preferred showroom weapon=rusty_blade.",
+      "notes": "rat persona: palette_flat skin control + blood_saturation_overlay corpse gore. All Round-7 skin/gore assets are local generated CC0 prototypes unless otherwise noted. Round-8.1: mesh2motion control body retained. Round-8 WP-D: skin.sourcePack=engineer-procedural-fallback (Round-5 palette_flat control; retained intentionally per Round-8 research log); corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0 + material-saturation fallback; armorOverlay=null material-swap control; preferred showroom weapon=rusty_blade.",
       "armorOverlay": null,
       "round8Evaluation": {
         "skinTreatment": "palette_flat control",
@@ -207,7 +208,7 @@
         "adherenceApproach": "bone_attached",
         "sourcePack": "OGA-BloodSplatterAndGibs-CC0"
       },
-      "notes": "duelist persona: pbr_texture_atlas skin using ambientCG MetalPlates017A 1K-PNG (CC0, https://ambientcg.com/view?id=MetalPlates017A) for all 5 PBR maps + wound_cluster_decals corpse gore. Round-7.1 touch-up: replaced near-blank engineer-procedural maps with the real ambientCG set; other skin/gore textures regenerated procedurally with visible content at 512x512. Round-8 WP-D: skin.sourcePack=ambientCG-MetalPlates017A-CC0; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0; armorOverlay=quaternius_chest_plate; preferred showroom weapon=sword.",
+      "notes": "duelist persona: pbr_texture_atlas skin using ambientCG MetalPlates017A 1K-PNG (CC0, https://ambientcg.com/view?id=MetalPlates017A) for all 5 PBR maps + wound_cluster_decals corpse gore. Round-7.1 touch-up: replaced near-blank engineer-procedural maps with the real ambientCG set; other skin/gore textures regenerated procedurally with visible content at 512x512. Round-8 WP-D: skin.sourcePack=ambientCG-MetalPlates017A-CC0; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0; armorOverlay=quaternius_chest_plate; preferred showroom weapon=sword. Round-8.1 bodyOverride=Quaternius-PolyPizzaIndividual-CC0 (quaternius-polypizza); root mesh2motion body no longer drives this persona.",
       "armorOverlay": {
         "name": "quaternius_chest_plate",
         "slot": "chest",
@@ -225,6 +226,48 @@
         "weapon": "sword / Robin Lamb CC0 known-good control",
         "armor": "Quaternius chest modular_submesh",
         "adherence": "bone_attached gore plus modular_submesh armor"
+      },
+      "bodyOverride": {
+        "file": "characters/quaternius-shaun.glb",
+        "sourceKey": "quaternius-polypizza",
+        "sourcePack": "Quaternius-PolyPizzaIndividual-CC0",
+        "modelScaleMultiplier": 1.0717,
+        "targetWorldHeight": 1.7,
+        "pivotYOffset": 0,
+        "attachBone": "Middle1.R",
+        "animation": {
+          "idle": "CharacterArmature|Idle",
+          "walk": "CharacterArmature|Walk",
+          "attack": "CharacterArmature|Slash",
+          "attack_unarmed": "CharacterArmature|Punch",
+          "attack_armed": "CharacterArmature|Slash",
+          "take_hit": "CharacterArmature|HitReact",
+          "death": "CharacterArmature|Death",
+          "loot": "CharacterArmature|Wave"
+        },
+        "sizeBytes": 860624,
+        "sha256": "16633fc8b960b025247b6016f0199f848f38c0c6bb2c91c37b81fadc9005d5a5",
+        "source": {
+          "title": "Characters Shaun",
+          "creator": "Quaternius",
+          "pageUrl": "https://poly.pizza/m/eJFT9MxzOM",
+          "downloadUrl": "https://static.poly.pizza/c8ecc219-6a19-4fd1-ae1a-6ceeda529eaf.glb",
+          "downloadMechanism": "3"
+        },
+        "license": {
+          "spdx": "CC0-1.0",
+          "name": "CC0 1.0 Universal / Public Domain",
+          "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "attributionRequired": false,
+          "notes": "Poly Pizza model page reports Public Domain (CC0) / CC0 1.0; Quaternius target pack metadata also reports CC0."
+        },
+        "extraction": {
+          "sourceArchive": "/tmp/round-8-1-assets/quaternius-polypizza/shaun.glb",
+          "sourceArchiveSha256": "16633fc8b960b025247b6016f0199f848f38c0c6bb2c91c37b81fadc9005d5a5",
+          "sourceArchivePath": "poly.pizza direct GLB",
+          "selectedOnly": true
+        },
+        "armourAttachBone": "Torso"
       }
     },
     {
@@ -278,7 +321,7 @@
         "adherenceApproach": "bone_attached",
         "sourcePack": "OGA-LiquidSplatterPixelTexture-CC0"
       },
-      "notes": "trader persona: pattern_texture skin using local generated hex pattern + gore_pool_decal corpse gore. Round-8 WP-D: skin.sourcePack=ambientCG-MetalPlates017A-CC0; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0; armorOverlay=null material-swap control; preferred showroom weapon=dagger.",
+      "notes": "trader persona: pattern_texture skin using local generated hex pattern + gore_pool_decal corpse gore. Round-8 WP-D: skin.sourcePack=ambientCG-MetalPlates017A-CC0; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0; armorOverlay=null material-swap control; preferred showroom weapon=dagger. Round-8.1 bodyOverride=Kenney-MiniCharacters-CC0 (kenney-mini-characters); root mesh2motion body no longer drives this persona.",
       "armorOverlay": null,
       "round8Evaluation": {
         "skinTreatment": "pattern_texture using sourced ambientCG Fabric029 UV control",
@@ -286,6 +329,47 @@
         "weapon": "dagger / Quaternius-UltimateRPGItemsPack-CC0",
         "armor": "Round-5 material-swap control",
         "adherence": "bone_attached/projected mark control"
+      },
+      "bodyOverride": {
+        "file": "characters/kenney-mini-characters-trader.glb",
+        "sourceKey": "kenney-mini-characters",
+        "sourcePack": "Kenney-MiniCharacters-CC0",
+        "modelScaleMultiplier": 2.3502,
+        "targetWorldHeight": 1.7,
+        "pivotYOffset": 0,
+        "attachBone": "arm-right",
+        "animation": {
+          "idle": "idle",
+          "walk": "walk",
+          "attack": "attack-melee-right",
+          "attack_unarmed": "attack-melee-left",
+          "attack_armed": "attack-melee-right",
+          "take_hit": "fall",
+          "death": "die",
+          "loot": "pick-up"
+        },
+        "sizeBytes": 252140,
+        "sha256": "2288438e7baf9acc91a870c82dc00d66710bb486592cfc3474ef8ed93a03863a",
+        "source": {
+          "title": "Mini Characters",
+          "creator": "Kenney",
+          "pageUrl": "https://kenney.nl/assets/mini-characters",
+          "downloadUrl": "https://kenney.nl/media/pages/assets/mini-characters/bfc7e272b4-1774770718/kenney_mini-characters.zip",
+          "downloadMechanism": "kenney-direct"
+        },
+        "license": {
+          "spdx": "CC0-1.0",
+          "name": "CC0 1.0 Universal / Public Domain",
+          "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "attributionRequired": false,
+          "notes": "Kenney asset page and archive License.txt declare CC0 1.0 Universal."
+        },
+        "extraction": {
+          "sourceArchive": "/tmp/round-8-1-assets/kenney-mini-characters.zip",
+          "sourceArchiveSha256": "9e1d48e6d7b8479ebbe84df71eb5bd8e1b3f0da546dea641890dccc8a02d0999",
+          "sourceArchivePath": "Models/GLB format/character-female-b.glb",
+          "selectedOnly": true
+        }
       }
     },
     {
@@ -378,7 +462,7 @@
         "adherenceApproach": "uv_painted",
         "sourcePack": "engineer-procedural-fallback (no CC0 full-body charred mesh2motion overlay found; see Round-8 research log)"
       },
-      "notes": "opportunist persona: decal_stickers skin with three local generated sticker marks + charred_burned_texture corpse gore. Round-8 WP-D: skin.sourcePack=OGA-TheNess-HumanBodyTexture-CC0 + engineer-procedural decal fallback; corpse.sourcePack=engineer-procedural-fallback (no CC0 full-body charred mesh2motion overlay found; see Round-8 research log); armorOverlay=null material-swap control; preferred showroom weapon=warhammer.",
+      "notes": "opportunist persona: decal_stickers skin with three local generated sticker marks + charred_burned_texture corpse gore. Round-8 WP-D: skin.sourcePack=OGA-TheNess-HumanBodyTexture-CC0 + engineer-procedural decal fallback; corpse.sourcePack=engineer-procedural-fallback (no CC0 full-body charred mesh2motion overlay found; see Round-8 research log); armorOverlay=null material-swap control; preferred showroom weapon=warhammer. Round-8.1 bodyOverride=Quaternius-PolyPizzaIndividual-CC0 (quaternius-polypizza); root mesh2motion body no longer drives this persona.",
       "armorOverlay": null,
       "round8Evaluation": {
         "skinTreatment": "decal_stickers single-point pinning",
@@ -386,6 +470,47 @@
         "weapon": "warhammer / Quaternius-UltimateRPGItemsPack-CC0",
         "armor": "Round-5 material-swap control",
         "adherence": "bone_attached skin marks"
+      },
+      "bodyOverride": {
+        "file": "characters/quaternius-anne.glb",
+        "sourceKey": "quaternius-polypizza",
+        "sourcePack": "Quaternius-PolyPizzaIndividual-CC0",
+        "modelScaleMultiplier": 0.9675,
+        "targetWorldHeight": 1.7,
+        "pivotYOffset": 0,
+        "attachBone": "Middle1.R",
+        "animation": {
+          "idle": "CharacterArmature|CharacterArmature|CharacterArmature|Idle|CharacterArmature|Idle",
+          "walk": "CharacterArmature|CharacterArmature|CharacterArmature|Walk|CharacterArmature|Walk",
+          "attack": "CharacterArmature|CharacterArmature|CharacterArmature|Sword|CharacterArmature|Swo",
+          "attack_unarmed": "CharacterArmature|CharacterArmature|CharacterArmature|Punch|CharacterArmature|Pun",
+          "attack_armed": "CharacterArmature|CharacterArmature|CharacterArmature|Sword|CharacterArmature|Swo",
+          "take_hit": "CharacterArmature|CharacterArmature|CharacterArmature|HitReact|CharacterArmature|",
+          "death": "CharacterArmature|CharacterArmature|CharacterArmature|Death|CharacterArmature|Dea",
+          "loot": "CharacterArmature|CharacterArmature|CharacterArmature|Wave|CharacterArmature|Wave"
+        },
+        "sizeBytes": 686936,
+        "sha256": "cfee1b57f380ff4b51fc0b88c9d4750ea1748936eb8b7d5557291913077d1e30",
+        "source": {
+          "title": "Anne",
+          "creator": "Quaternius",
+          "pageUrl": "https://poly.pizza/m/tZYaOQ4l94",
+          "downloadUrl": "https://static.poly.pizza/1cc2232d-b43e-4fc0-b97f-134b4a528bf8.glb",
+          "downloadMechanism": "3"
+        },
+        "license": {
+          "spdx": "CC0-1.0",
+          "name": "CC0 1.0 Universal / Public Domain",
+          "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "attributionRequired": false,
+          "notes": "Poly Pizza model page reports Public Domain (CC0) / CC0 1.0; Quaternius target pack metadata also reports CC0."
+        },
+        "extraction": {
+          "sourceArchive": "/tmp/round-8-1-assets/quaternius-polypizza/anne.glb",
+          "sourceArchiveSha256": "cfee1b57f380ff4b51fc0b88c9d4750ea1748936eb8b7d5557291913077d1e30",
+          "sourceArchivePath": "poly.pizza direct GLB",
+          "selectedOnly": true
+        }
       }
     },
     {
@@ -475,7 +600,7 @@
         "adherenceApproach": "bone_attached",
         "sourcePack": "OGA-LiquidSplatterPixelTexture-CC0"
       },
-      "notes": "paranoid persona: toon_cel_shader skin from local shader + exposed_bone_decals corpse gore. Round-8 WP-D: skin.sourcePack=ambientCG-Leather034B-CC0 visual-material reference + toon shader fallback; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0; armorOverlay=quaternius_crown_helmet; preferred showroom weapon=dagger.",
+      "notes": "paranoid persona: toon_cel_shader skin from local shader + exposed_bone_decals corpse gore. Round-8 WP-D: skin.sourcePack=ambientCG-Leather034B-CC0 visual-material reference + toon shader fallback; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0; armorOverlay=quaternius_crown_helmet; preferred showroom weapon=dagger. Round-8.1 bodyOverride=Kaykit-Adventurers-CC0 (kaykit-adventurers); root mesh2motion body no longer drives this persona.",
       "armorOverlay": {
         "name": "quaternius_crown_helmet",
         "slot": "helmet",
@@ -493,6 +618,48 @@
         "weapon": "dagger / Quaternius-UltimateRPGItemsPack-CC0",
         "armor": "Quaternius helmet modular_submesh",
         "adherence": "bone_attached gore plus modular_submesh armor"
+      },
+      "bodyOverride": {
+        "file": "characters/kaykit-adventurers-knight.glb",
+        "sourceKey": "kaykit-adventurers",
+        "sourcePack": "Kaykit-Adventurers-CC0",
+        "modelScaleMultiplier": 0.6685,
+        "targetWorldHeight": 1.7,
+        "pivotYOffset": 0,
+        "attachBone": "handslot.r",
+        "animation": {
+          "idle": "Idle_A",
+          "walk": "Walking_A",
+          "attack": "Use_Item",
+          "attack_unarmed": "Hit_A",
+          "attack_armed": "Use_Item",
+          "take_hit": "Hit_A",
+          "death": "Death_A",
+          "loot": "PickUp"
+        },
+        "sizeBytes": 1057360,
+        "sha256": "c892ed861d1a327b60380d1f59e3cd7d84f5fcb41b130e1372459dd1d01cfb7b",
+        "source": {
+          "title": "KayKit - Character Pack : Adventurers",
+          "creator": "Kay Lousberg",
+          "pageUrl": "https://kaylousberg.itch.io/kaykit-adventurers",
+          "downloadUrl": "https://kaylousberg.itch.io/kaykit-adventurers/download_url + signed R2 upload 15363167",
+          "downloadMechanism": "itch-anonymous-free-flow"
+        },
+        "license": {
+          "spdx": "CC0-1.0",
+          "name": "CC0 1.0 Universal / Public Domain",
+          "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "attributionRequired": false,
+          "notes": "Itch page states rigged/animated characters, free commercial use, no attribution required, CC0; metadata lists Creative Commons Zero v1.0 Universal."
+        },
+        "extraction": {
+          "sourceArchive": "/tmp/round-8-1-assets/kaykit-adventurers-free-2.0.zip",
+          "sourceArchiveSha256": "abe48f4763fba0896bab486ee9e6d08ca6b5b3884b9601f235c8847ae94dc479",
+          "sourceArchivePath": "Characters/gltf/Knight.glb + Animations/gltf/Rig_Medium/Rig_Medium_General.glb + Rig_Medium_MovementBasic.glb",
+          "selectedOnly": true
+        },
+        "armourAttachBone": "head"
       }
     },
     {
@@ -563,7 +730,7 @@
         "adherenceApproach": "bone_attached",
         "sourcePack": "OGA-BloodSplatterAndGibs-CC0"
       },
-      "notes": "camper persona: emissive_trim_shader skin with local trim mask + viscera_projection corpse gore. Round-8 WP-D: skin.sourcePack=ambientCG-Fabric029-CC0 + engineer-procedural trim-mask fallback; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0; armorOverlay=null material-swap control; preferred showroom weapon=axe.",
+      "notes": "camper persona: emissive_trim_shader skin with local trim mask + viscera_projection corpse gore. Round-8 WP-D: skin.sourcePack=ambientCG-Fabric029-CC0 + engineer-procedural trim-mask fallback; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0; armorOverlay=null material-swap control; preferred showroom weapon=axe. Round-8.1 bodyOverride=Quaternius-PolyPizzaIndividual-CC0 (quaternius-polypizza); root mesh2motion body no longer drives this persona.",
       "armorOverlay": null,
       "round8Evaluation": {
         "skinTreatment": "emissive_trim_shader with sourced fabric base reference",
@@ -571,6 +738,47 @@
         "weapon": "axe / Quaternius-UltimateRPGItemsPack-CC0",
         "armor": "Round-5 material-swap control",
         "adherence": "bone_attached viscera projection"
+      },
+      "bodyOverride": {
+        "file": "characters/quaternius-henry.glb",
+        "sourceKey": "quaternius-polypizza",
+        "sourcePack": "Quaternius-PolyPizzaIndividual-CC0",
+        "modelScaleMultiplier": 1.0021,
+        "targetWorldHeight": 1.7,
+        "pivotYOffset": 0,
+        "attachBone": "Middle1.R",
+        "animation": {
+          "idle": "CharacterArmature|CharacterArmature|CharacterArmature|Idle|CharacterArmature|Idle",
+          "walk": "CharacterArmature|CharacterArmature|CharacterArmature|Walk|CharacterArmature|Walk",
+          "attack": "CharacterArmature|CharacterArmature|CharacterArmature|Sword|CharacterArmature|Swo",
+          "attack_unarmed": "CharacterArmature|CharacterArmature|CharacterArmature|Punch|CharacterArmature|Pun",
+          "attack_armed": "CharacterArmature|CharacterArmature|CharacterArmature|Sword|CharacterArmature|Swo",
+          "take_hit": "CharacterArmature|CharacterArmature|CharacterArmature|HitReact|CharacterArmature|",
+          "death": "CharacterArmature|CharacterArmature|CharacterArmature|Death|CharacterArmature|Dea",
+          "loot": "CharacterArmature|CharacterArmature|CharacterArmature|Wave|CharacterArmature|Wave"
+        },
+        "sizeBytes": 639280,
+        "sha256": "ae91c5ec699f1f97f980628ab6d54fffaa20c0ed30d3680245fde56eea2204cf",
+        "source": {
+          "title": "Henry",
+          "creator": "Quaternius",
+          "pageUrl": "https://poly.pizza/m/yEdSk8tRKc",
+          "downloadUrl": "https://static.poly.pizza/b91485bd-aaa0-4a9a-802c-b16e08ae05e7.glb",
+          "downloadMechanism": "3"
+        },
+        "license": {
+          "spdx": "CC0-1.0",
+          "name": "CC0 1.0 Universal / Public Domain",
+          "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "attributionRequired": false,
+          "notes": "Poly Pizza model page reports Public Domain (CC0) / CC0 1.0; Quaternius target pack metadata also reports CC0."
+        },
+        "extraction": {
+          "sourceArchive": "/tmp/round-8-1-assets/quaternius-polypizza/henry.glb",
+          "sourceArchiveSha256": "ae91c5ec699f1f97f980628ab6d54fffaa20c0ed30d3680245fde56eea2204cf",
+          "sourceArchivePath": "poly.pizza direct GLB",
+          "selectedOnly": true
+        }
       }
     },
     {
@@ -696,7 +904,7 @@
         "adherenceApproach": "mesh_baked",
         "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + mesh-baked dismemberment transform"
       },
-      "notes": "sprinter persona: multi_material_split skin + dismemberment_baked corpse gore restricted to shared-body-only bone_hide per Round-7 amendment A1. Round-8 WP-D: skin.sourcePack=OGA-MakeHuman-AnnotatedSkin-CC0 + engineer-procedural mesh2motion-region fallback; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0 + mesh-baked dismemberment transform; armorOverlay=null material-swap control; preferred showroom weapon=rusty_blade.",
+      "notes": "sprinter persona: multi_material_split skin + dismemberment_baked corpse gore restricted to shared-body-only bone_hide per Round-7 amendment A1. Round-8 WP-D: skin.sourcePack=OGA-MakeHuman-AnnotatedSkin-CC0 + engineer-procedural mesh2motion-region fallback; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0 + mesh-baked dismemberment transform; armorOverlay=null material-swap control; preferred showroom weapon=rusty_blade. Round-8.1 bodyOverride=Kenney-MiniCharacters-CC0 (kenney-mini-characters); root mesh2motion body no longer drives this persona.",
       "armorOverlay": null,
       "round8Evaluation": {
         "skinTreatment": "multi_material_split body-region shader",
@@ -704,6 +912,47 @@
         "weapon": "rusty_blade / Quaternius-UltimateRPGItemsPack-CC0 sword FBX",
         "armor": "Round-5 material-swap control",
         "adherence": "mesh_baked corpse state plus uv_painted skin"
+      },
+      "bodyOverride": {
+        "file": "characters/kenney-mini-characters-sprinter.glb",
+        "sourceKey": "kenney-mini-characters",
+        "sourcePack": "Kenney-MiniCharacters-CC0",
+        "modelScaleMultiplier": 2.1443,
+        "targetWorldHeight": 1.7,
+        "pivotYOffset": 0,
+        "attachBone": "arm-right",
+        "animation": {
+          "idle": "idle",
+          "walk": "walk",
+          "attack": "attack-melee-right",
+          "attack_unarmed": "attack-melee-left",
+          "attack_armed": "attack-melee-right",
+          "take_hit": "fall",
+          "death": "die",
+          "loot": "pick-up"
+        },
+        "sizeBytes": 263104,
+        "sha256": "672a6506f7475bbd655da1d7ff712c1729a430f134c62385a4e5d3c1378acb40",
+        "source": {
+          "title": "Mini Characters",
+          "creator": "Kenney",
+          "pageUrl": "https://kenney.nl/assets/mini-characters",
+          "downloadUrl": "https://kenney.nl/media/pages/assets/mini-characters/bfc7e272b4-1774770718/kenney_mini-characters.zip",
+          "downloadMechanism": "kenney-direct"
+        },
+        "license": {
+          "spdx": "CC0-1.0",
+          "name": "CC0 1.0 Universal / Public Domain",
+          "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "attributionRequired": false,
+          "notes": "Kenney asset page and archive License.txt declare CC0 1.0 Universal."
+        },
+        "extraction": {
+          "sourceArchive": "/tmp/round-8-1-assets/kenney-mini-characters.zip",
+          "sourceArchiveSha256": "9e1d48e6d7b8479ebbe84df71eb5bd8e1b3f0da546dea641890dccc8a02d0999",
+          "sourceArchivePath": "Models/GLB format/character-male-c.glb",
+          "selectedOnly": true
+        }
       }
     },
     {
@@ -737,7 +986,7 @@
         "adherenceApproach": "uv_painted",
         "sourcePack": "OGA-LiquidSplatterPixelTexture-CC0 + decay shader fallback"
       },
-      "notes": "vulture persona: rim_fresnel_shader skin from local shader + decay_desaturation corpse gore from local shader. Round-8 WP-D: skin.sourcePack=OGA-TheNess-HumanBodyTexture-CC0 + rim shader fallback; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0 + decay shader fallback; armorOverlay=quaternius_gauntlet; preferred showroom weapon=greatsword.",
+      "notes": "vulture persona: rim_fresnel_shader skin from local shader + decay_desaturation corpse gore from local shader. Round-8 WP-D: skin.sourcePack=OGA-TheNess-HumanBodyTexture-CC0 + rim shader fallback; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0 + decay shader fallback; armorOverlay=quaternius_gauntlet; preferred showroom weapon=greatsword. Round-8.1 bodyOverride=Quaternius-PolyPizzaIndividual-CC0 (quaternius-polypizza); root mesh2motion body no longer drives this persona.",
       "armorOverlay": {
         "name": "quaternius_gauntlet",
         "slot": "gauntlet",
@@ -755,6 +1004,48 @@
         "weapon": "greatsword / Quaternius-UltimateRPGItemsPack-CC0",
         "armor": "Quaternius gauntlet modular_submesh",
         "adherence": "modular_submesh armor with uv_painted shader controls"
+      },
+      "bodyOverride": {
+        "file": "characters/quaternius-pirate-captain.glb",
+        "sourceKey": "quaternius-polypizza",
+        "sourcePack": "Quaternius-PolyPizzaIndividual-CC0",
+        "modelScaleMultiplier": 0.9201,
+        "targetWorldHeight": 1.7,
+        "pivotYOffset": 0,
+        "attachBone": "Middle1.R",
+        "animation": {
+          "idle": "CharacterArmature|CharacterArmature|CharacterArmature|Idle|CharacterArmature|Idle",
+          "walk": "CharacterArmature|CharacterArmature|CharacterArmature|Walk|CharacterArmature|Walk",
+          "attack": "CharacterArmature|CharacterArmature|CharacterArmature|Sword|CharacterArmature|Swo",
+          "attack_unarmed": "CharacterArmature|CharacterArmature|CharacterArmature|Punch|CharacterArmature|Pun",
+          "attack_armed": "CharacterArmature|CharacterArmature|CharacterArmature|Sword|CharacterArmature|Swo",
+          "take_hit": "CharacterArmature|CharacterArmature|CharacterArmature|HitReact|CharacterArmature|",
+          "death": "CharacterArmature|CharacterArmature|CharacterArmature|Death|CharacterArmature|Dea",
+          "loot": "CharacterArmature|CharacterArmature|CharacterArmature|Wave|CharacterArmature|Wave"
+        },
+        "sizeBytes": 666612,
+        "sha256": "688b0db0487dadaa6dbbf9e5613793aa9c1280902255212bd51bc46ff17f695d",
+        "source": {
+          "title": "Pirate Captain",
+          "creator": "Quaternius",
+          "pageUrl": "https://poly.pizza/m/sN18LyyHAU",
+          "downloadUrl": "https://static.poly.pizza/c814c745-1cf5-4d92-bd85-200c66eb7843.glb",
+          "downloadMechanism": "3"
+        },
+        "license": {
+          "spdx": "CC0-1.0",
+          "name": "CC0 1.0 Universal / Public Domain",
+          "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "attributionRequired": false,
+          "notes": "Poly Pizza model page reports Public Domain (CC0) / CC0 1.0; Quaternius target pack metadata also reports CC0."
+        },
+        "extraction": {
+          "sourceArchive": "/tmp/round-8-1-assets/quaternius-polypizza/pirate-captain.glb",
+          "sourceArchiveSha256": "688b0db0487dadaa6dbbf9e5613793aa9c1280902255212bd51bc46ff17f695d",
+          "sourceArchivePath": "poly.pizza direct GLB",
+          "selectedOnly": true
+        },
+        "armourAttachBone": "Middle1.L"
       }
     },
     {
@@ -854,12 +1145,12 @@
       }
     },
     {
-    "id": "weapon.sword",
-    "category": "weapon",
-    "weaponName": "sword",
-    "file": "weapons/sword-robin-lamb-hero.glb",
-    "sourcePack": "RobinLamb-HeroSword-CC0",
-    "tier": 2,
+      "id": "weapon.sword",
+      "category": "weapon",
+      "weaponName": "sword",
+      "file": "weapons/sword-robin-lamb-hero.glb",
+      "sourcePack": "RobinLamb-HeroSword-CC0",
+      "tier": 2,
       "dpsBucket": "mid",
       "attachBone": "right_hand",
       "pivotYOffset": 0,

@@ -18,6 +18,7 @@ func _run() -> void:
 		_fail("manifest did not parse")
 		_finish()
 		return
+	_audit_mesh2motion_persona_count(manifest)
 	var body: Dictionary = manifest.get("body", {})
 	if str(body.get("armourAttachBone", "")) != "spine":
 		_fail('manifest.body.armourAttachBone reserved field is not "spine"')
@@ -53,6 +54,21 @@ func _read_manifest() -> Dictionary:
 	var text := FileAccess.get_file_as_string(MANIFEST_PATH)
 	var parsed = JSON.parse_string(text)
 	return parsed if typeof(parsed) == TYPE_DICTIONARY else {}
+
+
+func _audit_mesh2motion_persona_count(manifest: Dictionary) -> void:
+	var count := 0
+	for asset in manifest.get("assets", []):
+		if typeof(asset) != TYPE_DICTIONARY:
+			continue
+		var asset_dict := asset as Dictionary
+		if str(asset_dict.get("category", "")) != "character":
+			continue
+		var body_override = asset_dict.get("bodyOverride", {})
+		if typeof(body_override) != TYPE_DICTIONARY or (body_override as Dictionary).is_empty():
+			count += 1
+	if count != 1:
+		_fail("expected exactly 1 mesh2motion-bodied control persona, found %d" % count)
 
 
 func _instantiate_scene(resource_path: String) -> Node:

@@ -100,9 +100,7 @@ func instantiate_persona_character(persona: String, label: String, fallback_mate
 
 func instantiate_persona_corpse(persona: String, label: String, fallback_material: Material, base_scale: float) -> Node3D:
 	var persona_asset: Dictionary = character_assets_by_persona.get(persona, {})
-	var body_asset := corpse_body_asset.duplicate(true)
-	if body_asset.is_empty():
-		body_asset = persona_asset.duplicate(true)
+	var body_asset := _corpse_body_asset_for_persona(persona_asset)
 	var root := Node3D.new()
 	root.name = label
 	var scene := _scene_for_asset(body_asset)
@@ -342,8 +340,9 @@ func _load_manifest() -> void:
 			"character":
 				var persona := str(asset.get("personaSlot", ""))
 				if not persona.is_empty():
-					var character_asset := shared_body.duplicate(true) if not shared_body.is_empty() else (asset as Dictionary).duplicate(true)
-					character_asset.merge((asset as Dictionary), true)
+					var source_asset := asset as Dictionary
+					var character_asset := _character_body_asset_for_manifest(source_asset, shared_body)
+					character_asset.merge(source_asset, true)
 					if not character_asset.has("skin") and character_asset.has("palette"):
 						character_asset["skin"] = {
 							"approach": "palette_flat",
@@ -368,6 +367,39 @@ func _load_manifest() -> void:
 				var file := str(asset.get("file", ""))
 				if not role.is_empty() and file.ends_with(".glb") and not environment_assets_by_role.has(role):
 					environment_assets_by_role[role] = asset
+
+
+func _character_body_asset_for_manifest(asset: Dictionary, shared_body: Dictionary) -> Dictionary:
+	var character_asset := shared_body.duplicate(true)
+	var body_override := _dictionary_block(asset, "bodyOverride")
+	if not body_override.is_empty():
+		character_asset.merge(body_override, true)
+	if character_asset.is_empty():
+		character_asset = asset.duplicate(true)
+	return character_asset
+
+
+func _corpse_body_asset_for_persona(persona_asset: Dictionary) -> Dictionary:
+	var corpse_override := _dictionary_block(persona_asset, "corpseOverride")
+	if not corpse_override.is_empty():
+		var explicit_body_asset := corpse_body_asset.duplicate(true)
+		if explicit_body_asset.is_empty():
+			explicit_body_asset = persona_asset.duplicate(true)
+		explicit_body_asset.merge(corpse_override, true)
+		return explicit_body_asset
+	if not _dictionary_block(persona_asset, "bodyOverride").is_empty():
+		return persona_asset.duplicate(true)
+	var body_asset := corpse_body_asset.duplicate(true)
+	if body_asset.is_empty():
+		body_asset = persona_asset.duplicate(true)
+	return body_asset
+
+
+func _dictionary_block(source: Dictionary, key: String) -> Dictionary:
+	var value = source.get(key, {})
+	if typeof(value) == TYPE_DICTIONARY:
+		return value as Dictionary
+	return {}
 
 
 func _scene_for_asset(asset) -> PackedScene:
@@ -532,7 +564,7 @@ func _apply_modular_submesh_armor(character_id: String, armor_overlay_block: Dic
 		mesh.transform = local_transform
 		if skeleton != null and is_instance_valid(skeleton):
 			mesh.skeleton = mesh.get_path_to(skeleton)
-			_ensure_modular_armor_skin(mesh, skeleton, armor_overlay_block)
+			_ensure_modular_armor_skin(mesh, skeleton, armor_overlay_block, character_id)
 		_apply_tier_material(mesh, armour_tier, "armour")
 		attached_meshes.append(mesh)
 	source_root.queue_free()
@@ -577,14 +609,14 @@ func _unique_child_name(parent: Node, desired_name: String) -> String:
 	return candidate
 
 
-func _ensure_modular_armor_skin(mesh: MeshInstance3D, skeleton: Skeleton3D, armor_overlay_block: Dictionary) -> void:
+func _ensure_modular_armor_skin(mesh: MeshInstance3D, skeleton: Skeleton3D, armor_overlay_block: Dictionary, character_id: String) -> void:
 	if mesh == null or skeleton == null:
 		return
 	if mesh.skin != null and int(mesh.skin.call("get_bind_count")) > 0:
 		return
-	var bind_bone := str(armor_overlay_block.get("bindBone", "spine_03"))
+	var bind_bone := _armor_bind_bone_for_character(character_id, armor_overlay_block)
 	if bind_bone.is_empty() or skeleton.find_bone(bind_bone) < 0:
-		for candidate in ["spine_03", "spine_02", "spine_01", "head", "hand_l", "hand_r"]:
+		for candidate in ["Torso", "Chest", "spine", "chest", "head", "Head", "Middle1.L", "hand.l", "handslot.l", "arm-left", "spine_03", "spine_02", "spine_01", "hand_l", "hand_r"]:
 			if skeleton.find_bone(str(candidate)) >= 0:
 				bind_bone = str(candidate)
 				break
@@ -602,6 +634,21 @@ func _ensure_modular_armor_skin(mesh: MeshInstance3D, skeleton: Skeleton3D, armo
 	if skin.has_method("set_bind_name"):
 		skin.call("set_bind_name", 0, bind_bone)
 	mesh.skin = skin
+
+
+func _armor_bind_bone_for_character(character_id: String, armor_overlay_block: Dictionary) -> String:
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var asset = character.get("asset", {})
+	if typeof(asset) == TYPE_DICTIONARY:
+		var body_override = (asset as Dictionary).get("bodyOverride", {})
+		if typeof(body_override) == TYPE_DICTIONARY:
+			var override_bone := str((body_override as Dictionary).get("armourAttachBone", ""))
+			if not override_bone.is_empty():
+				return override_bone
+	var overlay_bone := str(armor_overlay_block.get("bindBone", ""))
+	if not overlay_bone.is_empty():
+		return overlay_bone
+	return "spine_03"
 
 
 func _ensure_weapon_socket(character_node: Node3D, skeleton: Skeleton3D, attach_bone: String) -> Node3D:

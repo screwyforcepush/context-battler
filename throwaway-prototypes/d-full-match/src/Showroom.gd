@@ -334,6 +334,11 @@ func _source_key_for_persona(persona: String) -> String:
 	var asset = (assets as Dictionary).get(persona, {})
 	if typeof(asset) != TYPE_DICTIONARY:
 		return "unknown"
+	var body_override = (asset as Dictionary).get("bodyOverride", {})
+	if typeof(body_override) == TYPE_DICTIONARY:
+		var body_source_key := str((body_override as Dictionary).get("sourceKey", ""))
+		if not body_source_key.is_empty():
+			return body_source_key
 	var source_key := str((asset as Dictionary).get("sourceKey", ""))
 	if not source_key.is_empty():
 		return source_key
