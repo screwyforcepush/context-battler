@@ -10,13 +10,15 @@ const LAYER_GORE := "gore"
 const LAYER_WEAPONS := "weapons"
 const LAYER_ARMOUR := "armour"
 const ARMOUR_RENDER_PROP := "modular_submesh_prop"
-const ARMOUR_RENDER_REGION := "adhering_region"
+const ARMOUR_PROP_ALL := "all"
 
 var current_weapon_tier := 0
 var current_armour_tier := 0
 var current_armour_render_mode := ARMOUR_RENDER_PROP
+var current_armour_prop_selection := ARMOUR_PROP_ALL
 var weapon_by_tier := {0: "", 1: "", 2: "", 3: ""}
 var armour_by_tier := {0: "", 1: "", 2: "", 3: ""}
+var armour_prop_options := []
 var clip_labels: Dictionary = {}
 var selected_tier_buttons: Dictionary = {}
 var layer_enabled := {
@@ -26,7 +28,7 @@ var layer_enabled := {
 	LAYER_ARMOUR: true,
 }
 var fallback_material: StandardMaterial3D
-var armour_render_mode_switch: CheckButton
+var armour_asset_selector: OptionButton
 
 @onready var scene_builder: Node3D = %SceneBuilder
 @onready var equipment_attachment: Node = %EquipmentMeshAttachment
@@ -41,6 +43,7 @@ func _ready() -> void:
 	equipment_attachment.configure({})
 	_build_sample_environment()
 	_build_tier_maps()
+	_build_armour_prop_options()
 	_spawn_persona_row()
 	_configure_camera()
 	_make_ui()
@@ -143,7 +146,7 @@ func _make_ui() -> void:
 	var panel := PanelContainer.new()
 	panel.name = "ShowroomPanel"
 	panel.position = Vector2(16, 14)
-	panel.custom_minimum_size = Vector2(1030, 186)
+	panel.custom_minimum_size = Vector2(1030, 218)
 	ui.add_child(panel)
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 8)
@@ -158,7 +161,7 @@ func _make_ui() -> void:
 	header.add_child(back_button)
 	var title := Label.new()
 	title.name = "TitleLabel"
-	title.text = "Showroom - Round 10 adherence consolidation"
+	title.text = "Showroom - Round 11"
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.add_theme_font_size_override("font_size", 18)
 	header.add_child(title)
@@ -191,22 +194,13 @@ func _make_ui() -> void:
 	_make_layer_toggle(layers_bar, "Gore", LAYER_GORE)
 	_make_layer_toggle(layers_bar, "Weapons", LAYER_WEAPONS)
 	_make_layer_toggle(layers_bar, "Armour", LAYER_ARMOUR)
-	var modes_bar := HBoxContainer.new()
-	modes_bar.name = "AdherenceModeBar"
-	modes_bar.add_theme_constant_override("separation", 8)
-	root.add_child(modes_bar)
-	armour_render_mode_switch = CheckButton.new()
-	armour_render_mode_switch.name = "ArmourModeSwitch"
-	armour_render_mode_switch.button_pressed = current_armour_render_mode == ARMOUR_RENDER_REGION
-	armour_render_mode_switch.toggled.connect(_set_armour_render_region)
-	modes_bar.add_child(armour_render_mode_switch)
-	_update_mode_switch_labels()
 	var tier_box := VBoxContainer.new()
 	tier_box.name = "EquipmentTierBar"
 	tier_box.add_theme_constant_override("separation", 4)
 	root.add_child(tier_box)
 	_make_tier_row(tier_box, "Weapon", "weapon")
 	_make_tier_row(tier_box, "Armour", "armour")
+	_make_armour_asset_row(tier_box)
 
 
 func _make_layer_toggle(parent: Node, label_text: String, layer: String) -> void:
@@ -244,6 +238,30 @@ func _make_tier_row(parent: Node, label_text: String, slot: String) -> void:
 		selected_tier_buttons["%s:%d" % [slot, tier]] = button
 
 
+func _make_armour_asset_row(parent: Node) -> void:
+	var row := HBoxContainer.new()
+	row.name = "ArmourAssetBar"
+	row.add_theme_constant_override("separation", 6)
+	parent.add_child(row)
+	var label := Label.new()
+	label.text = "Armour Asset:"
+	label.custom_minimum_size = Vector2(104, 0)
+	row.add_child(label)
+	armour_asset_selector = OptionButton.new()
+	armour_asset_selector.name = "ArmourAssetSelector"
+	armour_asset_selector.custom_minimum_size = Vector2(360, 0)
+	for i in range(armour_prop_options.size()):
+		var option := armour_prop_options[i] as Dictionary
+		var option_label := str(option.get("label", ""))
+		var prop_id := str(option.get("id", ARMOUR_PROP_ALL))
+		armour_asset_selector.add_item(option_label, i)
+		armour_asset_selector.set_item_metadata(i, prop_id)
+		if prop_id == current_armour_prop_selection:
+			armour_asset_selector.select(i)
+	armour_asset_selector.item_selected.connect(_set_armour_prop_selection)
+	row.add_child(armour_asset_selector)
+
+
 func _trigger_animation(kind: String) -> void:
 	for persona in PERSONAS:
 		var showroom_id := _showroom_id(str(persona))
@@ -267,9 +285,21 @@ func _set_layer_enabled(enabled: bool, layer: String) -> void:
 	_reapply_showroom_layers()
 
 
-func _set_armour_render_region(use_region: bool) -> void:
-	current_armour_render_mode = ARMOUR_RENDER_REGION if use_region else ARMOUR_RENDER_PROP
-	_update_mode_switch_labels()
+func _set_armour_prop_selection(index: int) -> void:
+	if armour_asset_selector == null:
+		return
+	if index < 0 or index >= armour_asset_selector.get_item_count():
+		return
+	var prop_id := str(armour_asset_selector.get_item_metadata(index))
+	if prop_id.is_empty():
+		prop_id = ARMOUR_PROP_ALL
+	if current_armour_prop_selection == prop_id:
+		return
+	current_armour_prop_selection = prop_id
+	if equipment_attachment.has_method("set_armour_prop_selection"):
+		equipment_attachment.call("set_armour_prop_selection", current_armour_prop_selection)
+	else:
+		push_warning("EquipmentMeshAttachment lacks set_armour_prop_selection; armour asset selector cannot apply %s" % current_armour_prop_selection)
 	_reapply_showroom_layers()
 
 
@@ -282,6 +312,8 @@ func _reapply_showroom_layers() -> void:
 func _apply_runtime_modes() -> void:
 	if equipment_attachment.has_method("set_armour_render_mode"):
 		equipment_attachment.call("set_armour_render_mode", current_armour_render_mode)
+	if equipment_attachment.has_method("set_armour_prop_selection"):
+		equipment_attachment.call("set_armour_prop_selection", current_armour_prop_selection)
 
 
 func _apply_equipment_layers() -> void:
@@ -317,6 +349,39 @@ func _build_tier_maps() -> void:
 	armour_by_tier = _armour_visual_tier_map()
 	current_weapon_tier = _default_visible_tier(weapon_by_tier)
 	current_armour_tier = _default_visible_tier(armour_by_tier)
+
+
+func _build_armour_prop_options() -> void:
+	armour_prop_options = [
+		{
+			"id": ARMOUR_PROP_ALL,
+			"label": "All (per-persona)",
+		},
+	]
+	var seen := {ARMOUR_PROP_ALL: true}
+	var manifest = equipment_attachment.get("manifest")
+	if typeof(manifest) != TYPE_DICTIONARY:
+		return
+	var props = (manifest as Dictionary).get("armourProps", [])
+	if typeof(props) != TYPE_ARRAY:
+		return
+	for prop_value in (props as Array):
+		if typeof(prop_value) != TYPE_DICTIONARY:
+			continue
+		var prop := prop_value as Dictionary
+		var prop_id := str(prop.get("id", ""))
+		if prop_id.is_empty() or seen.has(prop_id):
+			continue
+		seen[prop_id] = true
+		var prop_name := str(prop.get("name", prop_id))
+		var slot := str(prop.get("slot", ""))
+		var label := prop_name
+		if not slot.is_empty():
+			label = "%s (%s)" % [prop_name, slot]
+		armour_prop_options.append({
+			"id": prop_id,
+			"label": label,
+		})
 
 
 func _numeric_tier_map_for_assets(property_name: String) -> Dictionary:
@@ -388,11 +453,6 @@ func _surface_armour_tier() -> int:
 
 func _layer_is_enabled(layer: String) -> bool:
 	return bool(layer_enabled.get(layer, true))
-
-
-func _update_mode_switch_labels() -> void:
-	if armour_render_mode_switch != null:
-		armour_render_mode_switch.text = "Armour mode: Adhering region" if current_armour_render_mode == ARMOUR_RENDER_REGION else "Armour mode: Modular prop"
 
 
 func _update_tier_buttons(slot: String, selected_tier: int) -> void:

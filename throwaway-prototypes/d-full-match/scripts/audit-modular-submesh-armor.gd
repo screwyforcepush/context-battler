@@ -6,8 +6,17 @@ const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
 const BASE_SCALE := 1.0
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
 const MIN_MODULAR_ARMOR_OVERLAYS := 3
+const MIN_ARMOUR_PROP_CATALOG_ENTRIES := 6
 const MESH2MOTION_ARMOR_BIND_BONES := ["spine_03", "spine_02", "spine_01", "head", "hand_l", "hand_r"]
 const MODULAR_ARMOUR_PROP_APPROACH := "modular_submesh_prop"
+const ARMOUR_PROP_SELECTION_ALL := "all"
+const RETIRED_ARMOUR_FLAT := "adhering" + "_region"
+const ROUND11_BUCKET_HELMET_PROP_ID := "armour_prop.round11.oga_bucket_helmet"
+const ROUND11_STAGED_ARMOUR_PROP_IDS := [
+	"armour_prop.round11.quaternius_leather_cuirass",
+	"armour_prop.round11.quaternius_black_cuirass",
+	"armour_prop.round11.oga_bucket_helmet",
+]
 
 var failures: Array[String] = []
 var equipment_attachment: Node
@@ -38,7 +47,16 @@ func _run() -> void:
 		return
 	if equipment_attachment.has_method("_ensure_modular_armor_skin"):
 		_fail("EquipmentMeshAttachment still exposes retired _ensure_modular_armor_skin Skin-bind path")
+	if equipment_attachment.has_method(_retired_armour_apply_method()):
+		_fail("EquipmentMeshAttachment still exposes retired flat armour apply path")
+	if equipment_attachment.has_method(_retired_armour_clear_method()):
+		_fail("EquipmentMeshAttachment still exposes retired flat armour clear path")
+	if not equipment_attachment.has_method("set_armour_prop_selection"):
+		_fail("EquipmentMeshAttachment missing set_armour_prop_selection")
 	await process_frame
+	_assert_armour_manifest_modes(manifest)
+	var armour_props := _armour_prop_catalog(manifest)
+	_assert_armour_prop_catalog(armour_props)
 	var overlay_count := 0
 	var declared_count := 0
 	for asset in _character_assets(manifest):
@@ -63,6 +81,7 @@ func _run() -> void:
 		_fail("armorOverlay field declared on %d/%d character personas" % [declared_count, PERSONAS.size()])
 	if overlay_count < MIN_MODULAR_ARMOR_OVERLAYS:
 		_fail("expected at least %d non-null modular armorOverlay entries, found %d" % [MIN_MODULAR_ARMOR_OVERLAYS, overlay_count])
+	await _audit_catalog_prop_selection(manifest, armour_props)
 	if equipment_attachment != null:
 		equipment_attachment.queue_free()
 	_finish()
@@ -83,6 +102,97 @@ func _character_assets(manifest: Dictionary) -> Array:
 		if str(asset_dict.get("category", "")) == "character":
 			out.append(asset_dict)
 	return out
+
+
+func _armour_prop_catalog(manifest: Dictionary) -> Array:
+	var value = manifest.get("armourProps", [])
+	if typeof(value) == TYPE_ARRAY:
+		return value as Array
+	return []
+
+
+func _catalog_prop_by_id(armour_props: Array, prop_id: String) -> Dictionary:
+	for value in armour_props:
+		if typeof(value) != TYPE_DICTIONARY:
+			continue
+		var prop := value as Dictionary
+		if str(prop.get("id", "")) == prop_id:
+			return prop
+	return {}
+
+
+func _assert_armour_prop_catalog(armour_props: Array) -> void:
+	if armour_props.size() < MIN_ARMOUR_PROP_CATALOG_ENTRIES:
+		_fail("manifest armourProps expected at least %d entries, found %d" % [MIN_ARMOUR_PROP_CATALOG_ENTRIES, armour_props.size()])
+	var seen := {}
+	for staged_id in ROUND11_STAGED_ARMOUR_PROP_IDS:
+		seen[staged_id] = false
+	for value in armour_props:
+		if typeof(value) != TYPE_DICTIONARY:
+			_fail("manifest armourProps entry is not a Dictionary")
+			continue
+		var prop := value as Dictionary
+		var prop_id := str(prop.get("id", ""))
+		if prop_id.is_empty():
+			_fail("manifest armourProps entry missing id")
+		elif not prop_id.begins_with("armour_prop."):
+			_fail("manifest armourProps id must begin with armour_prop.: %s" % prop_id)
+		if seen.has(prop_id):
+			seen[prop_id] = true
+		if str(prop.get("approach", "")) != MODULAR_ARMOUR_PROP_APPROACH:
+			_fail("%s approach is not %s" % [prop_id, MODULAR_ARMOUR_PROP_APPROACH])
+		if str(prop.get("adherenceApproach", "")) != "bone_attached":
+			_fail("%s adherenceApproach is not bone_attached" % prop_id)
+		if str(prop.get("bindBone", "")).is_empty():
+			_fail("%s bindBone is empty" % prop_id)
+		elif not MESH2MOTION_ARMOR_BIND_BONES.has(str(prop.get("bindBone", ""))):
+			_fail("%s bindBone is outside mesh2motion vocabulary: %s" % [prop_id, str(prop.get("bindBone", ""))])
+		var scale := float(prop.get("propScale", 0.0))
+		if scale <= 0.0 or scale > 1.0:
+			_fail("%s propScale must be > 0 and <= 1, got %s" % [prop_id, str(prop.get("propScale", null))])
+		var file := str(prop.get("file", ""))
+		if file.is_empty() or not file.begins_with("armour/"):
+			_fail("%s file must live under art-kit/armour/: %s" % [prop_id, file])
+		else:
+			var resource_path := "%s%s" % [ART_ROOT, file]
+			if not ResourceLoader.exists(resource_path):
+				_fail("%s resource does not exist: %s" % [prop_id, resource_path])
+			if file.get_extension().to_lower() in ["glb", "gltf", "fbx"] and not FileAccess.file_exists("%s.import" % resource_path):
+				_fail("%s missing Godot import sidecar: %s.import" % [prop_id, resource_path])
+		var source = prop.get("source", {})
+		if typeof(source) != TYPE_DICTIONARY or str((source as Dictionary).get("pageUrl", "")).is_empty():
+			_fail("%s source.pageUrl missing" % prop_id)
+		var license = prop.get("license", {})
+		if typeof(license) != TYPE_DICTIONARY or str((license as Dictionary).get("spdx", "")) != "CC0-1.0":
+			_fail("%s license.spdx is not CC0-1.0" % prop_id)
+		if not str(prop.get("sha256", "")).length() == 64:
+			_fail("%s sha256 must be recorded" % prop_id)
+	for staged_id in ROUND11_STAGED_ARMOUR_PROP_IDS:
+		if not bool(seen.get(staged_id, false)):
+			_fail("manifest armourProps missing staged Round-11 prop %s" % staged_id)
+
+
+func _assert_armour_manifest_modes(manifest: Dictionary) -> void:
+	var round9_value = manifest.get("round9Adherence", {})
+	if typeof(round9_value) != TYPE_DICTIONARY:
+		_fail("manifest missing round9Adherence block")
+		return
+	var approaches = (round9_value as Dictionary).get("armorApproaches", [])
+	if typeof(approaches) != TYPE_ARRAY:
+		_fail("round9Adherence.armorApproaches must be an Array")
+		return
+	var modes := {}
+	var approach_array := approaches as Array
+	for value in approach_array:
+		if typeof(value) != TYPE_DICTIONARY:
+			continue
+		var mode := str((value as Dictionary).get("mode", ""))
+		if not mode.is_empty():
+			modes[mode] = true
+	if modes.size() != 1 or not modes.has(MODULAR_ARMOUR_PROP_APPROACH):
+		_fail("round9Adherence.armorApproaches must declare modular_submesh_prop only")
+	if modes.has(RETIRED_ARMOUR_FLAT):
+		_fail("round9Adherence.armorApproaches still declares retired flat armour mode")
 
 
 func _audit_persona(asset: Dictionary, armor_overlay: Dictionary) -> void:
@@ -137,6 +247,78 @@ func _audit_persona(asset: Dictionary, armor_overlay: Dictionary) -> void:
 	character_node.queue_free()
 
 
+func _audit_catalog_prop_selection(_manifest: Dictionary, armour_props: Array) -> void:
+	if equipment_attachment == null or not equipment_attachment.has_method("set_armour_prop_selection"):
+		return
+	var selected_prop := _catalog_prop_by_id(armour_props, ROUND11_BUCKET_HELMET_PROP_ID)
+	if selected_prop.is_empty():
+		_fail("cannot audit selected armour prop; catalog missing %s" % ROUND11_BUCKET_HELMET_PROP_ID)
+		return
+	equipment_attachment.call("set_armour_prop_selection", str(selected_prop.get("id", "")))
+	for persona in PERSONAS:
+		var character_id := "audit-armour-prop-selection-%s" % persona
+		var character_node := _instantiate_runtime_character(persona, character_id)
+		if character_node == null:
+			continue
+		get_root().add_child(character_node)
+		await process_frame
+		equipment_attachment.register_character(character_id, character_node, persona)
+		await process_frame
+		equipment_attachment.update_equipment({
+			character_id: {
+				"armour": {"name": "plate"},
+			},
+		})
+		await process_frame
+		var character := _registered_character(character_id)
+		if str(character.get("armourPropSelection", "")) != str(selected_prop.get("id", "")):
+			_fail("%s did not record selected armour prop id" % persona)
+		if str(character.get("armourPropId", "")) != str(selected_prop.get("id", "")):
+			_fail("%s did not apply selected armour prop id" % persona)
+		_assert_selection_socket(persona, character_id, selected_prop)
+		if equipment_attachment.has_method("_clear_modular_submesh_armor"):
+			equipment_attachment.call("_clear_modular_submesh_armor", character_id)
+		character_node.queue_free()
+	equipment_attachment.call("set_armour_prop_selection", ARMOUR_PROP_SELECTION_ALL)
+	var default_id := "audit-armour-prop-selection-default"
+	var default_node := _instantiate_runtime_character("duelist", default_id)
+	if default_node != null:
+		get_root().add_child(default_node)
+		await process_frame
+		equipment_attachment.register_character(default_id, default_node, "duelist")
+		await process_frame
+		equipment_attachment.update_equipment({
+			default_id: {
+				"armour": {"name": "plate"},
+			},
+		})
+		await process_frame
+		var default_character := _registered_character(default_id)
+		if str(default_character.get("armourPropSelection", "")) != ARMOUR_PROP_SELECTION_ALL:
+			_fail("all/default armour prop selection was not recorded")
+		_assert_selection_socket("duelist default", default_id, _catalog_prop_by_id(armour_props, "armour_prop.existing.quaternius_metal_cuirass"))
+		if equipment_attachment.has_method("_clear_modular_submesh_armor"):
+			equipment_attachment.call("_clear_modular_submesh_armor", default_id)
+		default_node.queue_free()
+
+
+func _assert_selection_socket(persona: String, character_id: String, prop: Dictionary) -> void:
+	var armor_nodes := _tracked_armor_nodes(character_id)
+	if armor_nodes.is_empty():
+		_fail("%s selected armour prop created no tracked socket" % persona)
+		return
+	var character := _registered_character(character_id)
+	var skeleton := character.get("skeleton") as Skeleton3D
+	var expected_bind_bone := str(prop.get("bindBone", ""))
+	for node in armor_nodes:
+		var socket := node as BoneAttachment3D
+		if socket == null or not is_instance_valid(socket):
+			_fail("%s selected armour prop node is not a BoneAttachment3D" % persona)
+			continue
+		if skeleton != null:
+			_assert_socket_matches_skeleton(persona, socket, skeleton, expected_bind_bone)
+
+
 func _assert_overlay_manifest_shape(asset: Dictionary, persona: String, armor_overlay: Dictionary) -> void:
 	if str(armor_overlay.get("adherenceApproach", "")) != "bone_attached":
 		_fail("%s armorOverlay.adherenceApproach is not bone_attached" % persona)
@@ -149,6 +331,11 @@ func _assert_overlay_manifest_shape(asset: Dictionary, persona: String, armor_ov
 		_fail("%s armorOverlay.bindBone is outside mesh2motion vocabulary: %s" % [persona, bind_bone])
 	if not _has_source_pack(armor_overlay.get("sourcePack", null)):
 		_fail("%s armorOverlay.sourcePack missing or empty" % persona)
+	var prop_scale := float(armor_overlay.get("propScale", 0.0))
+	if prop_scale <= 0.0 or prop_scale > 1.0:
+		_fail("%s armorOverlay.propScale must be > 0 and <= 1, got %s" % [persona, str(armor_overlay.get("propScale", null))])
+	if str(armor_overlay.get("catalogPropId", "")).is_empty():
+		_fail("%s armorOverlay.catalogPropId is empty" % persona)
 	var file := str(armor_overlay.get("file", ""))
 	if file.is_empty():
 		_fail("%s armorOverlay.file is empty" % persona)
@@ -299,6 +486,14 @@ func _class_name(value) -> String:
 	if value is Object:
 		return (value as Object).get_class()
 	return type_string(typeof(value))
+
+
+func _retired_armour_apply_method() -> String:
+	return "_apply_" + "adhering" + "_region" + "_armour"
+
+
+func _retired_armour_clear_method() -> String:
+	return "_clear_" + "adhering" + "_region" + "_armour"
 
 
 func _make_fallback_material() -> void:

@@ -1,0 +1,125 @@
+{
+  "round": "round-11",
+  "workPackage": "WP-A2 armour asset breadth support",
+  "mergeTarget": "shared-harness/art-kit/manifest.json armourProps[]",
+  "scopeNotes": [
+    "Support fragment only. Do not treat this file as active runtime manifest data until the orchestrator merges it.",
+    "All candidates use the locked Round-11 modular_submesh_prop technique: rigid prop parented to a live BoneAttachment3D bind bone.",
+    "propScale values are initial body-fit suggestions for the WP-A1/WP-SR scale path; they were not visually audited in Showroom by this support slice."
+  ],
+  "armourProps": [
+    {
+      "id": "armour_prop.round11.quaternius_leather_cuirass",
+      "name": "Quaternius Leather Cuirass",
+      "slot": "chest",
+      "approach": "modular_submesh_prop",
+      "adherenceApproach": "bone_attached",
+      "file": "armour/round11-breadth/Armor_Leather.fbx",
+      "bindBone": "spine_03",
+      "propScale": 0.16,
+      "sha256": "617c25fb9f077c6f123f8601a94a46bc9507ab34182562aa249b0a7cacf4bce8",
+      "source": {
+        "title": "RPG Essentials Pack / Ultimate RPG Items Pack - Aug 2019",
+        "creator": "Quaternius",
+        "repository": "Quaternius",
+        "pageUrl": "https://quaternius.com/packs/rpg.html",
+        "downloadUrl": "https://drive.google.com/drive/folders/1BSyWiPypvgTl32qd5bZjP_iMeG_XsImT?usp=sharing",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "sourceStatus": "newly staged under round11-breadth from existing local CC0 source archive"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Official Quaternius page lists CC0; the local source archive License.txt also declares CC0 1.0 Universal."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/round-8-assets/quaternius-low-poly-rpg-pack.zip",
+        "sourceArchiveSha256": "7079818e9a02bb0291c3f2b595ec0306ce138fabc26718e86889b19e81077834",
+        "sourceArchivePath": "Ultimate RPG Items Pack - Aug 2019/FBX/Armor_Leather.fbx",
+        "selectedOnly": true
+      },
+      "rationale": "Unused Quaternius chest-armour variant broadens the locked chest-prop silhouette beyond the existing Armor_Metal.fbx overlay while preserving the same CC0 low-poly style family."
+    },
+    {
+      "id": "armour_prop.round11.quaternius_black_cuirass",
+      "name": "Quaternius Black Cuirass",
+      "slot": "chest",
+      "approach": "modular_submesh_prop",
+      "adherenceApproach": "bone_attached",
+      "file": "armour/round11-breadth/Armor_Black.fbx",
+      "bindBone": "spine_03",
+      "propScale": 0.16,
+      "sha256": "971a89dc084c6ce7f9cf089b2cc91dfea0cc78dfc757fdf6f12abde53180b1ac",
+      "source": {
+        "title": "RPG Essentials Pack / Ultimate RPG Items Pack - Aug 2019",
+        "creator": "Quaternius",
+        "repository": "Quaternius",
+        "pageUrl": "https://quaternius.com/packs/rpg.html",
+        "downloadUrl": "https://drive.google.com/drive/folders/1BSyWiPypvgTl32qd5bZjP_iMeG_XsImT?usp=sharing",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "sourceStatus": "newly staged under round11-breadth from existing local CC0 source archive"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Official Quaternius page lists CC0; the local source archive License.txt also declares CC0 1.0 Universal."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/round-8-assets/quaternius-low-poly-rpg-pack.zip",
+        "sourceArchiveSha256": "7079818e9a02bb0291c3f2b595ec0306ce138fabc26718e86889b19e81077834",
+        "sourceArchivePath": "Ultimate RPG Items Pack - Aug 2019/FBX/Armor_Black.fbx",
+        "selectedOnly": true
+      },
+      "rationale": "Unused Quaternius chest-armour variant provides a darker, heavier armour read for the modular-prop asset selector without changing technique."
+    },
+    {
+      "id": "armour_prop.round11.oga_bucket_helmet",
+      "name": "Lucian Pavel Bucket Helmet",
+      "slot": "helmet",
+      "approach": "modular_submesh_prop",
+      "adherenceApproach": "bone_attached",
+      "file": "armour/round11-breadth/oga-lucianpavel-bucket-helmet.fbx",
+      "bindBone": "head",
+      "propScale": 0.14,
+      "sha256": "bfb0203d22f0fb898feb10cfab883d3c924ec0764512308103f2af4833c2a1a5",
+      "companionFiles": [
+        {
+          "file": "armour/round11-breadth/Bucket Helmet.png",
+          "role": "texture referenced by source FBX",
+          "sha256": "1670f32de0e6b8ae402fc2a2b50bfa750836e90e13999d157d01758d391d0afe"
+        }
+      ],
+      "source": {
+        "title": "Bucket Helmet",
+        "creator": "Lucian Pavel",
+        "repository": "OpenGameArt",
+        "pageUrl": "https://opengameart.org/content/bucket-helmet",
+        "downloadUrl": "https://opengameart.org/sites/default/files/Bucket%20Helmet.zip",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "sourceStatus": "newly staged under round11-breadth from existing local CC0 source archive"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "OpenGameArt page exposes the CC0 license icon/link for this asset."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/round-8-assets/oga-lucianpavel-bucket-helmet.zip",
+        "sourceArchiveSha256": "7315ed94c410f21e8f9235274a4cabcd52cfb55c1933246f24a038e3f36b44a4",
+        "sourceArchivePath": "Bucket Helmet.fbx",
+        "selectedOnly": true
+      },
+      "rationale": "A true separate helmet prop gives the Round-11 selector a non-Quaternius head-slot silhouette and preserves the rigid bone-attached semantics."
+    }
+  ],
+  "knownIssues": [
+    "The historical Poly Pizza Quaternius bundle URL recorded in Round-8 logs now returns 404, so this draft uses the live Quaternius RPG page plus the archive License.txt for Quaternius provenance.",
+    "No Showroom import or body-fit visual audit was run in this support slice; propScale values are initial suggestions for the later runtime/catalog integrator."
+  ]
+}

@@ -2,6 +2,7 @@ extends Node
 
 const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
 const ART_ROOT := "res://shared-harness/art-kit/"
+const SKIN_UV2_SHADER_PATH := "shaders/uv2_body_texture.gdshader"
 const WEAPON_SOCKET_NAME := "weapon_socket"
 const ARMOUR_SOCKET_NAME := "armour_socket"
 const WEAPON_ATTACHMENT_SCALE := 0.22
@@ -9,7 +10,6 @@ const FALLBACK_CHARACTER_HALF_HEIGHT := 0.17
 const WEAPON_ATTACH_DYNAMIC := "dynamic_hand_bone"
 const WEAPON_SOCKET_FALLBACK_STATIC := "static_root_socket"
 const ARMOUR_RENDER_MODULAR := "modular_submesh_prop"
-const ARMOUR_RENDER_REGION := "adhering_region"
 const DEFAULT_WEAPON_ATTACH_BONE := "hand_r"
 const ADHERENCE_BONE_ATTACHED := "adherence_bone_attached"
 const ADHERENCE_MESH_BAKED := "adherence_mesh_baked"
@@ -20,6 +20,7 @@ var manifest: Dictionary = {}
 var character_assets_by_persona: Dictionary = {}
 var weapon_assets_by_name: Dictionary = {}
 var armour_assets_by_name: Dictionary = {}
+var armour_prop_catalog_by_id: Dictionary = {}
 var environment_assets_by_role: Dictionary = {}
 var corpse_body_asset: Dictionary = {}
 var loaded_scenes: Dictionary = {}
@@ -30,10 +31,10 @@ var skin_mark_nodes_by_character: Dictionary = {}
 var corpse_mark_nodes_by_character: Dictionary = {}
 var corpse_bone_mutations_by_character: Dictionary = {}
 var armor_overlay_nodes_by_character: Dictionary = {}
-var armor_region_nodes_by_character: Dictionary = {}
 var last_applied_skin_approach: Dictionary = {}
 var last_applied_corpse_approach: Dictionary = {}
 var currentArmourRenderMode := ARMOUR_RENDER_MODULAR
+var currentArmourPropSelection := "all"
 var mat_weapon_low: StandardMaterial3D
 var mat_weapon_mid: StandardMaterial3D
 var mat_weapon_high: StandardMaterial3D
@@ -51,10 +52,10 @@ func configure(_root: Dictionary = {}) -> void:
 	corpse_mark_nodes_by_character.clear()
 	corpse_bone_mutations_by_character.clear()
 	armor_overlay_nodes_by_character.clear()
-	armor_region_nodes_by_character.clear()
 	last_applied_skin_approach.clear()
 	last_applied_corpse_approach.clear()
 	currentArmourRenderMode = ARMOUR_RENDER_MODULAR
+	currentArmourPropSelection = "all"
 	_make_materials()
 	_load_manifest()
 
@@ -127,6 +128,7 @@ func instantiate_persona_corpse(persona: String, label: String, fallback_materia
 			_register_character_record(label, root, persona, persona_asset, visual, null, 0)
 			_apply_death_pose(label, body_asset)
 			_apply_persona_corpse_skin(label, persona_asset.get("corpse", {}), 0)
+			_apply_persona_corpse_death_treatment(label, persona_asset.get("corpse", {}), 0)
 			return root
 		if instance != null:
 			instance.queue_free()
@@ -141,6 +143,7 @@ func instantiate_persona_corpse(persona: String, label: String, fallback_materia
 	root.add_child(fallback)
 	_register_character_record(label, root, persona, persona_asset, fallback, null, 0)
 	_apply_persona_corpse_skin(label, persona_asset.get("corpse", {}), 0)
+	_apply_persona_corpse_death_treatment(label, persona_asset.get("corpse", {}), 0)
 	return root
 
 
@@ -190,7 +193,6 @@ func _register_character_record(character_id: String, character_node: Node3D, pe
 		"weaponAttachMode": _weapon_socket_kind(weapon_socket),
 		"weaponSocketKind": _weapon_socket_kind(weapon_socket),
 		"armorOverlay": asset.get("armorOverlay", null),
-		"armorRegion": asset.get("armorRegion", null),
 		"bodyMeshes": _mesh_descendants(visual),
 		"flashAge": 999.0,
 		"armourTier": armour_tier,
@@ -198,15 +200,40 @@ func _register_character_record(character_id: String, character_node: Node3D, pe
 		"surfaceArmourTier": armour_tier,
 		"bodyArmourTier": armour_tier,
 		"armourRenderMode": currentArmourRenderMode,
+		"armourPropSelection": currentArmourPropSelection,
+		"armourPropId": "",
 		"usesModularArmour": false,
 		"usesArmourPaint": false,
-		"usesArmourRegion": false,
 		"skinMode": "skin",
 	}
 
 
+func _is_registered_character_live(character_id: String) -> bool:
+	if not registered_characters.has(character_id):
+		return false
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var node_value = character.get("node", null)
+	return node_value != null and is_instance_valid(node_value)
+
+
+func _forget_registered_character(character_id: String) -> void:
+	registered_characters.erase(character_id)
+	equipped_state_by_character.erase(character_id)
+	body_materials_by_character.erase(character_id)
+	skin_mark_nodes_by_character.erase(character_id)
+	corpse_mark_nodes_by_character.erase(character_id)
+	corpse_bone_mutations_by_character.erase(character_id)
+	armor_overlay_nodes_by_character.erase(character_id)
+	last_applied_skin_approach.erase(character_id)
+	last_applied_corpse_approach.erase(character_id)
+
+
 func update_equipment(equipped_by_character: Dictionary) -> void:
-	for character_id in registered_characters.keys():
+	for character_key in registered_characters.keys():
+		var character_id := str(character_key)
+		if not _is_registered_character_live(character_id):
+			_forget_registered_character(character_id)
+			continue
 		var slots = equipped_by_character.get(character_id, null)
 		var weapon_name := _slot_name(slots, "weapon")
 		var armour_name := _slot_name(slots, "armour")
@@ -229,6 +256,24 @@ func set_armour_render_mode(mode: String) -> void:
 	currentArmourRenderMode = normalized
 	for character_key in registered_characters.keys():
 		var character_id := str(character_key)
+		if not _is_registered_character_live(character_id):
+			_forget_registered_character(character_id)
+			continue
+		var equipped: Dictionary = equipped_state_by_character.get(character_id, {})
+		_swap_armour(character_id, str(equipped.get("armour", "")))
+
+
+func set_armour_prop_selection(prop_id: String) -> void:
+	var normalized := _normalized_armour_prop_selection(prop_id)
+	if normalized.is_empty():
+		push_warning("unsupported armour prop selection: %s" % prop_id)
+		return
+	currentArmourPropSelection = normalized
+	for character_key in registered_characters.keys():
+		var character_id := str(character_key)
+		if not _is_registered_character_live(character_id):
+			_forget_registered_character(character_id)
+			continue
 		var equipped: Dictionary = equipped_state_by_character.get(character_id, {})
 		_swap_armour(character_id, str(equipped.get("armour", "")))
 
@@ -248,6 +293,7 @@ func apply_neutral_body_material(character_id: String, material: Material, armou
 	character["surfaceArmourTier"] = max(0, armour_tier)
 	character["bodyArmourTier"] = body_tier
 	character["armourRenderMode"] = currentArmourRenderMode
+	character["armourPropSelection"] = currentArmourPropSelection
 	character["usesArmourPaint"] = false
 	character["skinMode"] = "neutral"
 	registered_characters[character_id] = character
@@ -255,7 +301,16 @@ func apply_neutral_body_material(character_id: String, material: Material, armou
 
 func _normalized_armour_render_mode(mode: String) -> String:
 	var clean := mode.strip_edges()
-	if clean == ARMOUR_RENDER_MODULAR or clean == ARMOUR_RENDER_REGION:
+	if clean == ARMOUR_RENDER_MODULAR:
+		return clean
+	return ""
+
+
+func _normalized_armour_prop_selection(prop_id: String) -> String:
+	var clean := prop_id.strip_edges()
+	if clean.is_empty() or clean.to_lower() == "all":
+		return "all"
+	if armour_prop_catalog_by_id.has(clean):
 		return clean
 	return ""
 
@@ -357,7 +412,11 @@ func weapon_socket_for_character(character_id: String) -> Node3D:
 
 
 func tick(delta: float) -> void:
-	for character_id in registered_characters.keys():
+	for character_key in registered_characters.keys():
+		var character_id := str(character_key)
+		if not _is_registered_character_live(character_id):
+			_forget_registered_character(character_id)
+			continue
 		var character: Dictionary = registered_characters.get(character_id, {})
 		var socket := _weapon_socket_for_character(character_id)
 		if socket != null:
@@ -375,6 +434,7 @@ func _load_manifest() -> void:
 	character_assets_by_persona.clear()
 	weapon_assets_by_name.clear()
 	armour_assets_by_name.clear()
+	armour_prop_catalog_by_id.clear()
 	environment_assets_by_role.clear()
 	corpse_body_asset.clear()
 	var text := FileAccess.get_file_as_string(MANIFEST_PATH)
@@ -390,6 +450,15 @@ func _load_manifest() -> void:
 		corpse_body_asset = (manifest.get("corpseBody", {}) as Dictionary).duplicate(true)
 	if corpse_body_asset.is_empty() and not shared_body.is_empty():
 		corpse_body_asset = shared_body.duplicate(true)
+	var armour_props = manifest.get("armourProps", [])
+	if typeof(armour_props) == TYPE_ARRAY:
+		for prop_value in (armour_props as Array):
+			if typeof(prop_value) != TYPE_DICTIONARY:
+				continue
+			var prop := prop_value as Dictionary
+			var prop_id := str(prop.get("id", ""))
+			if not prop_id.is_empty():
+				armour_prop_catalog_by_id[prop_id] = prop
 	for asset in manifest.get("assets", []):
 		if typeof(asset) != TYPE_DICTIONARY:
 			continue
@@ -545,34 +614,28 @@ func _swap_armour(character_id: String, armour_name: String) -> void:
 	var tier := 0
 	if armour_name.is_empty():
 		_clear_modular_submesh_armor(character_id)
-		_clear_adhering_region_armour(character_id)
 		_reapply_current_body_layer(character_id, tier)
-		_record_armour_state(character_id, armour_name, tier, false, false)
+		_record_armour_state(character_id, armour_name, tier, false)
 		return
 	var asset: Dictionary = armour_assets_by_name.get(armour_name, {})
 	tier = int(asset.get("tier", 1))
-	if currentArmourRenderMode == ARMOUR_RENDER_REGION:
-		_clear_modular_submesh_armor(character_id)
-		var armor_region := _armor_region_for_character(character_id)
-		if not armor_region.is_empty():
-			_reapply_current_body_layer(character_id, tier)
-			if _apply_adhering_region_armour(character_id, armor_region, tier):
-				_record_armour_state(character_id, armour_name, tier, false, true)
-				return
-		_clear_adhering_region_armour(character_id)
-		_reapply_current_body_layer(character_id, tier)
-		_record_armour_state(character_id, armour_name, tier, false, false)
-		return
-	_clear_adhering_region_armour(character_id)
-	var armor_overlay := _armor_overlay_for_character(character_id)
+	var armor_overlay := _selected_armour_prop_for_character(character_id)
 	if not armor_overlay.is_empty():
 		_reapply_current_body_layer(character_id, tier)
 		if _apply_modular_submesh_armor(character_id, armor_overlay, tier):
-			_record_armour_state(character_id, armour_name, tier, true, false)
+			_record_armour_state(character_id, armour_name, tier, true, _armour_prop_id(armor_overlay))
 			return
 	_clear_modular_submesh_armor(character_id)
 	_reapply_current_body_layer(character_id, tier)
-	_record_armour_state(character_id, armour_name, tier, false, false)
+	_record_armour_state(character_id, armour_name, tier, false)
+
+
+func _selected_armour_prop_for_character(character_id: String) -> Dictionary:
+	if currentArmourPropSelection != "all" and armour_prop_catalog_by_id.has(currentArmourPropSelection):
+		var selected = armour_prop_catalog_by_id.get(currentArmourPropSelection, {})
+		if typeof(selected) == TYPE_DICTIONARY:
+			return selected as Dictionary
+	return _armor_overlay_for_character(character_id)
 
 
 func _armor_overlay_for_character(character_id: String) -> Dictionary:
@@ -580,14 +643,6 @@ func _armor_overlay_for_character(character_id: String) -> Dictionary:
 	var overlay = character.get("armorOverlay", null)
 	if typeof(overlay) == TYPE_DICTIONARY:
 		return overlay as Dictionary
-	return {}
-
-
-func _armor_region_for_character(character_id: String) -> Dictionary:
-	var character: Dictionary = registered_characters.get(character_id, {})
-	var region = character.get("armorRegion", null)
-	if typeof(region) == TYPE_DICTIONARY:
-		return region as Dictionary
 	return {}
 
 
@@ -633,7 +688,7 @@ func _record_weapon_state(character_id: String, weapon_name: String) -> void:
 	registered_characters[character_id] = character
 
 
-func _record_armour_state(character_id: String, armour_name: String, armour_tier: int, uses_modular: bool, uses_region: bool) -> void:
+func _record_armour_state(character_id: String, armour_name: String, armour_tier: int, uses_modular: bool, applied_prop_id: String = "") -> void:
 	if not registered_characters.has(character_id):
 		return
 	var body_tier := _effective_body_armour_tier(character_id, armour_tier)
@@ -643,11 +698,19 @@ func _record_armour_state(character_id: String, armour_name: String, armour_tier
 	character["equippedArmourTier"] = max(0, armour_tier)
 	character["bodyArmourTier"] = body_tier
 	character["armourRenderMode"] = currentArmourRenderMode
+	character["armourPropSelection"] = currentArmourPropSelection
+	character["armourPropId"] = applied_prop_id
 	character["usesModularArmour"] = uses_modular
 	character["usesArmourPaint"] = false
-	character["usesArmourRegion"] = uses_region
 	character["flashAge"] = 0.0
 	registered_characters[character_id] = character
+
+
+func _armour_prop_id(armor_overlay_block: Dictionary) -> String:
+	var prop_id := str(armor_overlay_block.get("id", ""))
+	if not prop_id.is_empty():
+		return prop_id
+	return str(armor_overlay_block.get("catalogPropId", ""))
 
 
 func _apply_modular_submesh_armor(character_id: String, armor_overlay_block: Dictionary, armour_tier: int = 0) -> bool:
@@ -684,6 +747,7 @@ func _apply_modular_submesh_armor(character_id: String, armor_overlay_block: Dic
 		push_warning("armorOverlay could not resolve a live bind bone for %s" % character_id)
 		return false
 	var attached_meshes := []
+	var prop_scale := _armour_prop_scale(armor_overlay_block)
 	for mesh_value in meshes:
 		var mesh := mesh_value as MeshInstance3D
 		if mesh == null or not is_instance_valid(mesh):
@@ -695,7 +759,7 @@ func _apply_modular_submesh_armor(character_id: String, armor_overlay_block: Dic
 		mesh.name = _unique_child_name(armour_socket, "armor_overlay_%s" % str(mesh.name))
 		mesh.owner = null
 		armour_socket.add_child(mesh)
-		mesh.transform = local_transform
+		mesh.transform = _scaled_transform(local_transform, prop_scale)
 		mesh.skeleton = NodePath("")
 		mesh.skin = null
 		_apply_tier_material(mesh, armour_tier, "armour")
@@ -711,55 +775,15 @@ func _apply_modular_submesh_armor(character_id: String, armor_overlay_block: Dic
 func _clear_modular_submesh_armor(character_id: String) -> void:
 	var nodes: Array = armor_overlay_nodes_by_character.get(character_id, [])
 	for node_value in nodes:
-		var node := node_value as Node
-		if node != null and is_instance_valid(node):
+		var node := _valid_node(node_value)
+		if node != null:
 			node.queue_free()
 	armor_overlay_nodes_by_character.erase(character_id)
 	if registered_characters.has(character_id):
 		var character: Dictionary = registered_characters.get(character_id, {})
-		_detach_named_child(character.get("skeleton") as Node, ARMOUR_SOCKET_NAME)
+		_detach_named_child(_valid_node(character.get("skeleton")), ARMOUR_SOCKET_NAME)
 		character["usesModularArmour"] = false
 		registered_characters[character_id] = character
-
-
-func _apply_adhering_region_armour(character_id: String, armor_region_block: Dictionary, armour_tier: int = 0) -> bool:
-	_clear_adhering_region_armour(character_id)
-	if armor_region_block.is_empty() or not registered_characters.has(character_id):
-		return false
-	var parent := _visual_for_character(character_id)
-	if parent == null:
-		return false
-	var params := _params_from_block(armor_region_block)
-	var applied := false
-	for spec_value in _array_from_value(params.get("decals", [])):
-		if typeof(spec_value) != TYPE_DICTIONARY:
-			continue
-		var spec: Dictionary = (spec_value as Dictionary).duplicate(true)
-		spec["characterId"] = character_id
-		if not spec.has("tint"):
-			spec["tint"] = _armour_region_tint(armour_tier)
-		if not spec.has("alpha"):
-			spec["alpha"] = 0.72
-		var mark := _apply_projected_mark(parent, spec)
-		_track_mark_node(character_id, mark, armor_region_nodes_by_character)
-		applied = applied or mark != null
-	return applied
-
-
-func _clear_adhering_region_armour(character_id: String) -> void:
-	_clear_mark_nodes(character_id, armor_region_nodes_by_character)
-	if registered_characters.has(character_id):
-		var character: Dictionary = registered_characters.get(character_id, {})
-		character["usesArmourRegion"] = false
-		registered_characters[character_id] = character
-
-
-func _armour_region_tint(armour_tier: int) -> String:
-	if armour_tier >= 4:
-		return "#d4e6f0"
-	if armour_tier >= 3:
-		return "#9fb8c6"
-	return "#7f8f96"
 
 
 func _source_local_transform_for_mesh(mesh: MeshInstance3D, source_root: Node3D) -> Transform3D:
@@ -782,6 +806,28 @@ func _unique_child_name(parent: Node, desired_name: String) -> String:
 		candidate = "%s_%d" % [clean_name, suffix]
 		suffix += 1
 	return candidate
+
+
+func _armour_prop_scale(armor_overlay_block: Dictionary) -> float:
+	var default_scale := 1.0
+	var adherence = manifest.get("round9Adherence", {})
+	if typeof(adherence) == TYPE_DICTIONARY:
+		var default_value = (adherence as Dictionary).get("armourPropScaleDefault", default_scale)
+		if typeof(default_value) == TYPE_INT or typeof(default_value) == TYPE_FLOAT:
+			default_scale = float(default_value)
+	var value = armor_overlay_block.get("propScale", default_scale)
+	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+		return max(float(value), 0.01)
+	return max(default_scale, 0.01)
+
+
+func _scaled_transform(transform: Transform3D, prop_scale: float) -> Transform3D:
+	var out := transform
+	var scalar: float = max(prop_scale, 0.01)
+	var scale_vector: Vector3 = Vector3.ONE * scalar
+	out.origin *= scalar
+	out.basis = out.basis.scaled(scale_vector)
+	return out
 
 
 func _ensure_dynamic_armour_socket(skeleton: Skeleton3D, armor_overlay_block: Dictionary, character_id: String) -> BoneAttachment3D:
@@ -876,6 +922,14 @@ func _detach_and_free_node(node: Node) -> void:
 	if parent != null:
 		parent.remove_child(node)
 	node.queue_free()
+
+
+func _valid_node(value) -> Node:
+	if value == null or not is_instance_valid(value):
+		return null
+	if value is Node:
+		return value as Node
+	return null
 
 
 func _weapon_attach_bone_for_character(character: Dictionary) -> String:
@@ -1112,7 +1166,7 @@ func _apply_skin_palette_flat(character_id: String, skin: Dictionary, armour_tie
 	var palette: Dictionary = params.get("palette", {})
 	if palette.is_empty():
 		palette = asset.get("palette", {})
-	var meshes: Array = character.get("bodyMeshes", [])
+	var meshes := _body_meshes_for_character(character_id)
 	for i in range(meshes.size()):
 		var mesh := meshes[i] as MeshInstance3D
 		if mesh == null or not is_instance_valid(mesh):
@@ -1124,42 +1178,13 @@ func _apply_skin_palette_flat(character_id: String, skin: Dictionary, armour_tie
 
 func _apply_skin_pbr_texture(character_id: String, skin: Dictionary, armour_tier: int) -> void:
 	var params := _params_from_block(skin)
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.66, 0.66, 0.68)
-	var albedo := _load_art_texture(str(params.get("albedo", "")))
-	if albedo != null:
-		material.albedo_texture = albedo
-	var normal := _load_art_texture(str(params.get("normal", "")))
-	if normal != null:
-		material.normal_enabled = true
-		material.normal_texture = normal
-	var roughness := _load_art_texture(str(params.get("roughness", "")))
-	if roughness != null:
-		material.roughness_texture = roughness
-	var metallic := _load_art_texture(str(params.get("metallic", "")))
-	if metallic != null:
-		material.metallic_texture = metallic
-	var ao := _load_art_texture(str(params.get("ao", "")))
-	if ao != null:
-		material.ao_enabled = true
-		material.ao_texture = ao
-	_apply_armour_tier_to_standard_material(material, armour_tier)
+	var material := _uv2_body_texture_material(params, Color(0.66, 0.66, 0.68), Color.WHITE, armour_tier)
 	_apply_material_to_body_meshes(character_id, material)
 
 
 func _apply_skin_pattern_texture(character_id: String, skin: Dictionary, armour_tier: int) -> void:
 	var params := _params_from_block(skin)
-	var material := StandardMaterial3D.new()
-	material.albedo_color = _color_from_hex(str(params.get("tint", "#8df0ff")), Color(0.55, 0.94, 1.0))
-	var texture := _load_art_texture(str(params.get("albedo", "")))
-	if texture != null:
-		material.albedo_texture = texture
-	var sampling_mode := str(params.get("samplingMode", "uv"))
-	material.uv1_triplanar = sampling_mode == "triplanar"
-	material.uv1_scale = _triplanar_scale_from_params(params, Vector3(1.0, 1.0, 1.0))
-	if material.uv1_triplanar:
-		material.uv1_triplanar_sharpness = clamp(float(params.get("triplanarSharpness", params.get("uv1_triplanar_sharpness", 1.0))), 0.01, 150.0)
-	_apply_armour_tier_to_standard_material(material, armour_tier)
+	var material := _uv2_body_texture_material(params, _color_from_hex(str(params.get("baseColor", "#8df0ff")), Color(0.55, 0.94, 1.0)), _color_from_hex(str(params.get("tint", "#ffffff")), Color.WHITE), armour_tier)
 	_apply_material_to_body_meshes(character_id, material)
 
 
@@ -1220,6 +1245,8 @@ func _apply_persona_corpse_skin(character_id: String, corpse_block: Dictionary, 
 	match approach:
 		"blood_saturation_overlay":
 			_apply_corpse_blood_saturation(character_id, corpse_block, body_tier)
+		"small_bone_attached_marks":
+			_apply_corpse_wound_decals(character_id, corpse_block, body_tier)
 		"wound_cluster_decals":
 			_apply_corpse_wound_decals(character_id, corpse_block, body_tier)
 		"gore_pool_decal":
@@ -1247,6 +1274,19 @@ func _apply_persona_corpse_skin(character_id: String, corpse_block: Dictionary, 
 	character["usesArmourPaint"] = false
 	character["skinMode"] = "corpse"
 	registered_characters[character_id] = character
+
+
+func _apply_persona_corpse_death_treatment(character_id: String, corpse_block: Dictionary, armour_tier: int) -> void:
+	if not registered_characters.has(character_id):
+		return
+	var treatment_value = corpse_block.get("deathTreatment", {})
+	if typeof(treatment_value) != TYPE_DICTIONARY:
+		return
+	var treatment := treatment_value as Dictionary
+	if str(treatment.get("approach", "")) != "dismemberment_baked":
+		return
+	var body_tier := _effective_body_armour_tier(character_id, armour_tier)
+	_apply_corpse_dismemberment(character_id, treatment, body_tier)
 
 
 func _apply_corpse_blood_saturation(character_id: String, corpse_block: Dictionary, armour_tier: int) -> void:
@@ -1304,6 +1344,7 @@ func _apply_corpse_dismemberment(character_id: String, corpse_block: Dictionary,
 	# adherence_mesh_baked: whole-body corpse state is baked into skeleton/mesh transforms.
 	_apply_corpse_blood_saturation(character_id, {"params": {"tint": "#4d0007", "factor": 0.68, "saturation": 0.85}}, armour_tier)
 	var params := _params_from_block(corpse_block)
+	var fallback_bone_scale: float = max(float(params.get("fallbackBoneScale", 0.001)), 0.0001)
 	var visual := _visual_for_character(character_id)
 	var character: Dictionary = registered_characters.get(character_id, {})
 	var skeleton := character.get("skeleton") as Skeleton3D
@@ -1321,7 +1362,7 @@ func _apply_corpse_dismemberment(character_id: String, corpse_block: Dictionary,
 					"bone": bone_index,
 					"scale": skeleton.get_bone_pose_scale(bone_index),
 				})
-				skeleton.set_bone_pose_scale(bone_index, Vector3.ONE * 0.001)
+				skeleton.set_bone_pose_scale(bone_index, Vector3.ONE * fallback_bone_scale)
 		var node := _first_descendant_named(visual, bone_name) as Node3D
 		if node != null:
 			mutations.append({
@@ -1331,7 +1372,7 @@ func _apply_corpse_dismemberment(character_id: String, corpse_block: Dictionary,
 				"scale": node.scale,
 			})
 			node.visible = false
-			node.scale = Vector3.ONE * 0.001
+			node.scale = Vector3.ONE * fallback_bone_scale
 	corpse_bone_mutations_by_character[character_id] = mutations
 	_apply_corpse_mark_specs(character_id, corpse_block, "stumpDecals", false)
 
@@ -1466,8 +1507,16 @@ func _node_contains(root: Node, candidate: Node) -> bool:
 
 func _body_meshes_for_character(character_id: String) -> Array:
 	var character: Dictionary = registered_characters.get(character_id, {})
-	var meshes: Array = character.get("bodyMeshes", [])
-	return meshes
+	var meshes = character.get("bodyMeshes", [])
+	var out := []
+	if typeof(meshes) != TYPE_ARRAY:
+		return out
+	for mesh_value in (meshes as Array):
+		if mesh_value == null or not is_instance_valid(mesh_value):
+			continue
+		if mesh_value is MeshInstance3D:
+			out.append(mesh_value)
+	return out
 
 
 func _visual_for_character(character_id: String) -> Node3D:
@@ -1516,6 +1565,41 @@ func _body_region_shader_material(params: Dictionary, armour_tier: int) -> Mater
 	material.set_shader_parameter("armour_tier", armour_tier)
 	material.set_shader_parameter("armour_amount", clamp(float(armour_tier) / 4.0, 0.0, 1.0))
 	return material
+
+
+func _uv2_body_texture_material(params: Dictionary, fallback_color: Color, fallback_tint: Color, armour_tier: int) -> Material:
+	var shader := _load_art_shader(SKIN_UV2_SHADER_PATH)
+	if shader == null:
+		push_warning("skin UV2 shader did not resolve: %s" % SKIN_UV2_SHADER_PATH)
+		var fallback := StandardMaterial3D.new()
+		fallback.albedo_color = fallback_color * fallback_tint
+		_apply_armour_tier_to_standard_material(fallback, armour_tier)
+		return fallback
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("base_color", _color_param_from_aliases(params, ["baseColor", "base_color"], fallback_color))
+	material.set_shader_parameter("tint", _color_param_from_aliases(params, ["tint"], fallback_tint))
+	material.set_shader_parameter("uv2_scale", _vector2_param_from_aliases(params, ["uv2_scale", "uv2Scale", "uv1_scale"], Vector2.ONE))
+	material.set_shader_parameter("uv2_offset", _vector2_param_from_aliases(params, ["uv2_offset", "uv2Offset"], Vector2.ZERO))
+	material.set_shader_parameter("roughness", _float_param_from_aliases(params, ["roughnessValue", "roughness_value"], 0.68))
+	material.set_shader_parameter("metallic", _float_param_from_aliases(params, ["metallicValue", "metallic_value"], 0.0))
+	material.set_shader_parameter("normal_depth", _float_param_from_aliases(params, ["normalDepth", "normal_depth"], 1.0))
+	material.set_shader_parameter("ao_strength", _float_param_from_aliases(params, ["aoStrength", "ao_strength"], 1.0))
+	material.set_shader_parameter("armour_tier", armour_tier)
+	material.set_shader_parameter("armour_amount", clamp(float(armour_tier) / 4.0, 0.0, 1.0))
+	_set_uv2_texture_param(material, params, ["albedo", "albedoTexture", "texture", "patternTexture"], "albedo_texture", "use_albedo_texture")
+	_set_uv2_texture_param(material, params, ["normal", "normalTexture"], "normal_texture", "use_normal_texture")
+	_set_uv2_texture_param(material, params, ["roughness", "roughnessTexture"], "roughness_texture", "use_roughness_texture")
+	_set_uv2_texture_param(material, params, ["metallic", "metallicTexture"], "metallic_texture", "use_metallic_texture")
+	_set_uv2_texture_param(material, params, ["ao", "aoTexture", "ambientOcclusion"], "ao_texture", "use_ao_texture")
+	return material
+
+
+func _set_uv2_texture_param(material: ShaderMaterial, params: Dictionary, aliases: Array[String], texture_param: String, enabled_param: String) -> void:
+	var texture := _load_art_texture(_string_param_from_aliases(params, aliases))
+	material.set_shader_parameter(enabled_param, texture != null)
+	if texture != null:
+		material.set_shader_parameter(texture_param, texture)
 
 
 func _standard_material_from_body_regions(params: Dictionary, armour_tier: int) -> StandardMaterial3D:
@@ -1613,6 +1697,44 @@ func _color_from_param(value, fallback: Color) -> Color:
 				return Color(float(values[0]), float(values[1]), float(values[2]), float(values[3]))
 			if values.size() >= 3:
 				return Color(float(values[0]), float(values[1]), float(values[2]))
+	return fallback
+
+
+func _color_param_from_aliases(params: Dictionary, keys: Array[String], fallback: Color) -> Color:
+	for key in keys:
+		if params.has(key):
+			return _color_from_param(params.get(key), fallback)
+	return fallback
+
+
+func _vector2_param_from_aliases(params: Dictionary, keys: Array[String], fallback: Vector2) -> Vector2:
+	for key in keys:
+		if not params.has(key):
+			continue
+		var value = params.get(key)
+		match typeof(value):
+			TYPE_VECTOR2:
+				return value
+			TYPE_VECTOR3:
+				var vector3: Vector3 = value
+				return Vector2(vector3.x, vector3.y)
+			TYPE_INT, TYPE_FLOAT:
+				var scalar: float = max(float(value), 0.01)
+				return Vector2.ONE * scalar
+			TYPE_ARRAY:
+				var values := _array_from_value(value)
+				if values.size() >= 2:
+					return Vector2(float(values[0]), float(values[1]))
+				if values.size() == 1:
+					return Vector2.ONE * float(values[0])
+	return fallback
+
+
+func _float_param_from_aliases(params: Dictionary, keys: Array[String], fallback: float) -> float:
+	for key in keys:
+		var value = params.get(key, null)
+		if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+			return float(value)
 	return fallback
 
 

@@ -3,23 +3,30 @@ extends SceneTree
 const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
 const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
 const BASE_SCALE := 1.0
-const EXPECTED_SCHEMA_VERSION := 9
+const EXPECTED_SCHEMA_VERSION := 10
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
 const UNIVERSAL_BODY_FILE := "characters/camper-mesh2motion-human-base.glb"
 const SKIN_UV_PAINTED := "uv_painted"
+const SKIN_SHORTLIST_APPROACHES := ["pbr_texture_atlas", "pattern_texture"]
+const RETIRED_PERSONA_SKIN_APPROACHES := ["palette_flat", "toon_cel_shader", "emissive_trim_shader", "multi_material_split", "rim_fresnel_shader"]
 const GORE_BONE_ATTACHED := "bone_attached"
 const GORE_MESH_BAKED := "mesh_baked"
 const RETIRED_SKIN_DECAL := "decal_stickers"
 const WEAPON_DYNAMIC := "dynamic_hand_bone"
 const RETIRED_WEAPON_STATIC := "static_root_socket"
 const ARMOUR_PROP := "modular_submesh_prop"
-const ARMOUR_REGION := "adhering_region"
 const RETIRED_ARMOUR_PAINT := "armor_as_paint"
+const RETIRED_ARMOUR_FLAT := "adhering" + "_region"
+const MIN_ARMOUR_PROP_CATALOG_ENTRIES := 6
 const ARMED_ATTACK_KIND := "attack_armed"
-const DONOR_GORE_PERSONAS := ["duelist", "paranoid", "camper"]
-const MIN_DONOR_GORE_MARKS := 6
-const MAX_DONOR_GORE_MARK_AXIS := 0.12
-const MIN_ARMOUR_REGION_MARKS := 2
+const SMALL_BONE_ATTACHED_MARKS := "small_bone_attached_marks"
+const DEATH_TREATMENT_APPROACH := "dismemberment_baked"
+const DEATH_TREATMENT_METHOD := "bone_hide"
+const MIN_LIVE_GORE_MARKS := 10
+const MAX_LIVE_GORE_MARK_AXIS := 0.12
+const REQUIRED_LIVE_GORE_MARK_TYPE := "splash"
+const RETIRED_LIVE_CORPSE_APPROACHES := ["blood_saturation_overlay", "charred_burned_texture", "decay_desaturation", "gore_pool_decal"]
+const MESH2MOTION_GORE_BONES := ["spine_01", "spine_02", "spine_03", "upperarm_l", "lowerarm_r", "thigh_l", "head", "hand_l", "hand_r"]
 
 var failures: Array[String] = []
 var equipment_attachment: Node
@@ -51,6 +58,10 @@ func _run() -> void:
 		_fail("EquipmentMeshAttachment missing configure")
 		_finish()
 		return
+	if equipment_attachment.has_method(_retired_armour_apply_method()):
+		_fail("EquipmentMeshAttachment still exposes retired flat armour apply path")
+	if equipment_attachment.has_method(_retired_armour_clear_method()):
+		_fail("EquipmentMeshAttachment still exposes retired flat armour clear path")
 	await _spawn_registered_personas()
 	await _audit_skin_and_gore_paths()
 	await _audit_weapon_modes()
@@ -79,9 +90,11 @@ func _assert_manifest_matrix() -> void:
 		_fail("manifest body is not the universal mesh2motion file")
 	var forbidden_key := _body_substitution_key()
 	var skin_families := {}
+	var skin_approaches := {}
 	var gore_families := {}
 	var armour_overlay_count := 0
-	var armour_region_count := 0
+	var retired_armour_block_key := _retired_armour_block_key()
+	_assert_armour_prop_catalog(_array_from_value(manifest.get("armourProps", [])))
 	for asset in _character_assets():
 		var asset_dict := asset as Dictionary
 		var persona := str(asset_dict.get("personaSlot", ""))
@@ -89,41 +102,43 @@ func _assert_manifest_matrix() -> void:
 			_fail("%s declares a forbidden persona body substitution key" % persona)
 		var skin := _dictionary_block(asset_dict, "skin")
 		_collect_family(skin_families, skin, "%s.skin" % persona)
+		_assert_skin_shape(persona, skin)
+		skin_approaches[str(skin.get("approach", ""))] = true
 		if str(skin.get("adherenceApproach", "")) != SKIN_UV_PAINTED:
 			_fail("%s skin is not uv_painted-only" % persona)
 		if str(skin.get("approach", "")) == RETIRED_SKIN_DECAL:
 			_fail("%s still declares retired decal_stickers skin" % persona)
 		var corpse := _dictionary_block(asset_dict, "corpse")
 		_collect_family(gore_families, corpse, "%s.corpse" % persona)
-		if _is_donor_gore_persona(persona):
-			_assert_donor_gore_shape(persona, corpse)
+		_assert_live_gore_shape(persona, corpse)
+		var death_treatment := _dictionary_block(corpse, "deathTreatment")
+		_collect_family(gore_families, death_treatment, "%s.corpse.deathTreatment" % persona)
+		_assert_death_treatment_shape(persona, death_treatment)
 		var overlay = asset_dict.get("armorOverlay", null)
 		if typeof(overlay) == TYPE_DICTIONARY:
 			armour_overlay_count += 1
 			_assert_armour_overlay_metadata(persona, overlay as Dictionary)
-		var region = asset_dict.get("armorRegion", null)
-		if typeof(region) == TYPE_DICTIONARY:
-			armour_region_count += 1
-			_assert_armour_region_metadata(persona, region as Dictionary)
-		elif _is_donor_gore_persona(persona):
-			_fail("%s donor persona is missing donated armorRegion" % persona)
+		if asset_dict.has(retired_armour_block_key):
+			_fail("%s still declares the retired flat armour block" % persona)
 	if skin_families.size() != 1 or not skin_families.has(SKIN_UV_PAINTED):
 		_fail("skin layer must be uv_painted-only, found %s" % str(skin_families.keys()))
-	if not gore_families.has(SKIN_UV_PAINTED) or not gore_families.has(GORE_BONE_ATTACHED) or not gore_families.has(GORE_MESH_BAKED):
-		_fail("gore layer must cover uv_painted, bone_attached, and mesh_baked, found %s" % str(gore_families.keys()))
+	if skin_approaches.size() != SKIN_SHORTLIST_APPROACHES.size():
+		_fail("skin approach selection must be the pbr/pattern shortlist, found %s" % str(skin_approaches.keys()))
+	for approach in SKIN_SHORTLIST_APPROACHES:
+		if not skin_approaches.has(str(approach)):
+			_fail("skin approach selection missing %s" % str(approach))
+	if gore_families.size() != 2 or not gore_families.has(GORE_BONE_ATTACHED) or not gore_families.has(GORE_MESH_BAKED):
+		_fail("gore layer must cover only live bone_attached marks plus mesh_baked death treatment, found %s" % str(gore_families.keys()))
 	if armour_overlay_count < 3:
 		_fail("armour prop approach needs at least 3 modular_submesh_prop overlays, found %d" % armour_overlay_count)
-	if armour_region_count < DONOR_GORE_PERSONAS.size():
-		_fail("armour region approach needs donor armorRegion blocks for %s, found %d" % [str(DONOR_GORE_PERSONAS), armour_region_count])
 	_assert_weapon_manifest_modes()
 	_assert_armour_manifest_modes()
-	print("adherence matrix schema=%d skin=%s gore=%s weapons=[%s] armour=[%s,%s]" % [
+	print("adherence matrix schema=%d skin=%s gore=%s weapons=[%s] armour=[%s]" % [
 		EXPECTED_SCHEMA_VERSION,
 		", ".join(PackedStringArray(skin_families.keys())),
 		", ".join(PackedStringArray(gore_families.keys())),
 		WEAPON_DYNAMIC,
 		ARMOUR_PROP,
-		ARMOUR_REGION,
 	])
 
 
@@ -146,12 +161,46 @@ func _assert_weapon_manifest_modes() -> void:
 func _assert_armour_manifest_modes() -> void:
 	var round9 := _dictionary_block(manifest, "round9Adherence")
 	var armour_modes := _mode_set(_array_from_value(round9.get("armorApproaches", [])))
-	if armour_modes.size() != 2 or not armour_modes.has(ARMOUR_PROP) or not armour_modes.has(ARMOUR_REGION):
-		_fail("round9Adherence.armorApproaches must declare prop and adhering_region modes only")
+	if armour_modes.size() != 1 or not armour_modes.has(ARMOUR_PROP):
+		_fail("round9Adherence.armorApproaches must declare the modular prop mode only")
 	if armour_modes.has(RETIRED_ARMOUR_PAINT):
 		_fail("round9Adherence.armorApproaches still declares retired armor_as_paint")
+	if armour_modes.has(RETIRED_ARMOUR_FLAT):
+		_fail("round9Adherence.armorApproaches still declares retired flat armour mode")
 	if manifest.has("armorAsPaint"):
 		_fail("manifest still declares retired armorAsPaint user mode")
+
+
+func _assert_armour_prop_catalog(armour_props: Array) -> void:
+	if armour_props.size() < MIN_ARMOUR_PROP_CATALOG_ENTRIES:
+		_fail("manifest armourProps expected at least %d entries, found %d" % [MIN_ARMOUR_PROP_CATALOG_ENTRIES, armour_props.size()])
+	for index in range(armour_props.size()):
+		var value = armour_props[index]
+		if typeof(value) != TYPE_DICTIONARY:
+			_fail("manifest armourProps[%d] is not a Dictionary" % index)
+			continue
+		var prop := value as Dictionary
+		var prop_id := str(prop.get("id", ""))
+		if prop_id.is_empty():
+			_fail("manifest armourProps[%d] missing id" % index)
+		if str(prop.get("approach", "")) != ARMOUR_PROP:
+			_fail("%s armourProps approach is not %s" % [prop_id, ARMOUR_PROP])
+		if str(prop.get("adherenceApproach", "")) != GORE_BONE_ATTACHED:
+			_fail("%s armourProps adherenceApproach is not bone_attached" % prop_id)
+		if str(prop.get("bindBone", "")).is_empty():
+			_fail("%s armourProps bindBone is empty" % prop_id)
+		var prop_scale := float(prop.get("propScale", 0.0))
+		if prop_scale <= 0.0 or prop_scale > 1.0:
+			_fail("%s armourProps propScale must be > 0 and <= 1, got %s" % [prop_id, str(prop.get("propScale", null))])
+
+
+func _assert_skin_shape(persona: String, skin: Dictionary) -> void:
+	var approach := str(skin.get("approach", ""))
+	if not SKIN_SHORTLIST_APPROACHES.has(approach):
+		_fail("%s skin.approach is outside the pbr/pattern shortlist: %s" % [persona, approach])
+	for retired in RETIRED_PERSONA_SKIN_APPROACHES:
+		if approach == str(retired):
+			_fail("%s still selects retired persona skin approach %s" % [persona, approach])
 
 
 func _collect_family(bucket: Dictionary, block_value, label: String) -> void:
@@ -165,24 +214,70 @@ func _collect_family(bucket: Dictionary, block_value, label: String) -> void:
 	bucket[approach] = true
 
 
-func _assert_donor_gore_shape(persona: String, corpse: Dictionary) -> void:
+func _assert_live_gore_shape(persona: String, corpse: Dictionary) -> void:
+	if str(corpse.get("approach", "")) != SMALL_BONE_ATTACHED_MARKS:
+		_fail("%s live gore approach is %s, expected %s" % [persona, str(corpse.get("approach", "")), SMALL_BONE_ATTACHED_MARKS])
+	if RETIRED_LIVE_CORPSE_APPROACHES.has(str(corpse.get("approach", ""))):
+		_fail("%s still selects a retired live gore approach: %s" % [persona, str(corpse.get("approach", ""))])
 	if str(corpse.get("adherenceApproach", "")) != GORE_BONE_ATTACHED:
-		_fail("%s donor gore is not bone_attached" % persona)
+		_fail("%s live gore is not bone_attached" % persona)
 	var params := _dictionary_block(corpse, "params")
 	var decals := _array_from_value(params.get("decals", []))
-	if decals.size() < MIN_DONOR_GORE_MARKS:
-		_fail("%s donor gore has %d marks, expected at least %d small localized marks" % [persona, decals.size(), MIN_DONOR_GORE_MARKS])
+	if decals.size() < MIN_LIVE_GORE_MARKS:
+		_fail("%s live gore has %d marks, expected at least %d small localized marks" % [persona, decals.size(), MIN_LIVE_GORE_MARKS])
+	var has_splash := false
 	for index in range(decals.size()):
 		var spec_value = decals[index]
 		if typeof(spec_value) != TYPE_DICTIONARY:
-			_fail("%s donor gore decal %d is not a Dictionary" % [persona, index])
+			_fail("%s live gore decal %d is not a Dictionary" % [persona, index])
 			continue
 		var spec := spec_value as Dictionary
-		if str(spec.get("bone", "")).is_empty():
-			_fail("%s donor gore decal %d missing bone" % [persona, index])
+		if str(spec.get("markType", "")) == REQUIRED_LIVE_GORE_MARK_TYPE:
+			has_splash = true
+		var bone_name := str(spec.get("bone", ""))
+		if not MESH2MOTION_GORE_BONES.has(bone_name):
+			_fail("%s live gore decal %d bone is outside mesh2motion vocabulary: %s" % [persona, index, bone_name])
+		if str(spec.get("projection", "")) == "floor":
+			_fail("%s live gore decal %d is floor-projected" % [persona, index])
 		var max_axis := _max_numeric_axis(spec.get("size", []))
-		if max_axis > MAX_DONOR_GORE_MARK_AXIS:
-			_fail("%s donor gore decal %d size axis %.3f exceeds %.3f" % [persona, index, max_axis, MAX_DONOR_GORE_MARK_AXIS])
+		if max_axis > MAX_LIVE_GORE_MARK_AXIS:
+			_fail("%s live gore decal %d size axis %.3f exceeds %.3f" % [persona, index, max_axis, MAX_LIVE_GORE_MARK_AXIS])
+	if not has_splash:
+		_fail("%s live gore has no %s markType" % [persona, REQUIRED_LIVE_GORE_MARK_TYPE])
+
+
+func _assert_death_treatment_shape(persona: String, death_treatment: Dictionary) -> void:
+	if death_treatment.is_empty():
+		_fail("%s corpse.deathTreatment is missing" % persona)
+		return
+	if str(death_treatment.get("approach", "")) != DEATH_TREATMENT_APPROACH:
+		_fail("%s corpse.deathTreatment.approach is not %s" % [persona, DEATH_TREATMENT_APPROACH])
+	if str(death_treatment.get("adherenceApproach", "")) != GORE_MESH_BAKED:
+		_fail("%s corpse.deathTreatment.adherenceApproach is not mesh_baked" % persona)
+	var params := _dictionary_block(death_treatment, "params")
+	if str(params.get("method", "")) != DEATH_TREATMENT_METHOD:
+		_fail("%s corpse.deathTreatment.params.method is not %s" % [persona, DEATH_TREATMENT_METHOD])
+	var hide_bones := _array_from_value(params.get("hideBones", []))
+	if hide_bones.is_empty():
+		_fail("%s corpse.deathTreatment.params.hideBones is empty" % persona)
+	for index in range(hide_bones.size()):
+		var bone_name := str(hide_bones[index])
+		if not MESH2MOTION_GORE_BONES.has(bone_name):
+			_fail("%s corpse.deathTreatment.params.hideBones[%d] is outside mesh2motion vocabulary: %s" % [persona, index, bone_name])
+	var stump_decals := _array_from_value(params.get("stumpDecals", []))
+	if stump_decals.is_empty():
+		_fail("%s corpse.deathTreatment.params.stumpDecals is empty" % persona)
+	for index in range(stump_decals.size()):
+		var spec_value = stump_decals[index]
+		if typeof(spec_value) != TYPE_DICTIONARY:
+			_fail("%s corpse.deathTreatment stump decal %d is not a Dictionary" % [persona, index])
+			continue
+		var spec := spec_value as Dictionary
+		var bone_name := str(spec.get("bone", ""))
+		if not MESH2MOTION_GORE_BONES.has(bone_name):
+			_fail("%s corpse.deathTreatment stump decal %d bone is outside mesh2motion vocabulary: %s" % [persona, index, bone_name])
+	if float(params.get("fallbackBoneScale", 0.0)) != 0.01:
+		_fail("%s corpse.deathTreatment.params.fallbackBoneScale is not 0.01" % persona)
 
 
 func _assert_armour_overlay_metadata(persona: String, overlay: Dictionary) -> void:
@@ -192,17 +287,11 @@ func _assert_armour_overlay_metadata(persona: String, overlay: Dictionary) -> vo
 		_fail("%s armorOverlay.adherenceApproach is not bone_attached" % persona)
 	if str(overlay.get("bindBone", "")).is_empty():
 		_fail("%s armorOverlay.bindBone is empty" % persona)
-
-
-func _assert_armour_region_metadata(persona: String, region: Dictionary) -> void:
-	if str(region.get("approach", "")) != ARMOUR_REGION:
-		_fail("%s armorRegion.approach is not adhering_region" % persona)
-	if str(region.get("adherenceApproach", "")) != GORE_BONE_ATTACHED:
-		_fail("%s armorRegion.adherenceApproach is not bone_attached" % persona)
-	var params := _dictionary_block(region, "params")
-	var decals := _array_from_value(params.get("decals", []))
-	if decals.size() < MIN_ARMOUR_REGION_MARKS:
-		_fail("%s armorRegion needs at least %d broad region marks, found %d" % [persona, MIN_ARMOUR_REGION_MARKS, decals.size()])
+	var prop_scale := float(overlay.get("propScale", 0.0))
+	if prop_scale <= 0.0 or prop_scale > 1.0:
+		_fail("%s armorOverlay.propScale must be > 0 and <= 1" % persona)
+	if str(overlay.get("catalogPropId", "")).is_empty():
+		_fail("%s armorOverlay.catalogPropId is empty" % persona)
 
 
 func _spawn_registered_personas() -> void:
@@ -255,10 +344,8 @@ func _audit_armour_modes() -> void:
 	if armour_name.is_empty():
 		_fail("no armour asset available for runtime armour mode audit")
 		return
-	equipment_attachment.call("set_armour_render_mode", ARMOUR_REGION)
 	equipment_attachment.call("update_equipment", _equipment_payload("", armour_name))
 	await process_frame
-	_assert_armour_region_mode()
 	equipment_attachment.call("set_armour_render_mode", ARMOUR_PROP)
 	await process_frame
 	_assert_armour_prop_mode()
@@ -328,26 +415,6 @@ func _assert_weapon_equipped(weapon_name: String) -> void:
 		var visual := socket.get_node_or_null("weapon_visual")
 		if visual == null or not is_instance_valid(visual):
 			_fail("%s weapon visual was not attached during armed audit" % character_id)
-
-
-func _assert_armour_region_mode() -> void:
-	var region_nodes := _equipment_dictionary("armor_region_nodes_by_character")
-	for asset in _character_assets():
-		var asset_dict := asset as Dictionary
-		var persona := str(asset_dict.get("personaSlot", ""))
-		var character_id := _character_id(persona)
-		var character := _registered_character(character_id)
-		if str(character.get("armourRenderMode", "")) != ARMOUR_REGION:
-			_fail("%s armourRenderMode is not adhering_region" % character_id)
-		if bool(character.get("usesArmourPaint", false)):
-			_fail("%s recorded retired usesArmourPaint in region mode" % character_id)
-		var has_region := typeof(asset_dict.get("armorRegion", null)) == TYPE_DICTIONARY
-		if has_region:
-			if not bool(character.get("usesArmourRegion", false)):
-				_fail("%s did not record usesArmourRegion for donor armorRegion persona" % character_id)
-			_assert_tracked_nodes(region_nodes, character_id, "%s armorRegion" % persona, true)
-		elif bool(character.get("usesArmourRegion", false)):
-			_fail("%s recorded usesArmourRegion without an armorRegion manifest block" % character_id)
 
 
 func _assert_armour_prop_mode() -> void:
@@ -539,8 +606,16 @@ func _body_substitution_key() -> String:
 	return "body" + "Override"
 
 
-func _is_donor_gore_persona(persona: String) -> bool:
-	return DONOR_GORE_PERSONAS.has(persona)
+func _retired_armour_block_key() -> String:
+	return "armor" + "Region"
+
+
+func _retired_armour_apply_method() -> String:
+	return "_apply_" + "adhering" + "_region" + "_armour"
+
+
+func _retired_armour_clear_method() -> String:
+	return "_clear_" + "adhering" + "_region" + "_armour"
 
 
 func _max_numeric_axis(value) -> float:
