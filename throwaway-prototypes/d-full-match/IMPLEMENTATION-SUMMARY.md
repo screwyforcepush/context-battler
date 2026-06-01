@@ -100,18 +100,18 @@ Controls and selectors:
 - Each persona has a name/source label plus an active-clip label. Fallback clips
   are surfaced from `animation_state_for_character`.
 
-Calibration target: universal Mesh2Motion body world height 1.7000.
+Calibration target: universal Mesh2Motion body world height 1.7100.
 
 | Persona | Source key | Body file | modelScaleMultiplier |
 |---|---:|---:|---:|
-| rat | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
-| duelist | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
-| trader | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
-| opportunist | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
-| paranoid | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
-| camper | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
-| sprinter | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
-| vulture | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
+| rat | mesh2motion | camper-mesh2motion-human-base.glb | 0.93464883 |
+| duelist | mesh2motion | camper-mesh2motion-human-base.glb | 0.93464883 |
+| trader | mesh2motion | camper-mesh2motion-human-base.glb | 0.93464883 |
+| opportunist | mesh2motion | camper-mesh2motion-human-base.glb | 0.93464883 |
+| paranoid | mesh2motion | camper-mesh2motion-human-base.glb | 0.93464883 |
+| camper | mesh2motion | camper-mesh2motion-human-base.glb | 0.93464883 |
+| sprinter | mesh2motion | camper-mesh2motion-human-base.glb | 0.93464883 |
+| vulture | mesh2motion | camper-mesh2motion-human-base.glb | 0.93464883 |
 
 Blind posture: no visual checks by implementer.
 

@@ -2,11 +2,44 @@ extends SceneTree
 
 const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
 const ENTITY_RENDERER_PATH := "res://src/EntityRenderer.gd"
+const SCENE_BUILDER_PATH := "res://src/SceneBuilder.gd"
 const ART_ROOT := "res://shared-harness/art-kit/"
 const MIN_MULTIPLIER := 0.4
 const MAX_MULTIPLIER := 3.0
 const ASSERT_TOLERANCE := 0.15
 const EPSILON := 0.0001
+const ROUND7_BODY_HEIGHT_IN_TILES := 4.5
+const EXCLUDED_BODY_MESH_TOKENS := [
+	"equipment",
+	"weapon",
+	"armour",
+	"armor",
+	"gore",
+	"blood",
+	"wound",
+	"viscera",
+	"stump",
+	"corpse",
+	"decal",
+	"sticker",
+	"scar",
+	"dirt",
+	"helmet",
+	"gauntlet",
+	"plate",
+	"shield",
+	"sword",
+	"blade",
+	"axe",
+	"dagger",
+	"hammer",
+]
+const BODY_MESH_TOKENS := [
+	"mannequin",
+	"body",
+	"human",
+	"mesh2motion",
+]
 
 var failures: Array[String] = []
 
@@ -26,7 +59,12 @@ func _run() -> void:
 		_fail("CHARACTER_MODEL_SCALE did not parse from args or EntityRenderer.gd")
 		_finish()
 		return
-	var target_world_height := _target_world_height(manifest)
+	var world_scale := _world_scale()
+	if world_scale <= EPSILON:
+		_fail("WORLD_SCALE did not parse from SceneBuilder.gd")
+		_finish()
+		return
+	var target_world_height := _target_world_height(manifest, world_scale)
 	var records := []
 	for asset in _character_assets(manifest):
 		var record = await _measure_character(asset)
@@ -51,9 +89,10 @@ func _run() -> void:
 			record["suggested_multiplier"] = suggested
 			record["character_model_scale"] = character_model_scale
 			record["target_world_height"] = target_world_height
+			record["target_grid_height"] = target_world_height / world_scale
 			record["post_scale_height"] = source_height * character_model_scale * committed
 			records[i] = record
-	_print_table(records, source_median, character_model_scale, target_world_height)
+	_print_table(records, source_median, character_model_scale, world_scale, target_world_height)
 	if _assert_mode():
 		_assert_records(records, target_world_height)
 	_finish()
@@ -112,17 +151,26 @@ func _measure_character(asset: Dictionary) -> Dictionary:
 	var state := {
 		"has_aabb": false,
 		"aabb": AABB(),
+		"body_mesh_count": 0,
+		"excluded_mesh_count": 0,
+		"body_mesh_paths": [],
+		"excluded_mesh_paths": [],
 	}
-	_merge_visible_mesh_aabbs(node, state)
+	var skeleton := _first_descendant_of_class(node, "Skeleton3D") as Skeleton3D
+	_merge_body_mesh_aabbs(node, state, skeleton)
 	var has_aabb := bool(state.get("has_aabb", false))
 	var source_height := 0.0
+	var min_y := 0.0
+	var max_y := 0.0
 	if has_aabb:
 		var merged: AABB = state["aabb"]
-		source_height = merged.size.y
+		min_y = merged.position.y
+		max_y = merged.position.y + merged.size.y
+		source_height = max_y - min_y
 	node.queue_free()
 	await process_frame
 	if not has_aabb or source_height <= EPSILON:
-		return _failure_record(persona, "no visible non-zero MeshInstance3D AABB")
+		return _failure_record(persona, "no body-only non-zero MeshInstance3D AABB")
 	var multiplier_value = asset.get("modelScaleMultiplier", null)
 	var has_multiplier := typeof(multiplier_value) == TYPE_INT or typeof(multiplier_value) == TYPE_FLOAT
 	var multiplier := 1.0
@@ -132,9 +180,18 @@ func _measure_character(asset: Dictionary) -> Dictionary:
 		"ok": true,
 		"persona": persona,
 		"source_height": source_height,
+		"raw_min_y": min_y,
+		"raw_max_y": max_y,
+		"foot_plane_y": min_y,
+		"normalized_min_y": 0.0,
+		"normalized_max_y": source_height,
 		"pose": pose,
 		"modelScaleMultiplier": multiplier,
 		"has_modelScaleMultiplier": has_multiplier,
+		"body_mesh_count": int(state.get("body_mesh_count", 0)),
+		"excluded_mesh_count": int(state.get("excluded_mesh_count", 0)),
+		"body_mesh_paths": state.get("body_mesh_paths", []),
+		"excluded_mesh_paths": state.get("excluded_mesh_paths", []),
 	}
 
 
@@ -166,21 +223,81 @@ func _first_descendant_of_class(node: Node, target_class: String) -> Node:
 	return null
 
 
-func _merge_visible_mesh_aabbs(node: Node, state: Dictionary) -> void:
+func _merge_body_mesh_aabbs(node: Node, state: Dictionary, skeleton: Skeleton3D) -> void:
 	if node is MeshInstance3D:
 		var mesh_instance := node as MeshInstance3D
 		if mesh_instance.is_visible_in_tree():
 			var local_aabb := mesh_instance.get_aabb()
 			if _has_volume(local_aabb):
-				var transformed_aabb: AABB = mesh_instance.global_transform * local_aabb
-				if bool(state.get("has_aabb", false)):
-					var merged: AABB = state["aabb"]
-					state["aabb"] = merged.merge(transformed_aabb)
+				if _is_body_mesh(mesh_instance, skeleton):
+					var transformed_aabb: AABB = mesh_instance.global_transform * local_aabb
+					if bool(state.get("has_aabb", false)):
+						var merged: AABB = state["aabb"]
+						state["aabb"] = merged.merge(transformed_aabb)
+					else:
+						state["aabb"] = transformed_aabb
+						state["has_aabb"] = true
+					state["body_mesh_count"] = int(state.get("body_mesh_count", 0)) + 1
+					_append_limited_path(state, "body_mesh_paths", mesh_instance)
 				else:
-					state["aabb"] = transformed_aabb
-					state["has_aabb"] = true
+					state["excluded_mesh_count"] = int(state.get("excluded_mesh_count", 0)) + 1
+					_append_limited_path(state, "excluded_mesh_paths", mesh_instance)
 	for child in node.get_children():
-		_merge_visible_mesh_aabbs(child, state)
+		_merge_body_mesh_aabbs(child, state, skeleton)
+
+
+func _is_body_mesh(mesh_instance: MeshInstance3D, skeleton: Skeleton3D) -> bool:
+	var path := _node_path_string(mesh_instance).to_lower()
+	if _has_any_token(path, EXCLUDED_BODY_MESH_TOKENS):
+		return false
+	if _has_any_token(path, BODY_MESH_TOKENS):
+		return true
+	if skeleton == null:
+		return false
+	if _mesh_is_skinned(mesh_instance):
+		return true
+	if _is_descendant_of(mesh_instance, skeleton):
+		return true
+	var skeleton_parent := skeleton.get_parent()
+	return skeleton_parent != null and _is_descendant_of(mesh_instance, skeleton_parent) and _has_any_token(path, BODY_MESH_TOKENS)
+
+
+func _mesh_is_skinned(mesh_instance: MeshInstance3D) -> bool:
+	if mesh_instance.skin != null:
+		return true
+	var skeleton_path := str(mesh_instance.skeleton).strip_edges()
+	return not skeleton_path.is_empty() and skeleton_path != "."
+
+
+func _is_descendant_of(node: Node, ancestor: Node) -> bool:
+	var cursor := node
+	while cursor != null:
+		if cursor == ancestor:
+			return true
+		cursor = cursor.get_parent()
+	return false
+
+
+func _has_any_token(value: String, tokens: Array) -> bool:
+	for token in tokens:
+		if value.contains(str(token)):
+			return true
+	return false
+
+
+func _append_limited_path(state: Dictionary, key: String, node: Node) -> void:
+	var paths: Array = state.get(key, [])
+	if paths.size() < 6:
+		paths.append(_node_path_string(node))
+	state[key] = paths
+
+
+func _node_path_string(node: Node) -> String:
+	if node == null:
+		return ""
+	if node.is_inside_tree():
+		return str(node.get_path())
+	return str(node.name)
 
 
 func _has_volume(aabb: AABB) -> bool:
@@ -200,6 +317,15 @@ func _assert_records(records: Array, target_world_height: float) -> void:
 		if multiplier < MIN_MULTIPLIER or multiplier > MAX_MULTIPLIER:
 			_fail("%s modelScaleMultiplier %.4f outside [%.1f, %.1f]" % [persona, multiplier, MIN_MULTIPLIER, MAX_MULTIPLIER])
 			continue
+		if str(record.get("pose", "")) != "idle@0":
+			_fail("%s was not measured at idle@0 (pose=%s)" % [persona, str(record.get("pose", ""))])
+			continue
+		if int(record.get("body_mesh_count", 0)) <= 0:
+			_fail("%s did not include a body mesh in the scale merge" % persona)
+			continue
+		if abs(float(record.get("normalized_min_y", 1.0))) > EPSILON:
+			_fail("%s normalized foot plane min_y was not 0" % persona)
+			continue
 		post_heights.append(float(record.get("post_scale_height", 0.0)))
 	var center := target_world_height if target_world_height > EPSILON else _median(post_heights)
 	var lower := center * (1.0 - ASSERT_TOLERANCE)
@@ -213,24 +339,35 @@ func _assert_records(records: Array, target_world_height: float) -> void:
 			_fail("%s effective world height %.4f outside %.4f..%.4f (target %.4f)" % [persona, post_height, lower, upper, center])
 
 
-func _print_table(records: Array, source_median: float, character_model_scale: float, target_world_height: float) -> void:
-	print("audit-character-scales source_median=%.4f character_model_scale=%.4f target_world_height=%.4f" % [source_median, character_model_scale, target_world_height])
-	print("persona       source_h   suggested  committed  world_h   pose")
+func _print_table(records: Array, source_median: float, character_model_scale: float, world_scale: float, target_world_height: float) -> void:
+	var derived_target := _round7_derived_target_world_height(world_scale)
+	print("audit-character-scales source_median=%.6f character_model_scale=%.4f world_scale=%.4f round7_body_tiles=%.4f derived_target_world_height=%.4f target_world_height=%.4f" % [source_median, character_model_scale, world_scale, ROUND7_BODY_HEIGHT_IN_TILES, derived_target, target_world_height])
+	print("persona       source_h   suggested  committed  world_h   foot_y    norm_y        meshes  pose")
 	for record in records:
 		if not bool(record.get("ok", false)):
-			print("%-12s FAIL       -          -          -         -     %s" % [str(record.get("persona", "unknown")), str(record.get("failure", ""))])
+			print("%-12s FAIL       -          -          -         -         -             -       -     %s" % [str(record.get("persona", "unknown")), str(record.get("failure", ""))])
 			continue
 		print(
-			"%-12s %8.4f   %8.4f   %8.4f   %8.4f  %s" %
+			"%-12s %8.6f   %8.6f   %8.6f   %8.6f  %8.6f  %6.3f..%-6.3f  %2d/%-2d  %s" %
 			[
 				str(record.get("persona", "")),
 				float(record.get("source_height", 0.0)),
 				float(record.get("suggested_multiplier", 1.0)),
 				float(record.get("modelScaleMultiplier", 1.0)),
 				float(record.get("post_scale_height", 0.0)),
+				float(record.get("foot_plane_y", 0.0)),
+				float(record.get("normalized_min_y", 0.0)),
+				float(record.get("normalized_max_y", 0.0)),
+				int(record.get("body_mesh_count", 0)),
+				int(record.get("excluded_mesh_count", 0)),
 				str(record.get("pose", "")),
 			]
 		)
+		var body_paths: Array = record.get("body_mesh_paths", [])
+		var excluded_paths: Array = record.get("excluded_mesh_paths", [])
+		print("  body_mesh_paths=%s" % JSON.stringify(body_paths))
+		if not excluded_paths.is_empty():
+			print("  excluded_mesh_paths=%s" % JSON.stringify(excluded_paths))
 
 
 func _median(values: Array) -> float:
@@ -275,7 +412,24 @@ func _character_model_scale() -> float:
 	return float(found.get_string(1))
 
 
-func _target_world_height(manifest: Dictionary) -> float:
+func _world_scale() -> float:
+	var source := FileAccess.get_file_as_string(SCENE_BUILDER_PATH)
+	if source.is_empty():
+		return 0.0
+	var regex := RegEx.new()
+	if regex.compile("const\\s+WORLD_SCALE\\s*:=\\s*([0-9]+(?:\\.[0-9]+)?)") != OK:
+		return 0.0
+	var found := regex.search(source)
+	if found == null:
+		return 0.0
+	return float(found.get_string(1))
+
+
+func _round7_derived_target_world_height(world_scale: float) -> float:
+	return world_scale * ROUND7_BODY_HEIGHT_IN_TILES
+
+
+func _target_world_height(manifest: Dictionary, world_scale: float) -> float:
 	var arg_value := _numeric_arg("--target-world-height", -1.0)
 	if arg_value > EPSILON:
 		return arg_value
@@ -284,7 +438,7 @@ func _target_world_height(manifest: Dictionary) -> float:
 		var value = (body as Dictionary).get("targetWorldHeight", null)
 		if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
 			return float(value)
-	return 0.0
+	return _round7_derived_target_world_height(world_scale)
 
 
 func _numeric_arg(flag: String, default_value: float) -> float:

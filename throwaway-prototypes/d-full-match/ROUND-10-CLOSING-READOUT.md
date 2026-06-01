@@ -51,18 +51,34 @@ The removed controls are intentional:
 - Armour paint is not the active Showroom armour mode; the armour comparison is
   now prop vs adhering region.
 
-## Scale Calibration
+## Scale Calibration Evidence
 
-The implementation kept the defensible internal-consistency scale target
-unchanged. The user still evaluates visual scale in Showroom UAT.
+The scale pass was re-run with the refined `audit-character-scales.gd`
+measurement required by §4.2 / WP-S:
 
-Scale before/after: `targetWorldHeight` 1.7 -> 1.7 and
-`modelScaleMultiplier` 0.92918305 -> 0.92918305.
+- Pose: locked Mesh2Motion body at `idle@0`.
+- Body-only filter: merged only
+  `/root/camper-mesh2motion-human-base/Armature/Skeleton3D/Mannequin`.
+  No equipment, weapon, armour, gore, or skin-decal meshes entered the AABB.
+- Foot-plane normalization: raw body foot plane `foot_y = -0.000386`; normalized
+  bounds `0.000..1.830`.
+- Environment anchor: parsed `WORLD_SCALE := 0.38` from `SceneBuilder.gd`;
+  target height derived as `0.38 * 4.5 = 1.71` world units.
+- Multiplier derivation:
+  `modelScaleMultiplier = 1.71 / (1.829564 * CHARACTER_MODEL_SCALE 1.0)`.
 
-| Scale knob | Before | After | Rationale |
+| Scale knob | Before | After | Method |
 |---|---:|---:|---|
-| `targetWorldHeight` | 1.7 | 1.7 | Kept the locked Mesh2Motion target height unchanged. |
-| `modelScaleMultiplier` | 0.92918305 | 0.92918305 | Kept the existing calibrated multiplier unchanged. |
+| `targetWorldHeight` | 1.7 | 1.71 | Round-7 env anchor: `WORLD_SCALE 0.38 * 4.5` |
+| `modelScaleMultiplier` | 0.92918305 | 0.93464883 | Refined body-only `source_h 1.829564` at idle@0 |
+
+All eight persona records now resolve to `world_h 1.710000` with `meshes 1/0`
+and the same body mesh path. The manifest `body` and `corpseBody` pins and the
+package test `--target-world-height` all use the derived values above.
+
+The user's Showroom UAT remains the visual acceptance gate. If the body still
+reads off in the Showroom, the next pass is a narrow re-calibration of these two
+knobs using the same body-only audit method.
 
 ## Honest Limitations
 
@@ -88,6 +104,9 @@ The Round-10 verifier surface now asserts the consolidated lanes:
 - duelist/camper/paranoid small-mark gore thresholds.
 - armour prop via `BoneAttachment3D` plus donor `adhering_region` coverage.
 - retired armour paint from manifest and Showroom controls.
+- body-only scale calibration evidence and synchronized body/corpse/package
+  scale pins.
+- an armed-attack audit case with weapon and armour enabled.
 
 Final validation commands:
 
@@ -104,13 +123,15 @@ missing; the arm64 Godot 4.6.2 binary is the verified local renderer binary.
 ## Open Items
 
 - User Showroom UAT remains the acceptance check for visual read: weapon wrist
-  clip tolerance, skin scale read, gore density, and armour prop vs region
-  preference.
-- If the user still reads body scale as off after UAT, the unchanged 1.7 /
-  0.92918305 pair can be recalibrated in a later narrow pass.
-- Per-cell toggling remains deferred; Round 10 keeps global row controls.
+  clip tolerance, skin texture read, gore density and mark distribution, and
+  armour prop vs region preference.
+- Per-cell toggling remains deferred (Round-9 Q3); Round 10 keeps global row
+  controls.
 - Armour-as-paint can return later only as a deliberate third styling/material
   axis, not as the active Round-10 armour comparison.
+- Stylistic shader/material skin looks (toon/emissive/fresnel/multi-material/
+  rim/palette) are confirmed as a separate later axis per AC2 — they adhere
+  perfectly and are not the Round-10 concern.
 
 ## References
 

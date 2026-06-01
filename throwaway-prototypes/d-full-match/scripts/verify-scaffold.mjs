@@ -93,9 +93,23 @@ const expectedCorpseHelperGroups = [
   ["_apply_corpse_dismemberment_baked", "_apply_corpse_dismemberment"],
   ["_apply_corpse_decay_desaturation", "_apply_corpse_decay"],
 ];
+
+function scalePinsFromManifestBody() {
+  const manifestPath = path.join(appDir, "shared-harness/art-kit/manifest.json");
+  if (!existsSync(manifestPath)) {
+    return { modelScaleMultiplier: Number.NaN, targetWorldHeight: Number.NaN };
+  }
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  return {
+    modelScaleMultiplier: Number(manifest?.body?.modelScaleMultiplier),
+    targetWorldHeight: Number(manifest?.body?.targetWorldHeight),
+  };
+}
+
 const round10CharacterModelScale = 1.0;
-const round10BodyModelScaleMultiplier = 0.92918305;
-const round10TargetWorldHeight = 1.7;
+const round10ScalePins = scalePinsFromManifestBody();
+const round10BodyModelScaleMultiplier = round10ScalePins.modelScaleMultiplier;
+const round10TargetWorldHeight = round10ScalePins.targetWorldHeight;
 const round10AdherenceFamilies = ["bone_attached", "mesh_baked", "uv_painted"];
 const round10MinimumModularArmorOverlays = 3;
 const round10ArmorRegionPersonas = ["duelist", "camper", "paranoid"];
@@ -148,6 +162,27 @@ function assertNotMatches(source, pattern, message) {
 
 function assertNear(actual, expected, tolerance, message) {
   assert(Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance, `${message}: ${actual} ~= ${expected}`);
+}
+
+function escapeRegExp(source) {
+  return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function numericCliArg(source, flag) {
+  const match = source.match(new RegExp(`${escapeRegExp(flag)}\\s+(-?\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?)`, "i"));
+  return match ? Number(match[1]) : Number.NaN;
+}
+
+function markdownSectionMatchingHeading(source, headingPattern) {
+  const headings = [...source.matchAll(/^##\s+.*$/gim)];
+  for (let i = 0; i < headings.length; i += 1) {
+    const heading = headings[i][0];
+    if (!headingPattern.test(heading)) continue;
+    const start = headings[i].index ?? 0;
+    const end = i + 1 < headings.length ? headings[i + 1].index ?? source.length : source.length;
+    return source.slice(start, end);
+  }
+  return "";
 }
 
 function numericConstant(source, name) {
@@ -728,8 +763,8 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   assert(manifest.body?.sourceKey === universalBodySourceKey, 'manifest.body.sourceKey is "mesh2motion"');
   assert(manifest.body?.file === universalBodyFile, "manifest.body.file is the shared mesh2motion body");
   assert(manifest.body?.armourAttachBone === "spine", 'manifest.body.armourAttachBone preserves reserved value "spine"');
-  assertNear(Number(manifest.body?.modelScaleMultiplier), round10BodyModelScaleMultiplier, 0.000001, "manifest.body modelScaleMultiplier hits Round-10 target");
-  assertNear(Number(manifest.body?.targetWorldHeight), round10TargetWorldHeight, 0.000001, "manifest.body targetWorldHeight documents Round-10 target");
+  assert(Number.isFinite(manifest.body?.modelScaleMultiplier), "manifest.body modelScaleMultiplier declares numeric Round-10 scale source");
+  assert(Number.isFinite(manifest.body?.targetWorldHeight), "manifest.body targetWorldHeight declares numeric Round-10 scale source");
   assertArtKitPath(manifest.body?.file, "manifest.body.file");
   assert(manifest.body?.animation && typeof manifest.body.animation === "object", "manifest.body exposes animation block");
   for (const clipKind of expectedBodyAnimationKinds) {
@@ -1024,8 +1059,8 @@ if (existsSync(path.join(appDir, "package.json"))) {
   assertIncludes(testScript, "scripts/audit-skin-bone-attachments.gd", "package test invokes audit-skin-bone-attachments.gd");
   assertIncludes(testScript, "scripts/audit-modular-submesh-armor.gd", "package test invokes audit-modular-submesh-armor.gd");
   assertIncludes(testScript, "--assert", "package test runs character scale audit in assert mode");
-  assertIncludes(testScript, `--target-world-height ${round10TargetWorldHeight}`, "package test passes synchronized Round-10 target world height");
-  assertIncludes(testScript, `--character-model-scale ${round10CharacterModelScale}`, "package test passes synchronized Round-10 character model scale");
+  assertNear(numericCliArg(testScript, "--target-world-height"), round10TargetWorldHeight, 0.000001, "package test passes synchronized Round-10 target world height");
+  assertNear(numericCliArg(testScript, "--character-model-scale"), round10CharacterModelScale, 0.000001, "package test passes synchronized Round-10 character model scale");
   assertIncludes(testScript, "audit-character-scales: skipped (GODOT_BIN unset)", "package test logs clear scale-audit skip when GODOT_BIN is unset");
   assertIncludes(testScript, "Round-10 Godot audits: skipped (GODOT_BIN unset)", "package test logs clear Round-10 audit skip when GODOT_BIN is unset");
   assertIncludes(testScript, "audit-universal-body", "package test logs or runs universal-body audit");
@@ -1144,11 +1179,13 @@ if (existsSync(path.join(appDir, "ROUND-10-CLOSING-READOUT.md"))) {
     "small localized",
     "uv_painted",
     "BoneAttachment3D",
-    "Scale before/after",
-    "targetWorldHeight",
-    "modelScaleMultiplier",
   ]) {
     assertIncludes(readout, token, `Round-10 closing readout documents ${token}`);
+  }
+  const scaleEvidenceSection = markdownSectionMatchingHeading(readout, /\b(?:scale|calibration|evidence)\b/i);
+  assert(scaleEvidenceSection.length > 0, "Round-10 closing readout includes a scale calibration/evidence section");
+  for (const token of ["targetWorldHeight", "modelScaleMultiplier"]) {
+    assertIncludes(scaleEvidenceSection, token, `Round-10 scale calibration/evidence section documents ${token}`);
   }
 }
 

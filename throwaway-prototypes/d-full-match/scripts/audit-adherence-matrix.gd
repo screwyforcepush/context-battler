@@ -15,6 +15,7 @@ const RETIRED_WEAPON_STATIC := "static_root_socket"
 const ARMOUR_PROP := "modular_submesh_prop"
 const ARMOUR_REGION := "adhering_region"
 const RETIRED_ARMOUR_PAINT := "armor_as_paint"
+const ARMED_ATTACK_KIND := "attack_armed"
 const DONOR_GORE_PERSONAS := ["duelist", "paranoid", "camper"]
 const MIN_DONOR_GORE_MARKS := 6
 const MAX_DONOR_GORE_MARK_AXIS := 0.12
@@ -54,6 +55,7 @@ func _run() -> void:
 	await _audit_skin_and_gore_paths()
 	await _audit_weapon_modes()
 	await _audit_armour_modes()
+	await _audit_armed_attack_composition()
 	for node_value in character_nodes.values():
 		var node := node_value as Node
 		if node != null and is_instance_valid(node):
@@ -262,6 +264,44 @@ func _audit_armour_modes() -> void:
 	_assert_armour_prop_mode()
 
 
+func _audit_armed_attack_composition() -> void:
+	var weapon_name := _first_weapon_name()
+	var armour_name := _first_armour_name()
+	if weapon_name.is_empty():
+		_fail("no weapon asset available for armed attack composition audit")
+		return
+	if armour_name.is_empty():
+		_fail("no armour asset available for armed attack composition audit")
+		return
+	equipment_attachment.call("set_armour_render_mode", ARMOUR_PROP)
+	equipment_attachment.call("update_equipment", _equipment_payload(weapon_name, armour_name))
+	await process_frame
+	await process_frame
+	for persona_value in PERSONAS:
+		var persona := str(persona_value)
+		var character_id := _character_id(persona)
+		if not bool(equipment_attachment.call("play_character_animation", character_id, ARMED_ATTACK_KIND)):
+			_fail("%s did not play %s with weapon+armour enabled" % [persona, ARMED_ATTACK_KIND])
+			continue
+		var state = equipment_attachment.call("animation_state_for_character", character_id)
+		if typeof(state) != TYPE_DICTIONARY:
+			_fail("%s did not record an animation state for weapon+armour %s" % [persona, ARMED_ATTACK_KIND])
+			continue
+		var state_dict := state as Dictionary
+		if str(state_dict.get("requested_kind", "")) != ARMED_ATTACK_KIND:
+			_fail("%s requested_kind=%s expected %s" % [persona, str(state_dict.get("requested_kind", "")), ARMED_ATTACK_KIND])
+		if str(state_dict.get("resolved_kind", "")) != ARMED_ATTACK_KIND:
+			_fail("%s resolved_kind=%s expected direct %s clip" % [persona, str(state_dict.get("resolved_kind", "")), ARMED_ATTACK_KIND])
+		if str(state_dict.get("clip", "")).is_empty():
+			_fail("%s %s clip was empty with weapon+armour enabled" % [persona, ARMED_ATTACK_KIND])
+	await process_frame
+	_assert_weapon_mode(WEAPON_DYNAMIC)
+	_assert_weapon_equipped(weapon_name)
+	_assert_armour_prop_mode()
+	_assert_armour_equipped(armour_name)
+	print("adherence armed attack weapon=%s armour=%s clip=%s" % [weapon_name, armour_name, ARMED_ATTACK_KIND])
+
+
 func _assert_weapon_mode(expected_mode: String) -> void:
 	for persona_value in PERSONAS:
 		var character_id := _character_id(str(persona_value))
@@ -273,6 +313,21 @@ func _assert_weapon_mode(expected_mode: String) -> void:
 		var socket := character.get("weaponSocket") as Node3D
 		if not (socket is BoneAttachment3D):
 			_fail("%s weapon socket is not a BoneAttachment3D dynamic hand-bone socket" % character_id)
+
+
+func _assert_weapon_equipped(weapon_name: String) -> void:
+	for persona_value in PERSONAS:
+		var character_id := _character_id(str(persona_value))
+		var character := _registered_character(character_id)
+		if str(character.get("weaponName", "")) != weapon_name:
+			_fail("%s weaponName=%s expected armed audit weapon %s" % [character_id, str(character.get("weaponName", "")), weapon_name])
+		var socket := character.get("weaponSocket") as Node3D
+		if socket == null or not is_instance_valid(socket):
+			_fail("%s weapon socket is invalid during armed audit" % character_id)
+			continue
+		var visual := socket.get_node_or_null("weapon_visual")
+		if visual == null or not is_instance_valid(visual):
+			_fail("%s weapon visual was not attached during armed audit" % character_id)
 
 
 func _assert_armour_region_mode() -> void:
@@ -310,6 +365,23 @@ func _assert_armour_prop_mode() -> void:
 			if not bool(character.get("usesModularArmour", false)):
 				_fail("%s did not record usesModularArmour for overlay persona in prop mode" % character_id)
 			_assert_tracked_nodes(overlay_nodes, character_id, "%s armorOverlay" % persona, true)
+
+
+func _assert_armour_equipped(armour_name: String) -> void:
+	var active_overlay_count := 0
+	for asset in _character_assets():
+		var asset_dict := asset as Dictionary
+		var persona := str(asset_dict.get("personaSlot", ""))
+		var character_id := _character_id(persona)
+		var character := _registered_character(character_id)
+		if str(character.get("armourName", "")) != armour_name:
+			_fail("%s armourName=%s expected armed audit armour %s" % [character_id, str(character.get("armourName", "")), armour_name])
+		if str(character.get("armourRenderMode", "")) != ARMOUR_PROP:
+			_fail("%s armourRenderMode=%s expected %s during armed audit" % [character_id, str(character.get("armourRenderMode", "")), ARMOUR_PROP])
+		if bool(character.get("usesModularArmour", false)):
+			active_overlay_count += 1
+	if active_overlay_count == 0:
+		_fail("armed attack audit did not activate any modular armour overlays")
 
 
 func _assert_animation_state(persona: String, character_id: String, kind: String) -> void:

@@ -12,8 +12,8 @@
   "body": {
     "file": "characters/camper-mesh2motion-human-base.glb",
     "sourceKey": "mesh2motion",
-    "modelScaleMultiplier": 0.92918305,
-    "targetWorldHeight": 1.7,
+    "modelScaleMultiplier": 0.93464883,
+    "targetWorldHeight": 1.71,
     "pivotYOffset": 0,
     "attachBone": "hand_r",
     "armourAttachBone": "spine",
@@ -55,8 +55,8 @@
     "file": "characters/camper-mesh2motion-human-base.glb",
     "sourceKey": "mesh2motion",
     "deathPoseClip": "Death01",
-    "modelScaleMultiplier": 0.92918305,
-    "targetWorldHeight": 1.7,
+    "modelScaleMultiplier": 0.93464883,
+    "targetWorldHeight": 1.71,
     "pivotYOffset": 0,
     "notes": "Shared mesh2motion body, paused on the Death01 final frame. Per-persona corpse-skin variants apply at instance time; no standalone corpse GLB remains."
   },
