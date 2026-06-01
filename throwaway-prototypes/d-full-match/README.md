@@ -36,10 +36,11 @@ Built here:
   `CameraRig` signals. FREE mode is a compact Director summary; ANCHORED
   mode shows Identity, Equipment, Scratchpad, Prompt, and Speech tabs.
 - Showroom mode from the home screen's `Showroom` button. It displays all 8
-  personas side by side on a sample wall/cover/floor stage, exposes 7 animation
-  triggers, and applies Weapon/Armor tier selectors across every persona.
-- Per-persona calibrated `modelScaleMultiplier` values in the art manifest keep
-  the 8 sourced character packs in the same apparent-height band.
+  personas side by side on the locked Mesh2Motion body, exposes 7 animation
+  triggers, four adherence layer toggles, Weapon/Armor tier selectors, and an
+  Armour mode switch for modular prop vs adhering region.
+- Root `modelScaleMultiplier` values in the art manifest keep the locked
+  Mesh2Motion character/corpse body at the calibrated apparent height.
 
 Not built here: visual UAT, browsertools, Chromium, screenshots, UAT
 artifacts, live subscription, fog/LOS/perception overlays, or 3D speech
@@ -56,22 +57,24 @@ Play/Pause, scrub, and speed controls.
   count.
 - ANCHORED mode: right-edge sections for Identity, Equipment, Scratchpad,
   Prompt, and Speech.
-- Equipment tiers render through attached weapon meshes and character-material
-  armour swaps; the sidebar mirrors the same snapshot equipment state.
+- Equipment tiers render through attached weapon meshes and the Round-10 armour
+  prop/region paths; the sidebar mirrors the same snapshot equipment state.
 - Speech is sidebar-log-only. No 3D speech bubbles were added.
 
 ## Showroom
 
-Use the home screen's `Showroom` button to open the Round-6 comparison surface.
+Use the home screen's `Showroom` button to open the Round-10 curation surface.
 The showroom has 7 animation triggers: idle, walk, attack unarmed, attack
 armed, loot, take hit, and death. Weapon and Armor rows provide None, Low, Mid,
-and High tier selectors that update all 8 personas together. The camera stays
-in free camera mode for orbit, pan, and zoom around the lineup; `Esc` or Back
-returns to the picker.
+and High tier selectors that update all 8 personas together. Skin, Gore,
+Weapons, and Armour layer toggles remain independent; the weapon attach mode is
+consolidated on dynamic hand-bone follow, and Armour mode compares modular prop
+against adhering region. The camera stays in free camera mode for orbit, pan,
+and zoom around the lineup; `Esc` or Back returns to the picker.
 
-The lineup uses the shared manifest factory and calibrated multipliers rather
-than a second character-loading path. The blind posture remains NO UAT; the
-implementer does not perform visual checks.
+The lineup uses the shared manifest factory and the single locked Mesh2Motion
+body rather than a second character-loading path. The blind posture remains
+NO UAT; the implementer does not perform visual checks.
 
 ## Convex URL
 

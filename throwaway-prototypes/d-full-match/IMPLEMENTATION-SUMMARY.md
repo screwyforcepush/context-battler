@@ -19,18 +19,19 @@ to survive; this Godot project is only the blind full-match probe.
 - Playback clock, play/pause, backward/forward scrub, and 0.5x / 1x / 2x speed.
 - Director camera plus anchored follow camera. Anchored cycling includes alive,
   dead, and extracted characters.
-- Manifest-driven character/corpse/equipment assets: Round 9 restores the single
+- Manifest-driven character/corpse/equipment assets: Round 10 keeps the single
   locked Mesh2Motion human base body for all eight personas. The manifest is
-  schemaVersion 8, has no per-persona body substitution field, and keeps the
-  Round-8 skin, gore, weapon, and armour treatment data on the universal body.
+  schemaVersion 9, has no per-persona body substitution field, and consolidates
+  adherence lanes on dynamic hand-bone weapons, UV-painted skins, small
+  localized gore marks, and body-tracking armour prop/region modes.
 - Rigged animation pass: EntityRenderer selects idle, walk, attack, and loot or
   generic clips from the manifest and EquipmentMeshAttachment plays them through
   each character's AnimationPlayer. Whole-body attack/loot poses are bypassed
   when a rigged clip resolves.
-- Equipment pipeline: weapons attach through manifest hand metadata and can now
-  switch between dynamic `BoneAttachment3D` hand-follow and a static root socket
-  contrast. Armor/Armour can switch between rigid modular-submesh props and
-  armour-as-paint material shifts on the body mesh.
+- Equipment pipeline: weapons attach through manifest hand metadata using
+  dynamic `BoneAttachment3D` hand-follow only. Armor/Armour can switch between
+  dynamic modular-submesh props and broad adhering-region coverage; the Round-9
+  static weapon contrast and armour-as-paint Showroom mode are retired.
 - Combat spectacle pass: attack clips/poses orient attacker-to-target; hit
   splash, miss spray, lethal disintegration chunks, persistent splatter-textured
   blood pools capped at 64, camera punch, wall face-slam dust placed at the
@@ -86,8 +87,9 @@ Controls and selectors:
 - Four independent adherence layer toggles are global across the row: Skin,
   Gore, Weapons, and Armour. Gore is controlled only by the Gore toggle, not by
   the Death animation trigger.
-- Weapon attach mode switches between dynamic hand-bone follow and static root
-  socket. Armour mode switches between modular prop and armour-as-paint.
+- Weapon attachment is consolidated on dynamic hand-bone follow; there is no
+  weapon attach-mode switch. Armour mode switches between modular prop and
+  adhering region.
 - Weapon tiers are None, Low, Mid, and High. They map to manifest numeric tiers
   0, 1, 2, and 3; first representatives are none, `rusty_blade`, `sword`, and
   `greatsword`.
@@ -138,7 +140,7 @@ Blind posture: no visual checks by implementer.
 - Check that each persona uses the same mesh2motion body label and that only the
   treatment layers vary.
 - Check each equipped weapon and armour tier for readability. Armour should be
-  comparable as both a modular prop and a material tier on the character.
+  comparable as both a dynamic modular prop and a broad adhering region.
 - Check attacks, lethal deaths, equipment swaps, environmental red mist, and loot
   pickups for move-then-action timing against the kill feed and turn scrubber.
   Wall face-slams should land near movement end at the wall contact face, not at
@@ -153,9 +155,10 @@ Blind posture: no visual checks by implementer.
 - Blood pools use the web-compatible QuadMesh plus alpha splatter fallback, not
   Godot Decal nodes. This preserves the pipeline-language read while avoiding
   compatibility risk in the current export target.
-- Socket attachment is still mixed quality because the sampled packs do not
-  share a reliable humanoid bone map. The manifest records `attachBone` metadata,
-  and the runtime falls back to stable hand offsets when a bone is missing.
+- Socket attachment is still rigid rather than garment-skinned. Weapons and
+  modular armour now follow live Mesh2Motion bones; the runtime keeps a static
+  weapon socket only as an internal fallback if the expected hand bone cannot
+  resolve.
 - Trader uses jump as its attack/generic action clip because that CC0 source
   only ships idle, walk, and jump. It is still rigged limb motion, but it is a
   clear candidate for replacement if that lane is kept.

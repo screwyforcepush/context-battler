@@ -7,6 +7,7 @@ const BASE_SCALE := 1.0
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
 const MIN_MODULAR_ARMOR_OVERLAYS := 3
 const MESH2MOTION_ARMOR_BIND_BONES := ["spine_03", "spine_02", "spine_01", "head", "hand_l", "hand_r"]
+const MODULAR_ARMOUR_PROP_APPROACH := "modular_submesh_prop"
 
 var failures: Array[String] = []
 var equipment_attachment: Node
@@ -35,6 +36,8 @@ func _run() -> void:
 		_fail("EquipmentMeshAttachment missing configure")
 		_finish()
 		return
+	if equipment_attachment.has_method("_ensure_modular_armor_skin"):
+		_fail("EquipmentMeshAttachment still exposes retired _ensure_modular_armor_skin Skin-bind path")
 	await process_frame
 	var overlay_count := 0
 	var declared_count := 0
@@ -119,17 +122,12 @@ func _audit_persona(asset: Dictionary, armor_overlay: Dictionary) -> void:
 	if armor_nodes.is_empty():
 		_fail("%s no tracked armor_overlay_nodes_by_character entries" % persona)
 	for node in armor_nodes:
-		var mesh := node as MeshInstance3D
-		if mesh == null or not is_instance_valid(mesh):
-			_fail("%s tracked armor node is not a valid MeshInstance3D" % persona)
+		var socket := node as BoneAttachment3D
+		if socket == null or not is_instance_valid(socket):
+			_fail("%s tracked armor node is not a valid BoneAttachment3D: %s" % [persona, _class_name(node)])
 			continue
 		if skeleton != null:
-			if not _node_contains(skeleton, mesh):
-				_fail("%s armor mesh is not parented under character Skeleton3D: %s" % [persona, mesh.get_path()])
-			var resolved_skeleton := mesh.get_node_or_null(mesh.skeleton) as Skeleton3D
-			if resolved_skeleton != skeleton:
-				_fail("%s armor mesh skeleton path does not resolve to character Skeleton3D: %s" % [persona, str(mesh.skeleton)])
-			_assert_skin_matches_skeleton(persona, mesh, skeleton, expected_bind_bone)
+			_assert_socket_matches_skeleton(persona, socket, skeleton, expected_bind_bone)
 	if equipment_attachment.has_method("_clear_modular_submesh_armor"):
 		equipment_attachment.call("_clear_modular_submesh_armor", character_id)
 		await process_frame
@@ -140,8 +138,10 @@ func _audit_persona(asset: Dictionary, armor_overlay: Dictionary) -> void:
 
 
 func _assert_overlay_manifest_shape(asset: Dictionary, persona: String, armor_overlay: Dictionary) -> void:
-	if str(armor_overlay.get("adherenceApproach", "")) != "modular_submesh":
-		_fail("%s armorOverlay.adherenceApproach is not modular_submesh" % persona)
+	if str(armor_overlay.get("adherenceApproach", "")) != "bone_attached":
+		_fail("%s armorOverlay.adherenceApproach is not bone_attached" % persona)
+	if str(armor_overlay.get("approach", "")) != MODULAR_ARMOUR_PROP_APPROACH:
+		_fail("%s armorOverlay.approach is not %s" % [persona, MODULAR_ARMOUR_PROP_APPROACH])
 	var bind_bone := str(armor_overlay.get("bindBone", ""))
 	if bind_bone.is_empty():
 		_fail("%s armorOverlay.bindBone is required for the universal mesh2motion skeleton" % persona)
@@ -174,27 +174,39 @@ func _has_source_pack(value) -> bool:
 			return false
 
 
-func _assert_skin_matches_skeleton(persona: String, mesh: MeshInstance3D, skeleton: Skeleton3D, expected_bind_bone: String) -> void:
-	var skin := mesh.skin
-	if skin == null:
-		_fail("%s armor mesh has no Skin resource: %s" % [persona, mesh.get_path()])
-		return
-	var bind_count := int(skin.call("get_bind_count")) if skin.has_method("get_bind_count") else 0
-	if bind_count <= 0:
-		_fail("%s armor mesh Skin has no binds: %s" % [persona, mesh.get_path()])
-		return
-	for bind_index in range(bind_count):
-		var bone_index := int(skin.call("get_bind_bone", bind_index)) if skin.has_method("get_bind_bone") else -1
-		var bind_name := str(skin.call("get_bind_name", bind_index)) if skin.has_method("get_bind_name") else ""
-		if bone_index >= 0 and bone_index < skeleton.get_bone_count():
-			if not expected_bind_bone.is_empty() and skeleton.get_bone_name(bone_index) != expected_bind_bone:
-				_fail("%s armor mesh Skin bind %d uses %s, expected %s" % [persona, bind_index, skeleton.get_bone_name(bone_index), expected_bind_bone])
+func _assert_socket_matches_skeleton(persona: String, socket: BoneAttachment3D, skeleton: Skeleton3D, expected_bind_bone: String) -> void:
+	if not _node_contains(skeleton, socket):
+		_fail("%s armor socket is not parented under active Skeleton3D: %s" % [persona, socket.get_path()])
+	if socket.get_parent() != skeleton:
+		_fail("%s armor socket must be a direct child of the active Skeleton3D: %s" % [persona, socket.get_path()])
+	var actual_bone := str(socket.bone_name)
+	if actual_bone.is_empty():
+		_fail("%s armor socket has empty bone_name" % persona)
+	elif not expected_bind_bone.is_empty() and actual_bone != expected_bind_bone:
+		_fail("%s armor socket bone_name=%s expected %s" % [persona, actual_bone, expected_bind_bone])
+	if not actual_bone.is_empty() and skeleton.find_bone(actual_bone) < 0:
+		_fail("%s armor socket bone_name does not resolve on active Skeleton3D: %s" % [persona, actual_bone])
+	var prop_meshes := _mesh_descendants(socket)
+	if prop_meshes.is_empty():
+		_fail("%s armor socket has no child prop MeshInstance3D nodes: %s" % [persona, socket.get_path()])
+	for mesh_value in prop_meshes:
+		var mesh := mesh_value as MeshInstance3D
+		if mesh == null or not is_instance_valid(mesh):
 			continue
-		if not bind_name.is_empty() and skeleton.find_bone(bind_name) >= 0:
-			if not expected_bind_bone.is_empty() and bind_name != expected_bind_bone:
-				_fail("%s armor mesh Skin bind %d uses %s, expected %s" % [persona, bind_index, bind_name, expected_bind_bone])
-			continue
-		_fail("%s armor mesh Skin bind %d does not resolve on character skeleton (bone=%d name=%s)" % [persona, bind_index, bone_index, bind_name])
+		_assert_prop_mesh_uses_socket_transform(persona, socket, mesh)
+	if not prop_meshes.is_empty():
+		print("OK %s modular armour socket=%s bone=%s prop_meshes=%d" % [persona, socket.get_path(), actual_bone, prop_meshes.size()])
+
+
+func _assert_prop_mesh_uses_socket_transform(persona: String, socket: BoneAttachment3D, mesh: MeshInstance3D) -> void:
+	if not _node_contains(socket, mesh):
+		_fail("%s armour prop mesh is not under tracked BoneAttachment3D: %s" % [persona, mesh.get_path()])
+	if mesh.mesh == null:
+		_fail("%s armour prop mesh has no Mesh resource: %s" % [persona, mesh.get_path()])
+	if mesh.skin != null:
+		_fail("%s armour prop mesh still has old Skin bind path: %s" % [persona, mesh.get_path()])
+	if not str(mesh.skeleton).is_empty():
+		_fail("%s armour prop mesh should not require MeshInstance3D.skeleton Skin path: %s" % [persona, str(mesh.skeleton)])
 
 
 func _expected_armour_bind_bone(asset: Dictionary, armor_overlay: Dictionary) -> String:
@@ -249,6 +261,21 @@ func _tracked_armor_nodes(character_id: String) -> Array:
 	return out
 
 
+func _mesh_descendants(root: Node) -> Array:
+	var out := []
+	_collect_mesh_descendants(root, out)
+	return out
+
+
+func _collect_mesh_descendants(node: Node, out: Array) -> void:
+	if node == null:
+		return
+	if node is MeshInstance3D:
+		out.append(node)
+	for child in node.get_children():
+		_collect_mesh_descendants(child, out)
+
+
 func _assert_cleared(persona: String, previous_nodes: Array, character_id: String) -> void:
 	var bucket_after_clear := _tracked_armor_nodes(character_id)
 	if not bucket_after_clear.is_empty():
@@ -264,6 +291,14 @@ func _node_contains(root: Node, candidate: Node) -> bool:
 	if root == null or candidate == null or not is_instance_valid(root) or not is_instance_valid(candidate):
 		return false
 	return root == candidate or root.is_ancestor_of(candidate)
+
+
+func _class_name(value) -> String:
+	if value == null:
+		return "<null>"
+	if value is Object:
+		return (value as Object).get_class()
+	return type_string(typeof(value))
 
 
 func _make_fallback_material() -> void:

@@ -11,6 +11,7 @@ const appDir = path.resolve(scriptDir, "..");
 const requiredFiles = [
   "README.md",
   "ROUND-9-CLOSING-READOUT.md",
+  "ROUND-10-CLOSING-READOUT.md",
   "package.json",
   "project.godot",
   "export_presets.cfg",
@@ -77,7 +78,6 @@ const expectedSkinHelperGroups = [
   ["_apply_skin_palette_flat"],
   ["_apply_skin_pbr_texture_atlas", "_apply_skin_pbr_texture"],
   ["_apply_skin_pattern_texture"],
-  ["_apply_skin_decal_stickers"],
   ["_apply_skin_toon_cel"],
   ["_apply_skin_emissive_trim"],
   ["_apply_skin_multi_material"],
@@ -93,15 +93,30 @@ const expectedCorpseHelperGroups = [
   ["_apply_corpse_dismemberment_baked", "_apply_corpse_dismemberment"],
   ["_apply_corpse_decay_desaturation", "_apply_corpse_decay"],
 ];
-const round8CharacterModelScale = 1.0;
-const round8BodyModelScaleMultiplier = 0.92918305;
-const round8TargetWorldHeight = 1.7;
-const round8AdherenceFamilies = ["bone_attached", "mesh_baked", "uv_painted", "modular_submesh"];
-const round8MinimumModularArmorOverlays = 3;
+const round10CharacterModelScale = 1.0;
+const round10BodyModelScaleMultiplier = 0.92918305;
+const round10TargetWorldHeight = 1.7;
+const round10AdherenceFamilies = ["bone_attached", "mesh_baked", "uv_painted"];
+const round10MinimumModularArmorOverlays = 3;
+const round10ArmorRegionPersonas = ["duelist", "camper", "paranoid"];
+const round10SmallGorePersonas = ["duelist", "camper", "paranoid"];
+const round10MinimumSmallGoreMarks = 6;
+const round10MaximumSmallGoreBodyMarkAxis = 0.12;
 const universalBodyFile = "characters/camper-mesh2motion-human-base.glb";
 const universalBodySourceKey = "mesh2motion";
-const weaponAttachModes = ["dynamic_hand_bone", "static_root_socket"];
-const armourRenderModes = ["modular_submesh_prop", "armor_as_paint"];
+const weaponAttachModes = ["dynamic_hand_bone"];
+const retiredWeaponAttachModes = ["static_root_socket"];
+const armourRenderModes = ["modular_submesh_prop", "adhering_region"];
+const retiredArmourRenderModes = ["armor_as_paint"];
+const round10UvPaintedSkinApproaches = [
+  "palette_flat",
+  "pbr_texture_atlas",
+  "pattern_texture",
+  "toon_cel_shader",
+  "emissive_trim_shader",
+  "multi_material_split",
+  "rim_fresnel_shader",
+];
 
 function read(relativePath) {
   return readFileSync(path.join(appDir, relativePath), "utf8");
@@ -204,15 +219,15 @@ function assertSourcePack(block, context) {
 
 function assertAdherenceApproach(block, context, coverage) {
   const approach = typeof block?.adherenceApproach === "string" ? block.adherenceApproach : "";
-  assert(round8AdherenceFamilies.includes(approach), `${context}.adherenceApproach is one of ${round8AdherenceFamilies.join(", ")}`);
-  if (round8AdherenceFamilies.includes(approach)) {
+  assert(round10AdherenceFamilies.includes(approach), `${context}.adherenceApproach is one of ${round10AdherenceFamilies.join(", ")}`);
+  if (round10AdherenceFamilies.includes(approach)) {
     coverage.add(approach);
   }
 }
 
 function addAdherenceFamily(block, coverage) {
   const approach = typeof block?.adherenceApproach === "string" ? block.adherenceApproach : "";
-  if (round8AdherenceFamilies.includes(approach)) {
+  if (round10AdherenceFamilies.includes(approach)) {
     coverage.add(approach);
   }
 }
@@ -395,7 +410,7 @@ if (existsSync(path.join(appDir, "src/EntityRenderer.gd"))) {
   assertNotIncludes(entityRenderer, "turn_base + 1", "EntityRenderer does not skip movement event turn 1 with turn_base + 1 alignment");
   assertIncludes(entityRenderer, "cosmetic_wall_inset", "EntityRenderer applies render-only wall inset");
   assertNotIncludes(entityRenderer, "node.rotation.y = sin(Time.get_ticks_msec", "EntityRenderer removed decorative sine rotation");
-  assertNear(numericConstant(entityRenderer, "CHARACTER_MODEL_SCALE"), round8CharacterModelScale, 0.000001, "EntityRenderer restores standard character model scale");
+  assertNear(numericConstant(entityRenderer, "CHARACTER_MODEL_SCALE"), round10CharacterModelScale, 0.000001, "EntityRenderer preserves standard character model scale");
   assertMatches(entityRenderer, /CRATE_MODEL_SCALE\s*:=\s*0\.17/, "EntityRenderer halves crate model scale to 0.17");
   assertMatches(entityRenderer, /AIRDROP_CRATE_MODEL_SCALE\s*:=\s*0\.21/, "EntityRenderer keeps airdrop crate scale decoupled at Round-7 size");
   assertMatches(entityRenderer, /CORPSE_MODEL_SCALE\s*:=\s*CHARACTER_MODEL_SCALE/, "EntityRenderer keeps corpse scale coupled to character scale");
@@ -508,23 +523,37 @@ if (existsSync(path.join(appDir, "src/EquipmentMeshAttachment.gd"))) {
     "QuadMesh.new(",
     "_palette_material",
     "armorOverlay",
+    "armorRegion",
     "armor_overlay_nodes_by_character",
+    "armor_region_nodes_by_character",
     "_apply_modular_submesh_armor",
     "_clear_modular_submesh_armor",
+    "_apply_adhering_region_armour",
+    "_clear_adhering_region_armour",
+    "_ensure_dynamic_armour_socket",
+    "ARMOUR_RENDER_REGION",
     "adherence_bone_attached",
     "adherence_mesh_baked",
     "adherence_uv_painted",
-    "adherence_modular_submesh",
-    "set_weapon_attach_mode",
     "set_armour_render_mode",
     "apply_neutral_body_material",
     "dynamic_hand_bone",
     "static_root_socket",
+    "WEAPON_SOCKET_FALLBACK_STATIC",
     "modular_submesh_prop",
-    "armor_as_paint",
+    "adhering_region",
   ]) {
     assertIncludes(equipment, token, `EquipmentMeshAttachment handles ${token}`);
   }
+  assertMatches(
+    equipment,
+    /const\s+WEAPON_SOCKET_FALLBACK_STATIC\s*:=\s*"static_root_socket"/,
+    "EquipmentMeshAttachment keeps static_root_socket only as the internal fallback token",
+  );
+  assertNotIncludes(equipment, "func set_weapon_attach_mode", "EquipmentMeshAttachment has no public weapon attach-mode setter");
+  assertNotIncludes(equipment, "armor_as_paint", "EquipmentMeshAttachment has no user-facing armor_as_paint mode token");
+  assertNotIncludes(equipment, "_apply_skin_decal_stickers", "EquipmentMeshAttachment retired bone-pinned decal sticker skin helper");
+  assertNotIncludes(equipment, '"decal_stickers"', "EquipmentMeshAttachment no longer matches decal_stickers skin approach");
   for (const helperGroup of expectedSkinHelperGroups) {
     assertAnyIncludes(equipment, helperGroup, `EquipmentMeshAttachment includes skin helper ${helperGroup.join(" or ")}`);
   }
@@ -641,14 +670,22 @@ if (existsSync(path.join(appDir, "src/Showroom.gd"))) {
   assertIncludes(showroom, "instantiate_persona_character", "Showroom instantiates personas through EquipmentMeshAttachment factory");
   assertIncludes(showroom, "build_from_snapshot", "Showroom builds sample environment through SceneBuilder");
   assertIncludes(showroom, "play_character_animation", "Showroom triggers animations through EquipmentMeshAttachment");
-  assertIncludes(showroom, "AdherenceLayersBar", "Showroom exposes the Round-9 adherence layer toggle row");
+  assertIncludes(showroom, "AdherenceLayersBar", "Showroom exposes the Round-10 adherence layer toggle row");
   assertIncludes(showroom, '"%sLayerToggle"', "Showroom names layer toggles predictably");
   for (const token of ['"skin"', '"gore"', '"weapons"', '"armour"']) {
     assertIncludes(showroom, token, `Showroom exposes layer token ${token}`);
   }
-  for (const token of ["set_weapon_attach_mode", "set_armour_render_mode", "apply_neutral_body_material"]) {
+  for (const token of ["set_armour_render_mode", "apply_neutral_body_material"]) {
     assertIncludes(showroom, token, `Showroom calls ${token} when layer state changes`);
   }
+  for (const token of ["ARMOUR_RENDER_PROP", "ARMOUR_RENDER_REGION", "ArmourModeSwitch", "_set_armour_render_region", "modular_submesh_prop", "adhering_region"]) {
+    assertIncludes(showroom, token, `Showroom exposes Round-10 armour prop/region switch token ${token}`);
+  }
+  assertNotIncludes(showroom, "set_weapon_attach_mode", "Showroom has no weapon attach-mode switch API call");
+  assertNotIncludes(showroom, "WeaponAttach", "Showroom has no weapon attach-mode switch UI token");
+  assertNotIncludes(showroom, "static_root_socket", "Showroom has no static_root_socket weapon mode token");
+  assertNotIncludes(showroom, "armor_as_paint", "Showroom has no armor_as_paint armour mode token");
+  assertNotIncludes(showroom, "ARMOUR_RENDER_PAINT", "Showroom retired the armour paint render constant");
   assertIncludes(showroom, "_reapply_showroom_layers", "Showroom routes layer/tier/mode changes through one reapply path");
   assertIncludes(showroom, "apply_corpse_skin_to_live_character", "Showroom Gore toggle applies corpse skin variants");
   assertIncludes(showroom, "restore_persona_skin_to_live_character", "Showroom non-death triggers restore persona skins");
@@ -683,7 +720,7 @@ if (existsSync(path.join(appDir, "src/Showroom.gd"))) {
 
 if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   const manifest = JSON.parse(read("shared-harness/art-kit/manifest.json"));
-  assert(manifest.schemaVersion === 8, "d-full-match art manifest uses schemaVersion 8");
+  assert(manifest.schemaVersion === 9, "d-full-match art manifest uses schemaVersion 9");
   assert(!("source" in manifest), "art manifest has no singleton top-level source");
   assert(!("license" in manifest), "art manifest has no singleton top-level license");
   assert(!("extraction" in manifest), "art manifest has no singleton top-level extraction");
@@ -691,8 +728,8 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   assert(manifest.body?.sourceKey === universalBodySourceKey, 'manifest.body.sourceKey is "mesh2motion"');
   assert(manifest.body?.file === universalBodyFile, "manifest.body.file is the shared mesh2motion body");
   assert(manifest.body?.armourAttachBone === "spine", 'manifest.body.armourAttachBone preserves reserved value "spine"');
-  assertNear(Number(manifest.body?.modelScaleMultiplier), round8BodyModelScaleMultiplier, 0.000001, "manifest.body modelScaleMultiplier hits Round-8 target");
-  assertNear(Number(manifest.body?.targetWorldHeight), round8TargetWorldHeight, 0.000001, "manifest.body targetWorldHeight documents Round-8 target");
+  assertNear(Number(manifest.body?.modelScaleMultiplier), round10BodyModelScaleMultiplier, 0.000001, "manifest.body modelScaleMultiplier hits Round-10 target");
+  assertNear(Number(manifest.body?.targetWorldHeight), round10TargetWorldHeight, 0.000001, "manifest.body targetWorldHeight documents Round-10 target");
   assertArtKitPath(manifest.body?.file, "manifest.body.file");
   assert(manifest.body?.animation && typeof manifest.body.animation === "object", "manifest.body exposes animation block");
   for (const clipKind of expectedBodyAnimationKinds) {
@@ -704,8 +741,8 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   assert(manifest.corpseBody && typeof manifest.corpseBody === "object", "art manifest exposes root corpseBody block");
   assert(manifest.corpseBody?.file === manifest.body?.file, "manifest.corpseBody uses the shared mesh2motion body file");
   assert(typeof manifest.corpseBody?.deathPoseClip === "string" && manifest.corpseBody.deathPoseClip.length > 0, "manifest.corpseBody has deathPoseClip");
-  assertNear(Number(manifest.corpseBody?.modelScaleMultiplier), round8BodyModelScaleMultiplier, 0.000001, "manifest.corpseBody modelScaleMultiplier mirrors body scale");
-  assertNear(Number(manifest.corpseBody?.targetWorldHeight), round8TargetWorldHeight, 0.000001, "manifest.corpseBody targetWorldHeight mirrors body target");
+  assertNear(Number(manifest.corpseBody?.modelScaleMultiplier), round10BodyModelScaleMultiplier, 0.000001, "manifest.corpseBody modelScaleMultiplier mirrors body scale");
+  assertNear(Number(manifest.corpseBody?.targetWorldHeight), round10TargetWorldHeight, 0.000001, "manifest.corpseBody targetWorldHeight mirrors body target");
   assert(Array.isArray(manifest.assets), "art manifest exposes assets array");
   const assets = manifest.assets ?? [];
   const personas = new Set();
@@ -723,6 +760,7 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   const manifestArmourModes = new Set();
   const armorOverlayDeclaredPersonas = new Set();
   const armorOverlayPersonas = new Set();
+  const armorRegionPersonas = new Set();
   const accessoryPersonas = new Set();
   const effectiveBodyFiles = new Set();
   const effectiveBodySourceKeys = new Set();
@@ -768,6 +806,13 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
       assert(typeof asset.skin?.approach === "string" && asset.skin.approach.length > 0, `character skin has approach: ${asset.id}`);
       assertAdherenceApproach(asset.skin, `${asset.id}.skin`, adherenceApproachCoverage);
       addAdherenceFamily(asset.skin, layerAdherenceCoverage.skin);
+      assert(asset.skin?.adherenceApproach === "uv_painted", `Round-10 skin uses uv_painted adherence: ${asset.id}`);
+      assert(asset.skin?.approach !== "decal_stickers", `Round-10 skin removes decal_stickers approach: ${asset.id}`);
+      assert(asset.skin?.adherenceApproach !== "bone_attached", `Round-10 skin removes bone_attached skin family: ${asset.id}`);
+      if (asset.personaSlot === "opportunist") {
+        assert(round10UvPaintedSkinApproaches.includes(asset.skin?.approach), "opportunist skin approach is in the UV-painted family");
+        assert(asset.skin?.adherenceApproach === "uv_painted", "opportunist skin adherence is uv_painted");
+      }
       assertSourcePack(asset.skin, `${asset.id}.skin`);
       assert(typeof asset.skin?.rationale === "string" && asset.skin.rationale.length > 0, `character skin has rationale: ${asset.id}`);
       assert(asset.skin?.params && typeof asset.skin.params === "object", `character skin has params: ${asset.id}`);
@@ -800,6 +845,29 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
       for (const ref of collectNestedParamPaths(asset.corpse?.params, `${asset.id}.corpse.params`)) {
         assertArtKitPath(ref.value, ref.trail);
       }
+      if (round10SmallGorePersonas.includes(asset.personaSlot)) {
+        const decals = Array.isArray(asset.corpse?.params?.decals) ? asset.corpse.params.decals : [];
+        assert(decals.length >= round10MinimumSmallGoreMarks, `${asset.id}.corpse has at least ${round10MinimumSmallGoreMarks} small gore marks`);
+        let maxBodyMarkX = Number.NEGATIVE_INFINITY;
+        let maxBodyMarkY = Number.NEGATIVE_INFINITY;
+        for (let i = 0; i < decals.length; i += 1) {
+          const decal = decals[i];
+          const size = Array.isArray(decal?.size) ? decal.size : [];
+          const x = Number(size[0]);
+          const y = Number(size[1]);
+          assert(Number.isFinite(x) && Number.isFinite(y), `${asset.id}.corpse.params.decals[${i}] declares body mark x/y size`);
+          maxBodyMarkX = Math.max(maxBodyMarkX, x);
+          maxBodyMarkY = Math.max(maxBodyMarkY, y);
+          assert(typeof decal?.bone === "string" && decal.bone.length > 0, `${asset.id}.corpse.params.decals[${i}] pins to a body bone`);
+        }
+        assert(
+          Number.isFinite(maxBodyMarkX) &&
+            Number.isFinite(maxBodyMarkY) &&
+            maxBodyMarkX <= round10MaximumSmallGoreBodyMarkAxis &&
+            maxBodyMarkY <= round10MaximumSmallGoreBodyMarkAxis,
+          `${asset.id}.corpse small gore body marks stay <= ${round10MaximumSmallGoreBodyMarkAxis} on x/y (${maxBodyMarkX}x${maxBodyMarkY})`,
+        );
+      }
       assert("armorOverlay" in asset, `character declares armorOverlay field: ${asset.id}`);
       if ("armorOverlay" in asset) {
         armorOverlayDeclaredPersonas.add(asset.personaSlot);
@@ -807,10 +875,14 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
           armorOverlayPersonas.add(asset.personaSlot);
           assert(typeof asset.armorOverlay === "object" && !Array.isArray(asset.armorOverlay), `character armorOverlay is object when non-null: ${asset.id}`);
           assertAdherenceApproach(asset.armorOverlay, `${asset.id}.armorOverlay`, adherenceApproachCoverage);
-          layerAdherenceCoverage.armour.add("modular_submesh");
+          layerAdherenceCoverage.armour.add("bone_attached");
           assert(
-            asset.armorOverlay?.adherenceApproach === "modular_submesh",
-            `character armorOverlay uses modular_submesh adherence: ${asset.id}`,
+            asset.armorOverlay?.adherenceApproach === "bone_attached",
+            `character armorOverlay uses bone_attached adherence: ${asset.id}`,
+          );
+          assert(
+            asset.armorOverlay?.approach === "modular_submesh_prop",
+            `character armorOverlay declares modular_submesh_prop approach: ${asset.id}`,
           );
           assertSourcePack(asset.armorOverlay, `${asset.id}.armorOverlay`);
           assert(typeof asset.armorOverlay?.file === "string" && asset.armorOverlay.file.length > 0, `character armorOverlay has file: ${asset.id}`);
@@ -821,18 +893,44 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
           }
         }
       }
+      if ("armorRegion" in asset) {
+        if (asset.armorRegion != null) {
+          armorRegionPersonas.add(asset.personaSlot);
+          assert(typeof asset.armorRegion === "object" && !Array.isArray(asset.armorRegion), `character armorRegion is object when non-null: ${asset.id}`);
+          assert(asset.armorRegion?.approach === "adhering_region", `character armorRegion uses adhering_region approach: ${asset.id}`);
+          assertAdherenceApproach(asset.armorRegion, `${asset.id}.armorRegion`, adherenceApproachCoverage);
+          layerAdherenceCoverage.armour.add("bone_attached");
+          assert(asset.armorRegion?.adherenceApproach === "bone_attached", `character armorRegion uses bone_attached adherence: ${asset.id}`);
+          assertSourcePack(asset.armorRegion, `${asset.id}.armorRegion`);
+          const decals = Array.isArray(asset.armorRegion?.params?.decals) ? asset.armorRegion.params.decals : [];
+          assert(decals.length > 0, `character armorRegion declares donated projection decals: ${asset.id}`);
+          for (let i = 0; i < decals.length; i += 1) {
+            const decal = decals[i];
+            assert(typeof decal?.bone === "string" && decal.bone.length > 0, `${asset.id}.armorRegion.params.decals[${i}] pins to a body bone`);
+          }
+          for (const ref of collectNestedParamPaths(asset.armorRegion?.params, `${asset.id}.armorRegion.params`)) {
+            assertArtKitPath(ref.value, ref.trail);
+          }
+        }
+      }
     } else if (asset.category === "weapon") {
       weapons.add(asset.weaponName);
       assert(asset.attachBone || asset.handOffset, `weapon asset has socket metadata: ${asset.id}`);
       assert(typeof asset.tier === "number", `weapon asset has tier: ${asset.id}`);
-      assert(Array.isArray(asset.attachModes), `weapon asset declares Round-9 attachModes: ${asset.id}`);
+      assert(Array.isArray(asset.attachModes), `weapon asset declares Round-10 attachModes: ${asset.id}`);
       const assetAttachModes = modeSet(asset.attachModes);
+      assert(assetAttachModes.size === weaponAttachModes.length, `weapon asset has dynamic-only attachModes: ${asset.id}`);
       for (const mode of weaponAttachModes) {
         assert(assetAttachModes.has(mode), `weapon asset supports ${mode}: ${asset.id}`);
-        manifestWeaponAttachModes.add(mode);
-        layerAdherenceCoverage.weapons.add(mode);
+      }
+      for (const mode of retiredWeaponAttachModes) {
+        assert(!assetAttachModes.has(mode), `weapon asset omits retired attach mode ${mode}: ${asset.id}`);
       }
       for (const modeBlock of asset.attachModes ?? []) {
+        if (typeof modeBlock?.mode === "string") {
+          manifestWeaponAttachModes.add(modeBlock.mode);
+          layerAdherenceCoverage.weapons.add(modeBlock.mode);
+        }
         assert(modeBlock?.adherenceApproach === "bone_attached", `weapon attach mode uses bone_attached adherence: ${asset.id}.${modeBlock?.mode}`);
       }
     } else if (asset.category === "armour") {
@@ -850,43 +948,52 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
     assert(personas.has(persona), `manifest maps persona ${persona}`);
     assert(armorOverlayDeclaredPersonas.has(persona), `manifest declares armorOverlay for persona ${persona}`);
   }
-  assert(manifest.round9Adherence && typeof manifest.round9Adherence === "object", "manifest declares Round-9 adherence metadata");
-  assert(manifest.round9Adherence?.lockedBody?.file === universalBodyFile, "Round-9 adherence metadata locks the mesh2motion body file");
-  assert(manifest.round9Adherence?.lockedBody?.sourceKey === universalBodySourceKey, "Round-9 adherence metadata locks the mesh2motion source key");
+  for (const persona of round10ArmorRegionPersonas) {
+    assert(armorRegionPersonas.has(persona), `manifest maps Round-10 armorRegion donor persona ${persona}`);
+  }
+  assert(manifest.round9Adherence && typeof manifest.round9Adherence === "object", "manifest declares adherence metadata");
+  assert(manifest.round9Adherence?.lockedBody?.file === universalBodyFile, "adherence metadata locks the mesh2motion body file");
+  assert(manifest.round9Adherence?.lockedBody?.sourceKey === universalBodySourceKey, "adherence metadata locks the mesh2motion source key");
   const declaredWeaponModes = modeSet(manifest.round9Adherence?.weaponAttachModes);
+  assert(declaredWeaponModes.size === weaponAttachModes.length, "manifest adherence metadata declares dynamic-only weapon attach modes");
   for (const mode of weaponAttachModes) {
-    assert(declaredWeaponModes.has(mode), `manifest round9Adherence declares weapon attach mode ${mode}`);
+    assert(declaredWeaponModes.has(mode), `manifest adherence metadata declares weapon attach mode ${mode}`);
     assert(manifestWeaponAttachModes.has(mode), `manifest weapon assets cover attach mode ${mode}`);
   }
+  for (const mode of retiredWeaponAttachModes) {
+    assert(!declaredWeaponModes.has(mode), `manifest adherence metadata omits retired weapon attach mode ${mode}`);
+    assert(!manifestWeaponAttachModes.has(mode), `manifest weapon assets omit retired weapon attach mode ${mode}`);
+  }
   const declaredArmourModes = modeSet(manifest.round9Adherence?.armorApproaches);
+  assert(declaredArmourModes.size === armourRenderModes.length, "manifest adherence metadata declares prop/region armour modes only");
   for (const mode of armourRenderModes) {
-    assert(declaredArmourModes.has(mode), `manifest round9Adherence declares armour mode ${mode}`);
+    assert(declaredArmourModes.has(mode), `manifest adherence metadata declares armour mode ${mode}`);
     manifestArmourModes.add(mode);
   }
-  assert(manifest.armorAsPaint && typeof manifest.armorAsPaint === "object", "manifest declares armorAsPaint approach");
-  assert(manifest.armorAsPaint?.mode === "armor_as_paint", "manifest armorAsPaint mode is armor_as_paint");
-  assert(manifest.armorAsPaint?.adherenceApproach === "uv_painted", "manifest armorAsPaint adherence is uv_painted");
-  layerAdherenceCoverage.armour.add("uv_painted");
+  for (const mode of retiredArmourRenderModes) {
+    assert(!declaredArmourModes.has(mode), `manifest adherence metadata omits retired armour mode ${mode}`);
+  }
+  assert(!("armorAsPaint" in manifest), "manifest omits retired armorAsPaint approach");
   assert(effectiveBodyFiles.size === 1 && effectiveBodyFiles.has(universalBodyFile), "manifest character effective body files are the single mesh2motion root body");
   assert(
     effectiveBodySourceKeys.size === 1 && effectiveBodySourceKeys.has(universalBodySourceKey),
     "manifest character effective body source keys are the single mesh2motion root source",
   );
-  assert(skinApproaches.size === 8, "manifest exposes 8 distinct skin.approach values");
+  assert(!skinApproaches.has("decal_stickers"), "manifest exposes no decal_stickers skin approach");
   assert(corpseApproaches.size === 8, "manifest exposes 8 distinct corpse.approach values");
   assert(
-    armorOverlayPersonas.size >= round8MinimumModularArmorOverlays,
-    `manifest has at least ${round8MinimumModularArmorOverlays} non-null modular armorOverlay entries`,
+    armorOverlayPersonas.size >= round10MinimumModularArmorOverlays,
+    `manifest has at least ${round10MinimumModularArmorOverlays} non-null modular armorOverlay entries`,
   );
-  for (const family of round8AdherenceFamilies) {
+  for (const family of round10AdherenceFamilies) {
     assert(adherenceApproachCoverage.has(family), `manifest adherenceApproach union covers ${family}`);
   }
-  assert(layerAdherenceCoverage.skin.has("uv_painted") && layerAdherenceCoverage.skin.has("bone_attached"), "skin layer covers uv_painted and bone_attached approaches");
+  assert(layerAdherenceCoverage.skin.size === 1 && layerAdherenceCoverage.skin.has("uv_painted"), "skin layer is consolidated on uv_painted adherence");
   assert(layerAdherenceCoverage.gore.has("uv_painted") && layerAdherenceCoverage.gore.has("bone_attached") && layerAdherenceCoverage.gore.has("mesh_baked"), "gore layer covers uv_painted, bone_attached, and mesh_baked approaches");
-  assert(layerAdherenceCoverage.weapons.size >= 2, "weapons layer covers two attach-mode approaches");
-  assert(layerAdherenceCoverage.armour.has("modular_submesh") && layerAdherenceCoverage.armour.has("uv_painted"), "armour layer covers modular_submesh prop and uv_painted paint approaches");
+  assert(layerAdherenceCoverage.weapons.size === 1 && layerAdherenceCoverage.weapons.has("dynamic_hand_bone"), "weapons layer is dynamic_hand_bone only");
+  assert(layerAdherenceCoverage.armour.has("bone_attached"), "armour layer uses body-tracking bone_attached prop/region approaches");
   console.log(
-    `Round-9 adherence matrix: skin=${[...layerAdherenceCoverage.skin].join(",")} gore=${[...layerAdherenceCoverage.gore].join(",")} weapons=${[...layerAdherenceCoverage.weapons].join(",")} armour=${[...layerAdherenceCoverage.armour].join(",")}`,
+    `Round-10 adherence matrix: skin=${[...layerAdherenceCoverage.skin].join(",")} gore=${[...layerAdherenceCoverage.gore].join(",")} weapons=${[...layerAdherenceCoverage.weapons].join(",")} armour=${[...declaredArmourModes].join(",")}`,
   );
   assert(accessoryPersonas.size === 0 || accessoryPersonas.size < characters.length, "accessories are null for all personas or not coupled 1:1 to all skins");
   for (const weapon of ["rusty_blade", "dagger", "sword", "axe", "greatsword", "warhammer"]) {
@@ -917,10 +1024,10 @@ if (existsSync(path.join(appDir, "package.json"))) {
   assertIncludes(testScript, "scripts/audit-skin-bone-attachments.gd", "package test invokes audit-skin-bone-attachments.gd");
   assertIncludes(testScript, "scripts/audit-modular-submesh-armor.gd", "package test invokes audit-modular-submesh-armor.gd");
   assertIncludes(testScript, "--assert", "package test runs character scale audit in assert mode");
-  assertIncludes(testScript, "--target-world-height", "package test passes explicit Round-8 target world height");
-  assertIncludes(testScript, "--character-model-scale", "package test passes explicit Round-8 character model scale");
+  assertIncludes(testScript, `--target-world-height ${round10TargetWorldHeight}`, "package test passes synchronized Round-10 target world height");
+  assertIncludes(testScript, `--character-model-scale ${round10CharacterModelScale}`, "package test passes synchronized Round-10 character model scale");
   assertIncludes(testScript, "audit-character-scales: skipped (GODOT_BIN unset)", "package test logs clear scale-audit skip when GODOT_BIN is unset");
-  assertIncludes(testScript, "Round-9 Godot audits: skipped (GODOT_BIN unset)", "package test logs clear Round-9 audit skip when GODOT_BIN is unset");
+  assertIncludes(testScript, "Round-10 Godot audits: skipped (GODOT_BIN unset)", "package test logs clear Round-10 audit skip when GODOT_BIN is unset");
   assertIncludes(testScript, "audit-universal-body", "package test logs or runs universal-body audit");
   assertIncludes(testScript, "audit-adherence-matrix", "package test logs or runs adherence-matrix audit");
 }
@@ -935,22 +1042,26 @@ if (existsSync(path.join(appDir, "scripts/audit-character-scales.gd"))) {
 
 if (existsSync(path.join(appDir, "scripts/audit-skin-bone-attachments.gd"))) {
   const auditSkinBoneAttachments = read("scripts/audit-skin-bone-attachments.gd");
-  for (const token of ["adherenceApproach", "sourcePack", "armorOverlay", "modular_submesh"]) {
-    assertIncludes(auditSkinBoneAttachments, token, `skin/bone attachment audit validates Round-8 ${token}`);
+  for (const token of ["adherenceApproach", "sourcePack", "armorOverlay", "armorRegion", "adhering_region", "modular_submesh_prop"]) {
+    assertIncludes(auditSkinBoneAttachments, token, `skin/bone attachment audit validates Round-10 ${token}`);
   }
   assertIncludes(auditSkinBoneAttachments, "adherence_coverage", "skin/bone attachment audit tracks adherenceApproach coverage");
-  assertIncludes(auditSkinBoneAttachments, "BASE_SCALE := 1.0", "skin/bone attachment audit uses Round-8 standard base scale");
+  assertIncludes(auditSkinBoneAttachments, "BASE_SCALE := 1.0", "skin/bone attachment audit uses Round-10 standard base scale");
   assertIncludes(auditSkinBoneAttachments, "MESH2MOTION_MARK_BONES", "skin/bone attachment audit validates marks against mesh2motion bones");
+  assertIncludes(auditSkinBoneAttachments, "MIN_DONOR_GORE_MARKS", "skin/bone attachment audit enforces donor gore mark count");
+  assertIncludes(auditSkinBoneAttachments, "MAX_SMALL_BODY_MARK_XY", "skin/bone attachment audit enforces small gore mark dimensions");
+  assertIncludes(auditSkinBoneAttachments, "_apply_skin_decal_stickers", "skin/bone attachment audit rejects retired skin decal helper if present");
   assertNotIncludes(auditSkinBoneAttachments, "bodyOverride", "skin/bone attachment audit avoids bodyOverride-tolerant branches");
 }
 
 if (existsSync(path.join(appDir, "scripts/audit-modular-submesh-armor.gd"))) {
   const auditModularArmor = read("scripts/audit-modular-submesh-armor.gd");
-  for (const token of ["armorOverlay", "modular_submesh", "sourcePack", "armour/", "armor_overlay_nodes_by_character", "bindBone"]) {
-    assertIncludes(auditModularArmor, token, `modular armor audit validates Round-8 ${token}`);
+  for (const token of ["armorOverlay", "modular_submesh_prop", "sourcePack", "armour/", "armor_overlay_nodes_by_character", "bindBone", "BoneAttachment3D"]) {
+    assertIncludes(auditModularArmor, token, `modular armor audit validates Round-10 ${token}`);
   }
   assertIncludes(auditModularArmor, "MIN_MODULAR_ARMOR_OVERLAYS", "modular armor audit enforces minimum non-null overlays");
   assertIncludes(auditModularArmor, "MESH2MOTION_ARMOR_BIND_BONES", "modular armor audit validates bindBone against mesh2motion bones");
+  assertIncludes(auditModularArmor, "_ensure_modular_armor_skin", "modular armor audit rejects retired Skin-bind helper if present");
   assertNotIncludes(auditModularArmor, "bodyOverride", "modular armor audit avoids bodyOverride-tolerant branches");
 }
 
@@ -969,13 +1080,15 @@ if (existsSync(path.join(appDir, "scripts/audit-adherence-matrix.gd"))) {
   const auditAdherenceMatrix = read("scripts/audit-adherence-matrix.gd");
   for (const token of [
     "WEAPON_DYNAMIC",
-    "WEAPON_STATIC",
+    "RETIRED_WEAPON_STATIC",
     "ARMOUR_PROP",
-    "ARMOUR_PAINT",
+    "ARMOUR_REGION",
+    "RETIRED_ARMOUR_PAINT",
+    "EXPECTED_SCHEMA_VERSION := 9",
     "last_applied_skin_approach",
     "last_applied_corpse_approach",
     "weaponSocketKind",
-    "usesArmourPaint",
+    "usesArmourRegion",
     "usesModularArmour",
   ]) {
     assertIncludes(auditAdherenceMatrix, token, `adherence-matrix audit validates ${token}`);
@@ -1020,21 +1133,22 @@ if (existsSync(path.join(appDir, "README.md"))) {
   assert(readme.includes("NO UAT"), "README documents blind/no-UAT posture");
 }
 
-if (existsSync(path.join(appDir, "ROUND-9-CLOSING-READOUT.md"))) {
-  const readout = read("ROUND-9-CLOSING-READOUT.md");
+if (existsSync(path.join(appDir, "ROUND-10-CLOSING-READOUT.md"))) {
+  const readout = read("ROUND-10-CLOSING-READOUT.md");
   for (const token of [
-    "Layer Matrix",
+    "Consolidated Lane Matrix",
     "Honest Limitations",
     "dynamic_hand_bone",
-    "static_root_socket",
     "modular_submesh_prop",
-    "armor_as_paint",
+    "adhering_region",
+    "small localized",
     "uv_painted",
-    "bone_attached",
-    "mesh_baked",
-    universalBodyFile,
+    "BoneAttachment3D",
+    "Scale before/after",
+    "targetWorldHeight",
+    "modelScaleMultiplier",
   ]) {
-    assertIncludes(readout, token, `Round-9 closing readout documents ${token}`);
+    assertIncludes(readout, token, `Round-10 closing readout documents ${token}`);
   }
 }
 

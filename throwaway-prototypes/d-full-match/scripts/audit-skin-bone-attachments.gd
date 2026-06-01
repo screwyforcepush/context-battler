@@ -4,9 +4,18 @@ const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
 const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
 const BASE_SCALE := 1.0
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
-const ADHERENCE_APPROACHES := ["bone_attached", "mesh_baked", "uv_painted", "modular_submesh"]
+const DONOR_GORE_PERSONAS := ["duelist", "camper", "paranoid"]
+const REGION_DONOR_PERSONAS := ["duelist", "camper", "paranoid"]
+const MIN_DONOR_GORE_MARKS := 6
+const MAX_SMALL_BODY_MARK_XY := 0.12
+const ADHERENCE_APPROACHES := ["bone_attached", "mesh_baked", "uv_painted"]
 const MESH2MOTION_MARK_BONES := ["spine_01", "spine_02", "spine_03", "upperarm_l", "lowerarm_r", "thigh_l", "head", "hand_l", "hand_r"]
 const BODY_REGION_SHADER_TOKENS := ["body-region", "body_region", "bodyregion", "multi-material", "multi_material", "multimaterial", "multi_material_split"]
+const SKIN_MARK_KEYS := ["decals", "marks", "stickers", "decalStickers", "decal_stickers"]
+const CORPSE_MARK_KEYS := ["decals", "stumpDecals", "marks"]
+const ARMOUR_REGION_MARK_KEYS := ["decals", "marks"]
+const ARMOUR_REGION_APPROACH := "adhering_region"
+const MODULAR_ARMOUR_PROP_APPROACH := "modular_submesh_prop"
 
 var manifest: Dictionary = {}
 var failures: Array[String] = []
@@ -16,6 +25,7 @@ var persona_warnings: Dictionary = {}
 var adherence_coverage: Dictionary = {}
 var armor_overlay_field_count := 0
 var modular_armor_overlay_count := 0
+var armor_region_count := 0
 var equipment_attachment: Node
 var fallback_material: StandardMaterial3D
 
@@ -42,6 +52,8 @@ func _run() -> void:
 		_fail("EquipmentMeshAttachment missing configure")
 		_finish()
 		return
+	if equipment_attachment.has_method("_apply_skin_decal_stickers"):
+		_fail("EquipmentMeshAttachment still exposes retired _apply_skin_decal_stickers path")
 	await process_frame
 	var assets_by_persona := _character_assets_by_persona(manifest)
 	for persona in PERSONAS:
@@ -87,23 +99,111 @@ func _audit_manifest_round8_fields(assets_by_persona: Dictionary) -> void:
 		var asset: Dictionary = assets_by_persona.get(persona, {})
 		if asset.has(_body_substitution_key()):
 			_fail_persona(persona, "declares forbidden per-persona body substitution key")
-		_audit_adherence_block(persona, "skin", asset.get("skin", null), true)
+		_audit_skin_consolidation(persona, asset.get("skin", null))
 		_audit_adherence_block(persona, "corpse", asset.get("corpse", null), true)
+		_audit_donor_gore_block(persona, asset.get("corpse", null))
 		if not asset.has("armorOverlay"):
 			_fail_persona(persona, "missing armorOverlay field")
-			continue
-		armor_overlay_field_count += 1
-		var overlay = asset.get("armorOverlay", null)
-		if typeof(overlay) == TYPE_NIL:
-			continue
-		if typeof(overlay) != TYPE_DICTIONARY:
-			_fail_persona(persona, "armorOverlay must be null or a Dictionary")
-			continue
-		modular_armor_overlay_count += 1
-		var overlay_dict := overlay as Dictionary
-		_audit_adherence_block(persona, "armorOverlay", overlay_dict, true)
-		if str(overlay_dict.get("adherenceApproach", "")) != "modular_submesh":
-			_fail_persona(persona, "armorOverlay.adherenceApproach must be modular_submesh")
+		else:
+			armor_overlay_field_count += 1
+			var overlay = asset.get("armorOverlay", null)
+			if typeof(overlay) != TYPE_NIL:
+				if typeof(overlay) != TYPE_DICTIONARY:
+					_fail_persona(persona, "armorOverlay must be null or a Dictionary")
+				else:
+					modular_armor_overlay_count += 1
+					_audit_modular_armour_overlay(persona, overlay as Dictionary)
+		_audit_armour_region_block(persona, asset.get("armorRegion", null))
+
+
+func _audit_skin_consolidation(persona: String, skin_value) -> void:
+	if typeof(skin_value) != TYPE_DICTIONARY:
+		_fail_persona(persona, "skin block must be a Dictionary")
+		return
+	var skin := skin_value as Dictionary
+	_audit_adherence_block(persona, "skin", skin, true)
+	if str(skin.get("adherenceApproach", "")) != "uv_painted":
+		_fail_persona(persona, "skin.adherenceApproach must be uv_painted in Round 10")
+	if str(skin.get("approach", "")) == "decal_stickers":
+		_fail_persona(persona, "skin.approach decal_stickers is retired")
+	var specs := _mark_specs_from_block(skin, SKIN_MARK_KEYS)
+	if not specs.is_empty():
+		_fail_persona(persona, "skin declares retired mark/decal sticker specs (%d)" % specs.size())
+
+
+func _audit_modular_armour_overlay(persona: String, overlay: Dictionary) -> void:
+	_audit_adherence_block(persona, "armorOverlay", overlay, true)
+	if str(overlay.get("adherenceApproach", "")) != "bone_attached":
+		_fail_persona(persona, "armorOverlay.adherenceApproach must be bone_attached")
+	if str(overlay.get("approach", "")) != MODULAR_ARMOUR_PROP_APPROACH:
+		_fail_persona(persona, "armorOverlay.approach must be %s" % MODULAR_ARMOUR_PROP_APPROACH)
+
+
+func _audit_donor_gore_block(persona: String, corpse_value) -> void:
+	if not DONOR_GORE_PERSONAS.has(persona):
+		return
+	if typeof(corpse_value) != TYPE_DICTIONARY:
+		_fail_persona(persona, "donor gore corpse block must be a Dictionary")
+		return
+	var corpse := corpse_value as Dictionary
+	if str(corpse.get("adherenceApproach", "")) != "bone_attached":
+		_fail_persona(persona, "donor gore corpse.adherenceApproach must be bone_attached")
+	var specs := _mark_specs_from_block(corpse, ["decals", "marks"])
+	if specs.size() < MIN_DONOR_GORE_MARKS:
+		_fail_persona(persona, "donor gore needs at least %d small localized marks, found %d" % [MIN_DONOR_GORE_MARKS, specs.size()])
+	for spec_info in specs:
+		_assert_small_localized_gore_spec(persona, spec_info as Dictionary)
+
+
+func _assert_small_localized_gore_spec(persona: String, spec_info: Dictionary) -> void:
+	var spec: Dictionary = spec_info.get("spec", {})
+	var label := "corpse.%s[%d]" % [str(spec_info.get("key", "marks")), int(spec_info.get("index", 0))]
+	if _is_floor_projection(spec):
+		_fail_persona(persona, "%s must be a body mark, not a floor projection" % label)
+	var bone_name := _bone_name_from_spec(spec)
+	if bone_name.is_empty():
+		_fail_persona(persona, "%s must declare a mesh2motion bone" % label)
+	elif not MESH2MOTION_MARK_BONES.has(bone_name):
+		_fail_persona(persona, "%s bone is outside mesh2motion vocabulary: %s" % [label, bone_name])
+	var size_value = spec.get("size", [])
+	if typeof(size_value) != TYPE_ARRAY:
+		_fail_persona(persona, "%s size must be an Array" % label)
+		return
+	var size_array := size_value as Array
+	if size_array.size() < 2:
+		_fail_persona(persona, "%s size must include x/y body dimensions" % label)
+		return
+	var size_x := absf(float(size_array[0]))
+	var size_y := absf(float(size_array[1]))
+	if size_x > MAX_SMALL_BODY_MARK_XY or size_y > MAX_SMALL_BODY_MARK_XY:
+		_fail_persona(persona, "%s body mark x/y %.3f/%.3f exceeds %.2f" % [label, size_x, size_y, MAX_SMALL_BODY_MARK_XY])
+
+
+func _audit_armour_region_block(persona: String, region_value) -> void:
+	if not REGION_DONOR_PERSONAS.has(persona):
+		if typeof(region_value) != TYPE_NIL:
+			_fail_persona(persona, "armorRegion is only expected on donor personas %s" % str(REGION_DONOR_PERSONAS))
+		return
+	if typeof(region_value) != TYPE_DICTIONARY:
+		_fail_persona(persona, "donor persona missing armorRegion Dictionary")
+		return
+	armor_region_count += 1
+	var region := region_value as Dictionary
+	_audit_adherence_block(persona, "armorRegion", region, true)
+	if str(region.get("approach", "")) != ARMOUR_REGION_APPROACH:
+		_fail_persona(persona, "armorRegion.approach must be %s" % ARMOUR_REGION_APPROACH)
+	if str(region.get("adherenceApproach", "")) != "bone_attached":
+		_fail_persona(persona, "armorRegion.adherenceApproach must be bone_attached")
+	var specs := _mark_specs_from_block(region, ARMOUR_REGION_MARK_KEYS)
+	if specs.is_empty():
+		_fail_persona(persona, "armorRegion must declare donated broad mark specs")
+	for spec_info in specs:
+		var spec: Dictionary = (spec_info as Dictionary).get("spec", {})
+		var bone_name := _bone_name_from_spec(spec)
+		if bone_name.is_empty():
+			_fail_persona(persona, "armorRegion.%s[%d] must declare a mesh2motion bone" % [str((spec_info as Dictionary).get("key", "marks")), int((spec_info as Dictionary).get("index", 0))])
+		elif not MESH2MOTION_MARK_BONES.has(bone_name):
+			_fail_persona(persona, "armorRegion bone is outside mesh2motion vocabulary: %s" % bone_name)
 
 
 func _audit_adherence_block(persona: String, slot: String, block_value, require_source_pack: bool) -> void:
@@ -139,6 +239,8 @@ func _audit_adherence_coverage() -> void:
 		_fail("armorOverlay field declared on %d/%d personas" % [armor_overlay_field_count, PERSONAS.size()])
 	if modular_armor_overlay_count < 3:
 		_fail("expected at least 3 non-null armorOverlay entries, found %d" % modular_armor_overlay_count)
+	if armor_region_count != REGION_DONOR_PERSONAS.size():
+		_fail("expected armorRegion on %d donor personas, found %d" % [REGION_DONOR_PERSONAS.size(), armor_region_count])
 	for approach_value in ADHERENCE_APPROACHES:
 		var approach := str(approach_value)
 		if not adherence_coverage.has(approach):
@@ -181,8 +283,9 @@ func _audit_persona(persona: String, asset: Dictionary) -> void:
 		_fail_persona(persona, "missing registered_character record after register_character")
 	else:
 		_audit_persona_specific_material(persona, character_id, asset)
-		_audit_live_body_marks(persona, character_id, asset)
-	var corpse_specs := _mark_specs_from_block(asset.get("corpse", {}), ["decals", "stumpDecals", "marks"])
+		_assert_no_live_skin_marks(persona, character_id, asset)
+		await _audit_runtime_armour_region(persona, character_id, asset)
+	var corpse_specs := _mark_specs_from_block(asset.get("corpse", {}), CORPSE_MARK_KEYS)
 	if not corpse_specs.is_empty():
 		if equipment_attachment.has_method("apply_corpse_skin_to_live_character"):
 			equipment_attachment.apply_corpse_skin_to_live_character(character_id)
@@ -274,11 +377,46 @@ func _assert_sprinter_body_region_shader(persona: String, character_id: String) 
 		print("OK %s sprinter material uses body-region/multi-material ShaderMaterial" % persona)
 
 
-func _audit_live_body_marks(persona: String, character_id: String, asset: Dictionary) -> void:
-	var specs := _mark_specs_from_block(asset.get("skin", {}), ["decals", "marks"])
-	if specs.is_empty():
+func _assert_no_live_skin_marks(persona: String, character_id: String, asset: Dictionary) -> void:
+	var specs := _mark_specs_from_block(asset.get("skin", {}), SKIN_MARK_KEYS)
+	if not specs.is_empty():
+		_fail_persona(persona, "skin declares retired live mark specs")
+	var tracked_skin_marks := _tracked_mark_nodes(character_id, "skin_mark_nodes_by_character")
+	if not tracked_skin_marks.is_empty():
+		_fail_persona(persona, "skin_mark_nodes_by_character contains %d retired skin mark nodes" % tracked_skin_marks.size())
+	var character := _registered_character(character_id)
+	var root := character.get("node") as Node
+	var projected_skin_marks := _collect_projected_mark_nodes(root)
+	if not projected_skin_marks.is_empty():
+		_fail_persona(persona, "live skin produced %d projected mark nodes after Round-10 consolidation" % projected_skin_marks.size())
+
+
+func _audit_runtime_armour_region(persona: String, character_id: String, asset: Dictionary) -> void:
+	var region_value = asset.get("armorRegion", null)
+	if not REGION_DONOR_PERSONAS.has(persona):
+		if not _tracked_mark_nodes(character_id, "armor_region_nodes_by_character").is_empty():
+			_fail_persona(persona, "non-donor persona has tracked armor_region_nodes_by_character entries")
 		return
-	_audit_mark_specs(persona, character_id, specs, "skin_mark_nodes_by_character", "body skin")
+	if typeof(region_value) != TYPE_DICTIONARY:
+		_fail_persona(persona, "cannot runtime-audit missing armorRegion")
+		return
+	if not equipment_attachment.has_method("_apply_adhering_region_armour"):
+		_fail_persona(persona, "EquipmentMeshAttachment missing _apply_adhering_region_armour")
+		return
+	var applied := bool(equipment_attachment.call("_apply_adhering_region_armour", character_id, region_value as Dictionary, 1))
+	await process_frame
+	if not applied:
+		_fail_persona(persona, "_apply_adhering_region_armour returned false")
+		return
+	var specs := _mark_specs_from_block(region_value, ARMOUR_REGION_MARK_KEYS)
+	_audit_mark_specs(persona, character_id, specs, "armor_region_nodes_by_character", "armour region")
+	if equipment_attachment.has_method("_clear_adhering_region_armour"):
+		equipment_attachment.call("_clear_adhering_region_armour", character_id)
+		await process_frame
+		if not _tracked_mark_nodes(character_id, "armor_region_nodes_by_character").is_empty():
+			_fail_persona(persona, "armor_region_nodes_by_character still has nodes after clear")
+	else:
+		_fail_persona(persona, "EquipmentMeshAttachment missing _clear_adhering_region_armour")
 
 
 func _audit_corpse_marks(persona: String, character_id: String, _asset: Dictionary, corpse_specs: Array) -> void:
@@ -330,9 +468,15 @@ func _assert_mark_parent(persona: String, label: String, spec_info: Dictionary, 
 	if attachment == null:
 		_fail_persona(persona, "%s mark is not parented under BoneAttachment3D for bone %s: %s" % [spec_label, bone_name, mark.get_path()])
 		return
+	if skeleton != null and not _node_contains(skeleton, attachment):
+		_fail_persona(persona, "%s BoneAttachment3D is not under active Skeleton3D: %s" % [spec_label, attachment.get_path()])
+		return
 	var attached_bone := str(attachment.bone_name)
 	if not attached_bone.is_empty() and attached_bone != bone_name:
 		_fail_persona(persona, "%s mark parent BoneAttachment3D uses bone %s, expected %s" % [spec_label, attached_bone, bone_name])
+		return
+	if not _contains_projected_mark_payload(mark):
+		_fail_persona(persona, "%s BoneAttachment3D has no Decal/QuadMesh mark payload: %s" % [spec_label, mark.get_path()])
 		return
 	print("OK %s %s BoneAttachment3D=%s bone=%s" % [persona, spec_label, attachment.get_path(), bone_name])
 
@@ -398,6 +542,17 @@ func _is_projected_mark_node(node: Node) -> bool:
 	if node is MeshInstance3D:
 		var mesh := (node as MeshInstance3D).mesh
 		return mesh is QuadMesh
+	return false
+
+
+func _contains_projected_mark_payload(node: Node) -> bool:
+	if node == null:
+		return false
+	if _is_projected_mark_node(node):
+		return true
+	for child in node.get_children():
+		if _contains_projected_mark_payload(child):
+			return true
 	return false
 
 
@@ -484,6 +639,12 @@ func _registered_character(character_id: String) -> Dictionary:
 		return {}
 	var character = (registry as Dictionary).get(character_id, {})
 	return character if typeof(character) == TYPE_DICTIONARY else {}
+
+
+func _node_contains(root: Node, candidate: Node) -> bool:
+	if root == null or candidate == null or not is_instance_valid(root) or not is_instance_valid(candidate):
+		return false
+	return root == candidate or root.is_ancestor_of(candidate)
 
 
 func _contains_any_token(value: String, tokens: Array) -> bool:

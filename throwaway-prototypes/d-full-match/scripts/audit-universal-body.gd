@@ -2,6 +2,7 @@ extends SceneTree
 
 const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
 const ART_ROOT := "res://shared-harness/art-kit/"
+const EXPECTED_SCHEMA_VERSION := 9
 const UNIVERSAL_BODY_FILE := "characters/camper-mesh2motion-human-base.glb"
 const UNIVERSAL_SOURCE_KEY := "mesh2motion"
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
@@ -66,8 +67,8 @@ func _read_manifest() -> Dictionary:
 
 
 func _assert_manifest_universal_body(manifest: Dictionary) -> void:
-	if int(manifest.get("schemaVersion", -1)) != 8:
-		_fail("manifest schemaVersion is not 8")
+	if int(manifest.get("schemaVersion", -1)) != EXPECTED_SCHEMA_VERSION:
+		_fail("manifest schemaVersion is not %d" % EXPECTED_SCHEMA_VERSION)
 	var body: Dictionary = manifest.get("body", {})
 	if body.is_empty():
 		_fail("manifest.body is missing")

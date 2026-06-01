@@ -9,14 +9,11 @@ const LAYER_SKIN := "skin"
 const LAYER_GORE := "gore"
 const LAYER_WEAPONS := "weapons"
 const LAYER_ARMOUR := "armour"
-const WEAPON_ATTACH_DYNAMIC := "dynamic_hand_bone"
-const WEAPON_ATTACH_STATIC := "static_root_socket"
 const ARMOUR_RENDER_PROP := "modular_submesh_prop"
-const ARMOUR_RENDER_PAINT := "armor_as_paint"
+const ARMOUR_RENDER_REGION := "adhering_region"
 
 var current_weapon_tier := 0
 var current_armour_tier := 0
-var current_weapon_attach_mode := WEAPON_ATTACH_DYNAMIC
 var current_armour_render_mode := ARMOUR_RENDER_PROP
 var weapon_by_tier := {0: "", 1: "", 2: "", 3: ""}
 var armour_by_tier := {0: "", 1: "", 2: "", 3: ""}
@@ -29,7 +26,6 @@ var layer_enabled := {
 	LAYER_ARMOUR: true,
 }
 var fallback_material: StandardMaterial3D
-var weapon_attach_mode_switch: CheckButton
 var armour_render_mode_switch: CheckButton
 
 @onready var scene_builder: Node3D = %SceneBuilder
@@ -162,7 +158,7 @@ func _make_ui() -> void:
 	header.add_child(back_button)
 	var title := Label.new()
 	title.name = "TitleLabel"
-	title.text = "Showroom - Round 9 locked mesh2motion adherence breadth"
+	title.text = "Showroom - Round 10 adherence consolidation"
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.add_theme_font_size_override("font_size", 18)
 	header.add_child(title)
@@ -199,15 +195,10 @@ func _make_ui() -> void:
 	modes_bar.name = "AdherenceModeBar"
 	modes_bar.add_theme_constant_override("separation", 8)
 	root.add_child(modes_bar)
-	weapon_attach_mode_switch = CheckButton.new()
-	weapon_attach_mode_switch.name = "WeaponAttachModeSwitch"
-	weapon_attach_mode_switch.button_pressed = current_weapon_attach_mode == WEAPON_ATTACH_STATIC
-	weapon_attach_mode_switch.toggled.connect(_set_weapon_attach_static)
-	modes_bar.add_child(weapon_attach_mode_switch)
 	armour_render_mode_switch = CheckButton.new()
 	armour_render_mode_switch.name = "ArmourModeSwitch"
-	armour_render_mode_switch.button_pressed = current_armour_render_mode == ARMOUR_RENDER_PAINT
-	armour_render_mode_switch.toggled.connect(_set_armour_render_paint)
+	armour_render_mode_switch.button_pressed = current_armour_render_mode == ARMOUR_RENDER_REGION
+	armour_render_mode_switch.toggled.connect(_set_armour_render_region)
 	modes_bar.add_child(armour_render_mode_switch)
 	_update_mode_switch_labels()
 	var tier_box := VBoxContainer.new()
@@ -276,14 +267,8 @@ func _set_layer_enabled(enabled: bool, layer: String) -> void:
 	_reapply_showroom_layers()
 
 
-func _set_weapon_attach_static(use_static: bool) -> void:
-	current_weapon_attach_mode = WEAPON_ATTACH_STATIC if use_static else WEAPON_ATTACH_DYNAMIC
-	_update_mode_switch_labels()
-	_reapply_showroom_layers()
-
-
-func _set_armour_render_paint(use_paint: bool) -> void:
-	current_armour_render_mode = ARMOUR_RENDER_PAINT if use_paint else ARMOUR_RENDER_PROP
+func _set_armour_render_region(use_region: bool) -> void:
+	current_armour_render_mode = ARMOUR_RENDER_REGION if use_region else ARMOUR_RENDER_PROP
 	_update_mode_switch_labels()
 	_reapply_showroom_layers()
 
@@ -295,8 +280,6 @@ func _reapply_showroom_layers() -> void:
 
 
 func _apply_runtime_modes() -> void:
-	if equipment_attachment.has_method("set_weapon_attach_mode"):
-		equipment_attachment.call("set_weapon_attach_mode", current_weapon_attach_mode)
 	if equipment_attachment.has_method("set_armour_render_mode"):
 		equipment_attachment.call("set_armour_render_mode", current_armour_render_mode)
 
@@ -400,8 +383,6 @@ func _default_visible_tier(tier_map: Dictionary) -> int:
 
 
 func _surface_armour_tier() -> int:
-	if _layer_is_enabled(LAYER_ARMOUR) and current_armour_render_mode == ARMOUR_RENDER_PAINT:
-		return current_armour_tier
 	return 0
 
 
@@ -410,10 +391,8 @@ func _layer_is_enabled(layer: String) -> bool:
 
 
 func _update_mode_switch_labels() -> void:
-	if weapon_attach_mode_switch != null:
-		weapon_attach_mode_switch.text = "Weapon attach: Static root socket" if current_weapon_attach_mode == WEAPON_ATTACH_STATIC else "Weapon attach: Dynamic hand bone"
 	if armour_render_mode_switch != null:
-		armour_render_mode_switch.text = "Armour mode: Armour as paint" if current_armour_render_mode == ARMOUR_RENDER_PAINT else "Armour mode: Modular prop"
+		armour_render_mode_switch.text = "Armour mode: Adhering region" if current_armour_render_mode == ARMOUR_RENDER_REGION else "Armour mode: Modular prop"
 
 
 func _update_tier_buttons(slot: String, selected_tier: int) -> void:

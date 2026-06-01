@@ -1,11 +1,13 @@
 {
-  "schemaVersion": 8,
-  "kitName": "d-full-match-round-9-locked-body-adherence-art-kit",
-  "purpose": "Round-9 locked mesh2motion body manifest for the d-full-match Showroom, preserving Round-8 skin/gore/weapon/armor layers while evaluating adherence approaches without persona body substitution.",
+  "schemaVersion": 9,
+  "kitName": "d-full-match-round-10-adherence-consolidation-art-kit",
+  "purpose": "Round-10 locked mesh2motion body manifest for the d-full-match Showroom, consolidating Round-9 adherence lanes: dynamic hand-bone weapons, UV-painted skin, small localized gore marks, and body-tracking armour prop/region modes.",
   "notes": [
-    "Round-9 schema 8 manifest: the root mesh2motion body is the universal substrate for all eight personas; persona body substitution is intentionally absent.",
-    "Round-8 weapons, ambientCG/OGA skin and gore inputs, and Quaternius modular armor overlays remain declared for adherence evaluation on the locked body.",
-    "Weapon breadth is declared as dynamic hand-bone attachment versus a static root socket contrast; armor breadth is declared as rigid modular_submesh props versus UV-painted armor-as-paint material shifts."
+    "Round-10 schema 9 manifest: the root mesh2motion body remains the universal substrate for all eight personas; persona body substitution is intentionally absent.",
+    "Weapons are consolidated on dynamic hand-bone attachment only; the static root-socket negative control is retired from manifest/UI selection.",
+    "Skin is consolidated on UV-painted body textures/materials; the opportunist sticker-decal skin is converted to a UV texture treatment.",
+    "Duelist/camper/paranoid donate their old broad gore decals into armorRegion and replace corpse gore with many small localized bone-attached marks.",
+    "Armour compares two body-tracking candidates: modular props following live BoneAttachment3D sockets and donated adhering-region coverage."
   ],
   "body": {
     "file": "characters/camper-mesh2motion-human-base.glb",
@@ -123,7 +125,188 @@
       "accessories": null,
       "corpse": {
         "approach": "wound_cluster_decals",
-        "rationale": "A cluster of torso slash and puncture marks reads as close-quarters overkill for the weapon-forward persona.",
+        "rationale": "A cluster of torso slash and puncture marks reads as close-quarters overkill for the weapon-forward persona. Round-10 re-approach: split into many small localized marks so each stays near one dominant bone instead of spanning joints as a broad patch.",
+        "params": {
+          "decals": [
+            {
+              "file": "textures/gore/wound-slash-a.png",
+              "bone": "spine_03",
+              "offset": [
+                -0.03,
+                0.03,
+                0.115
+              ],
+              "size": [
+                0.1,
+                0.07,
+                0.05
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -22
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "spine_02",
+              "offset": [
+                0.06,
+                -0.01,
+                0.115
+              ],
+              "size": [
+                0.07,
+                0.07,
+                0.05
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                15
+              ]
+            },
+            {
+              "file": "textures/gore/wound-slash-b.png",
+              "bone": "spine_01",
+              "offset": [
+                -0.04,
+                0.01,
+                0.11
+              ],
+              "size": [
+                0.09,
+                0.06,
+                0.05
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                38
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "upperarm_l",
+              "offset": [
+                0.02,
+                0.05,
+                0.045
+              ],
+              "size": [
+                0.06,
+                0.08,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -12
+              ]
+            },
+            {
+              "file": "textures/gore/wound-slash-a.png",
+              "bone": "lowerarm_r",
+              "offset": [
+                -0.01,
+                0.03,
+                0.045
+              ],
+              "size": [
+                0.08,
+                0.06,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                24
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "thigh_l",
+              "offset": [
+                0.02,
+                -0.03,
+                0.055
+              ],
+              "size": [
+                0.07,
+                0.07,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -8
+              ]
+            },
+            {
+              "file": "textures/gore/wound-slash-b.png",
+              "bone": "hand_r",
+              "offset": [
+                0.01,
+                0.015,
+                0.035
+              ],
+              "size": [
+                0.06,
+                0.05,
+                0.035
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                18
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "spine_03",
+              "offset": [
+                0.045,
+                0.015,
+                0.118
+              ],
+              "size": [
+                0.05,
+                0.06,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                5
+              ]
+            }
+          ]
+        },
+        "adherenceApproach": "bone_attached",
+        "sourcePack": "OGA-BloodSplatterAndGibs-CC0"
+      },
+      "notes": "duelist persona: pbr_texture_atlas skin using ambientCG MetalPlates017A 1K-PNG (CC0, https://ambientcg.com/view?id=MetalPlates017A) for all 5 PBR maps + wound_cluster_decals corpse gore. Round-7.1 touch-up: replaced near-blank engineer-procedural maps with the real ambientCG set; other skin/gore textures regenerated procedurally with visible content at 512x512. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-8 WP-D: skin.sourcePack=ambientCG-MetalPlates017A-CC0; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0; armorOverlay=quaternius_chest_plate; preferred showroom weapon=sword.",
+      "armorOverlay": {
+        "name": "quaternius_chest_plate",
+        "slot": "chest",
+        "adherenceApproach": "bone_attached",
+        "file": "armour/quaternius-rpg-armor-metal.fbx",
+        "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
+        "bindBone": "spine_03",
+        "rationale": "Chest piece tests the Round-8 modular sub-mesh armor path against the torso where wrapping matters most.",
+        "notes": "Rigid CC0 armour prop; Round-10 attaches the prop under a live BoneAttachment3D on spine_03 instead of injecting a single-bone identity Skin.",
+        "approach": "modular_submesh_prop"
+      },
+      "round8Evaluation": {
+        "skinTreatment": "pbr_texture_atlas sourced metal control",
+        "goreVariant": "torso wound_cluster_decals from CC0 gib/splatter sheet split into small localized Round-10 marks",
+        "weapon": "sword / Robin Lamb CC0 known-good control",
+        "armor": "Quaternius chest modular_submesh plus donated adhering_region coverage",
+        "adherence": "small bone_attached gore plus body-tracking armour region"
+      },
+      "armorRegion": {
+        "approach": "adhering_region",
+        "rationale": "Donated Round-9 broad torso wound-cluster projection, repurposed as flat armour-region coverage for comparison against the dynamic chest prop.",
         "params": {
           "decals": [
             {
@@ -205,26 +388,8 @@
           ]
         },
         "adherenceApproach": "bone_attached",
-        "sourcePack": "OGA-BloodSplatterAndGibs-CC0"
-      },
-      "notes": "duelist persona: pbr_texture_atlas skin using ambientCG MetalPlates017A 1K-PNG (CC0, https://ambientcg.com/view?id=MetalPlates017A) for all 5 PBR maps + wound_cluster_decals corpse gore. Round-7.1 touch-up: replaced near-blank engineer-procedural maps with the real ambientCG set; other skin/gore textures regenerated procedurally with visible content at 512x512. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-8 WP-D: skin.sourcePack=ambientCG-MetalPlates017A-CC0; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0; armorOverlay=quaternius_chest_plate; preferred showroom weapon=sword.",
-      "armorOverlay": {
-        "name": "quaternius_chest_plate",
-        "slot": "chest",
-        "adherenceApproach": "modular_submesh",
-        "file": "armour/quaternius-rpg-armor-metal.fbx",
-        "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
-        "bindBone": "spine_03",
-        "rationale": "Chest piece tests the Round-8 modular sub-mesh armor path against the torso where wrapping matters most.",
-        "notes": "Rigid CC0 Quaternius armor prop; WP-C injects a Skin bind to the mesh2motion spine_03 bone for the modular_submesh prototype.",
-        "approach": "modular_submesh"
-      },
-      "round8Evaluation": {
-        "skinTreatment": "pbr_texture_atlas sourced metal control",
-        "goreVariant": "torso wound_cluster_decals from CC0 gib/splatter sheet",
-        "weapon": "sword / Robin Lamb CC0 known-good control",
-        "armor": "Quaternius chest modular_submesh",
-        "adherence": "bone_attached gore plus modular_submesh armor"
+        "sourcePack": "OGA-BloodSplatterAndGibs-CC0",
+        "limitation": "Flat broad region tracks the selected bones but has no plate thickness and is not multi-bone skinned."
       }
     },
     {
@@ -293,76 +458,20 @@
       "category": "character",
       "personaSlot": "opportunist",
       "skin": {
-        "approach": "decal_stickers",
-        "rationale": "Projected sticker marks sell scavenged identity and painted-over loyalties while keeping the underlying body consolidated.",
+        "approach": "pattern_texture",
+        "rationale": "A UV-sampled sourced body texture keeps the opportunist on the skinned mesh and removes the floating bone-pinned sticker skin from Round 9.",
         "params": {
-          "basePalette": {
-            "base": "#263245",
-            "accent": "#8df0ff",
-            "emissive": "#ff5c18"
-          },
-          "decals": [
-            {
-              "file": "textures/skin/opportunist-decal-logo.png",
-              "bone": "spine_03",
-              "offset": [
-                0,
-                0.02,
-                0.13
-              ],
-              "size": [
-                0.34,
-                0.34,
-                0.08
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                0
-              ]
-            },
-            {
-              "file": "textures/skin/opportunist-decal-scar.png",
-              "bone": "upperarm_l",
-              "offset": [
-                0,
-                0.06,
-                0.04
-              ],
-              "size": [
-                0.3,
-                0.42,
-                0.08
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                -16
-              ]
-            },
-            {
-              "file": "textures/skin/opportunist-decal-dirt.png",
-              "bone": "spine_01",
-              "offset": [
-                0.06,
-                -0.02,
-                0.12
-              ],
-              "size": [
-                0.42,
-                0.32,
-                0.08
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                18
-              ]
-            }
-          ]
+          "albedo": "textures/skin/cc0-theness-human-body-texture.png",
+          "uv1_scale": [
+            1,
+            1
+          ],
+          "samplingMode": "uv",
+          "tint": "#8df0ff",
+          "baseColor": "#263245"
         },
-        "adherenceApproach": "bone_attached",
-        "sourcePack": "OGA-TheNess-HumanBodyTexture-CC0 + engineer-procedural decal fallback"
+        "adherenceApproach": "uv_painted",
+        "sourcePack": "OGA-TheNess-HumanBodyTexture-CC0"
       },
       "accessories": null,
       "corpse": {
@@ -378,14 +487,14 @@
         "adherenceApproach": "uv_painted",
         "sourcePack": "engineer-procedural-fallback (no CC0 full-body charred mesh2motion overlay found; see Round-8 research log)"
       },
-      "notes": "opportunist persona: decal_stickers skin with three local generated sticker marks + charred_burned_texture corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-8 WP-D: skin.sourcePack=OGA-TheNess-HumanBodyTexture-CC0 + engineer-procedural decal fallback; corpse.sourcePack=engineer-procedural-fallback (no CC0 full-body charred mesh2motion overlay found; see Round-8 research log); armorOverlay=null material-swap control; preferred showroom weapon=warhammer.",
+      "notes": "opportunist persona: pattern_texture UV-painted skin using TheNess CC0 body texture + charred_burned_texture corpse gore. Round-10: removed the prior bone-attached sticker-decal skin because it floated/slid in Showroom UAT. Universal mesh2motion body remains locked.",
       "armorOverlay": null,
       "round8Evaluation": {
-        "skinTreatment": "decal_stickers single-point pinning",
+        "skinTreatment": "pattern_texture sourced UV body texture",
         "goreVariant": "charred_burned_texture fallback body material",
         "weapon": "warhammer / Quaternius-UltimateRPGItemsPack-CC0",
         "armor": "Round-5 material-swap control",
-        "adherence": "bone_attached skin marks"
+        "adherence": "uv_painted skin material"
       }
     },
     {
@@ -409,7 +518,189 @@
       "accessories": null,
       "corpse": {
         "approach": "exposed_bone_decals",
-        "rationale": "Projected red gashes with pale exposed bone literalize the persona's nightmare as an extreme corpse read.",
+        "rationale": "Projected red gashes with pale exposed bone literalize the persona's nightmare as an extreme corpse read. Round-10 re-approach: split into many small localized marks so each stays near one dominant bone instead of spanning joints as a broad patch.",
+        "params": {
+          "decals": [
+            {
+              "file": "textures/gore/bone-gash-a.png",
+              "bone": "spine_03",
+              "offset": [
+                -0.04,
+                0.02,
+                0.118
+              ],
+              "size": [
+                0.11,
+                0.08,
+                0.05
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -28
+              ]
+            },
+            {
+              "file": "textures/gore/bone-gash-b.png",
+              "bone": "spine_02",
+              "offset": [
+                0.055,
+                -0.01,
+                0.116
+              ],
+              "size": [
+                0.09,
+                0.08,
+                0.05
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                24
+              ]
+            },
+            {
+              "file": "textures/gore/bone-gash-c.png",
+              "bone": "spine_01",
+              "offset": [
+                -0.02,
+                0.015,
+                0.108
+              ],
+              "size": [
+                0.08,
+                0.07,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                4
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "upperarm_l",
+              "offset": [
+                0.02,
+                0.045,
+                0.045
+              ],
+              "size": [
+                0.06,
+                0.06,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -20
+              ]
+            },
+            {
+              "file": "textures/gore/bone-gash-a.png",
+              "bone": "lowerarm_r",
+              "offset": [
+                -0.015,
+                0.025,
+                0.045
+              ],
+              "size": [
+                0.08,
+                0.06,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                18
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "thigh_l",
+              "offset": [
+                0.025,
+                -0.035,
+                0.055
+              ],
+              "size": [
+                0.07,
+                0.07,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -12
+              ]
+            },
+            {
+              "file": "textures/gore/bone-gash-b.png",
+              "bone": "head",
+              "offset": [
+                0.02,
+                0.025,
+                0.08
+              ],
+              "size": [
+                0.06,
+                0.05,
+                0.035
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                16
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "hand_r",
+              "offset": [
+                0,
+                0.015,
+                0.035
+              ],
+              "size": [
+                0.05,
+                0.05,
+                0.035
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -8
+              ]
+            }
+          ],
+          "boneColor": "#eee5ca"
+        },
+        "adherenceApproach": "bone_attached",
+        "sourcePack": "OGA-LiquidSplatterPixelTexture-CC0"
+      },
+      "notes": "paranoid persona: toon_cel_shader skin from local shader + exposed_bone_decals corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-8 WP-D: skin.sourcePack=ambientCG-Leather034B-CC0 visual-material reference + toon shader fallback; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0; armorOverlay=quaternius_crown_helmet; preferred showroom weapon=dagger.",
+      "armorOverlay": {
+        "name": "quaternius_crown_helmet",
+        "slot": "helmet",
+        "adherenceApproach": "bone_attached",
+        "file": "armour/quaternius-rpg-crown-helmet.fbx",
+        "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
+        "bindBone": "head",
+        "rationale": "Helmet tests modular_submesh armor at a high-motion head attachment point distinct from torso armor.",
+        "notes": "Rigid CC0 armour prop; Round-10 attaches the prop under a live BoneAttachment3D on head instead of injecting a single-bone identity Skin.",
+        "approach": "modular_submesh_prop"
+      },
+      "round8Evaluation": {
+        "skinTreatment": "toon_cel_shader sourced-material style control",
+        "goreVariant": "exposed_bone_decals using imported CC0 liquid splatter source split into small localized Round-10 marks",
+        "weapon": "dagger / Quaternius-UltimateRPGItemsPack-CC0",
+        "armor": "Quaternius helmet modular_submesh plus donated adhering_region coverage",
+        "adherence": "small bone_attached gore plus body-tracking armour region"
+      },
+      "armorRegion": {
+        "approach": "adhering_region",
+        "rationale": "Donated Round-9 broad exposed-bone projection, repurposed as flat armour-region coverage for comparison against the dynamic helmet prop.",
         "params": {
           "decals": [
             {
@@ -469,30 +760,11 @@
                 6
               ]
             }
-          ],
-          "boneColor": "#eee5ca"
+          ]
         },
         "adherenceApproach": "bone_attached",
-        "sourcePack": "OGA-LiquidSplatterPixelTexture-CC0"
-      },
-      "notes": "paranoid persona: toon_cel_shader skin from local shader + exposed_bone_decals corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-8 WP-D: skin.sourcePack=ambientCG-Leather034B-CC0 visual-material reference + toon shader fallback; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0; armorOverlay=quaternius_crown_helmet; preferred showroom weapon=dagger.",
-      "armorOverlay": {
-        "name": "quaternius_crown_helmet",
-        "slot": "helmet",
-        "adherenceApproach": "modular_submesh",
-        "file": "armour/quaternius-rpg-crown-helmet.fbx",
-        "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
-        "bindBone": "head",
-        "rationale": "Helmet tests modular_submesh armor at a high-motion head attachment point distinct from torso armor.",
-        "notes": "Rigid CC0 Quaternius helmet prop; WP-C injects a Skin bind to the mesh2motion head bone for the modular_submesh prototype.",
-        "approach": "modular_submesh"
-      },
-      "round8Evaluation": {
-        "skinTreatment": "toon_cel_shader sourced-material style control",
-        "goreVariant": "exposed_bone_decals using imported CC0 liquid splatter source",
-        "weapon": "dagger / Quaternius-UltimateRPGItemsPack-CC0",
-        "armor": "Quaternius helmet modular_submesh",
-        "adherence": "bone_attached gore plus modular_submesh armor"
+        "sourcePack": "OGA-LiquidSplatterPixelTexture-CC0",
+        "limitation": "Flat broad region tracks the selected bones but has no plate thickness and is not multi-bone skinned."
       }
     },
     {
@@ -516,7 +788,160 @@
       "accessories": null,
       "corpse": {
         "approach": "viscera_projection",
-        "rationale": "Chest and abdomen viscera projections make the death-pose body look opened up rather than merely tinted.",
+        "rationale": "Chest and abdomen viscera projections make the death-pose body look opened up rather than merely tinted. Round-10 re-approach: split into many small localized marks so each stays near one dominant bone instead of spanning joints as a broad patch.",
+        "params": {
+          "decals": [
+            {
+              "file": "textures/gore/viscera-chest.png",
+              "bone": "spine_03",
+              "offset": [
+                -0.025,
+                0.015,
+                0.125
+              ],
+              "size": [
+                0.11,
+                0.08,
+                0.05
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -6
+              ]
+            },
+            {
+              "file": "textures/gore/viscera-abdomen.png",
+              "bone": "spine_02",
+              "offset": [
+                0.045,
+                -0.015,
+                0.118
+              ],
+              "size": [
+                0.1,
+                0.09,
+                0.05
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                13
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "spine_01",
+              "offset": [
+                -0.055,
+                0.02,
+                0.11
+              ],
+              "size": [
+                0.07,
+                0.07,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -18
+              ]
+            },
+            {
+              "file": "textures/gore/wound-slash-a.png",
+              "bone": "upperarm_l",
+              "offset": [
+                0.01,
+                0.045,
+                0.045
+              ],
+              "size": [
+                0.08,
+                0.06,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                28
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "lowerarm_r",
+              "offset": [
+                0.015,
+                0.02,
+                0.045
+              ],
+              "size": [
+                0.06,
+                0.06,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -16
+              ]
+            },
+            {
+              "file": "textures/gore/wound-slash-b.png",
+              "bone": "thigh_l",
+              "offset": [
+                -0.02,
+                -0.035,
+                0.055
+              ],
+              "size": [
+                0.09,
+                0.06,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                9
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "hand_l",
+              "offset": [
+                0,
+                0.015,
+                0.035
+              ],
+              "size": [
+                0.05,
+                0.05,
+                0.035
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                22
+              ]
+            }
+          ],
+          "organColor": "#740016"
+        },
+        "adherenceApproach": "bone_attached",
+        "sourcePack": "OGA-BloodSplatterAndGibs-CC0"
+      },
+      "notes": "camper persona: emissive_trim_shader skin with local trim mask + viscera_projection corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-8 WP-D: skin.sourcePack=ambientCG-Fabric029-CC0 + engineer-procedural trim-mask fallback; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0; armorOverlay=null material-swap control; preferred showroom weapon=axe.",
+      "armorOverlay": null,
+      "round8Evaluation": {
+        "skinTreatment": "emissive_trim_shader with sourced fabric base reference",
+        "goreVariant": "viscera_projection sourced gib-sheet control split into small localized Round-10 marks",
+        "weapon": "axe / Quaternius-UltimateRPGItemsPack-CC0",
+        "armor": "Round-5 material-swap control plus donated adhering_region coverage",
+        "adherence": "small bone_attached gore plus body-tracking armour region"
+      },
+      "armorRegion": {
+        "approach": "adhering_region",
+        "rationale": "Donated Round-9 broad viscera projection, repurposed as flat torso armour-region coverage where no modular prop exists.",
         "params": {
           "decals": [
             {
@@ -557,20 +982,11 @@
                 -10
               ]
             }
-          ],
-          "organColor": "#740016"
+          ]
         },
         "adherenceApproach": "bone_attached",
-        "sourcePack": "OGA-BloodSplatterAndGibs-CC0"
-      },
-      "notes": "camper persona: emissive_trim_shader skin with local trim mask + viscera_projection corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-8 WP-D: skin.sourcePack=ambientCG-Fabric029-CC0 + engineer-procedural trim-mask fallback; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0; armorOverlay=null material-swap control; preferred showroom weapon=axe.",
-      "armorOverlay": null,
-      "round8Evaluation": {
-        "skinTreatment": "emissive_trim_shader with sourced fabric base reference",
-        "goreVariant": "viscera_projection sourced gib-sheet control",
-        "weapon": "axe / Quaternius-UltimateRPGItemsPack-CC0",
-        "armor": "Round-5 material-swap control",
-        "adherence": "bone_attached viscera projection"
+        "sourcePack": "OGA-BloodSplatterAndGibs-CC0",
+        "limitation": "Flat broad region tracks the selected bones but has no plate thickness and is not multi-bone skinned."
       }
     },
     {
@@ -741,13 +1157,13 @@
       "armorOverlay": {
         "name": "quaternius_gauntlet",
         "slot": "gauntlet",
-        "adherenceApproach": "modular_submesh",
+        "adherenceApproach": "bone_attached",
         "file": "armour/quaternius-rpg-glove-gauntlet.fbx",
         "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
         "bindBone": "hand_l",
         "rationale": "Gauntlet tests modular_submesh armor on a limb endpoint so users can compare it against bone-attached flat decals.",
-        "notes": "Rigid CC0 Quaternius gauntlet prop; WP-C injects a Skin bind to the mesh2motion hand_l bone for the modular_submesh prototype.",
-        "approach": "modular_submesh"
+        "notes": "Rigid CC0 armour prop; Round-10 attaches the prop under a live BoneAttachment3D on hand_l instead of injecting a single-bone identity Skin.",
+        "approach": "modular_submesh_prop"
       },
       "round8Evaluation": {
         "skinTreatment": "rim_fresnel_shader sourced skin-reference control",
@@ -794,7 +1210,7 @@
         "attributionRequired": false,
         "notes": "Poly Pizza bundle page exposes CC0 and attributes Quaternius as creator."
       },
-      "notes": "Round-8 sourced CC0 Quaternius sword FBX occupies the low-tier rusty_blade slot as a sourced control against the old primitive blade.",
+      "notes": "Round-8 sourced CC0 Quaternius sword FBX occupies the low-tier rusty_blade slot as a sourced control against the old primitive blade. Round-10: dynamic_hand_bone is the sole manifest attach mode; the static root-socket contrast is retired.",
       "sizeBytes": 32236,
       "sha256": "298d38fda4d00b16682b8145e391dd73f6dd618ebb8b6baa0eced045de681c60",
       "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
@@ -823,25 +1239,6 @@
             ],
             "scale": 1
           }
-        },
-        {
-          "mode": "static_root_socket",
-          "adherenceApproach": "bone_attached",
-          "attachBone": null,
-          "handOffset": {
-            "position": [
-              0.05,
-              0.02,
-              -0.02
-            ],
-            "rotationDeg": [
-              0,
-              0,
-              -18
-            ],
-            "scale": 1
-          },
-          "attachModeFamily": "static_socket"
         }
       ]
     },
@@ -882,7 +1279,7 @@
         "attributionRequired": false,
         "notes": "Poly Pizza bundle page exposes CC0 and attributes Quaternius as creator."
       },
-      "notes": "Round-8 sourced CC0 Quaternius dagger FBX replaces the primitive dagger for the low-tier quick melee lane.",
+      "notes": "Round-8 sourced CC0 Quaternius dagger FBX replaces the primitive dagger for the low-tier quick melee lane. Round-10: dynamic_hand_bone is the sole manifest attach mode; the static root-socket contrast is retired.",
       "sizeBytes": 30956,
       "sha256": "95f770f204b44740d45355838aa78d50e975d48d14510e7e4dfc9aa0261468df",
       "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
@@ -911,25 +1308,6 @@
             ],
             "scale": 0.9
           }
-        },
-        {
-          "mode": "static_root_socket",
-          "adherenceApproach": "bone_attached",
-          "attachBone": null,
-          "handOffset": {
-            "position": [
-              0.04,
-              0.01,
-              -0.02
-            ],
-            "rotationDeg": [
-              0,
-              0,
-              -10
-            ],
-            "scale": 0.9
-          },
-          "attachModeFamily": "static_socket"
         }
       ]
     },
@@ -976,7 +1354,7 @@
         "sourceArchivePath": "hero/charactersword.glb",
         "selectedOnly": true
       },
-      "notes": "Real sourced sword mesh from the hero pack to anchor the mid-tier melee lane.",
+      "notes": "Real sourced sword mesh from the hero pack to anchor the mid-tier melee lane. Round-10: dynamic_hand_bone is the sole manifest attach mode; the static root-socket contrast is retired.",
       "sizeBytes": 8956,
       "sha256": "82a39243bc6a8739626a8dca0a791928b0f13c2b067054b36aa11e530e070792",
       "adherenceApproach": "bone_attached",
@@ -998,25 +1376,6 @@
             ],
             "scale": 1
           }
-        },
-        {
-          "mode": "static_root_socket",
-          "adherenceApproach": "bone_attached",
-          "attachBone": null,
-          "handOffset": {
-            "position": [
-              0.06,
-              0.03,
-              -0.03
-            ],
-            "rotationDeg": [
-              0,
-              0,
-              -14
-            ],
-            "scale": 1
-          },
-          "attachModeFamily": "static_socket"
         }
       ]
     },
@@ -1057,7 +1416,7 @@
         "attributionRequired": false,
         "notes": "Poly Pizza bundle page exposes CC0 and attributes Quaternius as creator."
       },
-      "notes": "Round-8 sourced CC0 Quaternius double axe FBX replaces the primitive axe for a broader mid-tier silhouette.",
+      "notes": "Round-8 sourced CC0 Quaternius double axe FBX replaces the primitive axe for a broader mid-tier silhouette. Round-10: dynamic_hand_bone is the sole manifest attach mode; the static root-socket contrast is retired.",
       "sizeBytes": 42684,
       "sha256": "2bcd76c01e5e25fcc6f941b24d92f9764203065c832e29ccb42592a98d710845",
       "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
@@ -1086,25 +1445,6 @@
             ],
             "scale": 1
           }
-        },
-        {
-          "mode": "static_root_socket",
-          "adherenceApproach": "bone_attached",
-          "attachBone": null,
-          "handOffset": {
-            "position": [
-              0.08,
-              0.04,
-              -0.04
-            ],
-            "rotationDeg": [
-              0,
-              0,
-              -24
-            ],
-            "scale": 1
-          },
-          "attachModeFamily": "static_socket"
         }
       ]
     },
@@ -1145,7 +1485,7 @@
         "attributionRequired": false,
         "notes": "Poly Pizza bundle page exposes CC0 and attributes Quaternius as creator."
       },
-      "notes": "Round-8 sourced CC0 Quaternius greatsword FBX replaces the primitive greatsword for the high-tier heavy blade lane.",
+      "notes": "Round-8 sourced CC0 Quaternius greatsword FBX replaces the primitive greatsword for the high-tier heavy blade lane. Round-10: dynamic_hand_bone is the sole manifest attach mode; the static root-socket contrast is retired.",
       "sizeBytes": 31596,
       "sha256": "d27573fc1f15a8a531cf7ea22eca79149038b6ff3ea0d4b386c4ff2f5e98f6d8",
       "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
@@ -1174,25 +1514,6 @@
             ],
             "scale": 1.12
           }
-        },
-        {
-          "mode": "static_root_socket",
-          "adherenceApproach": "bone_attached",
-          "attachBone": null,
-          "handOffset": {
-            "position": [
-              0.09,
-              0.06,
-              -0.05
-            ],
-            "rotationDeg": [
-              0,
-              0,
-              -20
-            ],
-            "scale": 1.12
-          },
-          "attachModeFamily": "static_socket"
         }
       ]
     },
@@ -1233,7 +1554,7 @@
         "attributionRequired": false,
         "notes": "Poly Pizza bundle page exposes CC0 and attributes Quaternius as creator."
       },
-      "notes": "Round-8 sourced CC0 Quaternius warhammer FBX replaces the primitive hammer for the high-tier impact lane.",
+      "notes": "Round-8 sourced CC0 Quaternius warhammer FBX replaces the primitive hammer for the high-tier impact lane. Round-10: dynamic_hand_bone is the sole manifest attach mode; the static root-socket contrast is retired.",
       "sizeBytes": 46476,
       "sha256": "f0a70566a3230737507034319031786fbba9e63324c4fa121ef5a492a48a12d9",
       "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
@@ -1262,25 +1583,6 @@
             ],
             "scale": 1.08
           }
-        },
-        {
-          "mode": "static_root_socket",
-          "adherenceApproach": "bone_attached",
-          "attachBone": null,
-          "handOffset": {
-            "position": [
-              0.1,
-              0.04,
-              -0.05
-            ],
-            "rotationDeg": [
-              0,
-              0,
-              -30
-            ],
-            "scale": 1.08
-          },
-          "attachModeFamily": "static_socket"
         }
       ]
     },
@@ -1695,41 +1997,24 @@
         "adherenceApproach": "bone_attached",
         "attachNode": "BoneAttachment3D",
         "bindBone": "hand_r",
-        "purpose": "Primary Round-8 weapon path; the weapon follows the mesh2motion hand through attack/death animation."
-      },
-      {
-        "mode": "static_root_socket",
-        "adherenceApproach": "bone_attached",
-        "attachNode": "Node3D",
-        "bindBone": null,
-        "purpose": "Round-9 contrast path; a root-space socket exposes lag/detachment during deformation as adherence breadth data.",
-        "attachModeFamily": "static_socket"
+        "purpose": "Consolidated Round-10 weapon path; the weapon follows the mesh2motion hand through idle, motion, attack, and death clips."
       }
     ],
     "armorApproaches": [
       {
         "mode": "modular_submesh_prop",
-        "adherenceApproach": "modular_submesh",
+        "adherenceApproach": "bone_attached",
         "family": "bone_attached",
         "source": "armorOverlay",
-        "purpose": "Rigid CC0 Quaternius props bound to mesh2motion bones; expected to protrude rather than wrap."
+        "purpose": "Rigid CC0 props parented under live BoneAttachment3D sockets; expected to protrude/clip rather than wrap."
       },
       {
-        "mode": "armor_as_paint",
-        "adherenceApproach": "uv_painted",
-        "family": "uv_painted",
-        "source": "armorAsPaint",
-        "purpose": "Armour tier as metallic/emissive material shift on the locked body mesh; wraps with the skinned body and has no separate thickness."
+        "mode": "adhering_region",
+        "adherenceApproach": "bone_attached",
+        "family": "bone_attached",
+        "source": "armorRegion",
+        "purpose": "Donated broad Round-9 gore projection specs reused as flat armour-region coverage; tracks bones but has no thickness."
       }
     ]
-  },
-  "armorAsPaint": {
-    "mode": "armor_as_paint",
-    "adherenceApproach": "uv_painted",
-    "appliesToPersonas": "all",
-    "appliesToBody": "characters/camper-mesh2motion-human-base.glb",
-    "materialSource": "runtime_armour_tier_standard_material_shift",
-    "togglesWithLayer": "armour",
-    "rationale": "Promotes the existing armour-tier material shift into a declared Round-9 adherence approach so armour can be evaluated as paint on the locked mesh2motion body."
   }
 }
