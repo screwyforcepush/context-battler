@@ -747,7 +747,8 @@ func _apply_modular_submesh_armor(character_id: String, armor_overlay_block: Dic
 		push_warning("armorOverlay could not resolve a live bind bone for %s" % character_id)
 		return false
 	var attached_meshes := []
-	var prop_scale := _armour_prop_scale(armor_overlay_block)
+	var fit_scale := _armour_fit_scale(armor_overlay_block)
+	var prop_offset := _armour_prop_offset(armor_overlay_block)
 	for mesh_value in meshes:
 		var mesh := mesh_value as MeshInstance3D
 		if mesh == null or not is_instance_valid(mesh):
@@ -759,7 +760,7 @@ func _apply_modular_submesh_armor(character_id: String, armor_overlay_block: Dic
 		mesh.name = _unique_child_name(armour_socket, "armor_overlay_%s" % str(mesh.name))
 		mesh.owner = null
 		armour_socket.add_child(mesh)
-		mesh.transform = _scaled_transform(local_transform, prop_scale)
+		mesh.transform = _scaled_transform(local_transform, fit_scale, prop_offset)
 		mesh.skeleton = NodePath("")
 		mesh.skin = null
 		_apply_tier_material(mesh, armour_tier, "armour")
@@ -808,24 +809,41 @@ func _unique_child_name(parent: Node, desired_name: String) -> String:
 	return candidate
 
 
-func _armour_prop_scale(armor_overlay_block: Dictionary) -> float:
+func _armour_fit_scale(armor_overlay_block: Dictionary) -> float:
 	var default_scale := 1.0
 	var adherence = manifest.get("round9Adherence", {})
 	if typeof(adherence) == TYPE_DICTIONARY:
-		var default_value = (adherence as Dictionary).get("armourPropScaleDefault", default_scale)
+		var adherence_dict := adherence as Dictionary
+		var default_block = adherence_dict.get("armourPropFitDefault", {})
+		var default_value = default_scale
+		if typeof(default_block) == TYPE_DICTIONARY:
+			default_value = (default_block as Dictionary).get("fitScale", default_scale)
+		else:
+			default_value = adherence_dict.get("armourPropFitScaleDefault", adherence_dict.get("armourPropScaleDefault", default_scale))
 		if typeof(default_value) == TYPE_INT or typeof(default_value) == TYPE_FLOAT:
 			default_scale = float(default_value)
-	var value = armor_overlay_block.get("propScale", default_scale)
+	var value = armor_overlay_block.get("fitScale", armor_overlay_block.get("propScale", default_scale))
 	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
 		return max(float(value), 0.01)
 	return max(default_scale, 0.01)
 
 
-func _scaled_transform(transform: Transform3D, prop_scale: float) -> Transform3D:
+func _armour_prop_offset(armor_overlay_block: Dictionary) -> Vector3:
+	var default_offset := Vector3.ZERO
+	var adherence = manifest.get("round9Adherence", {})
+	if typeof(adherence) == TYPE_DICTIONARY:
+		var default_block = (adherence as Dictionary).get("armourPropFitDefault", {})
+		if typeof(default_block) == TYPE_DICTIONARY:
+			default_offset = _vector3_from_array((default_block as Dictionary).get("propOffset", []), default_offset)
+	return _vector3_from_array(armor_overlay_block.get("propOffset", []), default_offset)
+
+
+func _scaled_transform(transform: Transform3D, fit_scale: float, prop_offset: Vector3 = Vector3.ZERO) -> Transform3D:
 	var out := transform
-	var scalar: float = max(prop_scale, 0.01)
+	var scalar: float = max(fit_scale, 0.01)
 	var scale_vector: Vector3 = Vector3.ONE * scalar
-	out.origin *= scalar
+	# fitScale is source-local; propOffset is post-scale socket-local under the BoneAttachment3D.
+	out.origin = out.origin * scalar + prop_offset
 	out.basis = out.basis.scaled(scale_vector)
 	return out
 

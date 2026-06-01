@@ -75,8 +75,13 @@ const expectedCharacterForbiddenKeys = [
   "palette",
 ];
 const expectedSkinHelperGroups = [
+  ["_apply_skin_palette_flat"],
   ["_apply_skin_pbr_texture_atlas", "_apply_skin_pbr_texture"],
   ["_apply_skin_pattern_texture"],
+  ["_apply_skin_toon_cel"],
+  ["_apply_skin_emissive_trim"],
+  ["_apply_skin_multi_material"],
+  ["_apply_skin_rim_fresnel"],
 ];
 const expectedCorpseHelperGroups = [
   ["_apply_corpse_blood_saturation"],
@@ -101,19 +106,45 @@ function scalePinsFromManifestBody() {
   };
 }
 
-const round11CharacterModelScale = 1.0;
-const round11ScalePins = scalePinsFromManifestBody();
-const round11BodyModelScaleMultiplier = round11ScalePins.modelScaleMultiplier;
-const round11TargetWorldHeight = round11ScalePins.targetWorldHeight;
-const round11AdherenceFamilies = ["bone_attached", "mesh_baked", "uv_painted"];
-const round11MinimumModularArmorOverlays = 3;
-const round11LiveCorpseApproach = "small_bone_attached_marks";
-const round11DeathTreatmentApproach = "dismemberment_baked";
-const round11DeathTreatmentMethod = "bone_hide";
-const round11MinimumSmallGoreMarks = 10;
-const round11MaximumSmallGoreBodyMarkAxis = 0.12;
-const round11RequiredLiveCorpseMarkType = "splash";
-const retiredLiveCorpseApproaches = ["blood_saturation_overlay", "charred_burned_texture", "decay_desaturation", "gore_pool_decal"];
+const round12CharacterModelScale = 1.0;
+const round12ScalePins = scalePinsFromManifestBody();
+const round12BodyModelScaleMultiplier = round12ScalePins.modelScaleMultiplier;
+const round12TargetWorldHeight = round12ScalePins.targetWorldHeight;
+const round12AdherenceFamilies = ["bone_attached", "mesh_baked", "uv_painted"];
+const round12MinimumModularArmorOverlays = 3;
+const round12LiveSmallGoreApproach = "small_bone_attached_marks";
+const round12DeathTreatmentApproach = "dismemberment_baked";
+const round12DeathTreatmentMethod = "bone_hide";
+const round12MinimumSmallGoreMarks = 10;
+const round12MaximumSmallGoreBodyMarkAxis = 0.12;
+const round12RequiredLiveCorpseMarkType = "splash";
+const round12MinimumCamperVisceraDecals = 7;
+const round12CamperOrganColor = "#740016";
+const round12RequiredSprinterHideBones = ["thigh_l", "lowerarm_r"];
+const round12SprinterStumpSizesByBone = new Map([
+  ["thigh_l", [0.34, 0.28]],
+  ["lowerarm_r", [0.30, 0.24]],
+]);
+const round12RequiredSkinApproachByPersona = new Map([
+  ["rat", "palette_flat"],
+  ["duelist", "pbr_texture_atlas"],
+  ["trader", "pattern_texture"],
+  ["opportunist", "pattern_texture"],
+  ["paranoid", "toon_cel_shader"],
+  ["camper", "emissive_trim_shader"],
+  ["sprinter", "multi_material_split"],
+  ["vulture", "rim_fresnel_shader"],
+]);
+const round12RequiredLiveCorpseApproachByPersona = new Map([
+  ["rat", round12LiveSmallGoreApproach],
+  ["duelist", round12LiveSmallGoreApproach],
+  ["trader", round12LiveSmallGoreApproach],
+  ["opportunist", round12LiveSmallGoreApproach],
+  ["paranoid", round12LiveSmallGoreApproach],
+  ["camper", "viscera_projection"],
+  ["sprinter", "dismemberment_baked"],
+  ["vulture", round12LiveSmallGoreApproach],
+]);
 const mesh2motionGoreBones = ["spine_01", "spine_02", "spine_03", "upperarm_l", "lowerarm_r", "thigh_l", "head", "hand_l", "hand_r"];
 const universalBodyFile = "characters/camper-mesh2motion-human-base.glb";
 const universalBodySourceKey = "mesh2motion";
@@ -121,9 +152,9 @@ const weaponAttachModes = ["dynamic_hand_bone"];
 const retiredWeaponAttachModes = ["static_root_socket"];
 const armourRenderModes = ["modular_submesh_prop"];
 const retiredArmourRenderModes = ["armor_as_paint", "adhering" + "_region"];
-const armourPropScaleDefault = 0.38;
-const round11MinimumArmourPropCatalogCount = 6;
-const round11ArmourPropCatalogIds = [
+const round12ExistingArmourFitScale = 0.38;
+const round12MinimumArmourPropCatalogCount = 6;
+const round12ArmourPropCatalogIds = [
   "armour_prop.existing.quaternius_metal_cuirass",
   "armour_prop.existing.quaternius_crown_helmet",
   "armour_prop.existing.quaternius_left_gauntlet",
@@ -131,7 +162,12 @@ const round11ArmourPropCatalogIds = [
   "armour_prop.round11.quaternius_black_cuirass",
   "armour_prop.round11.oga_bucket_helmet",
 ];
-const round11StagedArmourPropIds = [
+const round12ExistingArmourPropIds = [
+  "armour_prop.existing.quaternius_metal_cuirass",
+  "armour_prop.existing.quaternius_crown_helmet",
+  "armour_prop.existing.quaternius_left_gauntlet",
+];
+const round12NewArmourPropIds = [
   "armour_prop.round11.quaternius_leather_cuirass",
   "armour_prop.round11.quaternius_black_cuirass",
   "armour_prop.round11.oga_bucket_helmet",
@@ -154,18 +190,9 @@ const retiredArmourRegionOwnedFiles = [
   "scripts/audit-modular-submesh-armor.gd",
   "scripts/audit-skin-bone-attachments.gd",
 ];
-const round11SkinApproaches = [
-  "pbr_texture_atlas",
-  "pattern_texture",
-];
-const retiredPersonaSkinApproaches = [
-  "palette_flat",
-  "toon_cel_shader",
-  "emissive_trim_shader",
-  "multi_material_split",
-  "rim_fresnel_shader",
-];
-const round11Uv2SkinShaderTokens = ["uv2_body_texture", "UV2"];
+const round12DuelistPbrMapKeys = ["albedo", "normal", "roughness", "metallic", "ao"];
+const round12Uv2SkinShaderTokens = ["uv2_body_texture", "UV2"];
+const round12Uv2TilingFloor = 1.0;
 
 function read(relativePath) {
   return readFileSync(path.join(appDir, relativePath), "utf8");
@@ -203,6 +230,57 @@ function assertNotMatches(source, pattern, message) {
 
 function assertNear(actual, expected, tolerance, message) {
   assert(Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance, `${message}: ${actual} ~= ${expected}`);
+}
+
+function assertExactStringSet(actualValues, expectedValues, message) {
+  const actual = new Set(actualValues);
+  const expected = new Set(expectedValues);
+  const missing = [...expected].filter((value) => !actual.has(value));
+  const unexpected = [...actual].filter((value) => !expected.has(value));
+  assert(missing.length === 0 && unexpected.length === 0, `${message}: expected ${[...expected].join(", ")} got ${[...actual].join(", ")}`);
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function finiteNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : Number.NaN;
+}
+
+function assertVector3(value, context) {
+  assert(Array.isArray(value) && value.length === 3, `${context} is a 3-axis array`);
+  if (!Array.isArray(value)) return;
+  for (let i = 0; i < 3; i += 1) {
+    assert(Number.isFinite(Number(value[i])), `${context}[${i}] is finite`);
+  }
+}
+
+function assertNoLegacyPropScale(block, context) {
+  assert(!Object.prototype.hasOwnProperty.call(block ?? {}, "propScale"), `${context} omits retired propScale field`);
+}
+
+function assertFitScaleAndOffset(block, context, { expectedFitScale = null, requireNonZeroOffset = false } = {}) {
+  assertNoLegacyPropScale(block, context);
+  const fitScale = finiteNumber(block?.fitScale);
+  assert(Number.isFinite(fitScale) && fitScale > 0, `${context}.fitScale is positive`);
+  if (expectedFitScale != null) {
+    assertNear(fitScale, expectedFitScale, 0.000001, `${context}.fitScale preserves validated existing prop size`);
+  }
+  assertVector3(block?.propOffset, `${context}.propOffset`);
+  if (requireNonZeroOffset && Array.isArray(block?.propOffset)) {
+    assert(block.propOffset.some((axis) => Math.abs(Number(axis)) > 0.000001), `${context}.propOffset includes a nonzero socket-space correction`);
+  }
 }
 
 function escapeRegExp(source) {
@@ -279,6 +357,22 @@ function assertArtKitImportSidecar(relativePath, context) {
   assert(existsSync(`${fullPath}.import`), `${context} has Godot import sidecar: ${relativePath}`);
 }
 
+function hasRepeatModeToken(source) {
+  return /repeat_enable|texture_repeat|flags\/repeat\s*=\s*(?:true|1)|repeat\s*=\s*(?:true|1)|wrap(?:_mode)?\s*=\s*"?repeat"?/i.test(source);
+}
+
+function assertTextureRepeatMode(relativePath, context) {
+  if (!isSafeRelativeArtKitPath(relativePath)) return;
+  const shaderPath = "shared-harness/art-kit/shaders/uv2_body_texture.gdshader";
+  const shaderSource = existsSync(path.join(appDir, shaderPath)) ? read(shaderPath) : "";
+  const importPath = path.join(appDir, `${artKitRelativePath(relativePath)}.import`);
+  const importSource = existsSync(importPath) ? readFileSync(importPath, "utf8") : "";
+  assert(
+    hasRepeatModeToken(shaderSource) || hasRepeatModeToken(importSource),
+    `${context} has a repeat-mode guarantee in uv2 shader or import sidecar`,
+  );
+}
+
 function sourcePackLabel(value) {
   if (typeof value === "string") {
     return value.trim();
@@ -311,10 +405,10 @@ function assertArmourPropCatalogEntry(prop, context) {
   assertArtKitPath(prop?.file, `${context}.file`);
   assertArtKitImportSidecar(prop?.file, `${context}.file`);
   assert(typeof prop?.bindBone === "string" && prop.bindBone.length > 0, `${context}.bindBone is declared`);
-  assert(
-    Number.isFinite(Number(prop?.propScale)) && Number(prop.propScale) > 0 && Number(prop.propScale) <= 1,
-    `${context}.propScale is a positive body-fit scale <= 1`,
-  );
+  assertFitScaleAndOffset(prop, context, {
+    expectedFitScale: round12ExistingArmourPropIds.includes(prop?.id) ? round12ExistingArmourFitScale : null,
+    requireNonZeroOffset: round12NewArmourPropIds.includes(prop?.id),
+  });
   assert(prop?.source && typeof prop.source === "object" && typeof prop.source.pageUrl === "string" && prop.source.pageUrl.length > 0, `${context}.source.pageUrl is declared`);
   assert(typeof prop?.source?.creator === "string" && prop.source.creator.length > 0, `${context}.source.creator is declared`);
   assertCc0License(prop, context);
@@ -342,60 +436,128 @@ function assertArmourPropCatalogEntry(prop, context) {
 
 function assertAdherenceApproach(block, context, coverage) {
   const approach = typeof block?.adherenceApproach === "string" ? block.adherenceApproach : "";
-  assert(round11AdherenceFamilies.includes(approach), `${context}.adherenceApproach is one of ${round11AdherenceFamilies.join(", ")}`);
-  if (round11AdherenceFamilies.includes(approach)) {
+  assert(round12AdherenceFamilies.includes(approach), `${context}.adherenceApproach is one of ${round12AdherenceFamilies.join(", ")}`);
+  if (round12AdherenceFamilies.includes(approach)) {
     coverage.add(approach);
   }
 }
 
 function addAdherenceFamily(block, coverage) {
   const approach = typeof block?.adherenceApproach === "string" ? block.adherenceApproach : "";
-  if (round11AdherenceFamilies.includes(approach)) {
+  if (round12AdherenceFamilies.includes(approach)) {
     coverage.add(approach);
   }
 }
 
-function assertLiveCorpseGore(asset) {
-  const corpse = asset?.corpse ?? {};
-  assert(corpse.approach === round11LiveCorpseApproach, `${asset.id}.corpse uses locked live gore approach ${round11LiveCorpseApproach}`);
-  assert(corpse.adherenceApproach === "bone_attached", `${asset.id}.corpse live gore is bone_attached`);
-  for (const retired of retiredLiveCorpseApproaches) {
-    assert(corpse.approach !== retired, `${asset.id}.corpse omits retired live gore approach ${retired}`);
-  }
-  const decals = Array.isArray(corpse?.params?.decals) ? corpse.params.decals : [];
-  assert(decals.length >= round11MinimumSmallGoreMarks, `${asset.id}.corpse has at least ${round11MinimumSmallGoreMarks} live gore marks`);
-  assert(
-    decals.some((decal) => decal?.markType === round11RequiredLiveCorpseMarkType),
-    `${asset.id}.corpse includes a ${round11RequiredLiveCorpseMarkType} live gore mark`,
-  );
+function assertBodyGoreDecals(decals, context, { minCount = 0, allowFloor = false, requireSmallAxes = true } = {}) {
+  assert(Array.isArray(decals), `${context} declares decals array`);
+  if (!Array.isArray(decals)) return;
+  assert(decals.length >= minCount, `${context} has at least ${minCount} decals`);
   for (let i = 0; i < decals.length; i += 1) {
     const decal = decals[i];
-    const context = `${asset.id}.corpse.params.decals[${i}]`;
+    const decalContext = `${context}[${i}]`;
+    const isFloor = decal?.projection === "floor";
+    assert(allowFloor || !isFloor, `${decalContext} is not floor-projected`);
+    if (isFloor) continue;
     const size = Array.isArray(decal?.size) ? decal.size : [];
     const x = Number(size[0]);
     const y = Number(size[1]);
-    assert(Number.isFinite(x) && Number.isFinite(y), `${context} declares body mark x/y size`);
-    assert(
-      Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) <= round11MaximumSmallGoreBodyMarkAxis && Math.abs(y) <= round11MaximumSmallGoreBodyMarkAxis,
-      `${context} body mark x/y stays <= ${round11MaximumSmallGoreBodyMarkAxis}`,
-    );
-    assert(typeof decal?.bone === "string" && mesh2motionGoreBones.includes(decal.bone), `${context} pins to a valid mesh2motion bone`);
-    assert(decal?.projection !== "floor", `${context} is not floor-projected`);
+    assert(Number.isFinite(x) && Number.isFinite(y), `${decalContext} declares body mark x/y size`);
+    if (requireSmallAxes) {
+      assert(
+        Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) <= round12MaximumSmallGoreBodyMarkAxis && Math.abs(y) <= round12MaximumSmallGoreBodyMarkAxis,
+        `${decalContext} body mark x/y stays <= ${round12MaximumSmallGoreBodyMarkAxis}`,
+      );
+    }
+    assert(typeof decal?.bone === "string" && mesh2motionGoreBones.includes(decal.bone), `${decalContext} pins to a valid mesh2motion bone`);
+  }
+}
+
+function assertSmallLiveGore(asset, corpse) {
+  const decals = Array.isArray(corpse?.params?.decals) ? corpse.params.decals : [];
+  assert(corpse.adherenceApproach === "bone_attached", `${asset.id}.corpse small live gore is bone_attached`);
+  assertBodyGoreDecals(decals, `${asset.id}.corpse.params.decals`, { minCount: round12MinimumSmallGoreMarks });
+  assert(
+    decals.some((decal) => decal?.markType === round12RequiredLiveCorpseMarkType),
+    `${asset.id}.corpse includes a ${round12RequiredLiveCorpseMarkType} live gore mark`,
+  );
+}
+
+function assertCamperViscera(asset, corpse) {
+  const decals = Array.isArray(corpse?.params?.decals) ? corpse.params.decals : [];
+  assert(asset.personaSlot === "camper", `${asset.id}.corpse viscera_projection is reserved for camper`);
+  assert(corpse.adherenceApproach === "bone_attached", `${asset.id}.corpse viscera live gore is bone_attached`);
+  assert(corpse?.params?.organColor === round12CamperOrganColor, `${asset.id}.corpse.params.organColor preserves R10 camper value`);
+  assertBodyGoreDecals(decals, `${asset.id}.corpse.params.decals`, { minCount: round12MinimumCamperVisceraDecals });
+}
+
+function assertSprinterLiveDismemberment(asset, corpse) {
+  assert(asset.personaSlot === "sprinter", `${asset.id}.corpse dismemberment_baked is reserved for sprinter live corpse`);
+  assert(corpse.adherenceApproach === "mesh_baked", `${asset.id}.corpse live dismemberment uses mesh_baked adherence`);
+  const params = corpse?.params ?? {};
+  assert(params.method === round12DeathTreatmentMethod, `${asset.id}.corpse.params.method is ${round12DeathTreatmentMethod}`);
+  assertExactStringSet(Array.isArray(params.hideBones) ? params.hideBones : [], round12RequiredSprinterHideBones, `${asset.id}.corpse.params.hideBones restores R10 sprinter bones`);
+  assert(Number(params.fallbackBoneScale) === 0.01, `${asset.id}.corpse.params.fallbackBoneScale is 0.01`);
+  const stumpDecals = Array.isArray(params.stumpDecals) ? params.stumpDecals : [];
+  assert(stumpDecals.length >= round12SprinterStumpSizesByBone.size, `${asset.id}.corpse.params.stumpDecals restores R10 sprinter stump decals`);
+  for (const [bone, expectedSize] of round12SprinterStumpSizesByBone) {
+    const stump = stumpDecals.find((decal) => decal?.bone === bone);
+    assert(Boolean(stump), `${asset.id}.corpse.params.stumpDecals includes ${bone}`);
+    if (!stump) continue;
+    assert(stump.projection !== "floor", `${asset.id}.corpse.params.stumpDecals ${bone} is body-attached`);
+    assertNear(Number(stump?.size?.[0]), expectedSize[0], 0.000001, `${asset.id}.corpse.params.stumpDecals ${bone} R10 x size`);
+    assertNear(Number(stump?.size?.[1]), expectedSize[1], 0.000001, `${asset.id}.corpse.params.stumpDecals ${bone} R10 y size`);
+  }
+}
+
+function assertDuelistPbrContract(asset) {
+  if (asset?.personaSlot !== "duelist") return;
+  const params = asset?.skin?.params ?? {};
+  assert(asset?.skin?.approach === "pbr_texture_atlas", "duelist skin preserves pbr_texture_atlas approach");
+  for (const key of round12DuelistPbrMapKeys) {
+    assert(typeof params?.[key] === "string" && params[key].length > 0, `duelist skin keeps ${key} PBR map`);
+    assertArtKitPath(params?.[key], `duelist skin ${key} map`);
+    assertTextureRepeatMode(params?.[key], `duelist skin ${key} map`);
+  }
+  const uv2Scale = Array.isArray(params?.uv2_scale) ? params.uv2_scale : [];
+  assert(uv2Scale.length >= 2, "duelist skin declares uv2_scale for full-body tiling");
+  assert(
+    Number(uv2Scale[0]) > round12Uv2TilingFloor && Number(uv2Scale[1]) > round12Uv2TilingFloor,
+    `duelist skin uv2_scale tiles above washed [1,1] floor: ${uv2Scale.join(",")}`,
+  );
+}
+
+function assertLiveCorpseGore(asset) {
+  const corpse = asset?.corpse ?? {};
+  const expectedApproach = round12RequiredLiveCorpseApproachByPersona.get(asset?.personaSlot);
+  assert(corpse.approach === expectedApproach, `${asset.id}.corpse uses Round-12 per-persona live approach ${expectedApproach}`);
+  if (corpse.approach === round12LiveSmallGoreApproach) {
+    assertSmallLiveGore(asset, corpse);
+  } else if (corpse.approach === "viscera_projection") {
+    assertCamperViscera(asset, corpse);
+  } else if (corpse.approach === "dismemberment_baked") {
+    assertSprinterLiveDismemberment(asset, corpse);
+  } else {
+    assert(false, `${asset.id}.corpse has unsupported Round-12 live approach ${corpse.approach}`);
   }
 }
 
 function assertCorpseDeathTreatment(asset, adherenceCoverage, layerCoverage) {
   const deathTreatment = asset?.corpse?.deathTreatment;
   const context = `${asset.id}.corpse.deathTreatment`;
-  assert(deathTreatment && typeof deathTreatment === "object" && !Array.isArray(deathTreatment), `${context} is declared`);
-  assert(deathTreatment?.approach === round11DeathTreatmentApproach, `${context}.approach is ${round11DeathTreatmentApproach}`);
+  if (deathTreatment == null) {
+    return;
+  }
+  assert(deathTreatment && typeof deathTreatment === "object" && !Array.isArray(deathTreatment), `${context} is an object when declared`);
+  assert(deathTreatment?.approach === round12DeathTreatmentApproach, `${context}.approach is ${round12DeathTreatmentApproach}`);
   assert(deathTreatment?.adherenceApproach === "mesh_baked", `${context}.adherenceApproach is mesh_baked`);
+  assertNotMatches(String(deathTreatment?.rationale ?? ""), /sprinter-tested|every persona|universal/i, `${context}.rationale does not present sprinter as a universal death rationale`);
   assertSourcePack(deathTreatment, context);
   assertAdherenceApproach(deathTreatment, context, adherenceCoverage);
   addAdherenceFamily(deathTreatment, layerCoverage);
   assert(deathTreatment?.params && typeof deathTreatment.params === "object", `${context}.params is declared`);
   const params = deathTreatment?.params ?? {};
-  assert(params.method === round11DeathTreatmentMethod, `${context}.params.method is ${round11DeathTreatmentMethod}`);
+  assert(params.method === round12DeathTreatmentMethod, `${context}.params.method is ${round12DeathTreatmentMethod}`);
   const hideBones = Array.isArray(params.hideBones) ? params.hideBones : [];
   assert(hideBones.length > 0, `${context}.params.hideBones is non-empty`);
   for (const [index, bone] of hideBones.entries()) {
@@ -599,7 +761,7 @@ if (existsSync(path.join(appDir, "src/EntityRenderer.gd"))) {
   assertNotIncludes(entityRenderer, "turn_base + 1", "EntityRenderer does not skip movement event turn 1 with turn_base + 1 alignment");
   assertIncludes(entityRenderer, "cosmetic_wall_inset", "EntityRenderer applies render-only wall inset");
   assertNotIncludes(entityRenderer, "node.rotation.y = sin(Time.get_ticks_msec", "EntityRenderer removed decorative sine rotation");
-  assertNear(numericConstant(entityRenderer, "CHARACTER_MODEL_SCALE"), round11CharacterModelScale, 0.000001, "EntityRenderer preserves standard character model scale");
+  assertNear(numericConstant(entityRenderer, "CHARACTER_MODEL_SCALE"), round12CharacterModelScale, 0.000001, "EntityRenderer preserves standard character model scale");
   assertMatches(entityRenderer, /CRATE_MODEL_SCALE\s*:=\s*0\.17/, "EntityRenderer halves crate model scale to 0.17");
   assertMatches(entityRenderer, /AIRDROP_CRATE_MODEL_SCALE\s*:=\s*0\.21/, "EntityRenderer keeps airdrop crate scale decoupled at Round-7 size");
   assertMatches(entityRenderer, /CORPSE_MODEL_SCALE\s*:=\s*CHARACTER_MODEL_SCALE/, "EntityRenderer keeps corpse scale coupled to character scale");
@@ -716,8 +878,10 @@ if (existsSync(path.join(appDir, "src/EquipmentMeshAttachment.gd"))) {
     "_apply_modular_submesh_armor",
     "_clear_modular_submesh_armor",
     "_ensure_dynamic_armour_socket",
-    "propScale",
-    "_armour_prop_scale",
+    "fitScale",
+    "propOffset",
+    "_armour_fit_scale",
+    "_armour_prop_offset",
     "_scaled_transform",
     "set_armour_prop_selection",
     "currentArmourPropSelection",
@@ -734,7 +898,7 @@ if (existsSync(path.join(appDir, "src/EquipmentMeshAttachment.gd"))) {
     "WEAPON_SOCKET_FALLBACK_STATIC",
     "modular_submesh_prop",
     "small_bone_attached_marks",
-    ...round11Uv2SkinShaderTokens,
+    ...round12Uv2SkinShaderTokens,
   ]) {
     assertIncludes(equipment, token, `EquipmentMeshAttachment handles ${token}`);
   }
@@ -750,8 +914,8 @@ if (existsSync(path.join(appDir, "src/EquipmentMeshAttachment.gd"))) {
   );
   assertMatches(
     equipment,
-    /mesh\.transform\s*=\s*_scaled_transform\(\s*local_transform,\s*prop_scale\s*\)/,
-    "EquipmentMeshAttachment folds propScale into each child mesh transform",
+    /mesh\.transform\s*=\s*_scaled_transform\(\s*local_transform,\s*fit_scale,\s*prop_offset\s*\)/,
+    "EquipmentMeshAttachment applies fitScale and propOffset through each child mesh transform",
   );
   assertMatches(
     equipment,
@@ -955,12 +1119,13 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   assert(manifest.corpseBody && typeof manifest.corpseBody === "object", "art manifest exposes root corpseBody block");
   assert(manifest.corpseBody?.file === manifest.body?.file, "manifest.corpseBody uses the shared mesh2motion body file");
   assert(typeof manifest.corpseBody?.deathPoseClip === "string" && manifest.corpseBody.deathPoseClip.length > 0, "manifest.corpseBody has deathPoseClip");
-  assertNear(Number(manifest.corpseBody?.modelScaleMultiplier), round11BodyModelScaleMultiplier, 0.000001, "manifest.corpseBody modelScaleMultiplier mirrors body scale");
-  assertNear(Number(manifest.corpseBody?.targetWorldHeight), round11TargetWorldHeight, 0.000001, "manifest.corpseBody targetWorldHeight mirrors body target");
+  assertNear(Number(manifest.corpseBody?.modelScaleMultiplier), round12BodyModelScaleMultiplier, 0.000001, "manifest.corpseBody modelScaleMultiplier mirrors body scale");
+  assertNear(Number(manifest.corpseBody?.targetWorldHeight), round12TargetWorldHeight, 0.000001, "manifest.corpseBody targetWorldHeight mirrors body target");
   assert(Array.isArray(manifest.assets), "art manifest exposes assets array");
   const assets = manifest.assets ?? [];
   const personas = new Set();
   const characters = [];
+  const skinParamFingerprints = new Set();
   const skinApproaches = new Set();
   const corpseApproaches = new Set();
   const adherenceApproachCoverage = new Set();
@@ -982,12 +1147,12 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   const armours = new Set();
   const corpseAssets = [];
   const environmentRoles = new Set();
-  assert(Array.isArray(manifest.armourProps), "manifest exposes top-level Round-11 armourProps catalog");
+  assert(Array.isArray(manifest.armourProps), "manifest exposes top-level armourProps catalog");
   const armourProps = Array.isArray(manifest.armourProps) ? manifest.armourProps : [];
   const armourPropById = new Map();
   assert(
-    armourProps.length >= round11MinimumArmourPropCatalogCount,
-    `manifest armourProps catalog has at least ${round11MinimumArmourPropCatalogCount} entries`,
+    armourProps.length >= round12MinimumArmourPropCatalogCount,
+    `manifest armourProps catalog has at least ${round12MinimumArmourPropCatalogCount} entries`,
   );
   for (const [index, prop] of armourProps.entries()) {
     assertArmourPropCatalogEntry(prop, `manifest.armourProps[${index}]`);
@@ -996,14 +1161,14 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
       armourPropById.set(prop.id, prop);
     }
   }
-  for (const propId of round11ArmourPropCatalogIds) {
+  for (const propId of round12ArmourPropCatalogIds) {
     assert(armourPropById.has(propId), `manifest armourProps catalog includes ${propId}`);
   }
   const draftPath = path.join(appDir, "shared-harness/art-kit/armour/ROUND-11-ARMOUR-PROVENANCE-DRAFT.json");
   if (existsSync(draftPath)) {
     const draft = JSON.parse(readFileSync(draftPath, "utf8"));
     const draftProps = new Map((Array.isArray(draft.armourProps) ? draft.armourProps : []).map((prop) => [prop.id, prop]));
-    for (const propId of round11StagedArmourPropIds) {
+    for (const propId of round12NewArmourPropIds) {
       const active = armourPropById.get(propId);
       const staged = draftProps.get(propId);
       assert(Boolean(staged), `Round-11 provenance draft contains ${propId}`);
@@ -1011,7 +1176,7 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
       if (active && staged) {
         assert(active.file === staged.file, `active armour prop file matches provenance draft: ${propId}`);
         assert(active.sha256 === staged.sha256, `active armour prop sha256 matches provenance draft: ${propId}`);
-        assert(Number(active.propScale) === Number(staged.propScale), `active armour prop propScale matches provenance draft: ${propId}`);
+        assert(Number.isFinite(Number(active.fitScale)), `active armour prop migrated from draft propScale to fitScale: ${propId}`);
         assert(active.source?.pageUrl === staged.source?.pageUrl, `active armour prop source.pageUrl matches provenance draft: ${propId}`);
         assert(active.license?.spdx === staged.license?.spdx, `active armour prop license.spdx matches provenance draft: ${propId}`);
       }
@@ -1054,16 +1219,18 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
       assert(typeof asset.skin?.approach === "string" && asset.skin.approach.length > 0, `character skin has approach: ${asset.id}`);
       assertAdherenceApproach(asset.skin, `${asset.id}.skin`, adherenceApproachCoverage);
       addAdherenceFamily(asset.skin, layerAdherenceCoverage.skin);
-      assert(asset.skin?.adherenceApproach === "uv_painted", `Round-11 skin uses uv_painted adherence: ${asset.id}`);
-      assert(asset.skin?.approach !== "decal_stickers", `Round-11 skin removes decal_stickers approach: ${asset.id}`);
-      assert(asset.skin?.adherenceApproach !== "bone_attached", `Round-11 skin removes bone_attached skin family: ${asset.id}`);
-      assert(round11SkinApproaches.includes(asset.skin?.approach), `Round-11 skin approach is in the pbr/pattern shortlist: ${asset.id}`);
-      for (const retiredSkin of retiredPersonaSkinApproaches) {
-        assert(asset.skin?.approach !== retiredSkin, `Round-11 persona skin omits retired approach ${retiredSkin}: ${asset.id}`);
-      }
+      assert(asset.skin?.adherenceApproach === "uv_painted", `Round-12 skin remains uv_painted/full-body on locked body: ${asset.id}`);
+      assert(asset.skin?.approach !== "decal_stickers", `Round-12 skin removes decal_stickers approach: ${asset.id}`);
+      assert(asset.skin?.adherenceApproach !== "bone_attached", `Round-12 skin removes bone_attached skin family: ${asset.id}`);
+      assert(
+        asset.skin?.approach === round12RequiredSkinApproachByPersona.get(asset.personaSlot),
+        `${asset.id}.skin.approach restores R10 persona approach ${round12RequiredSkinApproachByPersona.get(asset.personaSlot)}`,
+      );
       assertSourcePack(asset.skin, `${asset.id}.skin`);
       assert(typeof asset.skin?.rationale === "string" && asset.skin.rationale.length > 0, `character skin has rationale: ${asset.id}`);
       assert(asset.skin?.params && typeof asset.skin.params === "object", `character skin has params: ${asset.id}`);
+      skinParamFingerprints.add(stableJson(asset.skin?.params ?? {}));
+      assertDuelistPbrContract(asset);
       if (typeof asset.skin?.approach === "string" && asset.skin.approach.length > 0) {
         skinApproaches.add(asset.skin.approach);
       }
@@ -1113,11 +1280,16 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
           );
           assertSourcePack(asset.armorOverlay, `${asset.id}.armorOverlay`);
           assert(typeof asset.armorOverlay?.file === "string" && asset.armorOverlay.file.length > 0, `character armorOverlay has file: ${asset.id}`);
-          assert(
-            Number.isFinite(Number(asset.armorOverlay?.propScale)) && Number(asset.armorOverlay.propScale) > 0 && Number(asset.armorOverlay.propScale) <= 1,
-            `character armorOverlay declares positive propScale no larger than body fit scale: ${asset.id}`,
-          );
           assert(typeof asset.armorOverlay?.catalogPropId === "string" && armourPropById.has(asset.armorOverlay.catalogPropId), `character armorOverlay links to armourProps catalog: ${asset.id}`);
+          assertFitScaleAndOffset(asset.armorOverlay, `${asset.id}.armorOverlay`, {
+            expectedFitScale: round12ExistingArmourPropIds.includes(asset.armorOverlay?.catalogPropId) ? round12ExistingArmourFitScale : null,
+            requireNonZeroOffset: round12NewArmourPropIds.includes(asset.armorOverlay?.catalogPropId),
+          });
+          const catalogProp = armourPropById.get(asset.armorOverlay?.catalogPropId);
+          if (catalogProp) {
+            assertNear(Number(asset.armorOverlay.fitScale), Number(catalogProp.fitScale), 0.000001, `${asset.id}.armorOverlay.fitScale mirrors catalog prop`);
+            assert(stableJson(asset.armorOverlay.propOffset) === stableJson(catalogProp.propOffset), `${asset.id}.armorOverlay.propOffset mirrors catalog prop`);
+          }
           if (typeof asset.armorOverlay?.file === "string") {
             assert(asset.armorOverlay.file.startsWith("armour/"), `character armorOverlay file lives under armour/: ${asset.id}`);
             assertArtKitPath(asset.armorOverlay.file, `${asset.id}.armorOverlay.file`);
@@ -1185,7 +1357,9 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   for (const mode of retiredArmourRenderModes) {
     assert(!declaredArmourModes.has(mode), `manifest adherence metadata omits retired armour mode ${mode}`);
   }
-  assertNear(Number(manifest.round9Adherence?.armourPropScaleDefault), armourPropScaleDefault, 0.000001, "manifest records Round-11 armour propScale default");
+  assert(!Object.prototype.hasOwnProperty.call(manifest.round9Adherence ?? {}, "armourPropScaleDefault"), "manifest omits retired armourPropScaleDefault");
+  assertNear(Number(manifest.round9Adherence?.armourPropFitDefault?.fitScale), round12ExistingArmourFitScale, 0.000001, "manifest records fitScale default pinned to existing validated scale");
+  assertVector3(manifest.round9Adherence?.armourPropFitDefault?.propOffset, "manifest.round9Adherence.armourPropFitDefault.propOffset");
   assert(!("armorAsPaint" in manifest), "manifest omits retired armorAsPaint approach");
   assert(effectiveBodyFiles.size === 1 && effectiveBodyFiles.has(universalBodyFile), "manifest character effective body files are the single mesh2motion root body");
   assert(
@@ -1193,22 +1367,14 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
     "manifest character effective body source keys are the single mesh2motion root source",
   );
   assert(!skinApproaches.has("decal_stickers"), "manifest exposes no decal_stickers skin approach");
+  assertExactStringSet(skinApproaches, round12RequiredSkinApproachByPersona.values(), "manifest persona skin selection restores the R10 structural approaches");
+  assert(skinParamFingerprints.size === characters.length, "manifest skin params remain per-persona distinct, not one homogenized parameter set");
+  assertExactStringSet(corpseApproaches, round12RequiredLiveCorpseApproachByPersona.values(), "manifest live corpse approaches preserve Round-12 per-persona contract");
   assert(
-    skinApproaches.size === round11SkinApproaches.length && round11SkinApproaches.every((approach) => skinApproaches.has(approach)),
-    `manifest persona skin selection is exactly ${round11SkinApproaches.join(" + ")}`,
+    armorOverlayPersonas.size >= round12MinimumModularArmorOverlays,
+    `manifest has at least ${round12MinimumModularArmorOverlays} non-null modular armorOverlay entries`,
   );
-  for (const retiredSkin of retiredPersonaSkinApproaches) {
-    assert(!skinApproaches.has(retiredSkin), `manifest persona skin selection omits retired skin approach ${retiredSkin}`);
-  }
-  assert(
-    corpseApproaches.size === 1 && corpseApproaches.has(round11LiveCorpseApproach),
-    `manifest live corpse.approach is locked to ${round11LiveCorpseApproach}`,
-  );
-  assert(
-    armorOverlayPersonas.size >= round11MinimumModularArmorOverlays,
-    `manifest has at least ${round11MinimumModularArmorOverlays} non-null modular armorOverlay entries`,
-  );
-  for (const family of round11AdherenceFamilies) {
+  for (const family of round12AdherenceFamilies) {
     assert(adherenceApproachCoverage.has(family), `manifest adherenceApproach union covers ${family}`);
   }
   assert(layerAdherenceCoverage.skin.size === 1 && layerAdherenceCoverage.skin.has("uv_painted"), "skin layer is consolidated on uv_painted adherence");
@@ -1219,7 +1385,7 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   assert(layerAdherenceCoverage.weapons.size === 1 && layerAdherenceCoverage.weapons.has("dynamic_hand_bone"), "weapons layer is dynamic_hand_bone only");
   assert(layerAdherenceCoverage.armour.has("bone_attached"), "armour layer uses body-tracking bone_attached props");
   console.log(
-    `Round-11 A1 adherence matrix: skin=${[...layerAdherenceCoverage.skin].join(",")} gore=${[...layerAdherenceCoverage.gore].join(",")} weapons=${[...layerAdherenceCoverage.weapons].join(",")} armour=${[...declaredArmourModes].join(",")}`,
+    `Round-12 adherence matrix: skin=${[...layerAdherenceCoverage.skin].join(",")} gore=${[...layerAdherenceCoverage.gore].join(",")} weapons=${[...layerAdherenceCoverage.weapons].join(",")} armour=${[...declaredArmourModes].join(",")}`,
   );
   assert(accessoryPersonas.size === 0 || accessoryPersonas.size < characters.length, "accessories are null for all personas or not coupled 1:1 to all skins");
   for (const weapon of ["rusty_blade", "dagger", "sword", "axe", "greatsword", "warhammer"]) {
@@ -1237,7 +1403,7 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
 if (existsSync(path.join(appDir, "package.json"))) {
   const pkg = JSON.parse(read("package.json"));
   const testScript = String(pkg.scripts?.test ?? "");
-  assertIncludes(testScript, "GODOT_BIN", "package test gates character scale audit on GODOT_BIN");
+  assertIncludes(testScript, "GODOT_BIN", "package test requires GODOT_BIN for Godot audits");
   assertIncludes(testScript, "--path .", "package test runs character scale audit from the Godot project path");
   assertIncludes(testScript, "--headless", "package test invokes Godot headless for character scale audit");
   assertIncludes(testScript, "scripts/audit-character-scales.gd", "package test invokes audit-character-scales.gd");
@@ -1249,11 +1415,13 @@ if (existsSync(path.join(appDir, "package.json"))) {
   assertIncludes(testScript, "scripts/audit-replay-load.gd", "package test invokes audit-replay-load.gd");
   assertIncludes(testScript, "scripts/audit-skin-bone-attachments.gd", "package test invokes audit-skin-bone-attachments.gd");
   assertIncludes(testScript, "scripts/audit-modular-submesh-armor.gd", "package test invokes audit-modular-submesh-armor.gd");
+  assertIncludes(testScript, "scripts/audit-armour-prop-aabb.gd", "package test invokes world-space armour prop AABB audit");
   assertIncludes(testScript, "--assert", "package test runs character scale audit in assert mode");
-  assertNear(numericCliArg(testScript, "--target-world-height"), round11TargetWorldHeight, 0.000001, "package test passes synchronized locked-body target world height");
-  assertNear(numericCliArg(testScript, "--character-model-scale"), round11CharacterModelScale, 0.000001, "package test passes synchronized locked-body character model scale");
-  assertIncludes(testScript, "audit-character-scales: skipped (GODOT_BIN unset)", "package test logs clear scale-audit skip when GODOT_BIN is unset");
-  assertIncludes(testScript, "Godot audits: skipped (GODOT_BIN unset)", "package test logs clear Godot audit skip when GODOT_BIN is unset");
+  assertNear(numericCliArg(testScript, "--target-world-height"), round12TargetWorldHeight, 0.000001, "package test passes synchronized locked-body target world height");
+  assertNear(numericCliArg(testScript, "--character-model-scale"), round12CharacterModelScale, 0.000001, "package test passes synchronized locked-body character model scale");
+  assertMatches(testScript, /\[\s+-z\s+"?\$GODOT_BIN"?\s+\][\s\S]*exit\s+1/, "package test hard-fails when GODOT_BIN is unset");
+  assertNotMatches(testScript, /\[\s+-n\s+"?\$GODOT_BIN"?\s+\][\s\S]*else[\s\S]*skipped/i, "package test no longer silently skips Godot audits when GODOT_BIN is unset");
+  assertNotIncludes(testScript, "skipped (GODOT_BIN unset)", "package test does not report GODOT_BIN-unset skips as success");
   assertIncludes(testScript, "audit-universal-body", "package test logs or runs universal-body audit");
   assertIncludes(testScript, "audit-adherence-matrix", "package test logs or runs adherence-matrix audit");
 }
@@ -1274,14 +1442,17 @@ if (existsSync(path.join(appDir, "scripts/audit-skin-bone-attachments.gd"))) {
   assertIncludes(auditSkinBoneAttachments, "_retired_armour_apply_method", "skin/bone attachment audit rejects retired flat armour runtime method");
   assertIncludes(auditSkinBoneAttachments, "adherence_coverage", "skin/bone attachment audit tracks adherenceApproach coverage");
   assertIncludes(auditSkinBoneAttachments, "BASE_SCALE := 1.0", "skin/bone attachment audit uses standard base scale");
-  assertIncludes(auditSkinBoneAttachments, "SKIN_SHORTLIST_APPROACHES", "skin/bone attachment audit enforces Round-11 skin shortlist");
+  assertIncludes(auditSkinBoneAttachments, "SKIN_APPROACH_BY_PERSONA", "skin/bone attachment audit enforces restored per-persona skin approaches");
+  assertIncludes(auditSkinBoneAttachments, "UV2_SKIN_APPROACHES", "skin/bone attachment audit limits UV2 material assertions to texture-sampled skins");
   assertIncludes(auditSkinBoneAttachments, "UV2_BODY_SHADER_TOKEN", "skin/bone attachment audit enforces UV2 body shader coverage");
   assertIncludes(auditSkinBoneAttachments, "MESH2MOTION_MARK_BONES", "skin/bone attachment audit validates marks against mesh2motion bones");
   assertIncludes(auditSkinBoneAttachments, "MIN_LIVE_GORE_MARKS", "skin/bone attachment audit enforces live gore mark count");
   assertIncludes(auditSkinBoneAttachments, "MAX_SMALL_BODY_MARK_XY", "skin/bone attachment audit enforces small gore mark dimensions");
-  assertIncludes(auditSkinBoneAttachments, "SMALL_BONE_ATTACHED_MARKS", "skin/bone attachment audit locks live gore approach");
-  assertIncludes(auditSkinBoneAttachments, "DEATH_TREATMENT_APPROACH", "skin/bone attachment audit validates corpse deathTreatment");
-  assertIncludes(auditSkinBoneAttachments, "RETIRED_LIVE_CORPSE_APPROACHES", "skin/bone attachment audit rejects retired live gore controls");
+  assertIncludes(auditSkinBoneAttachments, "LIVE_CORPSE_APPROACH_BY_PERSONA", "skin/bone attachment audit branches live gore by persona approach");
+  assertIncludes(auditSkinBoneAttachments, "VISCERA_PROJECTION", "skin/bone attachment audit accepts camper viscera projection");
+  assertIncludes(auditSkinBoneAttachments, "SPRINTER_STUMP_SIZE_BY_BONE", "skin/bone attachment audit checks sprinter R10 stump sizes");
+  assertIncludes(auditSkinBoneAttachments, "fitScale", "skin/bone attachment audit validates fitScale");
+  assertIncludes(auditSkinBoneAttachments, "propOffset", "skin/bone attachment audit validates propOffset");
   assertIncludes(auditSkinBoneAttachments, "_apply_skin_decal_stickers", "skin/bone attachment audit rejects retired skin decal helper if present");
   assertNotIncludes(auditSkinBoneAttachments, "bodyOverride", "skin/bone attachment audit avoids bodyOverride-tolerant branches");
 }
@@ -1321,9 +1492,12 @@ if (existsSync(path.join(appDir, "scripts/audit-adherence-matrix.gd"))) {
     "last_applied_corpse_approach",
     "weaponSocketKind",
     "usesModularArmour",
-    "SMALL_BONE_ATTACHED_MARKS",
-    "DEATH_TREATMENT_APPROACH",
-    "RETIRED_LIVE_CORPSE_APPROACHES",
+    "SKIN_APPROACH_BY_PERSONA",
+    "LIVE_CORPSE_APPROACH_BY_PERSONA",
+    "VISCERA_PROJECTION",
+    "SPRINTER_STUMP_SIZE_BY_BONE",
+    "fitScale",
+    "propOffset",
   ]) {
     assertIncludes(auditAdherenceMatrix, token, `adherence-matrix audit validates ${token}`);
   }

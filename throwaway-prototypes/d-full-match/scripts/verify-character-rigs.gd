@@ -4,7 +4,7 @@ const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
 const ART_ROOT := "res://shared-harness/art-kit/"
 const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
 const BASE_SCALE := 1.0
-const EXPECTED_SCHEMA_VERSION := 9
+const EXPECTED_SCHEMA_VERSION := 10
 const UNIVERSAL_BODY_FILE := "characters/camper-mesh2motion-human-base.glb"
 const UNIVERSAL_SOURCE_KEY := "mesh2motion"
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
@@ -124,12 +124,16 @@ func _verify_manifest_character(manifest: Dictionary, asset: Dictionary) -> void
 	if skeleton == null:
 		_fail("%s effective body has no Skeleton3D" % persona)
 	else:
-		var required_bones := [str(body.get("attachBone", ""))]
+		var required_bones := REQUIRED_BONES.duplicate()
+		required_bones.append(str(body.get("attachBone", "")))
+		var checked_bones := {}
 		for bone_name in required_bones:
-			if str(bone_name).is_empty():
+			var bone_text := str(bone_name)
+			if bone_text.is_empty() or checked_bones.has(bone_text):
 				continue
-			if skeleton.find_bone(str(bone_name)) < 0:
-				_fail("%s effective body missing attach bone %s" % [persona, bone_name])
+			checked_bones[bone_text] = true
+			if skeleton.find_bone(bone_text) < 0:
+				_fail("%s effective body missing required bone %s" % [persona, bone_text])
 		_verify_corpse_hide_bones(persona, asset, skeleton)
 	var player := state["player"] as AnimationPlayer
 	if player == null:
@@ -175,8 +179,8 @@ func _verify_corpse_hide_bones(persona: String, asset: Dictionary, skeleton: Ske
 		var bone_name := str(bone_value)
 		if bone_name.is_empty():
 			continue
-			if skeleton.find_bone(bone_name) < 0:
-				_fail("%s corpse hideBone does not resolve on universal mesh2motion body: %s" % [persona, bone_name])
+		if skeleton.find_bone(bone_name) < 0:
+			_fail("%s corpse hideBone does not resolve on universal mesh2motion body: %s" % [persona, bone_name])
 
 
 func _assert_nested_param_paths(label: String, value) -> void:

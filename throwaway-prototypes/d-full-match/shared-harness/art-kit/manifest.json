@@ -66,19 +66,17 @@
       "category": "character",
       "personaSlot": "rat",
       "skin": {
-        "approach": "pattern_texture",
-        "rationale": "A trader-family hex pattern gives the rat a low-tech scavenger read while staying on the UV2 full-body unwrap.",
+        "approach": "palette_flat",
+        "rationale": "Round-5 palette baseline retained as the control sample so the other seven skin techniques have a no-technique anchor.",
         "params": {
-          "albedo": "textures/skin/trader-hex-pattern.png",
-          "uv2_scale": [
-            1.25,
-            1.25
-          ],
-          "tint": "#78f28a",
-          "baseColor": "#19251f"
+          "palette": {
+            "base": "#32402f",
+            "accent": "#78f28a",
+            "emissive": "#d7ff63"
+          }
         },
         "adherenceApproach": "uv_painted",
-        "sourcePack": "engineer-procedural local hex pattern, routed through Round-11 UV2 body shader"
+        "sourcePack": "engineer-procedural-fallback (Round-5 palette_flat control; retained intentionally per Round-8 research log)"
       },
       "accessories": null,
       "corpse": {
@@ -313,7 +311,7 @@
         },
         "deathTreatment": {
           "approach": "dismemberment_baked",
-          "rationale": "Round-11 WP-G locks the sprinter-tested baked death treatment for every persona: hide two mesh2motion bones and pin stump gore to the same live skeleton without swapping the body.",
+          "rationale": "Round-12 keeps this as a separate decoupled baked deathTreatment delta for non-sprinter personas: hide two mesh2motion bones and pin stump gore to the live skeleton without swapping the body.",
           "params": {
             "method": "bone_hide",
             "hideBones": [
@@ -370,11 +368,11 @@
         "adherenceApproach": "bone_attached",
         "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + OGA-LiquidSplatterPixelTexture-CC0 + CC0 blood splatter textures"
       },
-      "notes": "rat persona: pattern_texture skin using the trader-family local hex pattern + small_bone_attached_marks corpse gore. All Round-7 skin/gore assets are local generated CC0 prototypes unless otherwise noted. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-11 WP-K: skin samples the full-body UV2 unwrap through the shared body texture shader; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0 + material-saturation fallback; armorOverlay=null material-swap control; preferred showroom weapon=rusty_blade. Round-11 WP-G: live corpse gore is small_bone_attached_marks with >=10 bone-attached marks plus splash, and corpse.deathTreatment is universal dismemberment_baked bone_hide.",
+      "notes": "rat persona: palette_flat R10 skin control + Round-11 amplified small_bone_attached_marks corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-12 restores the R10 skin instance while keeping the separate decoupled deathTreatment accepted delta.",
       "armorOverlay": null,
       "round8Evaluation": {
-        "skinTreatment": "pattern_texture trader-family hex variation",
-        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus universal dismemberment_baked bone_hide deathTreatment.",
+        "skinTreatment": "palette_flat control",
+        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus separate decoupled dismemberment_baked bone_hide deathTreatment.",
         "weapon": "rusty_blade / Quaternius-UltimateRPGItemsPack-CC0 sword FBX",
         "armor": "No active modular armour prop for this persona in A1; armour rendering uses the locked prop lane when an overlay is declared",
         "adherence": "small bone_attached gore; armour flat coverage candidate removed"
@@ -394,8 +392,8 @@
           "metallic": "textures/skin/duelist-pbr-metallic.png",
           "ao": "textures/skin/duelist-pbr-ao.png",
           "uv2_scale": [
-            1,
-            1
+            6,
+            6
           ]
         },
         "adherenceApproach": "uv_painted",
@@ -634,7 +632,7 @@
         },
         "deathTreatment": {
           "approach": "dismemberment_baked",
-          "rationale": "Round-11 WP-G locks the sprinter-tested baked death treatment for every persona: hide two mesh2motion bones and pin stump gore to the same live skeleton without swapping the body.",
+          "rationale": "Round-12 keeps this as a separate decoupled baked deathTreatment delta for non-sprinter personas: hide two mesh2motion bones and pin stump gore to the live skeleton without swapping the body.",
           "params": {
             "method": "bone_hide",
             "hideBones": [
@@ -691,7 +689,7 @@
         "adherenceApproach": "bone_attached",
         "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + OGA-LiquidSplatterPixelTexture-CC0 + CC0 blood splatter textures"
       },
-      "notes": "duelist persona: pbr_texture_atlas skin using ambientCG MetalPlates017A 1K-PNG (CC0, https://ambientcg.com/view?id=MetalPlates017A) for all 5 PBR maps + small_bone_attached_marks corpse gore. Round-7.1 touch-up: replaced near-blank engineer-procedural maps with the real ambientCG set; other skin/gore textures regenerated procedurally with visible content at 512x512. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-8 WP-D: skin.sourcePack=ambientCG-MetalPlates017A-CC0; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0; armorOverlay=quaternius_chest_plate; preferred showroom weapon=sword. Round-11 WP-G: live corpse gore is small_bone_attached_marks with >=10 bone-attached marks plus splash, and corpse.deathTreatment is universal dismemberment_baked bone_hide.",
+      "notes": "duelist persona: pbr_texture_atlas R10 skin using ambientCG MetalPlates017A 1K-PNG (CC0, https://ambientcg.com/view?id=MetalPlates017A) for all 5 PBR maps with Round-12 uv2_scale [6,6] tiling + Round-11 amplified small_bone_attached_marks corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-12 keeps armorOverlay=quaternius_chest_plate via catalogPropId with fitScale/propOffset.",
       "armorOverlay": {
         "name": "quaternius_chest_plate",
         "catalogPropId": "armour_prop.existing.quaternius_metal_cuirass",
@@ -701,15 +699,20 @@
         "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
         "bindBone": "spine_03",
         "rationale": "Chest piece tests the Round-8 modular sub-mesh armor path against the torso where wrapping matters most.",
-        "notes": "Rigid CC0 armour prop; Round-10 attaches the prop under a live BoneAttachment3D on spine_03 instead of injecting a single-bone identity Skin. Round-11 A1 applies propScale=0.38 to child mesh transforms for body fit.",
+        "notes": "Rigid CC0 armour prop; Round-10 attaches the prop under a live BoneAttachment3D on spine_03 instead of injecting a single-bone identity Skin. Round-11 A1 applies fitScale=0.38 to child mesh transforms for body fit.",
         "approach": "modular_submesh_prop",
-        "propScale": 0.38
+        "fitScale": 0.38,
+        "propOffset": [
+          0,
+          0,
+          0
+        ]
       },
       "round8Evaluation": {
         "skinTreatment": "pbr_texture_atlas sourced metal control",
-        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus universal dismemberment_baked bone_hide deathTreatment.",
+        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus separate decoupled dismemberment_baked bone_hide deathTreatment.",
         "weapon": "sword / Robin Lamb CC0 known-good control",
-        "armor": "Quaternius chest modular_submesh prop with propScale body-fit calibration",
+        "armor": "Quaternius chest modular_submesh prop with fitScale body-fit calibration",
         "adherence": "small bone_attached gore plus scaled modular armour prop"
       }
     },
@@ -722,12 +725,12 @@
         "rationale": "A sourced cloth pattern gives the trader a data-market read while staying on the body UVs instead of world-space sampling.",
         "params": {
           "albedo": "textures/skin/ambientcg-fabric029-color.png",
+          "tint": "#d8b58a",
+          "baseColor": "#1b3034",
           "uv2_scale": [
             1.45,
             1.45
-          ],
-          "tint": "#d8b58a",
-          "baseColor": "#1b3034"
+          ]
         },
         "adherenceApproach": "uv_painted",
         "sourcePack": "ambientCG-Fabric029-CC0"
@@ -965,7 +968,7 @@
         },
         "deathTreatment": {
           "approach": "dismemberment_baked",
-          "rationale": "Round-11 WP-G locks the sprinter-tested baked death treatment for every persona: hide two mesh2motion bones and pin stump gore to the same live skeleton without swapping the body.",
+          "rationale": "Round-12 keeps this as a separate decoupled baked deathTreatment delta for non-sprinter personas: hide two mesh2motion bones and pin stump gore to the live skeleton without swapping the body.",
           "params": {
             "method": "bone_hide",
             "hideBones": [
@@ -1022,11 +1025,11 @@
         "adherenceApproach": "bone_attached",
         "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + OGA-LiquidSplatterPixelTexture-CC0 + CC0 blood splatter textures"
       },
-      "notes": "trader persona: pattern_texture skin using local generated hex pattern + small_bone_attached_marks corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-8 WP-D: skin.sourcePack=ambientCG-Fabric029-CC0; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0; armorOverlay=null material-swap control; preferred showroom weapon=dagger. Round-11 WP-G: live corpse gore is small_bone_attached_marks with >=10 bone-attached marks plus splash, and corpse.deathTreatment is universal dismemberment_baked bone_hide.",
+      "notes": "trader persona: pattern_texture R10 skin using sourced ambientCG Fabric029 on the UV2 full-body path + Round-11 amplified small_bone_attached_marks corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-12 keeps the separate decoupled deathTreatment accepted delta.",
       "armorOverlay": null,
       "round8Evaluation": {
         "skinTreatment": "pattern_texture using sourced ambientCG Fabric029 UV control",
-        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus universal dismemberment_baked bone_hide deathTreatment.",
+        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus separate decoupled dismemberment_baked bone_hide deathTreatment.",
         "weapon": "dagger / Quaternius-UltimateRPGItemsPack-CC0",
         "armor": "No active modular armour prop for this persona in A1; armour rendering uses the locked prop lane when an overlay is declared",
         "adherence": "small bone_attached gore; armour flat coverage candidate removed"
@@ -1041,12 +1044,12 @@
         "rationale": "A UV-sampled sourced body texture keeps the opportunist on the skinned mesh and removes the floating bone-pinned sticker skin from Round 9.",
         "params": {
           "albedo": "textures/skin/cc0-theness-human-body-texture.png",
+          "tint": "#8df0ff",
+          "baseColor": "#263245",
           "uv2_scale": [
             1,
             1
-          ],
-          "tint": "#8df0ff",
-          "baseColor": "#263245"
+          ]
         },
         "adherenceApproach": "uv_painted",
         "sourcePack": "OGA-TheNess-HumanBodyTexture-CC0"
@@ -1284,7 +1287,7 @@
         },
         "deathTreatment": {
           "approach": "dismemberment_baked",
-          "rationale": "Round-11 WP-G locks the sprinter-tested baked death treatment for every persona: hide two mesh2motion bones and pin stump gore to the same live skeleton without swapping the body.",
+          "rationale": "Round-12 keeps this as a separate decoupled baked deathTreatment delta for non-sprinter personas: hide two mesh2motion bones and pin stump gore to the live skeleton without swapping the body.",
           "params": {
             "method": "bone_hide",
             "hideBones": [
@@ -1341,11 +1344,11 @@
         "adherenceApproach": "bone_attached",
         "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + OGA-LiquidSplatterPixelTexture-CC0 + CC0 blood splatter textures"
       },
-      "notes": "opportunist persona: pattern_texture UV-painted skin using TheNess CC0 body texture + small_bone_attached_marks corpse gore. Round-10: removed the prior bone-attached sticker-decal skin because it floated/slid in Showroom UAT. Universal mesh2motion body remains locked. Round-11 WP-G: live corpse gore is small_bone_attached_marks with >=10 bone-attached marks plus splash, and corpse.deathTreatment is universal dismemberment_baked bone_hide.",
+      "notes": "opportunist persona: pattern_texture R10 skin using TheNess CC0 body texture on the UV2 full-body path + Round-11 amplified small_bone_attached_marks corpse gore. Round-10 removed the prior floating bone-attached sticker-decal skin. Universal mesh2motion body remains locked. Round-12 keeps the separate decoupled deathTreatment accepted delta.",
       "armorOverlay": null,
       "round8Evaluation": {
         "skinTreatment": "pattern_texture sourced UV body texture",
-        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus universal dismemberment_baked bone_hide deathTreatment.",
+        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus separate decoupled dismemberment_baked bone_hide deathTreatment.",
         "weapon": "warhammer / Quaternius-UltimateRPGItemsPack-CC0",
         "armor": "No active modular armour prop for this persona in A1; armour rendering uses the locked prop lane when an overlay is declared",
         "adherence": "small bone_attached gore; armour flat coverage candidate removed"
@@ -1356,24 +1359,18 @@
       "category": "character",
       "personaSlot": "paranoid",
       "skin": {
-        "approach": "pbr_texture_atlas",
-        "rationale": "A duelist-family leather PBR atlas keeps the paranoid materially distinct while sharing the UV2 full-body coverage path.",
+        "approach": "toon_cel_shader",
+        "rationale": "A hard-ramped toon shader turns the paranoid into a graphic-novel panic silhouette and samples non-PBR shader styling.",
         "params": {
-          "albedo": "textures/skin/ambientcg-leather034b-color.png",
-          "normal": "textures/skin/ambientcg-leather034b-normal-gl.png",
-          "roughness": "textures/skin/ambientcg-leather034b-roughness.png",
-          "ao": "textures/skin/ambientcg-leather034b-ao.png",
-          "uv2_scale": [
-            1.08,
-            1.08
-          ],
+          "shader": "shaders/toon_cel.gdshader",
+          "rampSteps": 3,
+          "outlineColor": "#050713",
           "baseColor": "#202338",
-          "tint": "#caa6ff",
-          "metallicValue": 0.08,
-          "roughnessValue": 0.72
+          "accentColor": "#caa6ff",
+          "shadowColor": "#0a0d1e"
         },
         "adherenceApproach": "uv_painted",
-        "sourcePack": "ambientCG-Leather034B-CC0"
+        "sourcePack": "ambientCG-Leather034B-CC0 visual-material reference + toon shader fallback"
       },
       "accessories": null,
       "corpse": {
@@ -1608,7 +1605,7 @@
         },
         "deathTreatment": {
           "approach": "dismemberment_baked",
-          "rationale": "Round-11 WP-G locks the sprinter-tested baked death treatment for every persona: hide two mesh2motion bones and pin stump gore to the same live skeleton without swapping the body.",
+          "rationale": "Round-12 keeps this as a separate decoupled baked deathTreatment delta for non-sprinter personas: hide two mesh2motion bones and pin stump gore to the live skeleton without swapping the body.",
           "params": {
             "method": "bone_hide",
             "hideBones": [
@@ -1665,7 +1662,7 @@
         "adherenceApproach": "bone_attached",
         "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + OGA-LiquidSplatterPixelTexture-CC0 + CC0 blood splatter textures"
       },
-      "notes": "paranoid persona: pbr_texture_atlas skin using ambientCG Leather034B + small_bone_attached_marks corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-11 WP-K: skin samples the full-body UV2 unwrap through the shared body texture shader; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0; armorOverlay=quaternius_crown_helmet; preferred showroom weapon=dagger. Round-11 WP-G: live corpse gore is small_bone_attached_marks with >=10 bone-attached marks plus splash, and corpse.deathTreatment is universal dismemberment_baked bone_hide.",
+      "notes": "paranoid persona: toon_cel_shader R10 skin from the local toon shader + Round-11 amplified small_bone_attached_marks corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-12 keeps armorOverlay=quaternius_crown_helmet via catalogPropId with fitScale/propOffset and keeps the separate decoupled deathTreatment accepted delta.",
       "armorOverlay": {
         "name": "quaternius_crown_helmet",
         "catalogPropId": "armour_prop.existing.quaternius_crown_helmet",
@@ -1675,15 +1672,20 @@
         "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
         "bindBone": "head",
         "rationale": "Helmet tests modular_submesh armor at a high-motion head attachment point distinct from torso armor.",
-        "notes": "Rigid CC0 armour prop; Round-10 attaches the prop under a live BoneAttachment3D on head instead of injecting a single-bone identity Skin. Round-11 A1 applies propScale=0.38 to child mesh transforms for body fit.",
+        "notes": "Rigid CC0 armour prop; Round-10 attaches the prop under a live BoneAttachment3D on head instead of injecting a single-bone identity Skin. Round-11 A1 applies fitScale=0.38 to child mesh transforms for body fit.",
         "approach": "modular_submesh_prop",
-        "propScale": 0.38
+        "fitScale": 0.38,
+        "propOffset": [
+          0,
+          0,
+          0
+        ]
       },
       "round8Evaluation": {
-        "skinTreatment": "pbr_texture_atlas leather variation",
-        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus universal dismemberment_baked bone_hide deathTreatment.",
+        "skinTreatment": "toon_cel_shader sourced-material style control",
+        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus separate decoupled dismemberment_baked bone_hide deathTreatment.",
         "weapon": "dagger / Quaternius-UltimateRPGItemsPack-CC0",
-        "armor": "Quaternius helmet modular_submesh prop with propScale body-fit calibration",
+        "armor": "Quaternius helmet modular_submesh prop with fitScale body-fit calibration",
         "adherence": "small bone_attached gore plus scaled modular armour prop"
       }
     },
@@ -1692,30 +1694,158 @@
       "category": "character",
       "personaSlot": "camper",
       "skin": {
-        "approach": "pbr_texture_atlas",
-        "rationale": "A duelist-family fabric PBR atlas makes the camper read as worn field gear while sharing the UV2 full-body coverage path.",
+        "approach": "emissive_trim_shader",
+        "rationale": "Dark body with neon trim samples cyberpunk glow without depending on bloom and fits the held-position camper read.",
         "params": {
-          "albedo": "textures/skin/ambientcg-fabric029-color.png",
-          "normal": "textures/skin/ambientcg-fabric029-normal-gl.png",
-          "roughness": "textures/skin/ambientcg-fabric029-roughness.png",
-          "uv2_scale": [
-            1.18,
-            1.18
-          ],
-          "baseColor": "#23351e",
-          "tint": "#d0c08f",
-          "metallicValue": 0.02,
-          "roughnessValue": 0.82
+          "shader": "shaders/emissive_trim.gdshader",
+          "trimMask": "textures/skin/camper-trim-mask.png",
+          "trimColor": "#ff8f2e",
+          "trimEnergy": 1.8,
+          "trimTileScale": 0.18,
+          "baseColor": "#23351e"
         },
         "adherenceApproach": "uv_painted",
-        "sourcePack": "ambientCG-Fabric029-CC0"
+        "sourcePack": "ambientCG-Fabric029-CC0 + engineer-procedural trim-mask fallback"
       },
       "accessories": null,
       "corpse": {
-        "approach": "small_bone_attached_marks",
-        "rationale": "Round-11 WP-G locks live gore to amplified camper-style small individual marks: many compact decals pinned to mesh2motion bones so gore stays on the body through motion, with splash variety but no floor projection.",
+        "approach": "viscera_projection",
+        "rationale": "Chest and abdomen viscera projections make the death-pose body look opened up rather than merely tinted. Round-10 re-approach: split into many small localized marks so each stays near one dominant bone instead of spanning joints as a broad patch. Round-12 preserves the R10 viscera instance verbatim, then amplifies by count/density with additional small decals capped at 0.12.",
         "params": {
           "decals": [
+            {
+              "file": "textures/gore/viscera-chest.png",
+              "bone": "spine_03",
+              "offset": [
+                -0.025,
+                0.015,
+                0.125
+              ],
+              "size": [
+                0.11,
+                0.08,
+                0.05
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -6
+              ]
+            },
+            {
+              "file": "textures/gore/viscera-abdomen.png",
+              "bone": "spine_02",
+              "offset": [
+                0.045,
+                -0.015,
+                0.118
+              ],
+              "size": [
+                0.1,
+                0.09,
+                0.05
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                13
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "spine_01",
+              "offset": [
+                -0.055,
+                0.02,
+                0.11
+              ],
+              "size": [
+                0.07,
+                0.07,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -18
+              ]
+            },
+            {
+              "file": "textures/gore/wound-slash-a.png",
+              "bone": "upperarm_l",
+              "offset": [
+                0.01,
+                0.045,
+                0.045
+              ],
+              "size": [
+                0.08,
+                0.06,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                28
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "lowerarm_r",
+              "offset": [
+                0.015,
+                0.02,
+                0.045
+              ],
+              "size": [
+                0.06,
+                0.06,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                -16
+              ]
+            },
+            {
+              "file": "textures/gore/wound-slash-b.png",
+              "bone": "thigh_l",
+              "offset": [
+                -0.02,
+                -0.035,
+                0.055
+              ],
+              "size": [
+                0.09,
+                0.06,
+                0.04
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                9
+              ]
+            },
+            {
+              "file": "textures/gore/wound-puncture.png",
+              "bone": "hand_l",
+              "offset": [
+                0,
+                0.015,
+                0.035
+              ],
+              "size": [
+                0.05,
+                0.05,
+                0.035
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                22
+              ]
+            },
             {
               "file": "textures/gore/cc0-exilegl-blood-splatter.png",
               "bone": "spine_03",
@@ -1937,13 +2067,13 @@
               "markType": "wound"
             }
           ],
-          "tint": "#740016",
-          "saturation": 0.88,
-          "factor": 0.7
+          "organColor": "#740016"
         },
+        "adherenceApproach": "bone_attached",
+        "sourcePack": "OGA-BloodSplatterAndGibs-CC0",
         "deathTreatment": {
           "approach": "dismemberment_baked",
-          "rationale": "Round-11 WP-G locks the sprinter-tested baked death treatment for every persona: hide two mesh2motion bones and pin stump gore to the same live skeleton without swapping the body.",
+          "rationale": "Round-12 keeps this as a separate decoupled baked deathTreatment delta for non-sprinter personas: hide two mesh2motion bones and pin stump gore to the live skeleton without swapping the body.",
           "params": {
             "method": "bone_hide",
             "hideBones": [
@@ -1996,15 +2126,13 @@
           },
           "adherenceApproach": "mesh_baked",
           "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + mesh-baked dismemberment transform"
-        },
-        "adherenceApproach": "bone_attached",
-        "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + OGA-LiquidSplatterPixelTexture-CC0 + CC0 blood splatter textures"
+        }
       },
-      "notes": "camper persona: pbr_texture_atlas skin using ambientCG Fabric029 + small_bone_attached_marks corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-11 WP-K: skin samples the full-body UV2 unwrap through the shared body texture shader; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0; armorOverlay=null material-swap control; preferred showroom weapon=axe. Round-11 WP-G: live corpse gore is small_bone_attached_marks with >=10 bone-attached marks plus splash, and corpse.deathTreatment is universal dismemberment_baked bone_hide.",
+      "notes": "camper persona: emissive_trim_shader R10 skin with local trim mask + restored viscera_projection R10 live corpse, amplified by additional small decals capped at 0.12. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-12 keeps the separate deathTreatment only as a non-live accepted delta.",
       "armorOverlay": null,
       "round8Evaluation": {
-        "skinTreatment": "pbr_texture_atlas fabric variation",
-        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus universal dismemberment_baked bone_hide deathTreatment.",
+        "skinTreatment": "emissive_trim_shader with sourced fabric base reference",
+        "goreVariant": "viscera_projection sourced gib-sheet control split into small localized Round-10 marks",
         "weapon": "axe / Quaternius-UltimateRPGItemsPack-CC0",
         "armor": "No active modular armour prop for this persona in A1; armour rendering uses the locked prop lane when an overlay is declared",
         "adherence": "small bone_attached gore; armour flat coverage candidate removed"
@@ -2015,318 +2143,132 @@
       "category": "character",
       "personaSlot": "sprinter",
       "skin": {
-        "approach": "pattern_texture",
-        "rationale": "A trader-family annotated body texture gives the sprinter a fast segmented read without leaving the UV2 full-body coverage path.",
+        "approach": "multi_material_split",
+        "rationale": "Per-part material assignments sample mismatched speed-build body segmentation without adding accessories or changing the mesh.",
         "params": {
-          "albedo": "textures/skin/cc0-makehuman-annotated-skin-region-map.png",
-          "uv2_scale": [
+          "shader": "shaders/multi_material_split.gdshader",
+          "bodyRegionMask": "textures/skin/sprinter-body-regions.png",
+          "regionBlendSoftness": 0.025,
+          "region_blend_softness": 0.025,
+          "headColor": "#43211c",
+          "headMetallic": 0.15,
+          "head_metallic": 0.15,
+          "headRoughness": 0.7,
+          "head_roughness": 0.7,
+          "chestColor": "#ff4e38",
+          "chestMetallic": 0.45,
+          "chest_metallic": 0.45,
+          "chestRoughness": 0.38,
+          "chest_roughness": 0.38,
+          "legsColor": "#1a3440",
+          "legsMetallic": 0.25,
+          "legs_metallic": 0.25,
+          "legsRoughness": 0.5,
+          "legs_roughness": 0.5,
+          "armsColor": "#ffe14a",
+          "armsMetallic": 0.62,
+          "arms_metallic": 0.62,
+          "armsRoughness": 0.32,
+          "arms_roughness": 0.32,
+          "bodyParts": {
+            "head": {
+              "base": "#43211c",
+              "metallic": 0.15,
+              "roughness": 0.7
+            },
+            "chest": {
+              "base": "#ff4e38",
+              "metallic": 0.45,
+              "roughness": 0.38
+            },
+            "legs": {
+              "base": "#1a3440",
+              "metallic": 0.25,
+              "roughness": 0.5
+            },
+            "arms": {
+              "base": "#ffe14a",
+              "metallic": 0.62,
+              "roughness": 0.32
+            }
+          },
+          "partAssignmentByMeshIndex": [
+            0,
             1,
-            1
-          ],
-          "tint": "#ffe14a",
-          "baseColor": "#1a3440"
+            2,
+            3,
+            1,
+            2,
+            3,
+            0
+          ]
         },
         "adherenceApproach": "uv_painted",
-        "sourcePack": "OGA-MakeHuman-AnnotatedSkin-CC0"
+        "sourcePack": "OGA-MakeHuman-AnnotatedSkin-CC0 + engineer-procedural mesh2motion-region fallback"
       },
       "accessories": null,
       "corpse": {
-        "approach": "small_bone_attached_marks",
-        "rationale": "Round-11 WP-G locks live gore to amplified camper-style small individual marks: many compact decals pinned to mesh2motion bones so gore stays on the body through motion, with splash variety but no floor projection.",
+        "approach": "dismemberment_baked",
+        "rationale": "Shared-body-only bone hiding with stump gore tests a mesh-level dismemberment read without introducing a second corpse GLB.",
         "params": {
-          "decals": [
-            {
-              "file": "textures/gore/cc0-exilegl-blood-splatter.png",
-              "bone": "spine_03",
-              "offset": [
-                -0.039,
-                0.025,
-                0.118
-              ],
-              "size": [
-                0.11,
-                0.08,
-                0.05
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                14
-              ],
-              "markType": "splash"
-            },
-            {
-              "file": "textures/gore/cc0-exilegl-blood-splatter.png",
-              "bone": "spine_02",
-              "offset": [
-                0.048,
-                -0.012,
-                0.116
-              ],
-              "size": [
-                0.07,
-                0.07,
-                0.045
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                20
-              ],
-              "markType": "wound"
-            },
-            {
-              "file": "textures/gore/cc0-koasuna-blood-splatter-spritesheet.png",
-              "bone": "spine_01",
-              "offset": [
-                -0.052,
-                0.008,
-                0.108
-              ],
-              "size": [
-                0.09,
-                0.06,
-                0.045
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                -10
-              ],
-              "markType": "wound"
-            },
-            {
-              "file": "textures/gore/oga-liquid-splatter-pixel-texture.png",
-              "bone": "upperarm_l",
-              "offset": [
-                0.014,
-                0.044,
-                0.045
-              ],
-              "size": [
-                0.06,
-                0.08,
-                0.04
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                7
-              ],
-              "markType": "bone_gash"
-            },
+          "method": "bone_hide",
+          "hideBones": [
+            "thigh_l",
+            "lowerarm_r"
+          ],
+          "stumpDecals": [
             {
               "file": "textures/gore/oga-bloodsplatterandgibs.png",
-              "bone": "lowerarm_r",
-              "offset": [
-                -0.018,
-                0.026,
-                0.044
-              ],
-              "size": [
-                0.08,
-                0.06,
-                0.04
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                -18
-              ],
-              "markType": "bone_gash"
-            },
-            {
-              "file": "textures/gore/wound-slash-a.png",
               "bone": "thigh_l",
               "offset": [
-                0.02,
-                -0.031,
-                0.055
+                0,
+                -0.01,
+                0.08
               ],
               "size": [
-                0.07,
-                0.07,
-                0.04
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                -24
-              ],
-              "markType": "viscera"
-            },
-            {
-              "file": "textures/gore/wound-puncture.png",
-              "bone": "head",
-              "offset": [
-                0.014,
-                0.023,
-                0.079
-              ],
-              "size": [
-                0.06,
-                0.05,
-                0.035
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                16
-              ],
-              "markType": "wound"
-            },
-            {
-              "file": "textures/gore/wound-slash-b.png",
-              "bone": "hand_l",
-              "offset": [
-                0.002,
-                0.014,
-                0.034
-              ],
-              "size": [
-                0.05,
-                0.05,
-                0.035
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                34
-              ],
-              "markType": "wound"
-            },
-            {
-              "file": "textures/gore/bone-gash-a.png",
-              "bone": "hand_r",
-              "offset": [
-                -0.002,
-                0.019,
-                0.034
-              ],
-              "size": [
-                0.055,
-                0.05,
-                0.035
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                -12
-              ],
-              "markType": "wound"
-            },
-            {
-              "file": "textures/gore/oga-liquid-splatter-pixel-texture.png",
-              "bone": "spine_03",
-              "offset": [
-                0.034,
-                0.014,
-                0.119
-              ],
-              "size": [
-                0.12,
-                0.1,
-                0.05
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                24
-              ],
-              "markType": "splash"
-            },
-            {
-              "file": "textures/gore/viscera-chest.png",
-              "bone": "spine_02",
-              "offset": [
-                -0.028,
-                -0.018,
-                0.114
-              ],
-              "size": [
-                0.1,
-                0.085,
-                0.05
+                0.34,
+                0.28,
+                0.08
               ],
               "rotationDeg": [
                 0,
                 0,
                 -8
+              ]
+            },
+            {
+              "file": "textures/gore/oga-bloodsplatterandgibs.png",
+              "bone": "lowerarm_r",
+              "offset": [
+                0,
+                0.02,
+                0.06
               ],
-              "markType": "wound"
+              "size": [
+                0.3,
+                0.24,
+                0.08
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                18
+              ]
             }
           ],
-          "tint": "#6b000c",
-          "saturation": 0.88,
-          "factor": 0.7
+          "fallbackBoneScale": 0.01
         },
-        "deathTreatment": {
-          "approach": "dismemberment_baked",
-          "rationale": "Round-11 WP-G locks the sprinter-tested baked death treatment for every persona: hide two mesh2motion bones and pin stump gore to the same live skeleton without swapping the body.",
-          "params": {
-            "method": "bone_hide",
-            "hideBones": [
-              "thigh_l",
-              "lowerarm_r"
-            ],
-            "stumpDecals": [
-              {
-                "file": "textures/gore/stump-gore.png",
-                "bone": "thigh_l",
-                "offset": [
-                  0,
-                  -0.012,
-                  0.08
-                ],
-                "size": [
-                  0.18,
-                  0.14,
-                  0.07
-                ],
-                "rotationDeg": [
-                  0,
-                  0,
-                  10
-                ],
-                "markType": "stump"
-              },
-              {
-                "file": "textures/gore/oga-bloodsplatterandgibs.png",
-                "bone": "lowerarm_r",
-                "offset": [
-                  0,
-                  0.018,
-                  0.06
-                ],
-                "size": [
-                  0.16,
-                  0.12,
-                  0.06
-                ],
-                "rotationDeg": [
-                  0,
-                  0,
-                  6
-                ],
-                "markType": "stump"
-              }
-            ],
-            "fallbackBoneScale": 0.01
-          },
-          "adherenceApproach": "mesh_baked",
-          "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + mesh-baked dismemberment transform"
-        },
-        "adherenceApproach": "bone_attached",
-        "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + OGA-LiquidSplatterPixelTexture-CC0 + CC0 blood splatter textures"
+        "adherenceApproach": "mesh_baked",
+        "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + mesh-baked dismemberment transform"
       },
-      "notes": "sprinter persona: pattern_texture skin using the MakeHuman annotated skin texture + universal baked-dismemberment death treatment. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-11 WP-K: skin samples the full-body UV2 unwrap through the shared body texture shader; corpse.sourcePack=OGA-BloodSplatterAndGibs-CC0 + mesh-baked dismemberment transform; armorOverlay=null material-swap control; preferred showroom weapon=rusty_blade. Round-11 WP-G: live corpse gore is small_bone_attached_marks with >=10 bone-attached marks plus splash, and corpse.deathTreatment is universal dismemberment_baked bone_hide.",
+      "notes": "sprinter persona: multi_material_split R10 skin + restored R10 dismemberment_baked live corpse gore restricted to shared-body-only bone_hide per Round-7 amendment A1. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-12 does not carry the Round-11 universal deathTreatment copy on sprinter.",
       "armorOverlay": null,
       "round8Evaluation": {
-        "skinTreatment": "pattern_texture annotated body variation",
-        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus universal dismemberment_baked bone_hide deathTreatment.",
+        "skinTreatment": "multi_material_split body-region shader",
+        "goreVariant": "dismemberment_baked sourced gib-sheet stump marks",
         "weapon": "rusty_blade / Quaternius-UltimateRPGItemsPack-CC0 sword FBX",
         "armor": "No active modular armour prop for this persona in A1; armour rendering uses the locked prop lane when an overlay is declared",
-        "adherence": "small bone_attached gore; armour flat coverage candidate removed"
+        "adherence": "mesh_baked corpse state plus uv_painted skin"
       }
     },
     {
@@ -2334,23 +2276,17 @@
       "category": "character",
       "personaSlot": "vulture",
       "skin": {
-        "approach": "pbr_texture_atlas",
-        "rationale": "A duelist-family rough leather PBR atlas gives the vulture a scavenged-material read while sharing the UV2 full-body coverage path.",
+        "approach": "rim_fresnel_shader",
+        "rationale": "View-dependent rim light makes the vulture feel scavenger-ghost and samples a fresnel shader branch distinct from toon and trim.",
         "params": {
-          "albedo": "textures/skin/ambientcg-leather001-albedo.png",
-          "normal": "textures/skin/ambientcg-leather001-normal.png",
-          "roughness": "textures/skin/ambientcg-leather001-roughness.png",
-          "uv2_scale": [
-            1.12,
-            1.12
-          ],
-          "baseColor": "#2c2d31",
-          "tint": "#a7ff4f",
-          "metallicValue": 0.05,
-          "roughnessValue": 0.78
+          "shader": "shaders/rim_fresnel.gdshader",
+          "rimColor": "#a7ff4f",
+          "rimPower": 2.5,
+          "rimEnergy": 1.35,
+          "baseColor": "#2c2d31"
         },
         "adherenceApproach": "uv_painted",
-        "sourcePack": "ambientCG-Leather001-CC0"
+        "sourcePack": "OGA-TheNess-HumanBodyTexture-CC0 + rim shader fallback"
       },
       "accessories": null,
       "corpse": {
@@ -2585,7 +2521,7 @@
         },
         "deathTreatment": {
           "approach": "dismemberment_baked",
-          "rationale": "Round-11 WP-G locks the sprinter-tested baked death treatment for every persona: hide two mesh2motion bones and pin stump gore to the same live skeleton without swapping the body.",
+          "rationale": "Round-12 keeps this as a separate decoupled baked deathTreatment delta for non-sprinter personas: hide two mesh2motion bones and pin stump gore to the live skeleton without swapping the body.",
           "params": {
             "method": "bone_hide",
             "hideBones": [
@@ -2642,7 +2578,7 @@
         "adherenceApproach": "bone_attached",
         "sourcePack": "OGA-BloodSplatterAndGibs-CC0 + OGA-LiquidSplatterPixelTexture-CC0 + CC0 blood splatter textures"
       },
-      "notes": "vulture persona: pbr_texture_atlas skin using ambientCG Leather001 + small_bone_attached_marks corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-11 WP-K: skin samples the full-body UV2 unwrap through the shared body texture shader; corpse.sourcePack=OGA-LiquidSplatterPixelTexture-CC0 + decay shader fallback; armorOverlay=quaternius_gauntlet; preferred showroom weapon=greatsword. Round-11 WP-G: live corpse gore is small_bone_attached_marks with >=10 bone-attached marks plus splash, and corpse.deathTreatment is universal dismemberment_baked bone_hide.",
+      "notes": "vulture persona: rim_fresnel_shader R10 skin from the local rim shader + Round-11 amplified small_bone_attached_marks corpse gore. Round-9: uses the universal mesh2motion body by absence of persona body override. Round-12 keeps armorOverlay=quaternius_gauntlet via catalogPropId with fitScale/propOffset and keeps the separate decoupled deathTreatment accepted delta.",
       "armorOverlay": {
         "name": "quaternius_gauntlet",
         "catalogPropId": "armour_prop.existing.quaternius_left_gauntlet",
@@ -2652,15 +2588,20 @@
         "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
         "bindBone": "hand_l",
         "rationale": "Gauntlet tests modular_submesh armor on a limb endpoint so users can compare it against bone-attached flat decals.",
-        "notes": "Rigid CC0 armour prop; Round-10 attaches the prop under a live BoneAttachment3D on hand_l instead of injecting a single-bone identity Skin. Round-11 A1 applies propScale=0.38 to child mesh transforms for body fit.",
+        "notes": "Rigid CC0 armour prop; Round-10 attaches the prop under a live BoneAttachment3D on hand_l instead of injecting a single-bone identity Skin. Round-11 A1 applies fitScale=0.38 to child mesh transforms for body fit.",
         "approach": "modular_submesh_prop",
-        "propScale": 0.38
+        "fitScale": 0.38,
+        "propOffset": [
+          0,
+          0,
+          0
+        ]
       },
       "round8Evaluation": {
-        "skinTreatment": "pbr_texture_atlas rough leather variation",
-        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus universal dismemberment_baked bone_hide deathTreatment.",
+        "skinTreatment": "rim_fresnel_shader sourced skin-reference control",
+        "goreVariant": "Round-11 WP-G locked small_bone_attached_marks live gore: >=10 mesh2motion-bone marks with splash variety, plus separate decoupled dismemberment_baked bone_hide deathTreatment.",
         "weapon": "greatsword / Quaternius-UltimateRPGItemsPack-CC0",
-        "armor": "Quaternius gauntlet modular_submesh prop with propScale body-fit calibration",
+        "armor": "Quaternius gauntlet modular_submesh prop with fitScale body-fit calibration",
         "adherence": "scaled modular armour prop with uv_painted shader controls"
       }
     },
@@ -3484,7 +3425,6 @@
       "adherenceApproach": "bone_attached",
       "file": "armour/quaternius-rpg-armor-metal.fbx",
       "bindBone": "spine_03",
-      "propScale": 0.38,
       "sha256": "7f7f4d3e3eccee5ed224cf48d3c061d2996e9cb3e2c28e99721858d504972539",
       "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
       "source": {
@@ -3509,7 +3449,13 @@
         "sourceArchivePath": "Ultimate RPG Items Pack - Aug 2019/FBX/Armor_Metal.fbx",
         "selectedOnly": true
       },
-      "rationale": "Existing duelist chest overlay retained as the per-persona default and catalog baseline for Round-11 armour asset breadth."
+      "rationale": "Existing duelist chest overlay retained as the per-persona default and catalog baseline for Round-11 armour asset breadth. Round-12 pins the existing validated effective size with fitScale 0.38 and zero offset.",
+      "fitScale": 0.38,
+      "propOffset": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "id": "armour_prop.existing.quaternius_crown_helmet",
@@ -3519,7 +3465,6 @@
       "adherenceApproach": "bone_attached",
       "file": "armour/quaternius-rpg-crown-helmet.fbx",
       "bindBone": "head",
-      "propScale": 0.38,
       "sha256": "fe8b98fde525a165e783b153b9ab61c9fb9c110ac1332686ba94abd6f36fe084",
       "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
       "source": {
@@ -3544,7 +3489,13 @@
         "sourceArchivePath": "Ultimate RPG Items Pack - Aug 2019/FBX/Crown2.fbx",
         "selectedOnly": true
       },
-      "rationale": "Existing paranoid helmet overlay retained as the per-persona default and catalog baseline for head-slot armour breadth."
+      "rationale": "Existing paranoid helmet overlay retained as the per-persona default and catalog baseline for head-slot armour breadth. Round-12 pins the existing validated effective size with fitScale 0.38 and zero offset.",
+      "fitScale": 0.38,
+      "propOffset": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "id": "armour_prop.existing.quaternius_left_gauntlet",
@@ -3554,7 +3505,6 @@
       "adherenceApproach": "bone_attached",
       "file": "armour/quaternius-rpg-glove-gauntlet.fbx",
       "bindBone": "hand_l",
-      "propScale": 0.38,
       "sha256": "353f617d580fe1be503c34cadca7996169c1e5b60756c3b17e21d44406fe41f2",
       "sourcePack": "Quaternius-UltimateRPGItemsPack-CC0",
       "source": {
@@ -3579,7 +3529,13 @@
         "sourceArchivePath": "Ultimate RPG Items Pack - Aug 2019/FBX/Glove.fbx",
         "selectedOnly": true
       },
-      "rationale": "Existing vulture gauntlet overlay retained as the per-persona default and catalog baseline for limb-slot armour breadth."
+      "rationale": "Existing vulture gauntlet overlay retained as the per-persona default and catalog baseline for limb-slot armour breadth. Round-12 pins the existing validated effective size with fitScale 0.38 and zero offset.",
+      "fitScale": 0.38,
+      "propOffset": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "id": "armour_prop.round11.quaternius_leather_cuirass",
@@ -3589,7 +3545,6 @@
       "adherenceApproach": "bone_attached",
       "file": "armour/round11-breadth/Armor_Leather.fbx",
       "bindBone": "spine_03",
-      "propScale": 0.16,
       "sha256": "617c25fb9f077c6f123f8601a94a46bc9507ab34182562aa249b0a7cacf4bce8",
       "source": {
         "title": "RPG Essentials Pack / Ultimate RPG Items Pack - Aug 2019",
@@ -3613,7 +3568,13 @@
         "sourceArchivePath": "Ultimate RPG Items Pack - Aug 2019/FBX/Armor_Leather.fbx",
         "selectedOnly": true
       },
-      "rationale": "Unused Quaternius chest-armour variant broadens the locked chest-prop silhouette beyond the existing Armor_Metal.fbx overlay while preserving the same CC0 low-poly style family."
+      "rationale": "Unused Quaternius chest-armour variant broadens the locked chest-prop silhouette beyond the existing Armor_Metal.fbx overlay while preserving the same CC0 low-poly style family. Round-12 raises it to existing chest-prop scale and offsets it forward from spine_03 so the selector renders it outside the torso.",
+      "fitScale": 0.38,
+      "propOffset": [
+        0,
+        0,
+        0.055
+      ]
     },
     {
       "id": "armour_prop.round11.quaternius_black_cuirass",
@@ -3623,7 +3584,6 @@
       "adherenceApproach": "bone_attached",
       "file": "armour/round11-breadth/Armor_Black.fbx",
       "bindBone": "spine_03",
-      "propScale": 0.16,
       "sha256": "971a89dc084c6ce7f9cf089b2cc91dfea0cc78dfc757fdf6f12abde53180b1ac",
       "source": {
         "title": "RPG Essentials Pack / Ultimate RPG Items Pack - Aug 2019",
@@ -3647,7 +3607,13 @@
         "sourceArchivePath": "Ultimate RPG Items Pack - Aug 2019/FBX/Armor_Black.fbx",
         "selectedOnly": true
       },
-      "rationale": "Unused Quaternius chest-armour variant provides a darker, heavier armour read for the modular-prop asset selector without changing technique."
+      "rationale": "Unused Quaternius chest-armour variant provides a darker, heavier armour read for the modular-prop asset selector without changing technique. Round-12 uses a slightly heavier chest fit and forward spine_03 offset as the AABB-audit starting point.",
+      "fitScale": 0.4,
+      "propOffset": [
+        0,
+        0,
+        0.055
+      ]
     },
     {
       "id": "armour_prop.round11.oga_bucket_helmet",
@@ -3657,7 +3623,6 @@
       "adherenceApproach": "bone_attached",
       "file": "armour/round11-breadth/oga-lucianpavel-bucket-helmet.fbx",
       "bindBone": "head",
-      "propScale": 0.14,
       "sha256": "bfb0203d22f0fb898feb10cfab883d3c924ec0764512308103f2af4833c2a1a5",
       "companionFiles": [
         {
@@ -3688,7 +3653,13 @@
         "sourceArchivePath": "Bucket Helmet.fbx",
         "selectedOnly": true
       },
-      "rationale": "A true separate helmet prop gives the Round-11 selector a non-Quaternius head-slot silhouette and preserves the rigid bone-attached semantics."
+      "rationale": "A true separate helmet prop gives the Round-11 selector a non-Quaternius head-slot silhouette and preserves the rigid bone-attached semantics. Round-12 scales it up from the buried R11 value and lowers it from the high head-socket placement and pulls it back for visible helmet placement.",
+      "fitScale": 0.42,
+      "propOffset": [
+        0,
+        -0.58,
+        -0.03
+      ]
     }
   ],
   "round9Adherence": {
@@ -3713,9 +3684,17 @@
         "adherenceApproach": "bone_attached",
         "family": "bone_attached",
         "source": "armorOverlay",
-        "purpose": "Rigid CC0 props parented under live BoneAttachment3D sockets with propScale folded into child mesh transforms; expected to protrude/clip rather than wrap."
+        "purpose": "Rigid CC0 props parented under live BoneAttachment3D sockets with fitScale folded into child mesh transforms plus propOffset applied in socket space; expected to protrude/clip rather than wrap."
       }
     ],
-    "armourPropScaleDefault": 0.38
+    "armourPropFitDefault": {
+      "fitScale": 0.38,
+      "propOffset": [
+        0,
+        0,
+        0
+      ],
+      "existingPropEffectiveScalePinned": 0.38
+    }
   }
 }

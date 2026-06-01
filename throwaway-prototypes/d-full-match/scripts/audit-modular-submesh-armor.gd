@@ -17,6 +17,12 @@ const ROUND11_STAGED_ARMOUR_PROP_IDS := [
 	"armour_prop.round11.quaternius_black_cuirass",
 	"armour_prop.round11.oga_bucket_helmet",
 ]
+const EXISTING_PINNED_ARMOUR_PROP_IDS := [
+	"armour_prop.existing.quaternius_metal_cuirass",
+	"armour_prop.existing.quaternius_crown_helmet",
+	"armour_prop.existing.quaternius_left_gauntlet",
+]
+const EXISTING_PINNED_FIT_SCALE := 0.38
 
 var failures: Array[String] = []
 var equipment_attachment: Node
@@ -147,9 +153,11 @@ func _assert_armour_prop_catalog(armour_props: Array) -> void:
 			_fail("%s bindBone is empty" % prop_id)
 		elif not MESH2MOTION_ARMOR_BIND_BONES.has(str(prop.get("bindBone", ""))):
 			_fail("%s bindBone is outside mesh2motion vocabulary: %s" % [prop_id, str(prop.get("bindBone", ""))])
-		var scale := float(prop.get("propScale", 0.0))
-		if scale <= 0.0 or scale > 1.0:
-			_fail("%s propScale must be > 0 and <= 1, got %s" % [prop_id, str(prop.get("propScale", null))])
+		_assert_fit_scale_block(prop_id, prop, true)
+		if EXISTING_PINNED_ARMOUR_PROP_IDS.has(prop_id):
+			var scale := _fit_scale_value(prop)
+			if abs(scale - EXISTING_PINNED_FIT_SCALE) > 0.000001:
+				_fail("%s existing validated prop fitScale must remain %.2f, got %.6f" % [prop_id, EXISTING_PINNED_FIT_SCALE, scale])
 		var file := str(prop.get("file", ""))
 		if file.is_empty() or not file.begins_with("armour/"):
 			_fail("%s file must live under art-kit/armour/: %s" % [prop_id, file])
@@ -331,10 +339,13 @@ func _assert_overlay_manifest_shape(asset: Dictionary, persona: String, armor_ov
 		_fail("%s armorOverlay.bindBone is outside mesh2motion vocabulary: %s" % [persona, bind_bone])
 	if not _has_source_pack(armor_overlay.get("sourcePack", null)):
 		_fail("%s armorOverlay.sourcePack missing or empty" % persona)
-	var prop_scale := float(armor_overlay.get("propScale", 0.0))
-	if prop_scale <= 0.0 or prop_scale > 1.0:
-		_fail("%s armorOverlay.propScale must be > 0 and <= 1, got %s" % [persona, str(armor_overlay.get("propScale", null))])
-	if str(armor_overlay.get("catalogPropId", "")).is_empty():
+	_assert_fit_scale_block("%s armorOverlay" % persona, armor_overlay, true)
+	var catalog_prop_id := str(armor_overlay.get("catalogPropId", ""))
+	if EXISTING_PINNED_ARMOUR_PROP_IDS.has(catalog_prop_id):
+		var overlay_scale := _fit_scale_value(armor_overlay)
+		if abs(overlay_scale - EXISTING_PINNED_FIT_SCALE) > 0.000001:
+			_fail("%s armorOverlay existing validated prop fitScale must remain %.2f, got %.6f" % [persona, EXISTING_PINNED_FIT_SCALE, overlay_scale])
+	if catalog_prop_id.is_empty():
 		_fail("%s armorOverlay.catalogPropId is empty" % persona)
 	var file := str(armor_overlay.get("file", ""))
 	if file.is_empty():
@@ -349,6 +360,27 @@ func _assert_overlay_manifest_shape(asset: Dictionary, persona: String, armor_ov
 		_fail("%s armorOverlay.file resource does not exist: %s" % [persona, resource_path])
 	if file.get_extension().to_lower() in ["glb", "gltf", "fbx"] and not FileAccess.file_exists("%s.import" % resource_path):
 		_fail("%s armorOverlay.file is missing .import sidecar: %s.import" % [persona, resource_path])
+
+
+func _assert_fit_scale_block(context: String, block: Dictionary, require_offset: bool) -> void:
+	if not block.has("fitScale"):
+		_fail("%s missing fitScale" % context)
+	var scale := _fit_scale_value(block)
+	if scale <= 0.0 or scale > 3.0:
+		_fail("%s fitScale must be > 0 and <= 3, got %s" % [context, str(block.get("fitScale", null))])
+	if require_offset and not _has_vector3_array(block.get("propOffset", null)):
+		_fail("%s propOffset must be [x,y,z]" % context)
+
+
+func _fit_scale_value(block: Dictionary) -> float:
+	var value = block.get("fitScale", block.get("propScale", null))
+	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+		return float(value)
+	return -1.0
+
+
+func _has_vector3_array(value) -> bool:
+	return typeof(value) == TYPE_ARRAY and (value as Array).size() >= 3
 
 
 func _has_source_pack(value) -> bool:

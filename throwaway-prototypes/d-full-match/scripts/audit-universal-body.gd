@@ -2,7 +2,7 @@ extends SceneTree
 
 const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
 const ART_ROOT := "res://shared-harness/art-kit/"
-const EXPECTED_SCHEMA_VERSION := 9
+const EXPECTED_SCHEMA_VERSION := 10
 const UNIVERSAL_BODY_FILE := "characters/camper-mesh2motion-human-base.glb"
 const UNIVERSAL_SOURCE_KEY := "mesh2motion"
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]

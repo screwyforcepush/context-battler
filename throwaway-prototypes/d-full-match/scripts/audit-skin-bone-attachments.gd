@@ -5,16 +5,42 @@ const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
 const BASE_SCALE := 1.0
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
 const SMALL_BONE_ATTACHED_MARKS := "small_bone_attached_marks"
-const DEATH_TREATMENT_APPROACH := "dismemberment_baked"
-const DEATH_TREATMENT_METHOD := "bone_hide"
+const VISCERA_PROJECTION := "viscera_projection"
+const DISMEMBERMENT_BAKED := "dismemberment_baked"
+const BONE_HIDE_METHOD := "bone_hide"
 const MIN_LIVE_GORE_MARKS := 10
+const MIN_CAMPER_VISCERA_DECALS := 7
 const MAX_SMALL_BODY_MARK_XY := 0.12
 const REQUIRED_LIVE_GORE_MARK_TYPE := "splash"
-const RETIRED_LIVE_CORPSE_APPROACHES := ["blood_saturation_overlay", "charred_burned_texture", "decay_desaturation", "gore_pool_decal"]
+const CAMPER_ORGAN_COLOR := "#740016"
 const ADHERENCE_APPROACHES := ["bone_attached", "mesh_baked", "uv_painted"]
 const MESH2MOTION_MARK_BONES := ["spine_01", "spine_02", "spine_03", "upperarm_l", "lowerarm_r", "thigh_l", "head", "hand_l", "hand_r"]
-const SKIN_SHORTLIST_APPROACHES := ["pbr_texture_atlas", "pattern_texture"]
-const RETIRED_PERSONA_SKIN_APPROACHES := ["palette_flat", "toon_cel_shader", "emissive_trim_shader", "multi_material_split", "rim_fresnel_shader"]
+const SKIN_APPROACH_BY_PERSONA := {
+	"rat": "palette_flat",
+	"duelist": "pbr_texture_atlas",
+	"trader": "pattern_texture",
+	"opportunist": "pattern_texture",
+	"paranoid": "toon_cel_shader",
+	"camper": "emissive_trim_shader",
+	"sprinter": "multi_material_split",
+	"vulture": "rim_fresnel_shader",
+}
+const LIVE_CORPSE_APPROACH_BY_PERSONA := {
+	"rat": SMALL_BONE_ATTACHED_MARKS,
+	"duelist": SMALL_BONE_ATTACHED_MARKS,
+	"trader": SMALL_BONE_ATTACHED_MARKS,
+	"opportunist": SMALL_BONE_ATTACHED_MARKS,
+	"paranoid": SMALL_BONE_ATTACHED_MARKS,
+	"camper": VISCERA_PROJECTION,
+	"sprinter": DISMEMBERMENT_BAKED,
+	"vulture": SMALL_BONE_ATTACHED_MARKS,
+}
+const UV2_SKIN_APPROACHES := ["pbr_texture_atlas", "pattern_texture"]
+const SPRINTER_HIDE_BONES := ["thigh_l", "lowerarm_r"]
+const SPRINTER_STUMP_SIZE_BY_BONE := {
+	"thigh_l": [0.34, 0.28],
+	"lowerarm_r": [0.30, 0.24],
+}
 const UV2_BODY_SHADER_TOKEN := "uv2_body_texture"
 const UV2_SHADER_COORD_TOKEN := "UV2"
 const SKIN_MARK_KEYS := ["decals", "marks", "stickers", "decalStickers", "decal_stickers"]
@@ -109,8 +135,8 @@ func _audit_manifest_round8_fields(assets_by_persona: Dictionary) -> void:
 		_audit_skin_consolidation(persona, asset.get("skin", null))
 		_audit_adherence_block(persona, "corpse", asset.get("corpse", null), true)
 		_audit_live_gore_block(persona, asset.get("corpse", null))
-		var corpse := asset.get("corpse", null)
-		if typeof(corpse) == TYPE_DICTIONARY:
+		var corpse = asset.get("corpse", null)
+		if typeof(corpse) == TYPE_DICTIONARY and (corpse as Dictionary).has("deathTreatment"):
 			_audit_death_treatment_block(persona, (corpse as Dictionary).get("deathTreatment", null))
 		if not asset.has("armorOverlay"):
 			_fail_persona(persona, "missing armorOverlay field")
@@ -134,13 +160,11 @@ func _audit_skin_consolidation(persona: String, skin_value) -> void:
 	var skin := skin_value as Dictionary
 	_audit_adherence_block(persona, "skin", skin, true)
 	if str(skin.get("adherenceApproach", "")) != "uv_painted":
-		_fail_persona(persona, "skin.adherenceApproach must be uv_painted in Round 11")
+		_fail_persona(persona, "skin.adherenceApproach must be uv_painted on the locked body")
 	var approach := str(skin.get("approach", ""))
-	if not SKIN_SHORTLIST_APPROACHES.has(approach):
-		_fail_persona(persona, "skin.approach must be pbr_texture_atlas or pattern_texture in Round 11, got %s" % approach)
-	for retired in RETIRED_PERSONA_SKIN_APPROACHES:
-		if approach == str(retired):
-			_fail_persona(persona, "skin.approach still selects retired persona skin approach %s" % approach)
+	var expected := str(SKIN_APPROACH_BY_PERSONA.get(persona, ""))
+	if approach != expected:
+		_fail_persona(persona, "skin.approach must preserve Round-10 persona approach %s, got %s" % [expected, approach])
 	if str(skin.get("approach", "")) == "decal_stickers":
 		_fail_persona(persona, "skin.approach decal_stickers is retired")
 	var specs := _mark_specs_from_block(skin, SKIN_MARK_KEYS)
@@ -154,9 +178,7 @@ func _audit_modular_armour_overlay(persona: String, overlay: Dictionary) -> void
 		_fail_persona(persona, "armorOverlay.adherenceApproach must be bone_attached")
 	if str(overlay.get("approach", "")) != MODULAR_ARMOUR_PROP_APPROACH:
 		_fail_persona(persona, "armorOverlay.approach must be %s" % MODULAR_ARMOUR_PROP_APPROACH)
-	var prop_scale := float(overlay.get("propScale", 0.0))
-	if prop_scale <= 0.0 or prop_scale > 1.0:
-		_fail_persona(persona, "armorOverlay.propScale must be > 0 and <= 1")
+	_assert_fit_scale_and_offset(persona, "armorOverlay", overlay)
 	if str(overlay.get("catalogPropId", "")).is_empty():
 		_fail_persona(persona, "armorOverlay.catalogPropId must link to the armourProps catalog")
 
@@ -166,13 +188,31 @@ func _audit_live_gore_block(persona: String, corpse_value) -> void:
 		_fail_persona(persona, "live gore corpse block must be a Dictionary")
 		return
 	var corpse := corpse_value as Dictionary
-	if str(corpse.get("approach", "")) != SMALL_BONE_ATTACHED_MARKS:
-		_fail_persona(persona, "corpse.approach must be %s" % SMALL_BONE_ATTACHED_MARKS)
-	if RETIRED_LIVE_CORPSE_APPROACHES.has(str(corpse.get("approach", ""))):
-		_fail_persona(persona, "corpse.approach uses retired live gore control %s" % str(corpse.get("approach", "")))
+	var approach := str(corpse.get("approach", ""))
+	var expected := str(LIVE_CORPSE_APPROACH_BY_PERSONA.get(persona, SMALL_BONE_ATTACHED_MARKS))
+	if approach != expected:
+		_fail_persona(persona, "corpse.approach must preserve Round-12 persona approach %s, got %s" % [expected, approach])
+	if approach == DISMEMBERMENT_BAKED:
+		if str(corpse.get("adherenceApproach", "")) != "mesh_baked":
+			_fail_persona(persona, "sprinter live dismemberment corpse.adherenceApproach must be mesh_baked")
+		var params = corpse.get("params", {})
+		_audit_dismemberment_params(persona, "corpse.params", params, true)
+		return
 	if str(corpse.get("adherenceApproach", "")) != "bone_attached":
 		_fail_persona(persona, "live gore corpse.adherenceApproach must be bone_attached")
 	var specs := _mark_specs_from_block(corpse, ["decals", "marks"])
+	if approach == VISCERA_PROJECTION:
+		var params_value = corpse.get("params", {})
+		var params: Dictionary = {}
+		if typeof(params_value) == TYPE_DICTIONARY:
+			params = params_value as Dictionary
+		if str(params.get("organColor", "")) != CAMPER_ORGAN_COLOR:
+			_fail_persona(persona, "viscera_projection must preserve camper organColor %s" % CAMPER_ORGAN_COLOR)
+		if specs.size() < MIN_CAMPER_VISCERA_DECALS:
+			_fail_persona(persona, "viscera_projection needs at least %d decals, found %d" % [MIN_CAMPER_VISCERA_DECALS, specs.size()])
+		for spec_info in specs:
+			_assert_small_localized_gore_spec(persona, spec_info as Dictionary)
+		return
 	if specs.size() < MIN_LIVE_GORE_MARKS:
 		_fail_persona(persona, "live gore needs at least %d small localized marks, found %d" % [MIN_LIVE_GORE_MARKS, specs.size()])
 	var has_splash := false
@@ -191,18 +231,21 @@ func _audit_death_treatment_block(persona: String, treatment_value) -> void:
 		return
 	var treatment := treatment_value as Dictionary
 	_audit_adherence_block(persona, "corpse.deathTreatment", treatment, true)
-	if str(treatment.get("approach", "")) != DEATH_TREATMENT_APPROACH:
-		_fail_persona(persona, "corpse.deathTreatment.approach must be %s" % DEATH_TREATMENT_APPROACH)
+	if str(treatment.get("approach", "")) != DISMEMBERMENT_BAKED:
+		_fail_persona(persona, "corpse.deathTreatment.approach must be %s when declared" % DISMEMBERMENT_BAKED)
 	if str(treatment.get("adherenceApproach", "")) != "mesh_baked":
 		_fail_persona(persona, "corpse.deathTreatment.adherenceApproach must be mesh_baked")
+	var rationale := str(treatment.get("rationale", "")).to_lower()
+	if rationale.contains("sprinter-tested") or rationale.contains("every persona") or rationale.contains("universal"):
+		_fail_persona(persona, "corpse.deathTreatment rationale must not present sprinter as universal validation")
 	var params: Dictionary = {}
 	var params_value = treatment.get("params", {})
 	if typeof(params_value) == TYPE_DICTIONARY:
 		params = params_value as Dictionary
 	else:
 		_fail_persona(persona, "corpse.deathTreatment.params must be a Dictionary")
-	if str(params.get("method", "")) != DEATH_TREATMENT_METHOD:
-		_fail_persona(persona, "corpse.deathTreatment.params.method must be %s" % DEATH_TREATMENT_METHOD)
+	if str(params.get("method", "")) != BONE_HIDE_METHOD:
+		_fail_persona(persona, "corpse.deathTreatment.params.method must be %s" % BONE_HIDE_METHOD)
 	var hide_bones := _array_from_value(params.get("hideBones", []))
 	if hide_bones.is_empty():
 		_fail_persona(persona, "corpse.deathTreatment.params.hideBones must be non-empty")
@@ -226,6 +269,74 @@ func _audit_death_treatment_block(persona: String, treatment_value) -> void:
 			_fail_persona(persona, "corpse.deathTreatment.params.stumpDecals[%d] must not be floor-projected" % index)
 	if float(params.get("fallbackBoneScale", 0.0)) != 0.01:
 		_fail_persona(persona, "corpse.deathTreatment.params.fallbackBoneScale must be 0.01")
+
+
+func _audit_dismemberment_params(persona: String, label: String, params_value, require_r10_sizes: bool) -> void:
+	if typeof(params_value) != TYPE_DICTIONARY:
+		_fail_persona(persona, "%s must be a Dictionary" % label)
+		return
+	var params := params_value as Dictionary
+	if str(params.get("method", "")) != BONE_HIDE_METHOD:
+		_fail_persona(persona, "%s.method must be %s" % [label, BONE_HIDE_METHOD])
+	var hide_bones := _array_from_value(params.get("hideBones", []))
+	if hide_bones.is_empty():
+		_fail_persona(persona, "%s.hideBones must be non-empty" % label)
+	for bone in hide_bones:
+		if not MESH2MOTION_MARK_BONES.has(str(bone)):
+			_fail_persona(persona, "%s.hideBones contains unknown mesh2motion bone %s" % [label, str(bone)])
+	if require_r10_sizes:
+		for expected_bone in SPRINTER_HIDE_BONES:
+			if not hide_bones.has(expected_bone):
+				_fail_persona(persona, "%s.hideBones must include R10 sprinter bone %s" % [label, str(expected_bone)])
+	var stump_decals := _array_from_value(params.get("stumpDecals", []))
+	if stump_decals.is_empty():
+		_fail_persona(persona, "%s.stumpDecals must be non-empty" % label)
+	for index in range(stump_decals.size()):
+		var spec_value = stump_decals[index]
+		if typeof(spec_value) != TYPE_DICTIONARY:
+			_fail_persona(persona, "%s.stumpDecals[%d] must be a Dictionary" % [label, index])
+			continue
+		var spec := spec_value as Dictionary
+		var bone_name := _bone_name_from_spec(spec)
+		if not MESH2MOTION_MARK_BONES.has(bone_name):
+			_fail_persona(persona, "%s.stumpDecals[%d] bone is outside mesh2motion vocabulary: %s" % [label, index, bone_name])
+		if _is_floor_projection(spec):
+			_fail_persona(persona, "%s.stumpDecals[%d] must not be floor-projected" % [label, index])
+	if require_r10_sizes:
+		for bone_key in SPRINTER_STUMP_SIZE_BY_BONE.keys():
+			var found := false
+			var expected_size: Array = SPRINTER_STUMP_SIZE_BY_BONE.get(bone_key, [])
+			for spec_value in stump_decals:
+				if typeof(spec_value) != TYPE_DICTIONARY:
+					continue
+				var spec := spec_value as Dictionary
+				if str(spec.get("bone", "")) != str(bone_key):
+					continue
+				found = true
+				var size := _array_from_value(spec.get("size", []))
+				if size.size() < 2:
+					_fail_persona(persona, "%s.stumpDecals %s size must include x/y" % [label, str(bone_key)])
+				elif absf(float(size[0]) - float(expected_size[0])) > 0.000001 or absf(float(size[1]) - float(expected_size[1])) > 0.000001:
+					_fail_persona(persona, "%s.stumpDecals %s size must preserve R10 %.2f/%.2f, got %.3f/%.3f" % [label, str(bone_key), float(expected_size[0]), float(expected_size[1]), float(size[0]), float(size[1])])
+			if not found:
+				_fail_persona(persona, "%s.stumpDecals missing R10 sprinter bone %s" % [label, str(bone_key)])
+	if float(params.get("fallbackBoneScale", 0.0)) != 0.01:
+		_fail_persona(persona, "%s.fallbackBoneScale must be 0.01" % label)
+
+
+func _assert_fit_scale_and_offset(persona: String, label: String, block: Dictionary) -> void:
+	if block.has("propScale"):
+		_fail_persona(persona, "%s must use fitScale/propOffset instead of retired propScale" % label)
+	var fit_scale := float(block.get("fitScale", 0.0))
+	if fit_scale <= 0.0:
+		_fail_persona(persona, "%s.fitScale must be > 0" % label)
+	var offset := _array_from_value(block.get("propOffset", []))
+	if offset.size() != 3:
+		_fail_persona(persona, "%s.propOffset must be a 3-axis array" % label)
+		return
+	for index in range(offset.size()):
+		if typeof(offset[index]) != TYPE_INT and typeof(offset[index]) != TYPE_FLOAT:
+			_fail_persona(persona, "%s.propOffset[%d] must be numeric" % [label, index])
 
 
 func _assert_small_localized_gore_spec(persona: String, spec_info: Dictionary) -> void:
@@ -382,8 +493,8 @@ func _audit_persona_specific_material(persona: String, character_id: String, ass
 	if typeof(skin) != TYPE_DICTIONARY:
 		return
 	var approach := str((skin as Dictionary).get("approach", ""))
-	if not SKIN_SHORTLIST_APPROACHES.has(approach):
-		_fail_persona(persona, "live skin material audit only accepts pbr_texture_atlas or pattern_texture, got %s" % approach)
+	if not UV2_SKIN_APPROACHES.has(approach):
+		print("OK %s %s live skin uses non-UV2 restored persona shader/path" % [persona, approach])
 		return
 	_assert_uv2_skin_material(persona, character_id, approach)
 
@@ -426,7 +537,7 @@ func _assert_no_live_skin_marks(persona: String, character_id: String, asset: Di
 	var root := character.get("node") as Node
 	var projected_skin_marks := _collect_projected_mark_nodes(root)
 	if not projected_skin_marks.is_empty():
-		_fail_persona(persona, "live skin produced %d projected mark nodes after Round-11 consolidation" % projected_skin_marks.size())
+		_fail_persona(persona, "live skin produced %d projected mark nodes; Round-12 skins must stay material/shader based" % projected_skin_marks.size())
 
 
 func _audit_corpse_marks(persona: String, character_id: String, _asset: Dictionary, corpse_specs: Array) -> void:

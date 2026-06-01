@@ -1,11 +1,11 @@
 shader_type spatial;
 render_mode diffuse_lambert, specular_schlick_ggx;
 
-uniform sampler2D albedo_texture : source_color;
-uniform sampler2D normal_texture : hint_normal;
-uniform sampler2D roughness_texture;
-uniform sampler2D metallic_texture;
-uniform sampler2D ao_texture;
+uniform sampler2D albedo_texture : source_color, repeat_enable;
+uniform sampler2D normal_texture : hint_normal, repeat_enable;
+uniform sampler2D roughness_texture : repeat_enable;
+uniform sampler2D metallic_texture : repeat_enable;
+uniform sampler2D ao_texture : repeat_enable;
 
 uniform bool use_albedo_texture = false;
 uniform bool use_normal_texture = false;
