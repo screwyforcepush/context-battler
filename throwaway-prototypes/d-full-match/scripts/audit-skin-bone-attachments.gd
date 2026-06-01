@@ -5,6 +5,7 @@ const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
 const BASE_SCALE := 1.0
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
 const ADHERENCE_APPROACHES := ["bone_attached", "mesh_baked", "uv_painted", "modular_submesh"]
+const MESH2MOTION_MARK_BONES := ["spine_01", "spine_02", "spine_03", "upperarm_l", "lowerarm_r", "thigh_l", "head", "hand_l", "hand_r"]
 const BODY_REGION_SHADER_TOKENS := ["body-region", "body_region", "bodyregion", "multi-material", "multi_material", "multimaterial", "multi_material_split"]
 
 var manifest: Dictionary = {}
@@ -84,6 +85,8 @@ func _audit_manifest_round8_fields(assets_by_persona: Dictionary) -> void:
 		if not assets_by_persona.has(persona):
 			continue
 		var asset: Dictionary = assets_by_persona.get(persona, {})
+		if asset.has(_body_substitution_key()):
+			_fail_persona(persona, "declares forbidden per-persona body substitution key")
 		_audit_adherence_block(persona, "skin", asset.get("skin", null), true)
 		_audit_adherence_block(persona, "corpse", asset.get("corpse", null), true)
 		if not asset.has("armorOverlay"):
@@ -125,6 +128,10 @@ func _has_source_pack(value) -> bool:
 			return not str((value as Dictionary).get("name", "")).strip_edges().is_empty()
 		_:
 			return false
+
+
+func _body_substitution_key() -> String:
+	return "body" + "Override"
 
 
 func _audit_adherence_coverage() -> void:
@@ -308,13 +315,16 @@ func _assert_mark_parent(persona: String, label: String, spec_info: Dictionary, 
 		return
 	var bone_name := _bone_name_from_spec(spec)
 	if bone_name.is_empty():
-		print("OK %s %s root/fallback projection accepted: %s" % [persona, spec_label, mark.get_path()])
+		_fail_persona(persona, "%s does not declare a mesh2motion bone" % spec_label)
+		return
+	if not MESH2MOTION_MARK_BONES.has(bone_name):
+		_fail_persona(persona, "%s bone is outside mesh2motion vocabulary: %s" % [spec_label, bone_name])
 		return
 	if skeleton == null:
-		print("OK %s %s requested bone %s but no Skeleton3D is registered; fallback accepted" % [persona, spec_label, bone_name])
+		_fail_persona(persona, "%s requested bone %s but no Skeleton3D is registered" % [spec_label, bone_name])
 		return
 	if skeleton.find_bone(bone_name) < 0:
-		print("OK %s %s requested missing bone %s; fallback accepted" % [persona, spec_label, bone_name])
+		_fail_persona(persona, "%s requested missing mesh2motion bone %s" % [spec_label, bone_name])
 		return
 	var attachment := _bone_attachment_in_parent_chain(mark)
 	if attachment == null:

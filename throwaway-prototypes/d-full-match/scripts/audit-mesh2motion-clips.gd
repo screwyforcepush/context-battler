@@ -2,6 +2,9 @@ extends SceneTree
 
 const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
 const ART_ROOT := "res://shared-harness/art-kit/"
+const UNIVERSAL_BODY_FILE := "characters/camper-mesh2motion-human-base.glb"
+const UNIVERSAL_SOURCE_KEY := "mesh2motion"
+const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
 const REQUIRED_BONES := ["hand_r"]
 const REQUIRED_ANIMATION_KINDS := ["idle", "walk", "attack", "attack_unarmed", "attack_armed", "take_hit", "death", "loot"]
 
@@ -18,8 +21,12 @@ func _run() -> void:
 		_fail("manifest did not parse")
 		_finish()
 		return
-	_audit_mesh2motion_persona_count(manifest)
+	_audit_universal_persona_count(manifest)
 	var body: Dictionary = manifest.get("body", {})
+	if str(body.get("sourceKey", "")) != UNIVERSAL_SOURCE_KEY:
+		_fail("manifest.body.sourceKey is not %s" % UNIVERSAL_SOURCE_KEY)
+	if str(body.get("file", "")) != UNIVERSAL_BODY_FILE:
+		_fail("manifest.body.file is not %s" % UNIVERSAL_BODY_FILE)
 	if str(body.get("armourAttachBone", "")) != "spine":
 		_fail('manifest.body.armourAttachBone reserved field is not "spine"')
 	var body_file := str(body.get("file", ""))
@@ -56,19 +63,31 @@ func _read_manifest() -> Dictionary:
 	return parsed if typeof(parsed) == TYPE_DICTIONARY else {}
 
 
-func _audit_mesh2motion_persona_count(manifest: Dictionary) -> void:
+func _audit_universal_persona_count(manifest: Dictionary) -> void:
 	var count := 0
+	var seen := {}
+	var forbidden_key := _body_substitution_key()
 	for asset in manifest.get("assets", []):
 		if typeof(asset) != TYPE_DICTIONARY:
 			continue
 		var asset_dict := asset as Dictionary
 		if str(asset_dict.get("category", "")) != "character":
 			continue
-		var body_override = asset_dict.get("bodyOverride", {})
-		if typeof(body_override) != TYPE_DICTIONARY or (body_override as Dictionary).is_empty():
-			count += 1
-	if count != 1:
-		_fail("expected exactly 1 mesh2motion-bodied control persona, found %d" % count)
+		count += 1
+		var persona := str(asset_dict.get("personaSlot", ""))
+		seen[persona] = true
+		if asset_dict.has(forbidden_key):
+			_fail("%s declares forbidden per-persona body substitution key" % persona)
+	if count != PERSONAS.size():
+		_fail("expected %d universal mesh2motion personas, found %d" % [PERSONAS.size(), count])
+	for persona_value in PERSONAS:
+		var persona := str(persona_value)
+		if not seen.has(persona):
+			_fail("missing mesh2motion persona: %s" % persona)
+
+
+func _body_substitution_key() -> String:
+	return "body" + "Override"
 
 
 func _instantiate_scene(resource_path: String) -> Node:

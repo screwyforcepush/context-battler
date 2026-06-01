@@ -73,16 +73,19 @@ func _character_assets(manifest: Dictionary) -> Array:
 			continue
 		var asset_dict := asset as Dictionary
 		if str(asset_dict.get("category", "")) == "character":
-			if body_defaults.is_empty():
-				assets.append(asset_dict)
-			else:
-				var merged := body_defaults.duplicate(true)
-				var body_override = asset_dict.get("bodyOverride", {})
-				if typeof(body_override) == TYPE_DICTIONARY and not (body_override as Dictionary).is_empty():
-					merged.merge(body_override as Dictionary, true)
-				merged.merge(asset_dict, true)
-				assets.append(merged)
+				if body_defaults.is_empty():
+					assets.append(asset_dict)
+				else:
+					var merged := body_defaults.duplicate(true)
+					if asset_dict.has(_body_substitution_key()):
+						_fail("%s declares forbidden per-persona body substitution key" % str(asset_dict.get("personaSlot", asset_dict.get("id", ""))))
+					merged.merge(asset_dict, true)
+					assets.append(merged)
 	return assets
+
+
+func _body_substitution_key() -> String:
+	return "body" + "Override"
 
 
 func _measure_character(asset: Dictionary) -> Dictionary:

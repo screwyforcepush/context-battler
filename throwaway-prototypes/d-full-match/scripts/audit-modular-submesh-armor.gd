@@ -6,6 +6,7 @@ const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
 const BASE_SCALE := 1.0
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
 const MIN_MODULAR_ARMOR_OVERLAYS := 3
+const MESH2MOTION_ARMOR_BIND_BONES := ["spine_03", "spine_02", "spine_01", "head", "hand_l", "hand_r"]
 
 var failures: Array[String] = []
 var equipment_attachment: Node
@@ -141,11 +142,11 @@ func _audit_persona(asset: Dictionary, armor_overlay: Dictionary) -> void:
 func _assert_overlay_manifest_shape(asset: Dictionary, persona: String, armor_overlay: Dictionary) -> void:
 	if str(armor_overlay.get("adherenceApproach", "")) != "modular_submesh":
 		_fail("%s armorOverlay.adherenceApproach is not modular_submesh" % persona)
-	var body_override = asset.get("bodyOverride", {})
-	if typeof(body_override) == TYPE_DICTIONARY and not (body_override as Dictionary).is_empty():
-		var armour_attach_bone := str((body_override as Dictionary).get("armourAttachBone", ""))
-		if armour_attach_bone.is_empty():
-			_fail("%s bodyOverride.armourAttachBone is required when armorOverlay is non-null" % persona)
+	var bind_bone := str(armor_overlay.get("bindBone", ""))
+	if bind_bone.is_empty():
+		_fail("%s armorOverlay.bindBone is required for the universal mesh2motion skeleton" % persona)
+	elif not MESH2MOTION_ARMOR_BIND_BONES.has(bind_bone):
+		_fail("%s armorOverlay.bindBone is outside mesh2motion vocabulary: %s" % [persona, bind_bone])
 	if not _has_source_pack(armor_overlay.get("sourcePack", null)):
 		_fail("%s armorOverlay.sourcePack missing or empty" % persona)
 	var file := str(armor_overlay.get("file", ""))
@@ -197,12 +198,8 @@ func _assert_skin_matches_skeleton(persona: String, mesh: MeshInstance3D, skelet
 
 
 func _expected_armour_bind_bone(asset: Dictionary, armor_overlay: Dictionary) -> String:
-	var body_override = asset.get("bodyOverride", {})
-	if typeof(body_override) == TYPE_DICTIONARY:
-		var override_bone := str((body_override as Dictionary).get("armourAttachBone", ""))
-		if not override_bone.is_empty():
-			return override_bone
-	return str(armor_overlay.get("bindBone", ""))
+	var bind_bone := str(armor_overlay.get("bindBone", ""))
+	return bind_bone if not bind_bone.is_empty() else "spine_03"
 
 
 func _instantiate_runtime_character(persona: String, character_id: String) -> Node3D:

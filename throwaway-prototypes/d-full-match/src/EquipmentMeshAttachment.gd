@@ -6,6 +6,11 @@ const WEAPON_SOCKET_NAME := "weapon_socket"
 const ARMOUR_SOCKET_NAME := "armour_socket"
 const WEAPON_ATTACHMENT_SCALE := 0.22
 const FALLBACK_CHARACTER_HALF_HEIGHT := 0.17
+const WEAPON_ATTACH_DYNAMIC := "dynamic_hand_bone"
+const WEAPON_ATTACH_STATIC := "static_root_socket"
+const ARMOUR_RENDER_MODULAR := "modular_submesh_prop"
+const ARMOUR_RENDER_PAINT := "armor_as_paint"
+const DEFAULT_WEAPON_ATTACH_BONE := "hand_r"
 const ADHERENCE_BONE_ATTACHED := "adherence_bone_attached"
 const ADHERENCE_MESH_BAKED := "adherence_mesh_baked"
 const ADHERENCE_UV_PAINTED := "adherence_uv_painted"
@@ -27,6 +32,8 @@ var corpse_bone_mutations_by_character: Dictionary = {}
 var armor_overlay_nodes_by_character: Dictionary = {}
 var last_applied_skin_approach: Dictionary = {}
 var last_applied_corpse_approach: Dictionary = {}
+var currentWeaponAttachMode := WEAPON_ATTACH_DYNAMIC
+var currentArmourRenderMode := ARMOUR_RENDER_MODULAR
 var mat_weapon_low: StandardMaterial3D
 var mat_weapon_mid: StandardMaterial3D
 var mat_weapon_high: StandardMaterial3D
@@ -46,6 +53,8 @@ func configure(_root: Dictionary = {}) -> void:
 	armor_overlay_nodes_by_character.clear()
 	last_applied_skin_approach.clear()
 	last_applied_corpse_approach.clear()
+	currentWeaponAttachMode = WEAPON_ATTACH_DYNAMIC
+	currentArmourRenderMode = ARMOUR_RENDER_MODULAR
 	_make_materials()
 	_load_manifest()
 
@@ -158,7 +167,7 @@ func register_character(character_id: String, character_node: Node3D, persona: S
 	var asset: Dictionary = character_assets_by_persona.get(persona, {})
 	var visual := _visual_root(character_node)
 	var skeleton := _first_descendant_of_class(visual, "Skeleton3D") as Skeleton3D
-	var weapon_socket := _ensure_weapon_socket(character_node, skeleton, str(asset.get("attachBone", "")))
+	var weapon_socket := _ensure_weapon_socket(character_node, skeleton, str(asset.get("attachBone", DEFAULT_WEAPON_ATTACH_BONE)))
 	_register_character_record(character_id, character_node, persona, asset, visual, weapon_socket, 0)
 	_apply_persona_skin(character_id, 0)
 
@@ -178,10 +187,18 @@ func _register_character_record(character_id: String, character_node: Node3D, pe
 		"animationState": _empty_animation_state("idle"),
 		"attachBone": str(asset.get("attachBone", "")),
 		"weaponSocket": weapon_socket,
+		"weaponAttachMode": currentWeaponAttachMode,
+		"weaponSocketKind": _weapon_socket_kind(weapon_socket),
 		"armorOverlay": asset.get("armorOverlay", null),
 		"bodyMeshes": _mesh_descendants(visual),
 		"flashAge": 999.0,
 		"armourTier": armour_tier,
+		"equippedArmourTier": armour_tier,
+		"surfaceArmourTier": armour_tier,
+		"bodyArmourTier": armour_tier,
+		"armourRenderMode": currentArmourRenderMode,
+		"usesModularArmour": false,
+		"usesArmourPaint": false,
 		"skinMode": "skin",
 	}
 
@@ -200,6 +217,65 @@ func update_equipment(equipped_by_character: Dictionary) -> void:
 			"weapon": weapon_name,
 			"armour": armour_name,
 		}
+
+
+func set_weapon_attach_mode(mode: String) -> void:
+	var normalized := _normalized_weapon_attach_mode(mode)
+	if normalized.is_empty():
+		push_warning("unsupported weapon attach mode: %s" % mode)
+		return
+	currentWeaponAttachMode = normalized
+	for character_key in registered_characters.keys():
+		var character_id := str(character_key)
+		_rebuild_weapon_socket(character_id)
+		var equipped: Dictionary = equipped_state_by_character.get(character_id, {})
+		_swap_weapon(character_id, str(equipped.get("weapon", "")))
+
+
+func set_armour_render_mode(mode: String) -> void:
+	var normalized := _normalized_armour_render_mode(mode)
+	if normalized.is_empty():
+		push_warning("unsupported armour render mode: %s" % mode)
+		return
+	currentArmourRenderMode = normalized
+	for character_key in registered_characters.keys():
+		var character_id := str(character_key)
+		var equipped: Dictionary = equipped_state_by_character.get(character_id, {})
+		_swap_armour(character_id, str(equipped.get("armour", "")))
+
+
+func apply_neutral_body_material(character_id: String, material: Material, armour_tier: int = 0) -> void:
+	if not registered_characters.has(character_id):
+		return
+	_clear_mark_nodes(character_id, skin_mark_nodes_by_character)
+	_clear_corpse_skin_effects(character_id)
+	var applied_material := _neutral_material_for_armour_mode(character_id, material, armour_tier)
+	if applied_material != null:
+		_apply_material_to_body_meshes(character_id, applied_material)
+	var body_tier := _effective_body_armour_tier(character_id, armour_tier)
+	var character: Dictionary = registered_characters.get(character_id, {})
+	character["neutralMaterial"] = material
+	character["armourTier"] = max(0, armour_tier)
+	character["surfaceArmourTier"] = max(0, armour_tier)
+	character["bodyArmourTier"] = body_tier
+	character["armourRenderMode"] = currentArmourRenderMode
+	character["usesArmourPaint"] = currentArmourRenderMode == ARMOUR_RENDER_PAINT and body_tier > 0
+	character["skinMode"] = "neutral"
+	registered_characters[character_id] = character
+
+
+func _normalized_weapon_attach_mode(mode: String) -> String:
+	var clean := mode.strip_edges()
+	if clean == WEAPON_ATTACH_DYNAMIC or clean == WEAPON_ATTACH_STATIC:
+		return clean
+	return ""
+
+
+func _normalized_armour_render_mode(mode: String) -> String:
+	var clean := mode.strip_edges()
+	if clean == ARMOUR_RENDER_MODULAR or clean == ARMOUR_RENDER_PAINT:
+		return clean
+	return ""
 
 
 func play_loot_swap(character_id: String, item: Dictionary) -> void:
@@ -371,9 +447,6 @@ func _load_manifest() -> void:
 
 func _character_body_asset_for_manifest(asset: Dictionary, shared_body: Dictionary) -> Dictionary:
 	var character_asset := shared_body.duplicate(true)
-	var body_override := _dictionary_block(asset, "bodyOverride")
-	if not body_override.is_empty():
-		character_asset.merge(body_override, true)
 	if character_asset.is_empty():
 		character_asset = asset.duplicate(true)
 	return character_asset
@@ -387,8 +460,6 @@ func _corpse_body_asset_for_persona(persona_asset: Dictionary) -> Dictionary:
 			explicit_body_asset = persona_asset.duplicate(true)
 		explicit_body_asset.merge(corpse_override, true)
 		return explicit_body_asset
-	if not _dictionary_block(persona_asset, "bodyOverride").is_empty():
-		return persona_asset.duplicate(true)
 	var body_asset := corpse_body_asset.duplicate(true)
 	if body_asset.is_empty():
 		body_asset = persona_asset.duplicate(true)
@@ -423,20 +494,20 @@ func _scene_for_asset(asset) -> PackedScene:
 func _swap_weapon(character_id: String, weapon_name: String) -> void:
 	var socket := _weapon_socket_for_character(character_id)
 	if socket == null:
-		var character: Dictionary = registered_characters.get(character_id, {})
-		var character_node: Node3D = character.get("node")
-		if character_node == null:
+		socket = _rebuild_weapon_socket(character_id)
+		if socket == null:
 			return
-		socket = _ensure_socket(character_node, WEAPON_SOCKET_NAME, Vector3(0.15, 0.31, -0.10))
 	_clear_visual(socket, "weapon_visual")
 	if weapon_name.is_empty():
+		_record_weapon_state(character_id, weapon_name)
 		return
 	var asset: Dictionary = weapon_assets_by_name.get(weapon_name, {})
 	var visual := _instance_asset_or_fallback(asset, "weapon", weapon_name)
 	visual.name = "weapon_visual"
-	_apply_attachment_transform(visual, asset, "weapon")
+	_apply_attachment_transform(visual, asset, "weapon", currentWeaponAttachMode)
 	_apply_tier_material(visual, int(asset.get("tier", 1)), "weapon")
 	socket.add_child(visual)
+	_record_weapon_state(character_id, weapon_name)
 
 
 func _fallback_chain_for_kind(kind: String) -> Array[String]:
@@ -487,29 +558,30 @@ func _handle_animation_finished(animation_name: StringName, player: AnimationPla
 
 
 func _swap_armour(character_id: String, armour_name: String) -> void:
+	if not registered_characters.has(character_id):
+		return
 	var tier := 0
 	if armour_name.is_empty():
 		_clear_modular_submesh_armor(character_id)
-		_apply_persona_skin(character_id, tier)
+		_reapply_current_body_layer(character_id, tier)
+		_record_armour_state(character_id, armour_name, tier, false, false)
 		return
 	var asset: Dictionary = armour_assets_by_name.get(armour_name, {})
 	tier = int(asset.get("tier", 1))
+	if currentArmourRenderMode == ARMOUR_RENDER_PAINT:
+		_clear_modular_submesh_armor(character_id)
+		_reapply_current_body_layer(character_id, tier)
+		_record_armour_state(character_id, armour_name, tier, false, true)
+		return
 	var armor_overlay := _armor_overlay_for_character(character_id)
 	if not armor_overlay.is_empty():
-		_apply_persona_skin(character_id, 0)
+		_reapply_current_body_layer(character_id, tier)
 		if _apply_modular_submesh_armor(character_id, armor_overlay, tier):
-			var modular_character: Dictionary = registered_characters.get(character_id, {})
-			modular_character["armourTier"] = tier
-			modular_character["usesModularArmour"] = true
-			modular_character["flashAge"] = 0.0
-			registered_characters[character_id] = modular_character
+			_record_armour_state(character_id, armour_name, tier, true, false)
 			return
 	_clear_modular_submesh_armor(character_id)
-	_apply_persona_skin(character_id, tier)
-	var character: Dictionary = registered_characters.get(character_id, {})
-	character["usesModularArmour"] = false
-	character["flashAge"] = 0.0
-	registered_characters[character_id] = character
+	_reapply_current_body_layer(character_id, tier)
+	_record_armour_state(character_id, armour_name, tier, false, false)
 
 
 func _armor_overlay_for_character(character_id: String) -> Dictionary:
@@ -518,6 +590,69 @@ func _armor_overlay_for_character(character_id: String) -> Dictionary:
 	if typeof(overlay) == TYPE_DICTIONARY:
 		return overlay as Dictionary
 	return {}
+
+
+func _effective_body_armour_tier(character_id: String, armour_tier: int) -> int:
+	var tier := int(max(0, armour_tier))
+	if tier <= 0:
+		return 0
+	if currentArmourRenderMode == ARMOUR_RENDER_PAINT:
+		return tier
+	return tier if _armor_overlay_for_character(character_id).is_empty() else 0
+
+
+func _neutral_material_for_armour_mode(character_id: String, material: Material, armour_tier: int) -> Material:
+	if material == null:
+		return null
+	var body_tier := _effective_body_armour_tier(character_id, armour_tier)
+	if body_tier <= 0 or not (material is StandardMaterial3D):
+		return material
+	var copy := material.duplicate(true) as StandardMaterial3D
+	if copy == null:
+		return material
+	_apply_armour_tier_to_standard_material(copy, body_tier)
+	return copy
+
+
+func _reapply_current_body_layer(character_id: String, armour_tier: int) -> void:
+	if not registered_characters.has(character_id):
+		return
+	var character: Dictionary = registered_characters.get(character_id, {})
+	match str(character.get("skinMode", "skin")):
+		"corpse":
+			var asset: Dictionary = character.get("asset", {})
+			_apply_persona_corpse_skin(character_id, asset.get("corpse", {}), armour_tier)
+		"neutral":
+			var neutral_material := character.get("neutralMaterial") as Material
+			apply_neutral_body_material(character_id, neutral_material, armour_tier)
+		_:
+			_apply_persona_skin(character_id, armour_tier)
+
+
+func _record_weapon_state(character_id: String, weapon_name: String) -> void:
+	if not registered_characters.has(character_id):
+		return
+	var character: Dictionary = registered_characters.get(character_id, {})
+	character["weaponName"] = weapon_name
+	character["weaponAttachMode"] = currentWeaponAttachMode
+	character["weaponSocketKind"] = _weapon_socket_kind(character.get("weaponSocket") as Node3D)
+	registered_characters[character_id] = character
+
+
+func _record_armour_state(character_id: String, armour_name: String, armour_tier: int, uses_modular: bool, force_paint: bool) -> void:
+	if not registered_characters.has(character_id):
+		return
+	var body_tier := _effective_body_armour_tier(character_id, armour_tier)
+	var character: Dictionary = registered_characters.get(character_id, {})
+	character["armourName"] = armour_name
+	character["armourTier"] = max(0, armour_tier)
+	character["equippedArmourTier"] = max(0, armour_tier)
+	character["bodyArmourTier"] = body_tier
+	character["armourRenderMode"] = currentArmourRenderMode
+	character["usesModularArmour"] = uses_modular
+	character["usesArmourPaint"] = force_paint or (currentArmourRenderMode == ARMOUR_RENDER_PAINT and body_tier > 0)
+	character["flashAge"] = 0.0
+	registered_characters[character_id] = character
 
 
 func _apply_modular_submesh_armor(character_id: String, armor_overlay_block: Dictionary, armour_tier: int = 0) -> bool:
@@ -616,7 +751,7 @@ func _ensure_modular_armor_skin(mesh: MeshInstance3D, skeleton: Skeleton3D, armo
 		return
 	var bind_bone := _armor_bind_bone_for_character(character_id, armor_overlay_block)
 	if bind_bone.is_empty() or skeleton.find_bone(bind_bone) < 0:
-		for candidate in ["Torso", "Chest", "spine", "chest", "head", "Head", "Middle1.L", "hand.l", "handslot.l", "arm-left", "spine_03", "spine_02", "spine_01", "hand_l", "hand_r"]:
+		for candidate in ["spine_03", "spine_02", "spine_01", "head", "hand_l", "hand_r"]:
 			if skeleton.find_bone(str(candidate)) >= 0:
 				bind_bone = str(candidate)
 				break
@@ -636,15 +771,7 @@ func _ensure_modular_armor_skin(mesh: MeshInstance3D, skeleton: Skeleton3D, armo
 	mesh.skin = skin
 
 
-func _armor_bind_bone_for_character(character_id: String, armor_overlay_block: Dictionary) -> String:
-	var character: Dictionary = registered_characters.get(character_id, {})
-	var asset = character.get("asset", {})
-	if typeof(asset) == TYPE_DICTIONARY:
-		var body_override = (asset as Dictionary).get("bodyOverride", {})
-		if typeof(body_override) == TYPE_DICTIONARY:
-			var override_bone := str((body_override as Dictionary).get("armourAttachBone", ""))
-			if not override_bone.is_empty():
-				return override_bone
+func _armor_bind_bone_for_character(_character_id: String, armor_overlay_block: Dictionary) -> String:
 	var overlay_bone := str(armor_overlay_block.get("bindBone", ""))
 	if not overlay_bone.is_empty():
 		return overlay_bone
@@ -652,21 +779,107 @@ func _armor_bind_bone_for_character(character_id: String, armor_overlay_block: D
 
 
 func _ensure_weapon_socket(character_node: Node3D, skeleton: Skeleton3D, attach_bone: String) -> Node3D:
-	var existing := character_node.get_node_or_null(WEAPON_SOCKET_NAME) as Node3D
-	if existing != null:
-		return existing
-	var attachment: Node3D = null
-	if not attach_bone.is_empty():
-		attachment = _first_descendant_named(character_node, attach_bone) as Node3D
-	if attachment != null:
-		return attachment
-	if skeleton != null and not attach_bone.is_empty() and skeleton.find_bone(attach_bone) >= 0:
+	if currentWeaponAttachMode == WEAPON_ATTACH_STATIC:
+		return _ensure_static_weapon_socket(character_node)
+	return _ensure_dynamic_weapon_socket(character_node, skeleton, attach_bone)
+
+
+func _ensure_dynamic_weapon_socket(character_node: Node3D, skeleton: Skeleton3D, attach_bone: String) -> Node3D:
+	var resolved_bone := _resolved_weapon_attach_bone(skeleton, attach_bone)
+	if skeleton != null and not resolved_bone.is_empty():
+		var existing := skeleton.get_node_or_null(WEAPON_SOCKET_NAME) as BoneAttachment3D
+		if existing != null and existing.bone_name == resolved_bone:
+			return existing
 		var bone_socket := BoneAttachment3D.new()
 		bone_socket.name = WEAPON_SOCKET_NAME
-		bone_socket.bone_name = attach_bone
+		bone_socket.bone_name = resolved_bone
 		skeleton.add_child(bone_socket)
 		return bone_socket
+	push_warning("weapon attach mode %s could not resolve a hand bone; using static root socket" % currentWeaponAttachMode)
+	return _ensure_static_weapon_socket(character_node)
+
+
+func _ensure_static_weapon_socket(character_node: Node3D) -> Node3D:
 	return _ensure_socket(character_node, WEAPON_SOCKET_NAME, Vector3(0.15, 0.31, -0.10))
+
+
+func _rebuild_weapon_socket(character_id: String) -> Node3D:
+	if not registered_characters.has(character_id):
+		return null
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var character_node := character.get("node") as Node3D
+	if character_node == null or not is_instance_valid(character_node):
+		return null
+	_remove_registered_weapon_sockets(character_id)
+	character = registered_characters.get(character_id, {})
+	var skeleton := character.get("skeleton") as Skeleton3D
+	var socket := _ensure_weapon_socket(character_node, skeleton, _weapon_attach_bone_for_character(character))
+	character["weaponSocket"] = socket
+	character["weaponAttachMode"] = currentWeaponAttachMode
+	character["weaponSocketKind"] = _weapon_socket_kind(socket)
+	registered_characters[character_id] = character
+	return socket
+
+
+func _remove_registered_weapon_sockets(character_id: String) -> void:
+	var character: Dictionary = registered_characters.get(character_id, {})
+	_detach_and_free_node(character.get("weaponSocket") as Node)
+	_detach_named_child(character.get("node") as Node, WEAPON_SOCKET_NAME)
+	_detach_named_child(character.get("skeleton") as Node, WEAPON_SOCKET_NAME)
+	character["weaponSocket"] = null
+	registered_characters[character_id] = character
+
+
+func _detach_named_child(parent: Node, child_name: String) -> void:
+	if parent == null or not is_instance_valid(parent):
+		return
+	var child := parent.get_node_or_null(child_name)
+	_detach_and_free_node(child)
+
+
+func _detach_and_free_node(node: Node) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	var parent := node.get_parent()
+	if parent != null:
+		parent.remove_child(node)
+	node.queue_free()
+
+
+func _weapon_attach_bone_for_character(character: Dictionary) -> String:
+	var attach_bone := str(character.get("attachBone", ""))
+	if attach_bone.is_empty():
+		var asset = character.get("asset", {})
+		if typeof(asset) == TYPE_DICTIONARY:
+			attach_bone = str((asset as Dictionary).get("attachBone", ""))
+	if attach_bone.is_empty():
+		var body = manifest.get("body", {})
+		if typeof(body) == TYPE_DICTIONARY:
+			attach_bone = str((body as Dictionary).get("attachBone", ""))
+	return DEFAULT_WEAPON_ATTACH_BONE if attach_bone.is_empty() else attach_bone
+
+
+func _resolved_weapon_attach_bone(skeleton: Skeleton3D, attach_bone: String) -> String:
+	if skeleton == null or not is_instance_valid(skeleton):
+		return ""
+	var candidates: Array[String] = []
+	if not attach_bone.is_empty():
+		candidates.append(attach_bone)
+	for candidate in [DEFAULT_WEAPON_ATTACH_BONE, "hand_r", "right_hand", "RightHand", "mixamorig:RightHand"]:
+		if not candidates.has(str(candidate)):
+			candidates.append(str(candidate))
+	for candidate in candidates:
+		if skeleton.find_bone(candidate) >= 0:
+			return candidate
+	return ""
+
+
+func _weapon_socket_kind(socket: Node3D) -> String:
+	if socket is BoneAttachment3D:
+		return WEAPON_ATTACH_DYNAMIC
+	if socket != null:
+		return WEAPON_ATTACH_STATIC
+	return ""
 
 
 func _weapon_socket_for_character(character_id: String) -> Node3D:
@@ -674,10 +887,7 @@ func _weapon_socket_for_character(character_id: String) -> Node3D:
 	var socket := character.get("weaponSocket") as Node3D
 	if socket != null and is_instance_valid(socket):
 		return socket
-	var character_node: Node3D = character.get("node")
-	if character_node == null:
-		return null
-	return character_node.get_node_or_null(WEAPON_SOCKET_NAME) as Node3D
+	return _rebuild_weapon_socket(character_id)
 
 
 func _swap_flash_for_character(character_id: String) -> MeshInstance3D:
@@ -739,13 +949,29 @@ func _instance_asset_or_fallback(asset: Dictionary, slot: String, item_name: Str
 	return root
 
 
-func _apply_attachment_transform(visual: Node3D, asset: Dictionary, slot: String) -> void:
-	var offset: Dictionary = asset.get("handOffset", {})
+func _apply_attachment_transform(visual: Node3D, asset: Dictionary, slot: String, attach_mode: String = "") -> void:
+	var offset := _attachment_offset_for_mode(asset, attach_mode)
 	var default_position := Vector3(0.15, 0.31, -0.10)
 	visual.position = _vector3_from_array(offset.get("position", []), default_position)
 	visual.rotation_degrees = _vector3_from_array(offset.get("rotationDeg", []), Vector3.ZERO)
 	var scale_value := float(offset.get("scale", 1.0))
 	visual.scale = Vector3.ONE * scale_value * WEAPON_ATTACHMENT_SCALE
+
+
+func _attachment_offset_for_mode(asset: Dictionary, attach_mode: String) -> Dictionary:
+	for mode_value in _array_from_value(asset.get("attachModes", [])):
+		if typeof(mode_value) != TYPE_DICTIONARY:
+			continue
+		var mode_block := mode_value as Dictionary
+		if str(mode_block.get("mode", "")) != attach_mode:
+			continue
+		var mode_offset = mode_block.get("handOffset", {})
+		if typeof(mode_offset) == TYPE_DICTIONARY:
+			return mode_offset as Dictionary
+	var fallback = asset.get("handOffset", {})
+	if typeof(fallback) == TYPE_DICTIONARY:
+		return fallback as Dictionary
+	return {}
 
 
 func _apply_tier_material(node: Node, tier: int, slot: String) -> void:
@@ -787,8 +1013,7 @@ func apply_corpse_skin_to_live_character(character_id: String) -> void:
 	var character: Dictionary = registered_characters.get(character_id, {})
 	var asset: Dictionary = character.get("asset", {})
 	var corpse_block: Dictionary = asset.get("corpse", {})
-	var armour_tier := int(character.get("armourTier", 0))
-	_clear_mark_nodes(character_id, skin_mark_nodes_by_character)
+	var armour_tier := int(character.get("surfaceArmourTier", character.get("bodyArmourTier", character.get("armourTier", 0))))
 	_apply_persona_corpse_skin(character_id, corpse_block, armour_tier)
 	character = registered_characters.get(character_id, {})
 	character["skinMode"] = "corpse"
@@ -799,7 +1024,7 @@ func restore_persona_skin_to_live_character(character_id: String) -> void:
 	if not registered_characters.has(character_id):
 		return
 	var character: Dictionary = registered_characters.get(character_id, {})
-	var armour_tier := int(character.get("armourTier", 0))
+	var armour_tier := int(character.get("surfaceArmourTier", character.get("bodyArmourTier", character.get("armourTier", 0))))
 	_clear_corpse_skin_effects(character_id)
 	_apply_persona_skin(character_id, armour_tier)
 	character = registered_characters.get(character_id, {})
@@ -817,30 +1042,35 @@ func _apply_persona_skin(character_id: String, armour_tier: int) -> void:
 	var skin: Dictionary = asset.get("skin", {})
 	var approach := str(skin.get("approach", "palette_flat"))
 	var applied_approach := approach
+	var body_tier := _effective_body_armour_tier(character_id, armour_tier)
 	match approach:
 		"palette_flat":
-			_apply_skin_palette_flat(character_id, skin, armour_tier)
+			_apply_skin_palette_flat(character_id, skin, body_tier)
 		"pbr_texture_atlas":
-			_apply_skin_pbr_texture(character_id, skin, armour_tier)
+			_apply_skin_pbr_texture(character_id, skin, body_tier)
 		"pattern_texture":
-			_apply_skin_pattern_texture(character_id, skin, armour_tier)
+			_apply_skin_pattern_texture(character_id, skin, body_tier)
 		"decal_stickers":
-			_apply_skin_decal_stickers(character_id, skin, armour_tier)
+			_apply_skin_decal_stickers(character_id, skin, body_tier)
 		"toon_cel_shader":
-			_apply_skin_toon_cel(character_id, skin, armour_tier)
+			_apply_skin_toon_cel(character_id, skin, body_tier)
 		"emissive_trim_shader":
-			_apply_skin_emissive_trim(character_id, skin, armour_tier)
+			_apply_skin_emissive_trim(character_id, skin, body_tier)
 		"multi_material_split":
-			_apply_skin_multi_material(character_id, skin, armour_tier)
+			_apply_skin_multi_material(character_id, skin, body_tier)
 		"rim_fresnel_shader":
-			_apply_skin_rim_fresnel(character_id, skin, armour_tier)
+			_apply_skin_rim_fresnel(character_id, skin, body_tier)
 		_:
 			push_warning("unknown skin.approach: %s; falling back to palette_flat" % approach)
 			applied_approach = "palette_flat"
-			_apply_skin_palette_flat(character_id, skin, armour_tier)
+			_apply_skin_palette_flat(character_id, skin, body_tier)
 	last_applied_skin_approach[character_id] = applied_approach
 	character = registered_characters.get(character_id, {})
-	character["armourTier"] = armour_tier
+	character["armourTier"] = max(0, armour_tier)
+	character["surfaceArmourTier"] = max(0, armour_tier)
+	character["bodyArmourTier"] = body_tier
+	character["armourRenderMode"] = currentArmourRenderMode
+	character["usesArmourPaint"] = currentArmourRenderMode == ARMOUR_RENDER_PAINT and body_tier > 0
 	character["skinMode"] = "skin"
 	registered_characters[character_id] = character
 
@@ -969,30 +1199,35 @@ func _apply_persona_corpse_skin(character_id: String, corpse_block: Dictionary, 
 	_clear_corpse_skin_effects(character_id)
 	var approach := str(corpse_block.get("approach", "blood_saturation_overlay"))
 	var applied_approach := approach
+	var body_tier := _effective_body_armour_tier(character_id, armour_tier)
 	match approach:
 		"blood_saturation_overlay":
-			_apply_corpse_blood_saturation(character_id, corpse_block, armour_tier)
+			_apply_corpse_blood_saturation(character_id, corpse_block, body_tier)
 		"wound_cluster_decals":
-			_apply_corpse_wound_decals(character_id, corpse_block, armour_tier)
+			_apply_corpse_wound_decals(character_id, corpse_block, body_tier)
 		"gore_pool_decal":
-			_apply_corpse_gore_pool(character_id, corpse_block, armour_tier)
+			_apply_corpse_gore_pool(character_id, corpse_block, body_tier)
 		"charred_burned_texture":
-			_apply_corpse_charred(character_id, corpse_block, armour_tier)
+			_apply_corpse_charred(character_id, corpse_block, body_tier)
 		"exposed_bone_decals":
-			_apply_corpse_exposed_bone(character_id, corpse_block, armour_tier)
+			_apply_corpse_exposed_bone(character_id, corpse_block, body_tier)
 		"viscera_projection":
-			_apply_corpse_viscera(character_id, corpse_block, armour_tier)
+			_apply_corpse_viscera(character_id, corpse_block, body_tier)
 		"dismemberment_baked":
-			_apply_corpse_dismemberment(character_id, corpse_block, armour_tier)
+			_apply_corpse_dismemberment(character_id, corpse_block, body_tier)
 		"decay_desaturation":
-			_apply_corpse_decay(character_id, corpse_block, armour_tier)
+			_apply_corpse_decay(character_id, corpse_block, body_tier)
 		_:
 			push_warning("unknown corpse.approach: %s; falling back to blood_saturation_overlay" % approach)
 			applied_approach = "blood_saturation_overlay"
-			_apply_corpse_blood_saturation(character_id, corpse_block, armour_tier)
+			_apply_corpse_blood_saturation(character_id, corpse_block, body_tier)
 	last_applied_corpse_approach[character_id] = applied_approach
 	var character: Dictionary = registered_characters.get(character_id, {})
-	character["armourTier"] = armour_tier
+	character["armourTier"] = max(0, armour_tier)
+	character["surfaceArmourTier"] = max(0, armour_tier)
+	character["bodyArmourTier"] = body_tier
+	character["armourRenderMode"] = currentArmourRenderMode
+	character["usesArmourPaint"] = currentArmourRenderMode == ARMOUR_RENDER_PAINT and body_tier > 0
 	character["skinMode"] = "corpse"
 	registered_characters[character_id] = character
 

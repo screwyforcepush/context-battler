@@ -19,21 +19,18 @@ to survive; this Godot project is only the blind full-match probe.
 - Playback clock, play/pause, backward/forward scrub, and 0.5x / 1x / 2x speed.
 - Director camera plus anchored follow camera. Anchored cycling includes alive,
   dead, and extracted characters.
-- Manifest-driven character/corpse/equipment assets:
-  rat = KayKit rogue; duelist = Robin Lamb hero; trader = interglactic simple
-  character; opportunist = Quaternius mech; paranoid = GDQuest Mannequiny;
-  camper = Mesh2Motion human base; sprinter = XCVG animated humanoid;
-  vulture = styloo robot. The manifest is schemaVersion 4 and records sourceKey,
-  license, size, SHA-256, palette, clip names, and `modelScaleMultiplier` per
-  persona.
+- Manifest-driven character/corpse/equipment assets: Round 9 restores the single
+  locked Mesh2Motion human base body for all eight personas. The manifest is
+  schemaVersion 8, has no per-persona body substitution field, and keeps the
+  Round-8 skin, gore, weapon, and armour treatment data on the universal body.
 - Rigged animation pass: EntityRenderer selects idle, walk, attack, and loot or
   generic clips from the manifest and EquipmentMeshAttachment plays them through
   each character's AnimationPlayer. Whole-body attack/loot poses are bypassed
   when a rigged clip resolves.
-- Equipment pipeline: weapons still attach through manifest hand metadata,
-  preferring BoneAttachment3D when an attach bone resolves. Armour no longer
-  spawns a separate wearable mesh; armour tiers modify the character material
-  with metallic, emissive, and color-ramp changes.
+- Equipment pipeline: weapons attach through manifest hand metadata and can now
+  switch between dynamic `BoneAttachment3D` hand-follow and a static root socket
+  contrast. Armor/Armour can switch between rigid modular-submesh props and
+  armour-as-paint material shifts on the body mesh.
 - Combat spectacle pass: attack clips/poses orient attacker-to-target; hit
   splash, miss spray, lethal disintegration chunks, persistent splatter-textured
   blood pools capped at 64, camera punch, wall face-slam dust placed at the
@@ -86,6 +83,11 @@ Controls and selectors:
 
 - 7 animation triggers fire across all personas: idle, walk, attack unarmed,
   attack armed, loot, take hit, and death.
+- Four independent adherence layer toggles are global across the row: Skin,
+  Gore, Weapons, and Armour. Gore is controlled only by the Gore toggle, not by
+  the Death animation trigger.
+- Weapon attach mode switches between dynamic hand-bone follow and static root
+  socket. Armour mode switches between modular prop and armour-as-paint.
 - Weapon tiers are None, Low, Mid, and High. They map to manifest numeric tiers
   0, 1, 2, and 3; first representatives are none, `rusty_blade`, `sword`, and
   `greatsword`.
@@ -96,18 +98,18 @@ Controls and selectors:
 - Each persona has a name/source label plus an active-clip label. Fallback clips
   are surfaced from `animation_state_for_character`.
 
-Calibration target: median idle@0 source height 3.9748.
+Calibration target: universal Mesh2Motion body world height 1.7000.
 
-| Persona | Source key | idle@0 source height | modelScaleMultiplier |
+| Persona | Source key | Body file | modelScaleMultiplier |
 |---|---:|---:|---:|
-| rat | kaykit | 2.6688 | 1.4894 |
-| duelist | robin-lamb | 6.6452 | 0.5981 |
-| trader | interglactic | 3.7740 | 1.0532 |
-| opportunist | quaternius | 5.2077 | 0.7633 |
-| paranoid | gdquest | 1.7979 | 2.2108 |
-| camper | mesh2motion | 1.8296 | 2.1725 |
-| sprinter | xcvg-systems | 4.1756 | 0.9519 |
-| vulture | styloo | 8.1073 | 0.4903 |
+| rat | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
+| duelist | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
+| trader | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
+| opportunist | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
+| paranoid | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
+| camper | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
+| sprinter | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
+| vulture | mesh2motion | camper-mesh2motion-human-base.glb | 0.92918305 |
 
 Blind posture: no visual checks by implementer.
 
@@ -133,11 +135,10 @@ Blind posture: no visual checks by implementer.
 - Watch all five maps for geometry scale, camera framing, and wall/cover
   readability.
 - Confirm anchored mode remains ground truth: all entities stay visible.
-- Check each persona's sourced character lane, palette, and rigged idle/walk/
-  attack/loot motion. The active manifest has eight distinct sourceKeys and no
-  local primitive character slots.
-- Check each equipped weapon and armour tier for readability. Armour should read
-  as a material tier on the character, not as a separate floating body piece.
+- Check that each persona uses the same mesh2motion body label and that only the
+  treatment layers vary.
+- Check each equipped weapon and armour tier for readability. Armour should be
+  comparable as both a modular prop and a material tier on the character.
 - Check attacks, lethal deaths, equipment swaps, environmental red mist, and loot
   pickups for move-then-action timing against the kill feed and turn scrubber.
   Wall face-slams should land near movement end at the wall contact face, not at

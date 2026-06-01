@@ -4,6 +4,8 @@ const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
 const ART_ROOT := "res://shared-harness/art-kit/"
 const EQUIPMENT_ATTACHMENT_SCRIPT := "res://src/EquipmentMeshAttachment.gd"
 const BASE_SCALE := 1.0
+const UNIVERSAL_BODY_FILE := "characters/camper-mesh2motion-human-base.glb"
+const UNIVERSAL_SOURCE_KEY := "mesh2motion"
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
 const REQUIRED_BONES := ["hand_r"]
 const REQUIRED_ANIMATION_KINDS := ["idle", "walk", "attack", "attack_unarmed", "attack_armed", "take_hit", "death", "loot"]
@@ -59,11 +61,15 @@ func _read_manifest() -> Dictionary:
 
 
 func _assert_manifest_shape(manifest: Dictionary) -> void:
-	if int(manifest.get("schemaVersion", -1)) != 7:
-		_fail("manifest schemaVersion is not 7")
+	if int(manifest.get("schemaVersion", -1)) != 8:
+		_fail("manifest schemaVersion is not 8")
 	var body: Dictionary = manifest.get("body", {})
 	if body.is_empty():
 		_fail("manifest.body is missing")
+	elif str(body.get("sourceKey", "")) != UNIVERSAL_SOURCE_KEY:
+		_fail("manifest.body.sourceKey is not %s" % UNIVERSAL_SOURCE_KEY)
+	elif str(body.get("file", "")) != UNIVERSAL_BODY_FILE:
+		_fail("manifest.body.file is not %s" % UNIVERSAL_BODY_FILE)
 	elif str(body.get("armourAttachBone", "")) != "spine":
 		_fail('manifest.body.armourAttachBone reserved field is not "spine"')
 	var corpse_body: Dictionary = manifest.get("corpseBody", {})
@@ -84,6 +90,8 @@ func _character_assets(manifest: Dictionary) -> Array:
 
 func _verify_manifest_character(manifest: Dictionary, asset: Dictionary) -> void:
 	var persona := str(asset.get("personaSlot", asset.get("id", "")))
+	if asset.has(_body_substitution_key()):
+		_fail("%s declares forbidden per-persona body substitution key" % persona)
 	var skin: Dictionary = asset.get("skin", {})
 	var corpse: Dictionary = asset.get("corpse", {})
 	if skin.is_empty():
@@ -96,6 +104,10 @@ func _verify_manifest_character(manifest: Dictionary, asset: Dictionary) -> void
 		_assert_block_params(persona, "corpse", corpse)
 	var body: Dictionary = _effective_body_asset(manifest, asset)
 	var body_file := str(body.get("file", ""))
+	if body_file != UNIVERSAL_BODY_FILE:
+		_fail("%s effective body file is not universal mesh2motion: %s" % [persona, body_file])
+	if str(body.get("sourceKey", "")) != UNIVERSAL_SOURCE_KEY:
+		_fail("%s effective body sourceKey is not %s" % [persona, UNIVERSAL_SOURCE_KEY])
 	if body_file.is_empty():
 		_fail("%s cannot resolve empty effective body file" % persona)
 		return
@@ -124,8 +136,7 @@ func _verify_manifest_character(manifest: Dictionary, asset: Dictionary) -> void
 	else:
 		print("%s clip inventory: %s" % [persona, ", ".join(PackedStringArray(player.get_animation_list()))])
 		var animation: Dictionary = body.get("animation", {})
-		var required_kinds := REQUIRED_ANIMATION_KINDS if _dictionary_block(asset, "bodyOverride").is_empty() else ["idle", "death"]
-		for kind in required_kinds:
+		for kind in REQUIRED_ANIMATION_KINDS:
 			_verify_clip(persona, player, animation, str(kind))
 		var death_pose_clip := str(body.get("deathPoseClip", ""))
 		if not death_pose_clip.is_empty() and not player.has_animation(death_pose_clip):
@@ -135,18 +146,12 @@ func _verify_manifest_character(manifest: Dictionary, asset: Dictionary) -> void
 
 func _effective_body_asset(manifest: Dictionary, asset: Dictionary) -> Dictionary:
 	var body: Dictionary = manifest.get("body", {}).duplicate(true)
-	var body_override := _dictionary_block(asset, "bodyOverride")
-	if not body_override.is_empty():
-		body.merge(body_override, true)
 	body.merge(asset, true)
 	return body
 
 
-func _dictionary_block(source: Dictionary, key: String) -> Dictionary:
-	var value = source.get(key, {})
-	if typeof(value) == TYPE_DICTIONARY:
-		return value as Dictionary
-	return {}
+func _body_substitution_key() -> String:
+	return "body" + "Override"
 
 
 func _assert_block_params(persona: String, block_name: String, block: Dictionary) -> void:
@@ -169,8 +174,8 @@ func _verify_corpse_hide_bones(persona: String, asset: Dictionary, skeleton: Ske
 		var bone_name := str(bone_value)
 		if bone_name.is_empty():
 			continue
-		if skeleton.find_bone(bone_name) < 0:
-			print("%s corpse hideBone does not resolve on effective body, accepted for body-swap breadth: %s" % [persona, bone_name])
+			if skeleton.find_bone(bone_name) < 0:
+				_fail("%s corpse hideBone does not resolve on universal mesh2motion body: %s" % [persona, bone_name])
 
 
 func _assert_nested_param_paths(label: String, value) -> void:

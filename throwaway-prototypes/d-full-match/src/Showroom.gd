@@ -5,15 +5,32 @@ const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "campe
 const STATION_SPACING := 1.6
 const SAMPLE_MAP_WIDTH := 32
 const SAMPLE_MAP_HEIGHT := 12
+const LAYER_SKIN := "skin"
+const LAYER_GORE := "gore"
+const LAYER_WEAPONS := "weapons"
+const LAYER_ARMOUR := "armour"
+const WEAPON_ATTACH_DYNAMIC := "dynamic_hand_bone"
+const WEAPON_ATTACH_STATIC := "static_root_socket"
+const ARMOUR_RENDER_PROP := "modular_submesh_prop"
+const ARMOUR_RENDER_PAINT := "armor_as_paint"
 
 var current_weapon_tier := 0
 var current_armour_tier := 0
+var current_weapon_attach_mode := WEAPON_ATTACH_DYNAMIC
+var current_armour_render_mode := ARMOUR_RENDER_PROP
 var weapon_by_tier := {0: "", 1: "", 2: "", 3: ""}
 var armour_by_tier := {0: "", 1: "", 2: "", 3: ""}
 var clip_labels: Dictionary = {}
 var selected_tier_buttons: Dictionary = {}
-var current_skin_mode: Dictionary = {}
+var layer_enabled := {
+	LAYER_SKIN: true,
+	LAYER_GORE: true,
+	LAYER_WEAPONS: true,
+	LAYER_ARMOUR: true,
+}
 var fallback_material: StandardMaterial3D
+var weapon_attach_mode_switch: CheckButton
+var armour_render_mode_switch: CheckButton
 
 @onready var scene_builder: Node3D = %SceneBuilder
 @onready var equipment_attachment: Node = %EquipmentMeshAttachment
@@ -31,7 +48,7 @@ func _ready() -> void:
 	_spawn_persona_row()
 	_configure_camera()
 	_make_ui()
-	_apply_equipment()
+	_reapply_showroom_layers()
 	_trigger_animation("idle")
 
 
@@ -96,7 +113,6 @@ func _spawn_persona_station(station: Node3D, persona: String) -> void:
 	var clip_label := _make_label("ClipLabel", "(idle/none)", Vector3(0.0, 1.06, 0.0), 0.0040, 12)
 	station.add_child(clip_label)
 	clip_labels[showroom_id] = clip_label
-	current_skin_mode[showroom_id] = "skin"
 
 
 func _make_label(label_name: String, label_text: String, label_position: Vector3, pixel_size: float, font_size: int) -> Label3D:
@@ -131,7 +147,7 @@ func _make_ui() -> void:
 	var panel := PanelContainer.new()
 	panel.name = "ShowroomPanel"
 	panel.position = Vector2(16, 14)
-	panel.custom_minimum_size = Vector2(930, 134)
+	panel.custom_minimum_size = Vector2(1030, 186)
 	ui.add_child(panel)
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 8)
@@ -146,7 +162,7 @@ func _make_ui() -> void:
 	header.add_child(back_button)
 	var title := Label.new()
 	title.name = "TitleLabel"
-	title.text = "Showroom - 8 personas, Round-5 manifest assets"
+	title.text = "Showroom - Round 9 locked mesh2motion adherence breadth"
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.add_theme_font_size_override("font_size", 18)
 	header.add_child(title)
@@ -167,12 +183,48 @@ func _make_ui() -> void:
 		button.text = str(config.get("label", ""))
 		button.pressed.connect(_trigger_animation.bind(str(config.get("kind", ""))))
 		animation_bar.add_child(button)
+	var layers_bar := HBoxContainer.new()
+	layers_bar.name = "AdherenceLayersBar"
+	layers_bar.add_theme_constant_override("separation", 8)
+	root.add_child(layers_bar)
+	var layers_label := Label.new()
+	layers_label.text = "Adherence Layers:"
+	layers_label.custom_minimum_size = Vector2(132, 0)
+	layers_bar.add_child(layers_label)
+	_make_layer_toggle(layers_bar, "Skin", LAYER_SKIN)
+	_make_layer_toggle(layers_bar, "Gore", LAYER_GORE)
+	_make_layer_toggle(layers_bar, "Weapons", LAYER_WEAPONS)
+	_make_layer_toggle(layers_bar, "Armour", LAYER_ARMOUR)
+	var modes_bar := HBoxContainer.new()
+	modes_bar.name = "AdherenceModeBar"
+	modes_bar.add_theme_constant_override("separation", 8)
+	root.add_child(modes_bar)
+	weapon_attach_mode_switch = CheckButton.new()
+	weapon_attach_mode_switch.name = "WeaponAttachModeSwitch"
+	weapon_attach_mode_switch.button_pressed = current_weapon_attach_mode == WEAPON_ATTACH_STATIC
+	weapon_attach_mode_switch.toggled.connect(_set_weapon_attach_static)
+	modes_bar.add_child(weapon_attach_mode_switch)
+	armour_render_mode_switch = CheckButton.new()
+	armour_render_mode_switch.name = "ArmourModeSwitch"
+	armour_render_mode_switch.button_pressed = current_armour_render_mode == ARMOUR_RENDER_PAINT
+	armour_render_mode_switch.toggled.connect(_set_armour_render_paint)
+	modes_bar.add_child(armour_render_mode_switch)
+	_update_mode_switch_labels()
 	var tier_box := VBoxContainer.new()
 	tier_box.name = "EquipmentTierBar"
 	tier_box.add_theme_constant_override("separation", 4)
 	root.add_child(tier_box)
 	_make_tier_row(tier_box, "Weapon", "weapon")
-	_make_tier_row(tier_box, "Armor", "armour")
+	_make_tier_row(tier_box, "Armour", "armour")
+
+
+func _make_layer_toggle(parent: Node, label_text: String, layer: String) -> void:
+	var button := CheckButton.new()
+	button.name = "%sLayerToggle" % label_text
+	button.text = label_text
+	button.button_pressed = bool(layer_enabled.get(layer, true))
+	button.toggled.connect(_set_layer_enabled.bind(layer))
+	parent.add_child(button)
 
 
 func _make_tier_row(parent: Node, label_text: String, slot: String) -> void:
@@ -194,7 +246,7 @@ func _make_tier_row(parent: Node, label_text: String, slot: String) -> void:
 		var button := Button.new()
 		button.text = str(tier_config.get("label", ""))
 		button.toggle_mode = true
-		button.button_pressed = tier == 0
+		button.button_pressed = tier == _current_tier_for_slot(slot)
 		button.disabled = tier != 0 and _asset_for_slot_tier(slot, tier).is_empty()
 		button.pressed.connect(_set_equipment_tier.bind(slot, tier))
 		row.add_child(button)
@@ -204,15 +256,7 @@ func _make_tier_row(parent: Node, label_text: String, slot: String) -> void:
 func _trigger_animation(kind: String) -> void:
 	for persona in PERSONAS:
 		var showroom_id := _showroom_id(str(persona))
-		if kind == "death":
-			equipment_attachment.play_character_animation(showroom_id, kind)
-			equipment_attachment.apply_corpse_skin_to_live_character(showroom_id)
-			current_skin_mode[showroom_id] = "corpse"
-		else:
-			if str(current_skin_mode.get(showroom_id, "skin")) == "corpse":
-				equipment_attachment.restore_persona_skin_to_live_character(showroom_id)
-			current_skin_mode[showroom_id] = "skin"
-			equipment_attachment.play_character_animation(showroom_id, kind)
+		equipment_attachment.play_character_animation(showroom_id, kind)
 	_update_clip_labels()
 
 
@@ -222,12 +266,44 @@ func _set_equipment_tier(slot: String, tier: int) -> void:
 	else:
 		current_armour_tier = tier
 	_update_tier_buttons(slot, tier)
-	_apply_equipment()
+	_reapply_showroom_layers()
 
 
-func _apply_equipment() -> void:
-	var weapon_name := str(weapon_by_tier.get(current_weapon_tier, ""))
-	var armour_name := str(armour_by_tier.get(current_armour_tier, ""))
+func _set_layer_enabled(enabled: bool, layer: String) -> void:
+	if bool(layer_enabled.get(layer, true)) == enabled:
+		return
+	layer_enabled[layer] = enabled
+	_reapply_showroom_layers()
+
+
+func _set_weapon_attach_static(use_static: bool) -> void:
+	current_weapon_attach_mode = WEAPON_ATTACH_STATIC if use_static else WEAPON_ATTACH_DYNAMIC
+	_update_mode_switch_labels()
+	_reapply_showroom_layers()
+
+
+func _set_armour_render_paint(use_paint: bool) -> void:
+	current_armour_render_mode = ARMOUR_RENDER_PAINT if use_paint else ARMOUR_RENDER_PROP
+	_update_mode_switch_labels()
+	_reapply_showroom_layers()
+
+
+func _reapply_showroom_layers() -> void:
+	_apply_runtime_modes()
+	_apply_equipment_layers()
+	_apply_surface_layers()
+
+
+func _apply_runtime_modes() -> void:
+	if equipment_attachment.has_method("set_weapon_attach_mode"):
+		equipment_attachment.call("set_weapon_attach_mode", current_weapon_attach_mode)
+	if equipment_attachment.has_method("set_armour_render_mode"):
+		equipment_attachment.call("set_armour_render_mode", current_armour_render_mode)
+
+
+func _apply_equipment_layers() -> void:
+	var weapon_name := str(weapon_by_tier.get(current_weapon_tier, "")) if _layer_is_enabled(LAYER_WEAPONS) else ""
+	var armour_name := str(armour_by_tier.get(current_armour_tier, "")) if _layer_is_enabled(LAYER_ARMOUR) else ""
 	var equipped := {}
 	for persona in PERSONAS:
 		equipped[_showroom_id(str(persona))] = {
@@ -235,15 +311,29 @@ func _apply_equipment() -> void:
 			"armour": {"name": armour_name},
 		}
 	equipment_attachment.update_equipment(equipped)
+
+
+func _apply_surface_layers() -> void:
+	var armour_tier := _surface_armour_tier()
 	for persona in PERSONAS:
 		var showroom_id := _showroom_id(str(persona))
-		if str(current_skin_mode.get(showroom_id, "skin")) == "corpse":
+		if not _layer_is_enabled(LAYER_GORE):
+			equipment_attachment.restore_persona_skin_to_live_character(showroom_id)
+		if _layer_is_enabled(LAYER_SKIN):
+			equipment_attachment.apply_persona_skin(showroom_id, armour_tier)
+		elif equipment_attachment.has_method("apply_neutral_body_material"):
+			equipment_attachment.call("apply_neutral_body_material", showroom_id, fallback_material, armour_tier)
+		else:
+			equipment_attachment.apply_persona_skin(showroom_id, armour_tier)
+		if _layer_is_enabled(LAYER_GORE):
 			equipment_attachment.apply_corpse_skin_to_live_character(showroom_id)
 
 
 func _build_tier_maps() -> void:
 	weapon_by_tier = _numeric_tier_map_for_assets("weapon_assets_by_name")
 	armour_by_tier = _armour_visual_tier_map()
+	current_weapon_tier = _default_visible_tier(weapon_by_tier)
+	current_armour_tier = _default_visible_tier(armour_by_tier)
 
 
 func _numeric_tier_map_for_assets(property_name: String) -> Dictionary:
@@ -296,6 +386,36 @@ func _asset_for_slot_tier(slot: String, tier: int) -> String:
 	return str(armour_by_tier.get(tier, ""))
 
 
+func _current_tier_for_slot(slot: String) -> int:
+	if slot == "weapon":
+		return current_weapon_tier
+	return current_armour_tier
+
+
+func _default_visible_tier(tier_map: Dictionary) -> int:
+	for tier in [2, 1, 3]:
+		if not str(tier_map.get(tier, "")).is_empty():
+			return tier
+	return 0
+
+
+func _surface_armour_tier() -> int:
+	if _layer_is_enabled(LAYER_ARMOUR) and current_armour_render_mode == ARMOUR_RENDER_PAINT:
+		return current_armour_tier
+	return 0
+
+
+func _layer_is_enabled(layer: String) -> bool:
+	return bool(layer_enabled.get(layer, true))
+
+
+func _update_mode_switch_labels() -> void:
+	if weapon_attach_mode_switch != null:
+		weapon_attach_mode_switch.text = "Weapon attach: Static root socket" if current_weapon_attach_mode == WEAPON_ATTACH_STATIC else "Weapon attach: Dynamic hand bone"
+	if armour_render_mode_switch != null:
+		armour_render_mode_switch.text = "Armour mode: Armour as paint" if current_armour_render_mode == ARMOUR_RENDER_PAINT else "Armour mode: Modular prop"
+
+
 func _update_tier_buttons(slot: String, selected_tier: int) -> void:
 	for tier in [0, 1, 2, 3]:
 		var key := "%s:%d" % [slot, tier]
@@ -327,21 +447,7 @@ func _clip_label_text(state: Dictionary) -> String:
 	return clip
 
 
-func _source_key_for_persona(persona: String) -> String:
-	var assets = equipment_attachment.get("character_assets_by_persona")
-	if typeof(assets) != TYPE_DICTIONARY:
-		return "unknown"
-	var asset = (assets as Dictionary).get(persona, {})
-	if typeof(asset) != TYPE_DICTIONARY:
-		return "unknown"
-	var body_override = (asset as Dictionary).get("bodyOverride", {})
-	if typeof(body_override) == TYPE_DICTIONARY:
-		var body_source_key := str((body_override as Dictionary).get("sourceKey", ""))
-		if not body_source_key.is_empty():
-			return body_source_key
-	var source_key := str((asset as Dictionary).get("sourceKey", ""))
-	if not source_key.is_empty():
-		return source_key
+func _source_key_for_persona(_persona: String) -> String:
 	var manifest = equipment_attachment.get("manifest")
 	if typeof(manifest) == TYPE_DICTIONARY:
 		var body = (manifest as Dictionary).get("body", {})

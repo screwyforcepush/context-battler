@@ -10,6 +10,7 @@ const appDir = path.resolve(scriptDir, "..");
 
 const requiredFiles = [
   "README.md",
+  "ROUND-9-CLOSING-READOUT.md",
   "package.json",
   "project.godot",
   "export_presets.cfg",
@@ -36,7 +37,8 @@ const requiredFiles = [
   "scripts/audit-replay-load.gd",
   "scripts/audit-skin-bone-attachments.gd",
   "scripts/audit-modular-submesh-armor.gd",
-  "scripts/audit-body-source-provenance.gd",
+  "scripts/audit-universal-body.gd",
+  "scripts/audit-adherence-matrix.gd",
   "shared-harness/art-kit/manifest.json",
 ];
 
@@ -96,8 +98,10 @@ const round8BodyModelScaleMultiplier = 0.92918305;
 const round8TargetWorldHeight = 1.7;
 const round8AdherenceFamilies = ["bone_attached", "mesh_baked", "uv_painted", "modular_submesh"];
 const round8MinimumModularArmorOverlays = 3;
-const round81QuaterniusPacks = new Set(["Quaternius-ModularCharacterOutfitsFantasy-CC0", "Quaternius-PolyPizzaIndividual-CC0"]);
-const round81WarriorPacks = new Set(["OGA-BlackScorp-LowPolyWarrior-CC0", "Kaykit-Adventurers-CC0"]);
+const universalBodyFile = "characters/camper-mesh2motion-human-base.glb";
+const universalBodySourceKey = "mesh2motion";
+const weaponAttachModes = ["dynamic_hand_bone", "static_root_socket"];
+const armourRenderModes = ["modular_submesh_prop", "armor_as_paint"];
 
 function read(relativePath) {
   return readFileSync(path.join(appDir, relativePath), "utf8");
@@ -206,44 +210,15 @@ function assertAdherenceApproach(block, context, coverage) {
   }
 }
 
-function assertBodyOverride(bodyOverride, context, options = {}) {
-  assert(bodyOverride && typeof bodyOverride === "object" && !Array.isArray(bodyOverride), `${context} is an object`);
-  if (!bodyOverride || typeof bodyOverride !== "object" || Array.isArray(bodyOverride)) return;
-  for (const key of ["file", "sourceKey", "sourcePack", "attachBone", "sha256"]) {
-    assert(typeof bodyOverride[key] === "string" && bodyOverride[key].length > 0, `${context}.${key} is declared`);
+function addAdherenceFamily(block, coverage) {
+  const approach = typeof block?.adherenceApproach === "string" ? block.adherenceApproach : "";
+  if (round8AdherenceFamilies.includes(approach)) {
+    coverage.add(approach);
   }
-  for (const key of ["modelScaleMultiplier", "targetWorldHeight", "sizeBytes"]) {
-    assert(typeof bodyOverride[key] === "number", `${context}.${key} is numeric`);
-  }
-  assert(bodyOverride.animation && typeof bodyOverride.animation === "object", `${context}.animation is declared`);
-  assert(typeof bodyOverride.animation?.idle === "string" && bodyOverride.animation.idle.length > 0, `${context}.animation.idle is declared`);
-  if (options.requiresArmourAttachBone) {
-    assert(
-      typeof bodyOverride.armourAttachBone === "string" && bodyOverride.armourAttachBone.length > 0,
-      `${context}.armourAttachBone is declared for armorOverlay preservation`,
-    );
-  }
-  if (options.requiresDeathClip) {
-    assert(
-      (typeof bodyOverride.animation?.death === "string" && bodyOverride.animation.death.length > 0) ||
-        (typeof bodyOverride.deathPoseClip === "string" && bodyOverride.deathPoseClip.length > 0),
-      `${context} declares animation.death or deathPoseClip for implicit corpse fallback`,
-    );
-  }
-  assert(bodyOverride.source && bodyOverride.source.pageUrl && bodyOverride.source.downloadUrl, `${context}.source has pageUrl and downloadUrl`);
-  assert(bodyOverride.source?.downloadMechanism, `${context}.source.downloadMechanism is declared`);
-  assert(bodyOverride.license && bodyOverride.license.spdx === "CC0-1.0", `${context}.license is CC0-1.0`);
-  assert(bodyOverride.extraction && bodyOverride.extraction.sourceArchivePath, `${context}.extraction documents source path`);
-  if (typeof bodyOverride.file === "string" && bodyOverride.file.length > 0) {
-    assert(bodyOverride.file.startsWith("characters/"), `${context}.file lives under characters/: ${bodyOverride.file}`);
-    assertArtKitPath(bodyOverride.file, `${context}.file`);
-    assertArtKitImportSidecar(bodyOverride.file, `${context}.file`);
-    const relativePath = artKitRelativePath(bodyOverride.file);
-    if (existsSync(path.join(appDir, relativePath))) {
-      assert(statSync(path.join(appDir, relativePath)).size === bodyOverride.sizeBytes, `${context}.sizeBytes matches ${bodyOverride.file}`);
-      assert(sha256(relativePath) === bodyOverride.sha256, `${context}.sha256 matches ${bodyOverride.file}`);
-    }
-  }
+}
+
+function modeSet(values) {
+  return new Set((Array.isArray(values) ? values : []).map((value) => value?.mode).filter((mode) => typeof mode === "string" && mode.length > 0));
 }
 
 function collectNestedParamPaths(value, trail = "params") {
@@ -540,6 +515,13 @@ if (existsSync(path.join(appDir, "src/EquipmentMeshAttachment.gd"))) {
     "adherence_mesh_baked",
     "adherence_uv_painted",
     "adherence_modular_submesh",
+    "set_weapon_attach_mode",
+    "set_armour_render_mode",
+    "apply_neutral_body_material",
+    "dynamic_hand_bone",
+    "static_root_socket",
+    "modular_submesh_prop",
+    "armor_as_paint",
   ]) {
     assertIncludes(equipment, token, `EquipmentMeshAttachment handles ${token}`);
   }
@@ -593,7 +575,7 @@ if (existsSync(path.join(appDir, "src/EquipmentMeshAttachment.gd"))) {
   assertIncludes(equipment, "animation_finished", "EquipmentMeshAttachment uses animation_finished for death pose hold");
   assertIncludes(equipment, "player.pause()", "EquipmentMeshAttachment pauses finished death animation");
   assertNotMatches(equipment, /\bloop_mode\s*=/, "EquipmentMeshAttachment does not assign Animation.loop_mode");
-  assertNotIncludes(equipment, "armour_visual", "EquipmentMeshAttachment does not attach floating armour visuals");
+  assertNotIncludes(equipment, "bodyOverride", "EquipmentMeshAttachment has no bodyOverride body-substitution branch");
 }
 
 if (existsSync(path.join(appDir, "src/PlaybackClock.gd"))) {
@@ -659,7 +641,16 @@ if (existsSync(path.join(appDir, "src/Showroom.gd"))) {
   assertIncludes(showroom, "instantiate_persona_character", "Showroom instantiates personas through EquipmentMeshAttachment factory");
   assertIncludes(showroom, "build_from_snapshot", "Showroom builds sample environment through SceneBuilder");
   assertIncludes(showroom, "play_character_animation", "Showroom triggers animations through EquipmentMeshAttachment");
-  assertIncludes(showroom, "apply_corpse_skin_to_live_character", "Showroom Death trigger applies corpse skin variants");
+  assertIncludes(showroom, "AdherenceLayersBar", "Showroom exposes the Round-9 adherence layer toggle row");
+  assertIncludes(showroom, '"%sLayerToggle"', "Showroom names layer toggles predictably");
+  for (const token of ['"skin"', '"gore"', '"weapons"', '"armour"']) {
+    assertIncludes(showroom, token, `Showroom exposes layer token ${token}`);
+  }
+  for (const token of ["set_weapon_attach_mode", "set_armour_render_mode", "apply_neutral_body_material"]) {
+    assertIncludes(showroom, token, `Showroom calls ${token} when layer state changes`);
+  }
+  assertIncludes(showroom, "_reapply_showroom_layers", "Showroom routes layer/tier/mode changes through one reapply path");
+  assertIncludes(showroom, "apply_corpse_skin_to_live_character", "Showroom Gore toggle applies corpse skin variants");
   assertIncludes(showroom, "restore_persona_skin_to_live_character", "Showroom non-death triggers restore persona skins");
   assertIncludes(showroom, "update_equipment", "Showroom applies tier selections through EquipmentMeshAttachment");
   assertIncludes(showroom, '"name"', "Showroom passes equipment slots as dictionaries with name fields");
@@ -678,6 +669,10 @@ if (existsSync(path.join(appDir, "src/Showroom.gd"))) {
   assertNotIncludes(showroom, "registered_characters", "Showroom does not read EquipmentMeshAttachment private registered_characters");
   assertNotIncludes(showroom, "0.21", "Showroom does not duplicate CHARACTER_MODEL_SCALE literal");
   assertNotMatches(showroom, /\bloop_mode\s*=/, "Showroom does not assign Animation.loop_mode");
+  const triggerAnimationBody = showroom.match(/func _trigger_animation\(kind: String\) -> void:([\s\S]*?)\n\nfunc /)?.[1] ?? "";
+  assert(triggerAnimationBody.length > 0, "Showroom exposes _trigger_animation body");
+  assertNotIncludes(triggerAnimationBody, "apply_corpse_skin_to_live_character", "Showroom death clip is decoupled from gore application");
+  assertNotIncludes(triggerAnimationBody, "restore_persona_skin_to_live_character", "Showroom animation triggers do not force skin restoration");
   assertNotMatches(showroom, /\bmode\s*=\s*.*MODE_ANCHORED/, "Showroom does not initialize CameraRig in MODE_ANCHORED");
   assertNotIncludes(showroom, "ConvexClient", "Showroom does not use ConvexClient");
   assertNotIncludes(showroom, "/replay", "Showroom does not call replay endpoints");
@@ -688,13 +683,13 @@ if (existsSync(path.join(appDir, "src/Showroom.gd"))) {
 
 if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   const manifest = JSON.parse(read("shared-harness/art-kit/manifest.json"));
-  assert(manifest.schemaVersion === 7, "d-full-match art manifest uses schemaVersion 7");
+  assert(manifest.schemaVersion === 8, "d-full-match art manifest uses schemaVersion 8");
   assert(!("source" in manifest), "art manifest has no singleton top-level source");
   assert(!("license" in manifest), "art manifest has no singleton top-level license");
   assert(!("extraction" in manifest), "art manifest has no singleton top-level extraction");
   assert(manifest.body && typeof manifest.body === "object", "art manifest exposes root body block");
-  assert(manifest.body?.sourceKey === "mesh2motion", 'manifest.body.sourceKey is "mesh2motion"');
-  assert(manifest.body?.file === "characters/camper-mesh2motion-human-base.glb", "manifest.body.file is the shared mesh2motion body");
+  assert(manifest.body?.sourceKey === universalBodySourceKey, 'manifest.body.sourceKey is "mesh2motion"');
+  assert(manifest.body?.file === universalBodyFile, "manifest.body.file is the shared mesh2motion body");
   assert(manifest.body?.armourAttachBone === "spine", 'manifest.body.armourAttachBone preserves reserved value "spine"');
   assertNear(Number(manifest.body?.modelScaleMultiplier), round8BodyModelScaleMultiplier, 0.000001, "manifest.body modelScaleMultiplier hits Round-8 target");
   assertNear(Number(manifest.body?.targetWorldHeight), round8TargetWorldHeight, 0.000001, "manifest.body targetWorldHeight documents Round-8 target");
@@ -718,17 +713,20 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   const skinApproaches = new Set();
   const corpseApproaches = new Set();
   const adherenceApproachCoverage = new Set();
+  const layerAdherenceCoverage = {
+    skin: new Set(),
+    gore: new Set(),
+    weapons: new Set(),
+    armour: new Set(),
+  };
+  const manifestWeaponAttachModes = new Set();
+  const manifestArmourModes = new Set();
   const armorOverlayDeclaredPersonas = new Set();
   const armorOverlayPersonas = new Set();
   const accessoryPersonas = new Set();
-  const bodyOverridePersonas = new Set();
   const effectiveBodyFiles = new Set();
-  const bodySourceCategoryCounts = {
-    mesh2motion: 0,
-    quaternius: 0,
-    warriorAlternate: 0,
-    kenney: 0,
-  };
+  const effectiveBodySourceKeys = new Set();
+  const forbiddenBodySubstitutionKey = "body" + "Override";
   const weapons = new Set();
   const armours = new Set();
   const corpseAssets = [];
@@ -756,34 +754,20 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
       for (const forbiddenKey of expectedCharacterForbiddenKeys) {
         assert(!(forbiddenKey in asset), `Round-7 character omits per-character ${forbiddenKey}: ${asset.id}`);
       }
-      const bodyOverride = asset.bodyOverride;
-      const hasBodyOverride = bodyOverride && typeof bodyOverride === "object" && !Array.isArray(bodyOverride);
-      const effectiveBody = hasBodyOverride ? bodyOverride : manifest.body;
+      assert(!(forbiddenBodySubstitutionKey in asset), `manifest forbids bodyOverride key: ${asset.id}`);
+      const effectiveBody = manifest.body;
       if (effectiveBody?.file) {
         effectiveBodyFiles.add(effectiveBody.file);
       }
-      if (hasBodyOverride) {
-        bodyOverridePersonas.add(asset.personaSlot);
-        assertBodyOverride(bodyOverride, `${asset.id}.bodyOverride`, {
-          requiresArmourAttachBone: asset.armorOverlay != null,
-          requiresDeathClip: asset.corpseOverride == null,
-        });
-        const sourcePack = sourcePackLabel(bodyOverride.sourcePack);
-        if (round81QuaterniusPacks.has(sourcePack)) {
-          bodySourceCategoryCounts.quaternius += 1;
-        } else if (round81WarriorPacks.has(sourcePack)) {
-          bodySourceCategoryCounts.warriorAlternate += 1;
-        } else if (sourcePack.startsWith("Kenney-")) {
-          bodySourceCategoryCounts.kenney += 1;
-        } else {
-          assert(false, `${asset.id}.bodyOverride.sourcePack maps to an approved Round-8.1 body source category: ${sourcePack}`);
-        }
-      } else {
-        bodySourceCategoryCounts.mesh2motion += 1;
+      if (effectiveBody?.sourceKey) {
+        effectiveBodySourceKeys.add(effectiveBody.sourceKey);
       }
+      assert(effectiveBody?.file === universalBodyFile, `character resolves to universal mesh2motion body file: ${asset.id}`);
+      assert(effectiveBody?.sourceKey === universalBodySourceKey, `character resolves to universal mesh2motion sourceKey: ${asset.id}`);
       assert(asset.skin && typeof asset.skin === "object", `character has skin block: ${asset.id}`);
       assert(typeof asset.skin?.approach === "string" && asset.skin.approach.length > 0, `character skin has approach: ${asset.id}`);
       assertAdherenceApproach(asset.skin, `${asset.id}.skin`, adherenceApproachCoverage);
+      addAdherenceFamily(asset.skin, layerAdherenceCoverage.skin);
       assertSourcePack(asset.skin, `${asset.id}.skin`);
       assert(typeof asset.skin?.rationale === "string" && asset.skin.rationale.length > 0, `character skin has rationale: ${asset.id}`);
       assert(asset.skin?.params && typeof asset.skin.params === "object", `character skin has params: ${asset.id}`);
@@ -806,6 +790,7 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
       assert(asset.corpse && typeof asset.corpse === "object", `character has corpse block: ${asset.id}`);
       assert(typeof asset.corpse?.approach === "string" && asset.corpse.approach.length > 0, `character corpse has approach: ${asset.id}`);
       assertAdherenceApproach(asset.corpse, `${asset.id}.corpse`, adherenceApproachCoverage);
+      addAdherenceFamily(asset.corpse, layerAdherenceCoverage.gore);
       assertSourcePack(asset.corpse, `${asset.id}.corpse`);
       assert(typeof asset.corpse?.rationale === "string" && asset.corpse.rationale.length > 0, `character corpse has rationale: ${asset.id}`);
       assert(asset.corpse?.params && typeof asset.corpse.params === "object", `character corpse has params: ${asset.id}`);
@@ -822,6 +807,7 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
           armorOverlayPersonas.add(asset.personaSlot);
           assert(typeof asset.armorOverlay === "object" && !Array.isArray(asset.armorOverlay), `character armorOverlay is object when non-null: ${asset.id}`);
           assertAdherenceApproach(asset.armorOverlay, `${asset.id}.armorOverlay`, adherenceApproachCoverage);
+          layerAdherenceCoverage.armour.add("modular_submesh");
           assert(
             asset.armorOverlay?.adherenceApproach === "modular_submesh",
             `character armorOverlay uses modular_submesh adherence: ${asset.id}`,
@@ -839,6 +825,16 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
       weapons.add(asset.weaponName);
       assert(asset.attachBone || asset.handOffset, `weapon asset has socket metadata: ${asset.id}`);
       assert(typeof asset.tier === "number", `weapon asset has tier: ${asset.id}`);
+      assert(Array.isArray(asset.attachModes), `weapon asset declares Round-9 attachModes: ${asset.id}`);
+      const assetAttachModes = modeSet(asset.attachModes);
+      for (const mode of weaponAttachModes) {
+        assert(assetAttachModes.has(mode), `weapon asset supports ${mode}: ${asset.id}`);
+        manifestWeaponAttachModes.add(mode);
+        layerAdherenceCoverage.weapons.add(mode);
+      }
+      for (const modeBlock of asset.attachModes ?? []) {
+        assert(modeBlock?.adherenceApproach === "bone_attached", `weapon attach mode uses bone_attached adherence: ${asset.id}.${modeBlock?.mode}`);
+      }
     } else if (asset.category === "armour") {
       armours.add(asset.armourName);
       assert(typeof asset.tier === "number", `armour asset has tier: ${asset.id}`);
@@ -854,12 +850,28 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
     assert(personas.has(persona), `manifest maps persona ${persona}`);
     assert(armorOverlayDeclaredPersonas.has(persona), `manifest declares armorOverlay for persona ${persona}`);
   }
-  assert(bodyOverridePersonas.size === 7, "manifest has bodyOverride on 7 personas");
-  assert(bodySourceCategoryCounts.mesh2motion === 1, "manifest has exactly 1 mesh2motion control body");
-  assert(bodySourceCategoryCounts.quaternius >= 4, "manifest has at least 4 Quaternius body overrides");
-  assert(bodySourceCategoryCounts.warriorAlternate >= 1, "manifest has at least 1 OGA-or-rigged-warrior-alternate body override");
-  assert(bodySourceCategoryCounts.kenney >= 2, "manifest has at least 2 Kenney body overrides");
-  assert(effectiveBodyFiles.size >= 4, "manifest has at least 4 distinct effective body GLB files");
+  assert(manifest.round9Adherence && typeof manifest.round9Adherence === "object", "manifest declares Round-9 adherence metadata");
+  assert(manifest.round9Adherence?.lockedBody?.file === universalBodyFile, "Round-9 adherence metadata locks the mesh2motion body file");
+  assert(manifest.round9Adherence?.lockedBody?.sourceKey === universalBodySourceKey, "Round-9 adherence metadata locks the mesh2motion source key");
+  const declaredWeaponModes = modeSet(manifest.round9Adherence?.weaponAttachModes);
+  for (const mode of weaponAttachModes) {
+    assert(declaredWeaponModes.has(mode), `manifest round9Adherence declares weapon attach mode ${mode}`);
+    assert(manifestWeaponAttachModes.has(mode), `manifest weapon assets cover attach mode ${mode}`);
+  }
+  const declaredArmourModes = modeSet(manifest.round9Adherence?.armorApproaches);
+  for (const mode of armourRenderModes) {
+    assert(declaredArmourModes.has(mode), `manifest round9Adherence declares armour mode ${mode}`);
+    manifestArmourModes.add(mode);
+  }
+  assert(manifest.armorAsPaint && typeof manifest.armorAsPaint === "object", "manifest declares armorAsPaint approach");
+  assert(manifest.armorAsPaint?.mode === "armor_as_paint", "manifest armorAsPaint mode is armor_as_paint");
+  assert(manifest.armorAsPaint?.adherenceApproach === "uv_painted", "manifest armorAsPaint adherence is uv_painted");
+  layerAdherenceCoverage.armour.add("uv_painted");
+  assert(effectiveBodyFiles.size === 1 && effectiveBodyFiles.has(universalBodyFile), "manifest character effective body files are the single mesh2motion root body");
+  assert(
+    effectiveBodySourceKeys.size === 1 && effectiveBodySourceKeys.has(universalBodySourceKey),
+    "manifest character effective body source keys are the single mesh2motion root source",
+  );
   assert(skinApproaches.size === 8, "manifest exposes 8 distinct skin.approach values");
   assert(corpseApproaches.size === 8, "manifest exposes 8 distinct corpse.approach values");
   assert(
@@ -869,6 +881,13 @@ if (existsSync(path.join(appDir, "shared-harness/art-kit/manifest.json"))) {
   for (const family of round8AdherenceFamilies) {
     assert(adherenceApproachCoverage.has(family), `manifest adherenceApproach union covers ${family}`);
   }
+  assert(layerAdherenceCoverage.skin.has("uv_painted") && layerAdherenceCoverage.skin.has("bone_attached"), "skin layer covers uv_painted and bone_attached approaches");
+  assert(layerAdherenceCoverage.gore.has("uv_painted") && layerAdherenceCoverage.gore.has("bone_attached") && layerAdherenceCoverage.gore.has("mesh_baked"), "gore layer covers uv_painted, bone_attached, and mesh_baked approaches");
+  assert(layerAdherenceCoverage.weapons.size >= 2, "weapons layer covers two attach-mode approaches");
+  assert(layerAdherenceCoverage.armour.has("modular_submesh") && layerAdherenceCoverage.armour.has("uv_painted"), "armour layer covers modular_submesh prop and uv_painted paint approaches");
+  console.log(
+    `Round-9 adherence matrix: skin=${[...layerAdherenceCoverage.skin].join(",")} gore=${[...layerAdherenceCoverage.gore].join(",")} weapons=${[...layerAdherenceCoverage.weapons].join(",")} armour=${[...layerAdherenceCoverage.armour].join(",")}`,
+  );
   assert(accessoryPersonas.size === 0 || accessoryPersonas.size < characters.length, "accessories are null for all personas or not coupled 1:1 to all skins");
   for (const weapon of ["rusty_blade", "dagger", "sword", "axe", "greatsword", "warhammer"]) {
     assert(weapons.has(weapon), `manifest maps weapon ${weapon}`);
@@ -891,7 +910,9 @@ if (existsSync(path.join(appDir, "package.json"))) {
   assertIncludes(testScript, "scripts/audit-character-scales.gd", "package test invokes audit-character-scales.gd");
   assertIncludes(testScript, "scripts/audit-mesh2motion-clips.gd", "package test invokes audit-mesh2motion-clips.gd");
   assertIncludes(testScript, "scripts/verify-character-rigs.gd", "package test invokes verify-character-rigs.gd");
-  assertIncludes(testScript, "scripts/audit-body-source-provenance.gd", "package test invokes audit-body-source-provenance.gd");
+  assertIncludes(testScript, "scripts/audit-universal-body.gd", "package test invokes audit-universal-body.gd");
+  assertIncludes(testScript, "scripts/audit-adherence-matrix.gd", "package test invokes audit-adherence-matrix.gd");
+  assertNotIncludes(testScript, "audit-body-source-provenance", "package test no longer invokes the old body-source provenance audit");
   assertIncludes(testScript, "scripts/audit-replay-load.gd", "package test invokes audit-replay-load.gd");
   assertIncludes(testScript, "scripts/audit-skin-bone-attachments.gd", "package test invokes audit-skin-bone-attachments.gd");
   assertIncludes(testScript, "scripts/audit-modular-submesh-armor.gd", "package test invokes audit-modular-submesh-armor.gd");
@@ -899,8 +920,9 @@ if (existsSync(path.join(appDir, "package.json"))) {
   assertIncludes(testScript, "--target-world-height", "package test passes explicit Round-8 target world height");
   assertIncludes(testScript, "--character-model-scale", "package test passes explicit Round-8 character model scale");
   assertIncludes(testScript, "audit-character-scales: skipped (GODOT_BIN unset)", "package test logs clear scale-audit skip when GODOT_BIN is unset");
-  assertIncludes(testScript, "Round-8 Godot audits: skipped (GODOT_BIN unset)", "package test logs clear Round-8 audit skip when GODOT_BIN is unset");
-  assertIncludes(testScript, "audit-body-source-provenance", "package test logs or runs body-source provenance audit");
+  assertIncludes(testScript, "Round-9 Godot audits: skipped (GODOT_BIN unset)", "package test logs clear Round-9 audit skip when GODOT_BIN is unset");
+  assertIncludes(testScript, "audit-universal-body", "package test logs or runs universal-body audit");
+  assertIncludes(testScript, "audit-adherence-matrix", "package test logs or runs adherence-matrix audit");
 }
 
 if (existsSync(path.join(appDir, "scripts/audit-character-scales.gd"))) {
@@ -918,21 +940,47 @@ if (existsSync(path.join(appDir, "scripts/audit-skin-bone-attachments.gd"))) {
   }
   assertIncludes(auditSkinBoneAttachments, "adherence_coverage", "skin/bone attachment audit tracks adherenceApproach coverage");
   assertIncludes(auditSkinBoneAttachments, "BASE_SCALE := 1.0", "skin/bone attachment audit uses Round-8 standard base scale");
+  assertIncludes(auditSkinBoneAttachments, "MESH2MOTION_MARK_BONES", "skin/bone attachment audit validates marks against mesh2motion bones");
+  assertNotIncludes(auditSkinBoneAttachments, "bodyOverride", "skin/bone attachment audit avoids bodyOverride-tolerant branches");
 }
 
 if (existsSync(path.join(appDir, "scripts/audit-modular-submesh-armor.gd"))) {
   const auditModularArmor = read("scripts/audit-modular-submesh-armor.gd");
-  for (const token of ["armorOverlay", "modular_submesh", "sourcePack", "armour/", "armor_overlay_nodes_by_character", "armourAttachBone"]) {
+  for (const token of ["armorOverlay", "modular_submesh", "sourcePack", "armour/", "armor_overlay_nodes_by_character", "bindBone"]) {
     assertIncludes(auditModularArmor, token, `modular armor audit validates Round-8 ${token}`);
   }
   assertIncludes(auditModularArmor, "MIN_MODULAR_ARMOR_OVERLAYS", "modular armor audit enforces minimum non-null overlays");
+  assertIncludes(auditModularArmor, "MESH2MOTION_ARMOR_BIND_BONES", "modular armor audit validates bindBone against mesh2motion bones");
+  assertNotIncludes(auditModularArmor, "bodyOverride", "modular armor audit avoids bodyOverride-tolerant branches");
 }
 
-if (existsSync(path.join(appDir, "scripts/audit-body-source-provenance.gd"))) {
-  const auditBodySource = read("scripts/audit-body-source-provenance.gd");
-  for (const token of ["bodyOverride", "sourcePack", "armourAttachBone", "Quaternius-PolyPizzaIndividual-CC0", "Kaykit-Adventurers-CC0", "Kenney-"]) {
-    assertIncludes(auditBodySource, token, `body-source provenance audit validates Round-8.1 ${token}`);
+if (existsSync(path.join(appDir, "scripts/audit-universal-body.gd"))) {
+  const auditUniversalBody = read("scripts/audit-universal-body.gd");
+  for (const token of ["UNIVERSAL_BODY_FILE", universalBodyFile, "UNIVERSAL_SOURCE_KEY", universalBodySourceKey, "PERSONAS", "REQUIRED_SHARED_CLIPS", "Skeleton3D"]) {
+    assertIncludes(auditUniversalBody, token, `universal-body audit validates ${token}`);
   }
+  assertNotIncludes(auditUniversalBody, "bodyOverride", "universal-body audit avoids bodyOverride-tolerant branches");
+  for (const retiredBodyPackToken of ["Quaternius-PolyPizzaIndividual-CC0", "Kaykit-Adventurers-CC0", "Kenney-"]) {
+    assertNotIncludes(auditUniversalBody, retiredBodyPackToken, `universal-body audit has no Round-8.1 foreign body pack token ${retiredBodyPackToken}`);
+  }
+}
+
+if (existsSync(path.join(appDir, "scripts/audit-adherence-matrix.gd"))) {
+  const auditAdherenceMatrix = read("scripts/audit-adherence-matrix.gd");
+  for (const token of [
+    "WEAPON_DYNAMIC",
+    "WEAPON_STATIC",
+    "ARMOUR_PROP",
+    "ARMOUR_PAINT",
+    "last_applied_skin_approach",
+    "last_applied_corpse_approach",
+    "weaponSocketKind",
+    "usesArmourPaint",
+    "usesModularArmour",
+  ]) {
+    assertIncludes(auditAdherenceMatrix, token, `adherence-matrix audit validates ${token}`);
+  }
+  assertNotIncludes(auditAdherenceMatrix, "bodyOverride", "adherence-matrix audit avoids bodyOverride-tolerant branches");
 }
 
 for (const codeFile of [
@@ -970,6 +1018,24 @@ if (existsSync(path.join(appDir, "README.md"))) {
   assert(readme.includes("Showroom"), "README documents Showroom mode");
   assert(readme.includes("#convex="), "README documents convex hash plumbing");
   assert(readme.includes("NO UAT"), "README documents blind/no-UAT posture");
+}
+
+if (existsSync(path.join(appDir, "ROUND-9-CLOSING-READOUT.md"))) {
+  const readout = read("ROUND-9-CLOSING-READOUT.md");
+  for (const token of [
+    "Layer Matrix",
+    "Honest Limitations",
+    "dynamic_hand_bone",
+    "static_root_socket",
+    "modular_submesh_prop",
+    "armor_as_paint",
+    "uv_painted",
+    "bone_attached",
+    "mesh_baked",
+    universalBodyFile,
+  ]) {
+    assertIncludes(readout, token, `Round-9 closing readout documents ${token}`);
+  }
 }
 
 if (existsSync(path.join(appDir, "IMPLEMENTATION-SUMMARY.md"))) {
