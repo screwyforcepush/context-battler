@@ -142,23 +142,33 @@ How the substrate is grown, stated as enduring intent rather than a phase log:
 
 - **POC posture.** While in POC, breaking schema and resetting state beats migration shims. Single forward shape, no backward-compat branches.
 
-- **R&D rounds sample breadth before consolidating, recursively on
-  finer axes.** A pre-§10-gate R&D probe (the throwaway render
-  prototypes are the live example) iterates by *sampling* — e.g. one
-  distinct character-pack source per persona, intentionally
-  inconsistent — before any *curation* pass that consolidates onto a
-  single lane. Inconsistency across slots is the data the user reads
-  to pick a direction; premature consolidation destroys that signal.
-  Consolidation/curation is a deliberate later round, not the
-  next-obvious thing to do once breadth lands. **The pattern is
-  recursive:** once one axis consolidates (e.g. body model), the next
-  finer axis becomes breadth-able in turn (skin technique, then
-  material approach, then gore treatment, then accessory style, etc.).
-  Each loop is: *sample breadth on the current finest open axis →
-  evaluate side-by-side in the showroom → consolidate → reveal the
-  next finer axis*. Resist collapsing multiple axes in one round; the
-  user's pick is only legible when one variable moves at a time
-  (consistent with §10's overall "one variable at a time" discipline).
+### 10.1 Breadth-sampling discipline
+
+- **R&D samples breadth before consolidating, recursively on finer axes.**
+  A pre-gate R&D probe explores by *sampling* — distinct candidate options
+  side by side — before any *curation* pass picks a lane. Inconsistency
+  across slots is the data the user reads to choose a direction; premature
+  consolidation destroys that signal. Consolidation is a deliberate later
+  round, not the next-obvious move once breadth lands. The pattern is
+  recursive: once one axis consolidates, the next finer axis becomes
+  breadth-able in turn. Each loop is *sample → evaluate side-by-side in the
+  showroom → consolidate → reveal the next axis*.
+
+- **Signal legibility is the real discipline, not a literal
+  one-axis-per-round rule.** The user's pick must stay attributable — you
+  must be able to tell which variable produced the effect. *Coupled* axes,
+  where mixing muddies attribution, move one at a time. *Independent* axes
+  that the viewing surface can isolate on demand may be sampled
+  **concurrently**: skin, gore, weapons, and armour are orthogonal surface
+  treatments the showroom toggles à la carte, so the user separates their
+  signals at view-time rather than across rounds.
+
+- **A consolidated axis is locked, not implicitly re-opened.** Once the user
+  picks a lane (e.g. the substrate body), later rounds do not silently
+  re-open it to manufacture variety. Re-opening a locked axis is a
+  deliberate, named decision — never the accidental byproduct of a round
+  nominally about a finer axis. Surface-treatment rounds keep the body fixed
+  and vary only the adhering layer (§13).
 
 - **Breadth needs a dedicated viewing surface.** Once breadth-sampling
   is wide, chasing comparison moments in replay scrubs does not scale
@@ -173,6 +183,13 @@ How the substrate is grown, stated as enduring intent rather than a phase log:
   asset-curation loop, per §10's "diagnostics target building agents
   first"); it is not a player-facing surface and is not the consumer-
   render era.
+
+- **Sourced inventory before engineer-procedural authoring.** When an asset
+  category fails user evaluation, the next move is **CC0 pack research**, not
+  better procedural generation. Breadth-sampling *techniques* assumes a
+  baseline of *real-looking* assets; engineer-generated procedurals dampen
+  the technique signal to noise. Procedural authoring is a fallback when no
+  sourced CC0 option exists for a category, not the default.
 
 ## 11. Current vision — graded gear & contested public objectives
 
@@ -253,156 +270,174 @@ real persistent unit is different. This section is the why for the player-facing
 ## 13. The consumer replay render — slick spectacle, honest diagnosis
 
 The player-facing replay (distinct from the internal overseer/diagnostic
-surface, §10) has a deliberate art direction, ratified by the user:
-**cyberpunk × Diablo** — dark, neon, moody, spectacle-forward. Its job is
-**shareable theatre (§12) and legible diagnosis (§5) at once**, and these
-do not conflict because different layers carry them:
+surface, §10) has a ratified art direction: **cyberpunk × Diablo** — dark,
+neon, moody, spectacle-forward. Its job is **shareable theatre (§12) and
+legible diagnosis (§5) at once**; these don't conflict because different
+layers carry them.
 
 - **Diagnosis sits on a side pane**, not on the 3D scene — equipment, the
   scratchpad rendered as the agent's *thoughts*, speech as a chat log, the
   card prompt unfolding against the action. **Render = ground truth, full
   stop.** The consumer replay does **not** model agent vision, fog, or
-  last-known intel: when anchored to a character the camera *follows* them
-  but the scene still shows every entity, every wall, every crate. Earlier
-  drafts of this section bundled a *perception overlay* into the consumer
-  renderer — the gap between ground truth and what-the-agent-saw rendered
-  as ghost markers on the 3D scene. That responsibility is moved off this
-  surface entirely. Perception inspection (LOS, fog, last-known intel,
-  what-the-agent-actually-saw) lives in the **overseer/diagnostic
-  surface** (§10), whose Vision-faithful grid views already do that job
-  well and are designed for it. The consumer renderer's job is spectacle
-  + legible action attribution, not perception emulation. This is the
-  load-bearing separation between the two replay modalities (pillar 8 —
-  render modality is orthogonal to LLM Vision).
+  last-known intel: anchored to a character the camera *follows* them, but
+  the scene still shows every entity, wall, and crate. Perception inspection
+  (LOS, fog, last-known intel) is *not* on this surface — it lives in the
+  overseer/diagnostic surface (§10), whose Vision-faithful grid views are
+  built for it. The consumer renderer's job is spectacle + legible action
+  attribution, not perception emulation — the load-bearing separation
+  between the two replay modalities (pillar 8).
 - **"Slick" is a pipeline property, not an asset-fidelity arms race.** It
   comes mostly from lighting, postprocessing, VFX, and camera — not
   hand-modeled art. The render is never blocked on an art budget;
-  sourced/stylized assets suffice and self-modeling is explicitly out. The
-  signature shareable beat is the airdrop **telefrag → red mist** (§11) — a
-  VFX/camera moment, not a modeling one. **Operationalising "slick is
-  pipeline" means *using* the pipeline:** spectacle layers must speak the
-  substrate's native language — **decals** for surface marks (blood
-  splatter, scorch, signs), **material swaps** for state changes on
-  existing meshes (armor tier shown as a metallic/emissive shift on the
-  character body, not a separately-attached floating mesh), **particles
-  and postprocess** for impacts, and **textured PBR** over base
-  geometry for walls/cover/floor (never flat single-color blocks).
+  sourced/stylized assets suffice and self-modeling is out. The signature
+  shareable beat is the airdrop **telefrag → red mist** (§11) — a VFX/camera
+  moment, not a modeling one. **Operationalising "slick is pipeline" means
+  *using* the pipeline:** spectacle must speak the substrate's native
+  language — **decals** for surface marks (blood, scorch, signs), **material
+  swaps** for state changes on existing meshes (armour tier as a
+  metallic/emissive shift on the body, not a separately-attached floating
+  mesh), **particles and postprocess** for impacts, and **textured PBR** over
+  base geometry for walls/cover/floor (never flat single-colour blocks).
   Spawning a new entity-mesh as a stand-in for what should be a
-  material/decal/particle effect is a renderer smell — it makes visual
-  state look like *more objects in the scene* rather than properties of
-  the objects already there, and it breaks the felt experience the
-  pipeline is supposed to carry.
+  material/decal/particle effect is a renderer smell — it makes visual state
+  look like *more objects in the scene* rather than properties of the objects
+  already there, and breaks the felt experience the pipeline is meant to
+  carry.
 - **Skeletal animation is part of the spectacle floor, not polish.**
-  Walking, attacking, looting, and idling must drive a **rigged
-  skeleton** (AnimationPlayer + clip selection per engine event); limbs
-  must visibly move. Static-pose mesh translation, whole-body-tilt
-  attacks, and rigid sliding figures cannot be compensated for by
-  lighting/material/VFX work elsewhere — they are the dominant felt-
-  experience signal and a missing rig is visible from the first second.
-  Sourced rigged character packs with anim clips (KayKit, Mixamo,
-  Quaternius, Kenney, etc.) are the operational answer; per pillar §13
-  asset rules, this is sourced-not-modeled.
-- **Renderer respects engine resolution order within a turn.** The
-  engine resolves a turn as **movement first, then actions**
-  (attacks/loots/equips/death). The renderer must play it back in that
-  order: the move animation completes (or substantially completes)
-  before loot/gore/attack visuals fire. This temporal sequencing is
-  *implicit in the snapshot schema* — `movements[]` and `actions[]` are
-  separate arrays in engine-resolution order, no within-turn timestamp
-  is required. A renderer that batches every event in a turn at t=0 is
-  a renderer bug, not a contract gap. Honest within-turn sequencing is
-  load-bearing for §5 attribution: the user must see the move that led
-  to the loot, not the loot detached from its cause.
-- **Camera intent:** a follow-anchor on the player's card with free orbit
-  to look around; the "director" view is the same camera with the anchor
-  released — one system, not two.
+  Walking, attacking, looting, and idling must drive a **rigged skeleton**
+  with clip selection per engine event; limbs must visibly move. Static-pose
+  translation, whole-body-tilt attacks, and rigid sliding figures cannot be
+  compensated for by lighting/material/VFX work elsewhere — they are the
+  dominant felt-experience signal, and a missing rig is visible from the
+  first second. Sourced rigged character packs with anim clips are the
+  operational answer; sourced-not-modeled.
+- **Renderer respects engine resolution order within a turn.** The engine
+  resolves a turn as **movement first, then actions** (attacks/loots/equips/
+  death). The renderer plays it back in that order: the move animation
+  completes (or substantially completes) before loot/gore/attack visuals
+  fire. This sequencing is *implicit in the snapshot* — movement and action
+  events are separate arrays in engine-resolution order, with no within-turn
+  timestamp required. A renderer that batches every event at t=0 is a
+  renderer bug, not a contract gap. Honest within-turn sequencing is
+  load-bearing for §5 attribution: the user must see the move that *led to*
+  the loot, not the loot detached from its cause.
+- **Camera intent:** a follow-anchor on the player's card with free orbit;
+  the "director" view is the same camera with the anchor released — one
+  system, not two.
 - **Audience positioning — niche art, not mass-market mobile.** The §8
-  audiences (guest, returning player, prompt-craft enthusiast) remain
-  accurate. What is *not* a load-bearing constraint on substrate choice is
-  mass-market mobile compatibility — desktop is the assumed primary
-  surface, mobile is acceptable where it works but not a hard floor. The
-  product is niche art that does not promise every-device reach. Earlier
-  drafts of this section over-weighted a "guest-on-phone fast cold-load"
-  inference from §8; the audience definitions themselves are unchanged.
-- **Substrate direction (revised after R&D).** Ratified: a **WASM-compiled
-  engine (Godot)** as the renderer substrate. Earlier drafts of this
-  section ruled WASM out on cold-load + JS-bridge interop grounds. A
-  two-round throwaway R&D bake-off — three isolated prototypes (Babylon,
-  PlayCanvas, Godot-WASM) rendering the same scripted airdrop-telefrag
-  and brutal-duel scene under a fixed art kit — inverted that prediction.
-  The visual ceiling on the WASM/Godot arm dominated the felt read ("like
-  a game that could have physics" vs the JS-native arms feeling "like CSS
-  transitions") — exactly the "slick is pipeline" advantage made visible.
-  With the niche-art positioning above, the cold-load cost stops being
-  load-bearing. And the pillar-7 interop tax compresses to a single
+  audiences remain accurate. Mass-market mobile compatibility is *not* a
+  load-bearing constraint on substrate choice — desktop is the assumed
+  primary surface, mobile acceptable where it works but not a hard floor.
+  The product is niche art that does not promise every-device reach.
+- **Substrate direction: a WASM-compiled engine (Godot) as the renderer.**
+  The visual ceiling of a real game engine — "like a game that could have
+  physics" rather than "like CSS transitions" — is the "slick is pipeline"
+  advantage made concrete, and under the niche-art positioning the cold-load
+  cost is not load-bearing. The pillar-7 interop tax stays small: a single
   snapshot-shape sync at the load boundary plus a schema-version check on
-  load — not pervasive per-frame plumbing — once the renderer pulls the
-  match-as-a-whole rather than streaming per-frame state.
-- **Renderer / data architecture (single code path, two cases).** The
-  renderer subscribes to the canonical match document in Convex and plays
-  back from a **local cache that grows under it**. Re-watched completed
-  matches arrive whole on the first subscription response; just-finished
-  matchmaking matches arrive as an initial slice plus appends as the
-  backend completes subsequent turns. The renderer's clock owns pacing in
-  both cases — the bridge merely appends new turn data into the local
-  cache. The §12 matchmaking theatre exists to maintain the invariant
-  that **backend turn-production stays ahead of renderer playback**, so
-  the playback clock never blocks on the network in practice. Catch-up to
-  the production edge is the recognised failure mode and a §12
-  theatre-tuning concern, not an architectural one. Free side-effects:
-  scrubbing backward is trivial; scrubbing forward is bounded by what is
-  loaded; network blips are invisible as long as playback has not caught
-  the production edge.
-- **Match-data contract is a real Convex surface that escapes throwaway.**
-  Whatever renderer is in play (R&D prototype, future consumer surface,
-  even the existing React diagnostic), they all read the canonical match
-  document through one **small Convex read surface** that returns it in
-  the existing `replay-snapshot.json` shape (`listMatches`,
-  `exportMatch(matchId)`). The reconstruction logic from the React
-  replay's `reconstruct.ts` is the source of truth; the Convex action
-  wraps or ports it — renderers do **not** carry their own reconstruction
-  copies. This contract is the load-bearing detail: prototypes come and
-  go, the contract stays.
-- **Completed-only is the first probe; subscribe-and-cache is the
-  full form.** The R&D-grade full-match render exercises only the
-  simpler case: re-watch a finished match via plain HTTP fetch against
-  the match-data contract above. The subscribe-and-cache live-streaming
-  half is deferred until the player-facing matchmaking surface (§12) is
-  built and there is something live to watch. The HTTP-fetch path is a
-  strict subset of the eventual subscription path (same data shape, same
-  reconstruction), so it carries forward without rework.
-- **Renderer reads engine-emitted truth; never duplicates engine
-  logic.** Pillar 6 ("engine does path/geometry arithmetic so prompts
-  don't have to") extends to the renderer: the engine also owns
-  geometry/path arithmetic so the *render* doesn't have to. When the
-  engine slides a character along a wall, the snapshot exposes the
-  *actual waypoint sequence* taken, not just start+end tiles — the
-  renderer animates along the waypoints rather than re-implementing
-  pathing to make the visual line up. The same posture governs every
-  event that drives spectacle: per-turn `attacks[]`, `loots[]`,
-  `movements[]` with waypoints, `blockedBy` annotations on wall-slide
-  moves. Renderers are projection surfaces, not gameplay reasoners. A
-  renderer that does its own pathing is a bug.
-- **Spectacle events extend the contract on the engine's side.**
-  Adding new event streams (attacks, loots, movement waypoints,
-  wall-blocked) is a substrate change with a schema version bump
-  (`MatchSnapshotJson.schemaVersion`), not a renderer-internal
-  concern. Bumps stay POC-posture forward-only (§10): new shape, no
-  back-compat shims. Old prototypes broken on bump is acceptable
-  because they are throwaway; the real consumer surfaces read the
-  latest schema.
-- **Gore intensity is loud by design, not subtle.** The §13 niche-art
-  positioning licenses spectacle that does not chase mass-market
-  comfort floors. The signature shareable beat (telefrag → red mist)
-  is the floor, not the ceiling. Per-attack blood, dismemberment,
-  persistent pools, screen-shake on heavy hits — VFX-pipeline work
-  rather than asset-fidelity work, but unapologetic. The Diablo half
-  of "cyberpunk × Diablo" carries this — diagnosis stays clean on the
-  side pane (pillar 1, §5 attribution preserved) while the scene is
-  free to be operatically violent.
-- This whole surface stays **§10-gated**: it is the consumer-render era,
-  sequenced *after* the map pool and RNG slice. R&D exploration de-risked
-  the substrate direction; it does not bypass the sequencing gate.
+  load, not per-frame plumbing — the renderer pulls the match as a whole
+  rather than streaming per-frame state.
+- **Renderer / data architecture: single code path, two cases.** The
+  renderer subscribes to the canonical match document and plays back from a
+  **local cache that grows under it**. Re-watched completed matches arrive
+  whole on the first response; just-finished matches arrive as an initial
+  slice plus appends as the backend completes subsequent turns. The
+  renderer's clock owns pacing in both cases — the bridge merely appends new
+  turn data. The §12 matchmaking theatre exists to keep **backend
+  turn-production ahead of renderer playback**, so the playback clock never
+  blocks on the network in practice. Catch-up to the production edge is the
+  recognised failure mode and a §12 theatre-tuning concern, not an
+  architectural one. Free side-effects: backward scrubbing is trivial,
+  forward scrubbing is bounded by what is loaded, network blips are invisible
+  until playback catches the production edge.
+- **The match-data contract escapes throwaway.** Whatever renderer is in
+  play — R&D prototype, future consumer surface, the existing diagnostic —
+  reads the canonical match document through one **small Convex read
+  surface** that returns it in the established replay-snapshot shape. The
+  React replay's reconstruction logic is the source of truth; the Convex
+  surface wraps or ports it — renderers do **not** carry their own
+  reconstruction copies. This is the load-bearing detail: prototypes come
+  and go, the contract stays.
+- **Completed-only is the first probe; subscribe-and-cache is the full
+  form.** The R&D full-match render exercises only the simpler case:
+  re-watch a finished match via plain HTTP fetch against the contract above.
+  The subscribe-and-cache live-streaming half is deferred until the
+  player-facing matchmaking surface (§12) exists and there is something live
+  to watch. The HTTP-fetch path is a strict subset of the eventual
+  subscription path (same shape, same reconstruction), so it carries forward
+  without rework.
+- **Renderer reads engine-emitted truth; never duplicates engine logic.**
+  Pillar 6 extends to the renderer: the engine owns geometry/path arithmetic
+  so the *render* doesn't have to. When the engine slides a character along a
+  wall, the snapshot exposes the *actual waypoint sequence* taken, not just
+  start+end — the renderer animates along the waypoints rather than
+  re-implementing pathing to make the visual line up. The same posture
+  governs every spectacle event (attacks, loots, movement waypoints,
+  wall-blocked annotations). Renderers are projection surfaces, not gameplay
+  reasoners; a renderer that does its own pathing is a bug. Adding new
+  spectacle event streams is a substrate change on the engine's side with a
+  forward-only schema bump (§10 POC posture), not a renderer-internal concern
+  — old throwaway prototypes broken on bump is acceptable; real consumer
+  surfaces read the latest schema.
+- **Gore intensity is loud by design.** The niche-art positioning licenses
+  spectacle that does not chase mass-market comfort floors. Telefrag → red
+  mist is the floor, not the ceiling: per-attack blood, dismemberment,
+  persistent pools, screen-shake on heavy hits — VFX-pipeline work, but
+  unapologetic. The Diablo half of "cyberpunk × Diablo" carries this;
+  diagnosis stays clean on the side pane (pillar 1, §5 attribution preserved)
+  while the scene is free to be operatically violent.
+### 13.1 The substrate body and the adherence problem
+
+- **The substrate body is locked.** There is one consolidated character
+  body — the single skinned mesh the engine animates for every agent
+  (currently the mesh2motion base). It is **not** re-opened as a breadth
+  axis to manufacture showroom variety. In a match an agent has one
+  persistent body; its gore, armour, and weapon appear as **dynamic state
+  changes on that body** (§11 graded gear), never as a swap to a different
+  model. Substituting whole foreign character packs to look varied is a dead
+  end — it sidesteps the real problem and produces variety that can never
+  become render code.
+
+- **Adherence is the load-bearing problem for skinned characters.** Surface
+  decorations (gore, decals, armour, painted regions) that work on a static
+  mesh do not automatically follow skeletal deformation. Cracking adherence
+  *on the locked body* — not body substitution — is the work. Surface-
+  treatment R&D rounds keep the body fixed and breadth-sample only the
+  adhering layer; the showroom must demonstrate **adherence to the locked
+  body**. Because skin, gore, weapons, and armour are independent layers the
+  showroom toggles à la carte, a single round can sample all four at once
+  without losing signal (§10.1).
+
+- **Each spectacle category picks the adherence approach that fits its
+  physics, and breadth-sampling has settled most lanes.** **Rigid items**
+  (weapons, helmets, armour plates) attach to a **live skeleton bone** and
+  follow it through animation — a static root socket or single static bind
+  leaves them floating/detached, so dynamic bone-follow is the confirmed lane;
+  they accept protrusion rather than true wrapping, and the source asset is
+  scaled to fit the body. **Whole-body state changes** (death pose,
+  dismemberment, charred-skin recolour) use a baked mesh/material variant.
+  **Skin** is settled on UV-painted texture on the skinned body — it must
+  cover the **whole body**, not just deform-zones, and depends on well-laid-out
+  UVs (a bone-pinned sticker decal slides and floats instead). **Gore** reads
+  best as **many small, localized, individual marks**, not one broad region —
+  density/count scales for intensity. A flat **adhering region with no
+  thickness** was trialled for both gore and armour and fits neither: armour
+  needs real prop geometry (the rigid bone-attached piece above), gore needs
+  discrete marks. The approach is chosen per category by physical semantics,
+  not one technique forced everywhere.
+
+- **Idea bank — techniques whose flaws are someone else's features.** A
+  technique that fails on the character body can be ideal elsewhere:
+  world-space-projected mapping "slides" on a deforming body but makes
+  **cover** surfaces shimmer attractively as units move through them; flat
+  pinned decals fail to wrap a body but point toward **armour** if done as a
+  true surface-conforming projection or a UV-painted region. Bankable
+  insights for where a technique meets its proper application surface — not
+  current-round work.
+
+- This whole surface stays **§10-gated**: the consumer-render era, sequenced
+  *after* the map pool and RNG slice. R&D de-risked the substrate direction;
+  it does not bypass the sequencing gate.
 
 ## 14. Open questions / live tensions
 
@@ -413,7 +448,7 @@ Tracked here because they shape the why, not the how:
 - **Does formal trade belong eventually?** Speech alone may be sufficient. Adding trade earns depth; loses minimalism.
 - **Daily-seed mode as a sticky hook? — reframed.** The §12 matchmaking facade is now the primary stickiness mechanism (pick a card, "find a match", watch the replay). Daily-seed becomes a possible *mode* and a natural home for the deferred RNG slice's seeding, not the core hook.
 - **Guest → account conversion trigger. — reframed.** Cards exist ownerless (§12); the account is the evolution/ownership wrapper, not a prerequisite to play. The conversion moment is therefore "keep evolving this card" rather than "save this idiot"; the exact trigger is still unvalidated.
-- **Content moderation vs. deception language.** Aggressive in-world text (threats, lies, corpse notes, prompt-injection inscriptions) is core to pillar 5, but the moderation layer is a real constraint on shippable content (the original "betrayer" archetype tripped Azure moderation and was swapped to "opportunist"). Worth a deliberate design pass before the cursed-item naming layer is authored. **Partially de-risked empirically:** reducing the moderation filter at the endpoint measurably helped — the constraint is now a tunable lever with a known direction, not an unbounded unknown. Text-as-terrain is confirmed *polish* (a later content pass), not a blocker.
+- **Content moderation vs. deception language.** Aggressive in-world text (threats, lies, corpse notes, prompt-injection inscriptions) is core to pillar 5, but the moderation layer is a real constraint on shippable content — an over-aggressive archetype can trip the endpoint's moderation filter. Worth a deliberate design pass before the cursed-item naming layer is authored. The direction is known: relaxing the endpoint filter measurably helps, so it's a tunable lever, not an unbounded unknown. Text-as-terrain is confirmed *polish* (a later content pass), not a blocker.
 
 ---
 

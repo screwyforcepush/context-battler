@@ -61,7 +61,10 @@ clip; toggling Gore controls the live gore layer.
 
 The armour lane is a rigid child mesh under a live `BoneAttachment3D`. The
 body-fit scale correction is applied to each child mesh transform through
-`propScale`; it is not applied to the socket.
+`propScale`; it is not applied to the socket (the socket transform is
+rewritten from the bone pose every frame, so socket-level scale is
+clobbered). Scale values were calibrated with the same body-only idle-pose
+audit method Round 10 used for body scale.
 
 | Prop family | Before | After | Notes |
 |---|---:|---:|---|
@@ -150,3 +153,13 @@ Foreground validation run for this closeout:
   that prop's `propScale` with the same body-only idle-pose method.
 - No UAT job should be added; the exported Showroom remains the user review
   surface.
+
+## References
+
+- [`round-11-lock-and-breadth-spec.md`](../../docs/project/phases/render-rnd/round-11-lock-and-breadth-spec.md) — Round 11 spec (acceptance criteria, WP breakdown, research grounding including D-DIAG1 UV-channel diagnosis and D-DIAG2 armour scale diagnosis).
+- [`mental-model.md`](../../docs/project/spec/mental-model.md) sections 10.1 and 13.1 — recursive breadth/consolidation and locked-body adherence intent.
+- [`ROUND-10-CLOSING-READOUT.md`](./ROUND-10-CLOSING-READOUT.md) — previous round baseline (lane matrix, body-only scale-audit method, armour A/B comparison).
+- [`shared-harness/art-kit/manifest.json`](./shared-harness/art-kit/manifest.json) — final Round 11 lane data (schema 10).
+- [`src/Showroom.gd`](./src/Showroom.gd) — final Showroom controls.
+- [`src/EquipmentMeshAttachment.gd`](./src/EquipmentMeshAttachment.gd) — runtime attachment, UV2 skin path, propScale application.
+- [`shared-harness/art-kit/shaders/uv2_body_texture.gdshader`](./shared-harness/art-kit/shaders/uv2_body_texture.gdshader) — UV2 full-body texture shader (the D-DIAG1 coverage fix).
