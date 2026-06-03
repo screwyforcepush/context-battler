@@ -27,6 +27,14 @@ const PERSONA_NAME_LABEL_HEIGHT := 2.20
 const PERSONA_CLIP_LABEL_HEIGHT := 1.96
 const GLITCH_REAPER_NAME_LABEL_HEIGHT := 2.42
 const GLITCH_REAPER_CLIP_LABEL_HEIGHT := 2.18
+const GLITCH_REAPER_PHASE_MAX_NODES := 80
+const GLITCH_REAPER_PHASE_MARKERS := [
+	"_phase_",
+	"cyan_phase",
+	"data_tear",
+	"scanline",
+	"dimension_slice",
+]
 
 var current_weapon_tier := 0
 var current_armour_tier := 0
@@ -39,6 +47,8 @@ var clip_labels: Dictionary = {}
 var glitch_reaper_animation_player: AnimationPlayer
 var glitch_reaper_clip_label: Label3D
 var glitch_reaper_current_clip := ""
+var glitch_reaper_phase_time := 0.0
+var glitch_reaper_phase_nodes: Array[Dictionary] = []
 var selected_tier_buttons: Dictionary = {}
 var layer_enabled := {
 	LAYER_SKIN: true,
@@ -75,6 +85,7 @@ func _process(delta: float) -> void:
 		camera_rig.update_camera(delta)
 	if equipment_attachment != null and equipment_attachment.has_method("tick"):
 		equipment_attachment.tick(delta)
+	_tick_glitch_reaper_phase_driver(delta)
 	_update_clip_labels()
 
 
@@ -154,6 +165,7 @@ func _spawn_glitch_reaper_prototype_station(station: Node3D) -> void:
 			visual.scale = Vector3.ONE * GLITCH_REAPER_PROTOTYPE_SCALE
 			station.add_child(visual)
 			glitch_reaper_animation_player = _first_descendant_of_class(visual, "AnimationPlayer") as AnimationPlayer
+			_configure_glitch_reaper_phase_driver(visual)
 	else:
 		push_warning("Glitch Reaper prototype asset did not load: %s" % GLITCH_REAPER_PROTOTYPE_PATH)
 	var name_label := _make_label("NameLabel", "glitch_reaper\nreplacement_head_glb", Vector3(0.0, GLITCH_REAPER_NAME_LABEL_HEIGHT, 0.0), 0.0048, 18)
@@ -568,6 +580,85 @@ func _first_glitch_reaper_clip(kind: String) -> String:
 		if glitch_reaper_animation_player != null and glitch_reaper_animation_player.has_animation(clip):
 			return clip
 	return ""
+
+
+func _configure_glitch_reaper_phase_driver(root: Node3D) -> void:
+	glitch_reaper_phase_time = 0.0
+	glitch_reaper_phase_nodes.clear()
+	_collect_glitch_reaper_phase_nodes(root)
+	if glitch_reaper_phase_nodes.is_empty():
+		push_warning("Glitch Reaper phase driver found no phase/cyan nodes under imported GLB.")
+
+
+func _collect_glitch_reaper_phase_nodes(node: Node) -> void:
+	if glitch_reaper_phase_nodes.size() >= GLITCH_REAPER_PHASE_MAX_NODES:
+		return
+	if node is MeshInstance3D:
+		var mesh_node := node as MeshInstance3D
+		if _is_glitch_reaper_phase_node(mesh_node.name):
+			var index := glitch_reaper_phase_nodes.size()
+			var name_lower := mesh_node.name.to_lower()
+			var human_phase := name_lower.contains("_phase_human_") or name_lower.contains("phase_skin")
+			var cyan_phase := name_lower.contains("cyan") or name_lower.contains("data_tear") or name_lower.contains("scanline")
+			var base_visible := mesh_node.visible
+			var sideways := -1.0 if index % 2 == 0 else 1.0
+			var vertical := -0.5 + float(index % 5) * 0.25
+			var depth := -1.0 if index % 4 < 2 else 1.0
+			var offset_scale := 0.006 if human_phase else 0.010
+			if cyan_phase:
+				offset_scale = 0.014
+			glitch_reaper_phase_nodes.append({
+				"node": mesh_node,
+				"position": mesh_node.position,
+				"scale": mesh_node.scale,
+				"visible": base_visible,
+				"phase": float(index) * 0.73,
+				"offset": Vector3(sideways * offset_scale, vertical * offset_scale * 0.55, depth * offset_scale * 0.70),
+				"human": human_phase,
+				"cyan": cyan_phase,
+			})
+	for child in node.get_children():
+		_collect_glitch_reaper_phase_nodes(child)
+
+
+func _is_glitch_reaper_phase_node(node_name: String) -> bool:
+	var name_lower := node_name.to_lower()
+	for marker in GLITCH_REAPER_PHASE_MARKERS:
+		if name_lower.contains(str(marker)):
+			return true
+	return false
+
+
+func _tick_glitch_reaper_phase_driver(delta: float) -> void:
+	if glitch_reaper_phase_nodes.is_empty():
+		return
+	glitch_reaper_phase_time += delta
+	for state in glitch_reaper_phase_nodes:
+		var node := state.get("node") as Node3D
+		if node == null:
+			continue
+		var base_visible := bool(state.get("visible", true))
+		var base_position: Vector3 = state.get("position", Vector3.ZERO)
+		var base_scale: Vector3 = state.get("scale", Vector3.ONE)
+		var offset: Vector3 = state.get("offset", Vector3.ZERO)
+		var phase := float(state.get("phase", 0.0))
+		var human_phase := bool(state.get("human", false))
+		var cyan_phase := bool(state.get("cyan", false))
+		var slow_gate := sin(glitch_reaper_phase_time * (2.35 if human_phase else 3.80) + phase)
+		var stutter := sin(glitch_reaper_phase_time * (18.0 if human_phase else 28.0) + phase * 1.91)
+		var snap := sin(glitch_reaper_phase_time * 43.0 + phase * 0.63)
+		var visible_now := base_visible and (slow_gate > (-0.18 if human_phase else -0.54))
+		if snap > 0.78:
+			visible_now = not visible_now
+		node.visible = visible_now
+		var pulse: float = max(0.0, stutter) * (0.18 if human_phase else 0.32)
+		var collapse: float = 0.22 if human_phase else 0.48
+		var scale_amount: float = (1.0 + pulse) if visible_now else collapse
+		if cyan_phase and snap > 0.52:
+			scale_amount += 0.20
+		var jump_amount: float = abs(slow_gate) + max(0.0, snap) * 0.65
+		node.position = base_position + offset * jump_amount
+		node.scale = base_scale * scale_amount
 
 
 func _first_descendant_of_class(node: Node, target_class: String) -> Node:

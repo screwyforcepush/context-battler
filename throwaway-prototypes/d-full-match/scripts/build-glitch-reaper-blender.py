@@ -48,6 +48,7 @@ def main() -> None:
     mats = make_materials()
     assign_carrier_material(mats["metal"])
     build_modules(armature, mats)
+    bpy.context.scene.frame_set(1)
     module_names = generated_module_names()
 
     blend_path = dist_dir / f"{VARIANT_ID}.blend"
@@ -90,9 +91,9 @@ def darken_carrier_materials() -> None:
         bsdf = mat.node_tree.nodes.get("Principled BSDF")
         if bsdf is None:
             continue
-        set_input(bsdf, "Base Color", (0.018, 0.016, 0.014, 1.0))
-        set_input(bsdf, "Metallic", 0.55)
-        set_input(bsdf, "Roughness", 0.58)
+        set_input(bsdf, "Base Color", (0.260, 0.276, 0.294, 1.0))
+        set_input(bsdf, "Metallic", 0.78)
+        set_input(bsdf, "Roughness", 0.31)
 
 
 def assign_carrier_material(mat: bpy.types.Material) -> None:
@@ -105,15 +106,17 @@ def assign_carrier_material(mat: bpy.types.Material) -> None:
 
 def make_materials() -> dict[str, bpy.types.Material]:
     return {
-        "metal": make_mat("GR_blackened_metal", (0.014, 0.015, 0.017, 1), 0.92, 0.38, texture_style="blackened_metal"),
+        "metal": make_mat("GR_dark_gunmetal_steel", (0.260, 0.276, 0.294, 1), 0.78, 0.31, texture_style="gunmetal_steel"),
         "cavity": make_mat("GR_dark_cavity", (0.001, 0.001, 0.002, 1), 0.15, 0.86),
         "glow": make_mat("GR_infernal_red_emissive", (1.0, 0.048, 0.014, 1), 0.0, 0.22, (1.0, 0.040, 0.012), 4.05, texture_style="infernal_glow"),
+        "eye_glow": make_mat("GR_recessed_red_optic", (0.82, 0.030, 0.012, 1), 0.0, 0.28, (0.82, 0.028, 0.010), 2.25, texture_style="infernal_glow"),
         "gore": make_mat("GR_gore_flesh", (0.36, 0.022, 0.018, 1), 0.0, 0.26, texture_style="flayed_gore"),
         "skin": make_mat("GR_pale_flayed_skin", (0.44, 0.220, 0.205, 1), 0.0, 0.50, texture_style="pale_flayed_skin"),
+        "phase_skin": make_mat("GR_transient_human_phase_skin", (0.64, 0.380, 0.340, 0.72), 0.0, 0.58, (0.090, 0.030, 0.022), 0.12, texture_style="pale_flayed_skin"),
         "blood": make_mat("GR_wet_black_blood", (0.120, 0.004, 0.003, 1), 0.0, 0.10, texture_style="wet_black_blood"),
         "bone": make_mat("GR_burnt_human_bone", (0.54, 0.465, 0.365, 1), 0.0, 0.76, texture_style="burnt_bone"),
-        "glitch": make_mat("GR_cyan_glitch", (0.006, 0.32, 0.36, 1), 0.0, 0.30, (0.010, 0.42, 0.47), 0.48, texture_style="glitch_cyan"),
-        "scar": make_mat("GR_scraped_raw_metal", (0.38, 0.355, 0.310, 1), 0.82, 0.46, texture_style="raw_scratch"),
+        "glitch": make_mat("GR_cyan_glitch", (0.006, 0.32, 0.36, 1), 0.0, 0.30, (0.010, 0.42, 0.47), 0.85, texture_style="glitch_cyan"),
+        "scar": make_mat("GR_scraped_raw_metal", (0.47, 0.445, 0.382, 1), 0.84, 0.40, texture_style="raw_scratch"),
     }
 
 
@@ -126,6 +129,11 @@ def make_mat(name: str, base, metallic: float, roughness: float, emission=None, 
     set_input(bsdf, "Base Color", base)
     set_input(bsdf, "Metallic", metallic)
     set_input(bsdf, "Roughness", roughness)
+    if len(base) > 3 and base[3] < 1.0:
+        set_input(bsdf, "Alpha", base[3])
+        mat.blend_method = "BLEND"
+        mat.use_screen_refraction = True
+        mat.show_transparent_back = True
     if emission is not None:
         set_input(bsdf, "Emission", emission)
         set_input(bsdf, "Emission Color", emission)
@@ -140,13 +148,15 @@ def apply_material_finish(bsdf, texture_style: str | None) -> None:
     if bsdf is None:
         return
     finish_by_style = {
-        "blackened_metal": {
-            "Specular": 0.50,
-            "Specular IOR Level": 0.48,
-            "Coat Weight": 0.06,
-            "Clearcoat": 0.06,
-            "Coat Roughness": 0.42,
-            "Clearcoat Roughness": 0.42,
+        "gunmetal_steel": {
+            "Specular": 0.76,
+            "Specular IOR Level": 0.72,
+            "Metallic": 0.78,
+            "Coat Weight": 0.17,
+            "Clearcoat": 0.17,
+            "Coat Roughness": 0.18,
+            "Clearcoat Roughness": 0.18,
+            "Anisotropic IOR Level": 0.66,
         },
         "flayed_gore": {
             "Specular": 0.72,
@@ -223,15 +233,17 @@ def make_material_image(name: str, base, texture_style: str):
 
 def texture_color(style: str, base, u: float, v: float, n1: float, n2: float):
     r, g, b, a = base
-    if style == "blackened_metal":
-        grain = 0.46 + n1 * 0.34
-        soot = 0.74 + 0.16 * math.sin(v * 39.0 + n2 * 3.0)
-        heat_bloom = 0.035 if abs(u - 0.52) < 0.035 and n2 > 0.58 else 0.0
-        scratch = 1.0 if (n2 > 0.982 or abs((u + n1 * 0.08) % 0.24 - 0.12) < 0.003) else 0.0
+    if style == "gunmetal_steel":
+        grain = 0.98 + n1 * 0.26
+        brushed = 0.94 + 0.17 * math.sin(v * 72.0 + n2 * 5.0)
+        panel_sheen = 0.040 if abs((u + n1 * 0.05) % 0.33 - 0.165) < 0.012 else 0.0
+        blue_oxide = 0.030 if n2 > 0.74 else 0.0
+        heat_bloom = 0.026 if abs(u - 0.52) < 0.032 and n2 > 0.62 else 0.0
+        scratch = 1.0 if (n2 > 0.962 or abs((u + n1 * 0.08) % 0.21 - 0.105) < 0.0045) else 0.0
         return (
-            clamp01(r * grain * soot + heat_bloom + scratch * 0.11),
-            clamp01(g * grain * soot + heat_bloom * 0.22 + scratch * 0.10),
-            clamp01(b * grain * soot + scratch * 0.13),
+            clamp01(r * grain * brushed + panel_sheen + heat_bloom + scratch * 0.090),
+            clamp01(g * grain * brushed + panel_sheen + heat_bloom * 0.34 + blue_oxide + scratch * 0.080),
+            clamp01(b * (grain + 0.10) * brushed + panel_sheen * 1.15 + blue_oxide * 1.60 + scratch * 0.100),
             a,
         )
     if style == "flayed_gore":
@@ -325,6 +337,7 @@ def build_modules(armature, mats: dict[str, bpy.types.Material]) -> None:
     build_limb_modules(armature, mats)
     build_gore_modules(armature, mats)
     build_surface_breakup_modules(armature, mats)
+    build_phase_echo_modules(armature, mats)
     build_glitch_modules(armature, mats)
 
 
@@ -332,6 +345,7 @@ def build_head_module(armature, mats: dict[str, bpy.types.Material]) -> None:
     metal = mats["metal"]
     cavity = mats["cavity"]
     glow = mats["glow"]
+    eye_glow = mats["eye_glow"]
     glitch = mats["glitch"]
     gore = mats["gore"]
     skin = mats["skin"]
@@ -349,12 +363,17 @@ def build_head_module(armature, mats: dict[str, bpy.types.Material]) -> None:
     add_box(armature, "head", "glitch_reaper_head_A_forehead_executioner_plate", (0.0, 0.132, 0.112), (0.066, 0.014, 0.010), metal, (-12, 0, 0), bevel=0.0022)
     add_box(armature, "head", "glitch_reaper_head_A_brow_plate", (0.0, 0.120, 0.150), (0.098, 0.011, 0.009), metal, (-9, 0, 0), bevel=0.0022)
     add_box(armature, "head", "glitch_reaper_head_A_brow_crown_keel", (0.0, 0.134, 0.058), (0.011, 0.020, 0.010), metal, (-15, 0, 0), bevel=0.002)
-    add_box(armature, "head", "glitch_reaper_head_A_eye_socket_black_backplate", (0.0, 0.098, 0.156), (0.118, 0.018, 0.007), cavity, (-7, 0, 0), bevel=0.0008)
-    add_box(armature, "head", "glitch_reaper_head_A_red_eye_slit", (-0.002, 0.102, 0.164), (0.108, 0.006, 0.0045), glow, (-7, 0, 0), bevel=0.0009)
-    add_sphere(armature, "head", "glitch_reaper_head_A_left_cold_red_optic", (-0.040, 0.102, 0.166), (0.007, 0.005, 0.004), glow, segments=24, rings=12)
-    add_box(armature, "head", "glitch_reaper_head_A_right_human_eye_socket_void", (0.040, 0.100, 0.166), (0.026, 0.011, 0.005), cavity, (-7, 0, 11), bevel=0.001)
-    add_box(armature, "head", "glitch_reaper_head_A_right_eye_slashed_lens", (0.040, 0.100, 0.168), (0.016, 0.0030, 0.0028), glow, (-8, 0, 12), bevel=0.0005)
-    add_box(armature, "head", "glitch_reaper_head_A_left_eye_slashed_lens", (-0.040, 0.100, 0.168), (0.018, 0.0030, 0.0028), glow, (-8, 0, -12), bevel=0.0005)
+    add_box(armature, "head", "glitch_reaper_head_A_eye_socket_black_backplate", (0.0, 0.102, 0.146), (0.112, 0.022, 0.006), cavity, (-7, 0, 0), bevel=0.0008)
+    add_box(armature, "head", "glitch_reaper_head_A_recessed_socket_upper_lid", (0.0, 0.111, 0.160), (0.116, 0.010, 0.010), metal, (-8, 0, 0), bevel=0.0012)
+    add_box(armature, "head", "glitch_reaper_head_A_recessed_socket_lower_lid", (0.0, 0.088, 0.159), (0.106, 0.008, 0.010), bone, (-6, 0, 0), bevel=0.0010)
+    add_box(armature, "head", "glitch_reaper_head_A_recessed_socket_side_occluder_l", (-0.060, 0.098, 0.157), (0.010, 0.024, 0.009), metal, (-7, 0, -10), bevel=0.0010)
+    add_box(armature, "head", "glitch_reaper_head_A_recessed_socket_side_occluder_r", (0.060, 0.098, 0.157), (0.010, 0.024, 0.009), scar, (-7, 0, 10), bevel=0.0010)
+    add_box(armature, "head", "glitch_reaper_head_A_socket_lip_shadow_over_eye", (0.0, 0.094, 0.153), (0.088, 0.0040, 0.0032), cavity, (-7, 0, 0), bevel=0.0005)
+    add_box(armature, "head", "glitch_reaper_head_A_red_eye_slit", (-0.002, 0.103, 0.146), (0.076, 0.0030, 0.0018), eye_glow, (-7, 0, 0), bevel=0.0005)
+    add_sphere(armature, "head", "glitch_reaper_head_A_left_cold_red_optic", (-0.034, 0.103, 0.147), (0.0048, 0.0032, 0.0018), eye_glow, segments=24, rings=12)
+    add_box(armature, "head", "glitch_reaper_head_A_right_human_eye_socket_void", (0.038, 0.098, 0.151), (0.024, 0.010, 0.0035), cavity, (-7, 0, 11), bevel=0.001)
+    add_box(armature, "head", "glitch_reaper_head_A_right_eye_slashed_lens", (0.036, 0.102, 0.147), (0.011, 0.0022, 0.0016), eye_glow, (-8, 0, 12), bevel=0.0004)
+    add_box(armature, "head", "glitch_reaper_head_A_left_eye_slashed_lens", (-0.036, 0.102, 0.147), (0.012, 0.0022, 0.0016), eye_glow, (-8, 0, -12), bevel=0.0004)
 
     add_sphere(armature, "head", "glitch_reaper_head_A_left_skull_side_human_rind_volume", (-0.058, 0.004, 0.122), (0.014, 0.042, 0.018), skin, segments=32, rings=16)
     add_sphere(armature, "head", "glitch_reaper_head_A_right_skull_side_raw_meat_wrap_volume", (0.060, 0.002, 0.120), (0.014, 0.044, 0.018), blood, segments=32, rings=16)
@@ -387,7 +406,7 @@ def build_head_module(armature, mats: dict[str, bpy.types.Material]) -> None:
     add_box(armature, "head", "glitch_reaper_head_A_face_mask_black_tear_gap", (0.002, 0.020, 0.156), (0.010, 0.014, 0.0035), blood, (-7, 0, 2), bevel=0.0008)
     add_box(armature, "head", "glitch_reaper_head_A_visible_burnt_bone_brow_l", (-0.034, 0.112, 0.160), (0.036, 0.006, 0.0050), bone, (-8, 0, -10), bevel=0.0008)
     add_box(armature, "head", "glitch_reaper_head_A_visible_burnt_bone_brow_r", (0.038, 0.110, 0.160), (0.034, 0.006, 0.0050), bone, (-8, 0, 12), bevel=0.0008)
-    add_box(armature, "head", "glitch_reaper_head_A_recut_red_eye_burn_through_flesh", (-0.004, 0.098, 0.166), (0.050, 0.0028, 0.0028), glow, (-7, 0, 0), bevel=0.0005)
+    add_box(armature, "head", "glitch_reaper_head_A_recut_red_eye_burn_through_flesh", (-0.004, 0.102, 0.146), (0.030, 0.0019, 0.0014), eye_glow, (-7, 0, 0), bevel=0.0004)
     add_box(armature, "head", "glitch_reaper_head_A_cyan_dimension_slice_through_face", (0.052, 0.052, 0.158), (0.0014, 0.010, 0.0012), glitch, (0, 0, 17), bevel=0.0004)
     add_box(armature, "head", "glitch_reaper_head_A_left_cheek_armor", (-0.044, -0.004, 0.124), (0.020, 0.026, 0.012), metal, (-6, 0, -15), bevel=0.0018)
     add_box(armature, "head", "glitch_reaper_head_A_right_cheek_bone_plate", (0.044, -0.006, 0.123), (0.020, 0.024, 0.011), scar, (-6, 0, 13), bevel=0.0018)
@@ -506,25 +525,44 @@ def build_torso_module(armature, mats: dict[str, bpy.types.Material]) -> None:
     add_box(armature, "spine_02", "glitch_reaper_abdomen_right_bone_gut_rail", (0.050, -0.162, 0.178), (0.009, 0.086, 0.008), bone, (0, 0, 12), bevel=0.001)
     add_box(armature, "spine_02", "glitch_reaper_abdomen_black_blood_depth_slot", (0.0, -0.166, 0.182), (0.034, 0.086, 0.005), blood, (0, 0, 0), bevel=0.0008)
 
-    add_box(armature, "spine_03", "glitch_reaper_cathedral_spine_fin", (0.0, 0.000, -0.120), (0.030, 0.270, 0.026), metal, (7, 0, 0), bevel=0.006)
-    for i in range(5):
-        y = 0.110 - i * 0.048
-        add_box(armature, "spine_03", f"glitch_reaper_back_spine_hook_{i}", (0.0, y, -0.150), (0.024, 0.040, 0.020), metal, (22, 0, -8 + i * 3), bevel=0.004)
-        add_box(armature, "spine_03", f"glitch_reaper_back_bone_vertebra_{i}", ((-1) ** i * 0.028, y - 0.010, -0.130), (0.019, 0.034, 0.016), bone, (8, 0, (-1) ** i * 12), bevel=0.003)
-    add_sphere(armature, "spine_03", "glitch_reaper_back_left_scapula_flayed_socket", (-0.072, 0.038, -0.156), (0.014, 0.070, 0.014), skin, segments=32, rings=12)
-    add_sphere(armature, "spine_03", "glitch_reaper_back_right_scapula_raw_socket", (0.052, -0.020, -0.158), (0.015, 0.086, 0.015), blood, segments=32, rings=12)
-    add_box(armature, "spine_03", "glitch_reaper_back_spine_black_wound_depth", (0.0, -0.014, -0.166), (0.070, 0.236, 0.010), blood, (8, 0, -2), bevel=0.001)
-    add_box(armature, "spine_03", "glitch_reaper_back_vertebrae_red_furnace_slit", (0.0, -0.002, -0.178), (0.008, 0.204, 0.006), glow, (9, 0, -2), bevel=0.0009)
+    add_box(armature, "spine_03", "glitch_reaper_cathedral_spine_fin", (-0.010, -0.010, -0.132), (0.012, 0.150, 0.010), metal, (7, 0, -8), bevel=0.003)
+    add_torn_panel(armature, "spine_03", "glitch_reaper_back_unified_corrupted_wound_basin", (-0.022, 0.020, -0.157), 0.060, 0.106, blood, (0, 0, -17), rag_points=7, taper=0.46)
+    add_torn_panel(armature, "spine_03", "glitch_reaper_back_lower_dragged_wound_lobe", (0.024, -0.060, -0.160), 0.034, 0.064, gore, (0, 0, 22), rag_points=5, taper=0.56)
+    add_box(armature, "spine_03", "glitch_reaper_back_recessed_fusion_trench", (-0.016, 0.024, -0.151), (0.044, 0.104, 0.006), blood, (8, 0, -16), bevel=0.0008)
+    add_box(armature, "spine_03", "glitch_reaper_back_lower_torn_depth_drag", (0.026, -0.070, -0.152), (0.026, 0.060, 0.005), blood, (7, 0, 22), bevel=0.0007)
+    add_box(armature, "spine_03", "glitch_reaper_back_gunmetal_bite_occluder_upper_r", (0.030, 0.034, -0.148), (0.030, 0.010, 0.007), metal, (8, 0, 21), bevel=0.0010)
+    add_box(armature, "spine_03", "glitch_reaper_back_gunmetal_bite_occluder_lower_l", (-0.034, -0.046, -0.150), (0.024, 0.009, 0.006), metal, (8, 0, -26), bevel=0.0009)
+    for i, (x, y, angle) in enumerate([(-0.010, 0.070, -9), (0.012, 0.010, 7), (-0.006, -0.050, -14)]):
+        add_box(armature, "spine_03", f"glitch_reaper_back_spine_hook_{i}", (x, y, -0.160), (0.013, 0.020, 0.009), metal, (15, 0, angle), bevel=0.0016)
+        add_box(armature, "spine_03", f"glitch_reaper_back_bone_vertebra_{i}", (x + 0.010 * ((-1) ** i), y - 0.007, -0.145), (0.011, 0.017, 0.007), bone, (7, 0, angle * -0.8), bevel=0.0012)
+    add_torn_panel(armature, "spine_03", "glitch_reaper_back_left_scapula_flayed_socket", (-0.068, 0.034, -0.154), 0.020, 0.070, skin, (0, 0, -31), rag_points=5, taper=0.38)
+    add_torn_panel(armature, "spine_03", "glitch_reaper_back_right_scapula_raw_socket", (0.050, -0.042, -0.154), 0.018, 0.048, blood, (0, 0, 28), rag_points=4, taper=0.50)
+    add_box(armature, "spine_03", "glitch_reaper_back_spine_black_wound_depth", (-0.014, 0.010, -0.163), (0.040, 0.112, 0.006), blood, (8, 0, -16), bevel=0.0007)
+    add_box(armature, "spine_03", "glitch_reaper_back_vertebrae_red_furnace_slit", (-0.009, 0.006, -0.170), (0.0034, 0.062, 0.0028), glow, (9, 0, -14), bevel=0.0005)
+    add_box(armature, "spine_03", "glitch_reaper_back_brushed_alloy_spinal_keel", (0.012, -0.018, -0.184), (0.008, 0.102, 0.0040), scar, (8, 0, 9), bevel=0.001)
+    add_box(armature, "spine_03", "glitch_reaper_back_raw_metal_scapula_highlight_l", (-0.080, 0.034, -0.174), (0.010, 0.052, 0.0045), scar, (6, 0, -39), bevel=0.001)
+    add_box(armature, "spine_03", "glitch_reaper_back_raw_metal_scapula_highlight_r", (0.058, -0.040, -0.176), (0.010, 0.040, 0.0045), scar, (6, 0, 25), bevel=0.001)
+    add_box(armature, "spine_03", "glitch_reaper_back_left_gunmetal_rib_carrier_edge", (-0.056, -0.030, -0.178), (0.0048, 0.056, 0.0036), metal, (7, 0, -31), bevel=0.0008)
+    add_box(armature, "spine_03", "glitch_reaper_back_right_gunmetal_rib_carrier_edge", (0.046, -0.068, -0.180), (0.0048, 0.046, 0.0036), metal, (7, 0, 16), bevel=0.0008)
+    add_torn_panel(armature, "spine_03", "glitch_reaper_back_left_pale_shoulderblade_afterimage_volume", (-0.078, 0.018, -0.190), 0.020, 0.060, skin, (0, 0, -27), rag_points=5, taper=0.42)
+    add_torn_panel(armature, "spine_03", "glitch_reaper_back_right_burnt_scapula_afterimage_volume", (0.058, -0.038, -0.192), 0.015, 0.038, bone, (0, 0, 20), rag_points=4, taper=0.48)
+    add_sphere(armature, "spine_03", "glitch_reaper_back_misaligned_human_spinal_column_mass", (-0.014, -0.004, -0.198), (0.007, 0.052, 0.0040), bone, segments=24, rings=8)
+    add_box(armature, "spine_03", "glitch_reaper_back_spinal_column_black_split", (0.000, -0.014, -0.205), (0.0028, 0.064, 0.0020), blood, (7, 0, -10), bevel=0.0005)
     for i, (x, y, angle, material) in enumerate([
-        (-0.052, 0.076, -28, bone),
-        (0.046, 0.024, 24, metal),
-        (-0.040, -0.036, -18, scar),
-        (0.034, -0.086, 18, bone),
+        (-0.058, 0.054, -33, bone),
+        (0.038, -0.048, 15, skin),
     ]):
-        add_box(armature, "spine_03", f"glitch_reaper_back_ragged_scapula_splint_{i}", (x, y, -0.186), (0.070, 0.007, 0.006), material, (0, 0, angle), bevel=0.0008)
-        add_box(armature, "spine_03", f"glitch_reaper_back_black_socket_shadow_{i}", (x * 0.78, y - 0.012, -0.190), (0.038, 0.006, 0.004), blood, (0, 0, angle), bevel=0.0005)
-    for i, x in enumerate([-0.030, 0.024]):
-        add_cylinder(armature, "spine_03", f"glitch_reaper_back_exposed_spinal_servo_cord_{i}", (x, -0.020 - i * 0.040, -0.188), 0.0032, 0.194 + i * 0.028, metal if i else gore, (84, 0, -11 + i * 20))
+        add_box(armature, "spine_03", f"glitch_reaper_back_corrupted_human_rib_read_{i}", (x, y, -0.190), (0.036 - i * 0.006, 0.0040, 0.0028), material, (0, 0, angle), bevel=0.0006)
+        add_box(armature, "spine_03", f"glitch_reaper_back_rib_black_blood_underlayer_{i}", (x * 0.70, y - 0.006, -0.194), (0.020, 0.0030, 0.0022), blood, (0, 0, angle), bevel=0.0004)
+    for i, y in enumerate([0.052, -0.032]):
+        add_box(armature, "spine_03", f"glitch_reaper_back_scraped_vertebra_block_{i}", ((-1) ** i * 0.008, y, -0.192), (0.014, 0.011, 0.0040), bone if i % 2 == 0 else scar, (5, 0, (-1) ** i * 8), bevel=0.0008)
+    for i, (x, y, angle, material) in enumerate([
+        (-0.046, 0.042, -29, bone),
+        (0.038, -0.034, 26, scar),
+    ]):
+        add_box(armature, "spine_03", f"glitch_reaper_back_ragged_scapula_splint_{i}", (x, y, -0.176), (0.034, 0.0048, 0.0038), material, (0, 0, angle), bevel=0.0006)
+        add_box(armature, "spine_03", f"glitch_reaper_back_black_socket_shadow_{i}", (x * 0.72, y - 0.008, -0.180), (0.020, 0.0038, 0.0026), blood, (0, 0, angle), bevel=0.0004)
+    add_cylinder(armature, "spine_03", "glitch_reaper_back_exposed_spinal_servo_cord_0", (-0.014, -0.028, -0.174), 0.0020, 0.118, gore, (84, 0, -8))
     for i in range(4):
         add_cylinder(armature, "spine_03", f"glitch_reaper_heart_hydraulic_cable_{i}", ((i - 1.5) * 0.032, -0.020, 0.110), 0.0046, 0.238 + i * 0.010, metal if i % 2 else blood, (82, 0, -14 + i * 9))
     for i in range(4):
@@ -711,8 +749,12 @@ def build_gore_modules(armature, mats: dict[str, bpy.types.Material]) -> None:
         add_box(armature, "spine_01", f"glitch_reaper_central_human_sheet_tension_staple_{i}", (x, y, 0.146), (0.022, 0.0045, 0.004), bone if i % 2 else metal, (0, 0, -10 + i * 5), bevel=0.0006)
     add_cylinder(armature, "spine_01", "glitch_reaper_central_human_sheet_wet_pull_cord_0", (-0.018, -0.222, 0.146), 0.0032, 0.096, blood, (84, 0, -12))
 
-    for i, x in enumerate([-0.045, -0.015, 0.015, 0.045]):
-        add_cylinder(armature, "spine_03", f"glitch_reaper_back_sinew_cable_{i}", (x, -0.052 + (i % 2) * 0.014, -0.130), 0.0054, 0.264 + (i % 3) * 0.034, gore if i % 2 == 0 else metal, (82, 0, -12 + i * 6))
+    for i, (x, y, angle, material) in enumerate([
+        (-0.026, -0.046, -18, gore),
+        (0.024, -0.066, 18, metal),
+    ]):
+        add_cylinder(armature, "spine_03", f"glitch_reaper_back_sinew_cable_{i}", (x, y, -0.126), 0.0026, 0.104 + i * 0.012, material, (82, 0, angle))
+        add_box(armature, "spine_03", f"glitch_reaper_back_sinew_cable_wet_recess_{i}", (x * 0.58, y - 0.005, -0.138), (0.010, 0.044, 0.0032), blood, (6, 0, angle * 0.35), bevel=0.0005)
     for i, x in enumerate([-0.030, 0.026]):
         add_cylinder(armature, "spine_02", f"glitch_reaper_abdomen_wet_intestine_cord_{i}", (x, -0.170 - i * 0.010, 0.118), 0.0062, 0.094 + i * 0.018, blood if i % 2 else gore, (86, 0, -32 + i * 54))
         add_box(armature, "spine_02", f"glitch_reaper_abdomen_cord_bone_pin_{i}", (x, -0.092, 0.136), (0.018, 0.016, 0.010), bone if i % 2 else metal, (0, 0, -10 + i * 5), bevel=0.001)
@@ -773,6 +815,97 @@ def build_surface_breakup_modules(armature, mats: dict[str, bpy.types.Material])
                 add_box(armature, bone_name, f"glitch_reaper_limb_wrap_micro_clamp_{side}_{i}", (-sign * 0.026, 0.010 - i * 0.020, 0.096), (0.026, 0.007, 0.005), metal, (0, 0, sign * (18 - i * 8)), bevel=0.0007)
 
 
+def build_phase_echo_modules(armature, mats: dict[str, bpy.types.Material]) -> None:
+    metal = mats["metal"]
+    glitch = mats["glitch"]
+    cavity = mats["cavity"]
+    gore = mats["gore"]
+    skin = mats["skin"]
+    phase_skin = mats["phase_skin"]
+    blood = mats["blood"]
+    bone = mats["bone"]
+    scar = mats["scar"]
+
+    face_echo = add_torn_panel(armature, "head", "glitch_reaper_head_phase_left_human_face_echo_sheet", (-0.058, 0.036, 0.151), 0.022, 0.074, phase_skin, (0, 0, -17), rag_points=6, taper=0.30)
+    animate_phase_flicker(face_echo, (-0.006, 0.010, 0.004), collapse=0.12)
+    add_box(armature, "head", "glitch_reaper_head_phase_left_face_cyan_misaligned_edge", (-0.046, 0.038, 0.162), (0.0018, 0.056, 0.0015), glitch, (0, 0, -16), bevel=0.0004)
+    eye_echo = add_sphere(armature, "head", "glitch_reaper_head_phase_left_human_eye_lid_echo", (-0.030, 0.101, 0.149), (0.011, 0.005, 0.0026), phase_skin, segments=24, rings=10)
+    animate_phase_flicker(eye_echo, (-0.004, -0.004, 0.006), collapse=0.08)
+    add_box(armature, "head", "glitch_reaper_head_phase_left_eye_black_pupil_cut", (-0.030, 0.098, 0.157), (0.010, 0.0024, 0.0018), cavity, (-7, 0, -6), bevel=0.0004)
+    add_sphere(armature, "head", "glitch_reaper_head_phase_right_flayed_eye_wet_echo", (0.030, 0.092, 0.150), (0.012, 0.006, 0.0035), gore, segments=24, rings=10)
+    add_box(armature, "head", "glitch_reaper_head_phase_right_eye_red_machine_bleed", (0.032, 0.092, 0.153), (0.014, 0.0022, 0.0018), blood, (-7, 0, 10), bevel=0.0004)
+
+    nose_echo = add_sphere(armature, "head", "glitch_reaper_head_phase_human_nose_bridge_offset", (0.012, 0.056, 0.150), (0.008, 0.024, 0.0055), phase_skin, segments=24, rings=10)
+    animate_phase_flicker(nose_echo, (0.006, -0.006, 0.003), collapse=0.10)
+    add_box(armature, "head", "glitch_reaper_head_phase_nostril_black_cut", (0.017, 0.032, 0.154), (0.012, 0.005, 0.0024), cavity, (-5, 0, 7), bevel=0.0005)
+    add_box(armature, "head", "glitch_reaper_head_phase_nose_cyan_dropout", (0.026, 0.050, 0.158), (0.0014, 0.026, 0.0012), glitch, (0, 0, 11), bevel=0.0003)
+    add_sphere(armature, "head", "glitch_reaper_head_phase_right_cheek_human_afterimage", (0.052, 0.022, 0.164), (0.010, 0.020, 0.0046), phase_skin, segments=24, rings=10)
+    add_box(armature, "head", "glitch_reaper_head_phase_lower_lip_wrong_frame", (0.006, -0.026, 0.154), (0.038, 0.0035, 0.0020), phase_skin, (-5, 0, 2), bevel=0.0004)
+    add_box(armature, "head", "glitch_reaper_head_phase_lip_cyan_registration_skip", (0.028, -0.026, 0.158), (0.0013, 0.020, 0.0011), glitch, (0, 0, 8), bevel=0.0003)
+    for i, x in enumerate([-0.025, -0.013, -0.001, 0.011, 0.023]):
+        material = bone if i % 2 == 0 else scar
+        tooth_echo = add_box(armature, "head", f"glitch_reaper_head_phase_upper_tooth_echo_{i}", (x, -0.008 - i * 0.001, 0.155), (0.0055, 0.016, 0.0040), material, (-4, 0, -7 + i * 3), bevel=0.0005)
+        if i in {1, 3}:
+            animate_phase_flicker(tooth_echo, (0.002, -0.006, 0.005), collapse=0.05)
+    add_box(armature, "head", "glitch_reaper_head_phase_teeth_black_gum_shadow", (0.0, -0.018, 0.153), (0.064, 0.007, 0.0035), blood, (-4, 0, 0), bevel=0.0005)
+
+    side_profile = add_torn_panel(armature, "head", "glitch_reaper_head_phase_side_human_profile_wrong_depth", (-0.073, 0.018, 0.128), 0.030, 0.104, phase_skin, (0, 0, -24), rag_points=7, taper=0.34)
+    animate_phase_flicker(side_profile, (-0.010, 0.012, 0.006), collapse=0.10)
+    add_sphere(armature, "head", "glitch_reaper_head_phase_side_cheekbone_afterimage", (-0.066, 0.000, 0.138), (0.012, 0.024, 0.006), skin, segments=24, rings=10)
+    add_box(armature, "head", "glitch_reaper_head_phase_side_mouth_black_wrong_layer", (-0.060, -0.026, 0.139), (0.026, 0.0045, 0.0028), cavity, (-4, 0, -12), bevel=0.0005)
+    add_box(armature, "head", "glitch_reaper_head_phase_side_face_cyan_frame_skip", (-0.084, 0.006, 0.144), (0.0016, 0.052, 0.0014), glitch, (0, 0, -19), bevel=0.0003)
+    right_side_profile = add_torn_panel(armature, "head", "glitch_reaper_head_phase_right_human_profile_wrong_depth", (0.074, 0.014, 0.130), 0.026, 0.090, phase_skin, (0, 0, 21), rag_points=6, taper=0.32)
+    animate_phase_flicker(right_side_profile, (0.010, 0.010, 0.005), collapse=0.10)
+    add_sphere(armature, "head", "glitch_reaper_head_phase_right_profile_cheek_afterimage", (0.066, -0.002, 0.138), (0.010, 0.022, 0.0055), phase_skin, segments=24, rings=10)
+    add_box(armature, "head", "glitch_reaper_head_phase_right_profile_cyan_frame_skip", (0.084, 0.004, 0.145), (0.0015, 0.044, 0.0013), glitch, (0, 0, 17), bevel=0.0003)
+
+    add_sphere(armature, "head", "glitch_reaper_head_phase_left_ear_rind_echo", (-0.078, 0.052, 0.050), (0.009, 0.026, 0.014), phase_skin, segments=24, rings=10)
+    add_sphere(armature, "head", "glitch_reaper_head_phase_left_ear_black_center", (-0.080, 0.052, 0.053), (0.0048, 0.014, 0.0065), cavity, segments=16, rings=8)
+    add_box(armature, "head", "glitch_reaper_head_phase_side_cyan_registration_gap", (-0.083, 0.060, 0.068), (0.0015, 0.040, 0.0014), glitch, (0, 0, -4), bevel=0.0003)
+    add_torn_panel(armature, "head", "glitch_reaper_head_phase_occipital_human_skin_echo", (-0.026, 0.070, -0.096), 0.036, 0.058, phase_skin, (0, 0, -9), rag_points=6, taper=0.28)
+    add_box(armature, "head", "glitch_reaper_head_phase_occipital_cyan_cutline", (0.002, 0.072, -0.102), (0.0015, 0.046, 0.0014), glitch, (0, 0, 5), bevel=0.0003)
+
+    for i, (x, y, angle, material) in enumerate([
+        (-0.060, 0.080, -18, bone),
+        (-0.045, 0.036, -10, phase_skin),
+        (-0.032, -0.008, -5, bone),
+    ]):
+        add_box(armature, "spine_03", f"glitch_reaper_chest_phase_human_rib_echo_{i}", (x, y, 0.212), (0.050 - i * 0.007, 0.0050, 0.0030), material, (0, 0, angle), bevel=0.0006)
+        add_box(armature, "spine_03", f"glitch_reaper_chest_phase_rib_cyan_dropout_{i}", (x + 0.034, y - 0.004, 0.216), (0.0014, 0.018, 0.0012), glitch, (0, 0, angle), bevel=0.0003)
+    wrong_heart = add_sphere(armature, "spine_03", "glitch_reaper_chest_phase_human_heart_wrong_place", (-0.020, -0.032, 0.210), (0.018, 0.028, 0.006), gore, segments=24, rings=10)
+    animate_phase_flicker(wrong_heart, (0.008, -0.010, 0.004), collapse=0.14)
+    add_box(armature, "spine_03", "glitch_reaper_chest_phase_heart_machine_bisect", (-0.012, -0.030, 0.215), (0.0030, 0.044, 0.0020), metal, (0, 0, -8), bevel=0.0005)
+    face_fragment = add_torn_panel(armature, "spine_03", "glitch_reaper_chest_phase_embedded_human_face_fragment", (0.052, 0.036, 0.218), 0.030, 0.082, phase_skin, (0, 0, 18), rag_points=6, taper=0.28)
+    animate_phase_flicker(face_fragment, (0.010, -0.006, 0.004), collapse=0.12)
+    add_box(armature, "spine_03", "glitch_reaper_chest_phase_embedded_face_eye_cut", (0.045, 0.052, 0.223), (0.016, 0.0032, 0.0020), cavity, (0, 0, 12), bevel=0.0004)
+    add_box(armature, "spine_03", "glitch_reaper_chest_phase_embedded_face_cyan_skip", (0.064, 0.018, 0.224), (0.0015, 0.044, 0.0012), glitch, (0, 0, 18), bevel=0.0003)
+
+    back_shoulder = add_torn_panel(armature, "spine_03", "glitch_reaper_back_phase_human_shoulderblade_echo", (0.060, -0.034, -0.176), 0.017, 0.044, gore, (0, 0, 26), rag_points=5, taper=0.42)
+    animate_phase_flicker(back_shoulder, (0.004, -0.008, -0.004), collapse=0.20)
+    back_rib = add_sphere(armature, "spine_03", "glitch_reaper_back_phase_pale_ribcage_afterimage", (-0.054, 0.030, -0.176), (0.010, 0.044, 0.0052), phase_skin, segments=24, rings=10)
+    animate_phase_flicker(back_rib, (-0.006, 0.006, -0.004), collapse=0.18)
+    add_box(armature, "spine_03", "glitch_reaper_back_phase_misaligned_human_spine_cut", (-0.018, 0.004, -0.184), (0.0028, 0.058, 0.0018), bone, (0, 0, -12), bevel=0.0005)
+    add_box(armature, "spine_03", "glitch_reaper_back_phase_cyan_spine_skip", (0.014, -0.024, -0.180), (0.0010, 0.044, 0.0010), glitch, (0, 0, 13), bevel=0.0003)
+    back_skin_column = add_sphere(armature, "spine_03", "glitch_reaper_back_phase_pale_human_spine_skin_ghost", (0.006, -0.014, -0.202), (0.0075, 0.052, 0.0038), phase_skin, segments=24, rings=10)
+    animate_phase_flicker(back_skin_column, (0.004, -0.006, -0.005), collapse=0.20)
+    left_blade_echo = add_sphere(armature, "spine_03", "glitch_reaper_back_phase_left_shoulderblade_skin_ghost", (-0.078, 0.030, -0.202), (0.009, 0.038, 0.0035), phase_skin, segments=24, rings=10)
+    animate_phase_flicker(left_blade_echo, (-0.006, 0.004, -0.004), collapse=0.18)
+    right_blade_echo = add_sphere(armature, "spine_03", "glitch_reaper_back_phase_right_shoulderblade_bone_ghost", (0.058, -0.038, -0.204), (0.007, 0.030, 0.0034), bone, segments=24, rings=10)
+    animate_phase_flicker(right_blade_echo, (0.006, 0.004, -0.004), collapse=0.18)
+    for i, (x, y, angle, material) in enumerate([
+        (-0.062, 0.046, -31, phase_skin),
+        (0.044, -0.052, 16, bone),
+    ]):
+        rib_echo = add_box(armature, "spine_03", f"glitch_reaper_back_phase_corrupted_rib_afterimage_{i}", (x, y, -0.202), (0.030 - i * 0.008, 0.0030, 0.0020), material, (0, 0, angle), bevel=0.0005)
+        animate_phase_flicker(rib_echo, (((-1) ** i) * 0.004, 0.004 - i * 0.0015, -0.004), collapse=0.14)
+        add_box(armature, "spine_03", f"glitch_reaper_back_phase_rib_cyan_registration_gap_{i}", (x * 0.74, y - 0.004, -0.205), (0.0010, 0.014, 0.0010), glitch, (0, 0, angle), bevel=0.0003)
+    for i, (x, y, angle) in enumerate([(-0.010, 0.040, -10), (0.014, -0.038, 7)]):
+        vertebra_echo = add_box(armature, "spine_03", f"glitch_reaper_back_phase_wrong_human_vertebra_{i}", (x, y, -0.204), (0.010, 0.0085, 0.0026), phase_skin if i % 2 else bone, (0, 0, angle), bevel=0.0005)
+        animate_phase_flicker(vertebra_echo, (0.003 * ((-1) ** i), -0.003, -0.004), collapse=0.12)
+    add_box(armature, "upperarm_l", "glitch_reaper_arm_phase_human_finger_echo", (-0.052, -0.018, 0.118), (0.010, 0.074, 0.0040), phase_skin, (0, 0, -18), bevel=0.0008)
+    add_box(armature, "upperarm_l", "glitch_reaper_arm_phase_finger_cyan_offset", (-0.044, -0.014, 0.122), (0.0012, 0.052, 0.0012), glitch, (0, 0, -18), bevel=0.0003)
+
+
 def build_glitch_modules(armature, mats: dict[str, bpy.types.Material]) -> None:
     glitch = mats["glitch"]
     shears = [
@@ -805,6 +938,36 @@ def parent_to_bone(obj, armature, bone_name: str) -> None:
 
 def assign_material(obj, mat) -> None:
     obj.data.materials.append(mat)
+
+
+def animate_phase_flicker(obj: bpy.types.Object, offset, collapse: float = 0.12) -> None:
+    scene = bpy.context.scene
+    scene.frame_start = 1
+    scene.frame_end = max(scene.frame_end, 54)
+    base_location = obj.location.copy()
+    base_scale = obj.scale.copy()
+    jitter = Vector(offset)
+    keyframes = [
+        (1, base_location, base_scale),
+        (7, base_location + jitter * 0.20, base_scale * 1.04),
+        (9, base_location + jitter, base_scale * collapse),
+        (12, base_location - jitter * 0.35, base_scale * 1.10),
+        (24, base_location + Vector((jitter.y, -jitter.x, jitter.z)) * 0.40, base_scale * 0.82),
+        (29, base_location + jitter * 1.18, base_scale * max(collapse * 0.70, 0.035)),
+        (33, base_location - jitter * 0.18, base_scale * 1.06),
+        (54, base_location, base_scale),
+    ]
+    for frame, location, scale in keyframes:
+        obj.location = location
+        obj.scale = scale
+        obj.keyframe_insert(data_path="location", frame=frame)
+        obj.keyframe_insert(data_path="scale", frame=frame)
+    if obj.animation_data and obj.animation_data.action:
+        for fcurve in obj.animation_data.action.fcurves:
+            for point in fcurve.keyframe_points:
+                point.interpolation = "CONSTANT"
+    obj.location = base_location
+    obj.scale = base_scale
 
 
 def set_transform(obj, location, rotation_deg, scale) -> None:
@@ -846,7 +1009,7 @@ def add_membrane_thickness(obj, width: float) -> None:
         pass
 
 
-def add_box(armature, bone, name, location, size, mat, rotation_deg=(0, 0, 0), bevel: float = 0.006, bevel_segments: int = 3) -> None:
+def add_box(armature, bone, name, location, size, mat, rotation_deg=(0, 0, 0), bevel: float = 0.006, bevel_segments: int = 3) -> bpy.types.Object:
     bpy.ops.mesh.primitive_cube_add(size=1)
     obj = bpy.context.object
     obj.name = name
@@ -854,9 +1017,10 @@ def add_box(armature, bone, name, location, size, mat, rotation_deg=(0, 0, 0), b
     set_transform(obj, location, rotation_deg, size)
     polish_mesh(obj, bevel=bevel, bevel_segments=bevel_segments, smooth=True)
     parent_to_bone(obj, armature, bone)
+    return obj
 
 
-def add_sphere(armature, bone, name, location, scale, mat, rotation_deg=(0, 0, 0), segments: int = 48, rings: int = 24) -> None:
+def add_sphere(armature, bone, name, location, scale, mat, rotation_deg=(0, 0, 0), segments: int = 48, rings: int = 24) -> bpy.types.Object:
     bpy.ops.mesh.primitive_uv_sphere_add(segments=segments, ring_count=rings)
     obj = bpy.context.object
     obj.name = name
@@ -864,6 +1028,7 @@ def add_sphere(armature, bone, name, location, scale, mat, rotation_deg=(0, 0, 0
     set_transform(obj, location, rotation_deg, scale)
     polish_mesh(obj, bevel=0.0, smooth=True)
     parent_to_bone(obj, armature, bone)
+    return obj
 
 
 def add_cone(armature, bone, name, location, radius, depth, mat, rotation_deg=(0, 0, 0)) -> None:
@@ -927,7 +1092,7 @@ def add_blade(armature, bone, name, location, size, mat, rotation_deg=(0, 0, 0))
     parent_to_bone(obj, armature, bone)
 
 
-def add_torn_panel(armature, bone, name, location, width, length, mat, rotation_deg=(0, 0, 0), rag_points: int = 6, taper: float = 0.2) -> None:
+def add_torn_panel(armature, bone, name, location, width, length, mat, rotation_deg=(0, 0, 0), rag_points: int = 6, taper: float = 0.2) -> bpy.types.Object:
     rag_points = max(rag_points, 2)
     top_half = width * 0.5
     bottom_half = max(width * (0.5 - taper * 0.35), width * 0.18)
@@ -952,6 +1117,7 @@ def add_torn_panel(armature, bone, name, location, width, length, mat, rotation_
     add_membrane_thickness(obj, width)
     polish_mesh(obj, bevel=min(max(width * 0.018, 0.0007), 0.0022), bevel_segments=2, smooth=True)
     parent_to_bone(obj, armature, bone)
+    return obj
 
 
 def render_preview_set(dist_dir: Path) -> list[str]:
@@ -1139,7 +1305,7 @@ def write_report(project_root: Path, base_glb: Path, blend_path: Path, dist_glb:
             "web_wasm_export_runs": "pending_export",
         },
         "notes": [
-            "This pass favors separated wet blood, sallow flayed skin, dry burnt bone, blackened metal, red furnace heat, and restrained cyan phase shears over isolated prop-like attachments.",
+            "This pass favors separated wet blood, sallow flayed skin, dry burnt bone, dark gunmetal alloy, red furnace heat, and restrained cyan phase shears over isolated prop-like attachments.",
             "The original head is covered rather than deleted so the source rig and skinned carrier mesh remain untouched.",
             "The generated asset uses embedded procedural PBR texture maps and no external texture dependencies.",
         ],
