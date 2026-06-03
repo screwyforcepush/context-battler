@@ -45,11 +45,31 @@ export interface CommandResult {
   args: string[];
 }
 
+export interface InteractiveClaudeCommandOptions extends CommandOptions {
+  /** Settings JSON path containing hook configuration for interactive mode */
+  settingsPath: string;
+  /** Optional setting source override, e.g. "user" to suppress project settings */
+  settingSources?: string;
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
 
 const FALLBACK_MAX_CHARS = 5000;
+
+const CLAUDE_DISALLOWED_TOOLS = [
+  "AskUserQuestion",
+  "NotebookEdit",
+  "PushNotification",
+  "RemoteTrigger",
+  "mcp__claude_ai_Gmail__authenticate",
+  "mcp__claude_ai_Gmail__complete_authentication",
+  "mcp__claude_ai_Google_Calendar__authenticate",
+  "mcp__claude_ai_Google_Calendar__complete_authentication",
+  "mcp__claude_ai_Google_Drive__authenticate",
+  "mcp__claude_ai_Google_Drive__complete_authentication",
+];
 
 function truncateFallback(text: string): string {
   if (text.length <= FALLBACK_MAX_CHARS) return text;
@@ -70,6 +90,11 @@ export class ClaudeStreamHandler implements StreamHandler {
   private rateLimitInfo: RateLimitInfo | null = null;
 
   onEvent(event: Record<string, unknown>): void {
+    if (event.hook_event_name) {
+      this.onHookEvent(event);
+      return;
+    }
+
     const type = event.type as string;
 
     // Capture rate_limit_event (fires before the synthetic result)
@@ -121,6 +146,50 @@ export class ClaudeStreamHandler implements StreamHandler {
     }
   }
 
+  private onHookEvent(event: Record<string, unknown>): void {
+    const hookEventName = event.hook_event_name as string;
+
+    if (event.session_id && hookEventName !== "SessionStart") {
+      this.sessionId = String(event.session_id);
+    } else if (event.session_id && !this.sessionId) {
+      this.sessionId = String(event.session_id);
+    }
+
+    if (hookEventName === "Stop") {
+      this.complete = true;
+      this.success = true;
+      if (typeof event.last_assistant_message === "string") {
+        this.finalResult = event.last_assistant_message;
+      }
+      return;
+    }
+
+    if (hookEventName === "StopFailure") {
+      this.complete = true;
+      this.success = false;
+      if (typeof event.last_assistant_message === "string") {
+        this.finalResult = event.last_assistant_message;
+      }
+
+      const reason =
+        (event.error as string | undefined) ??
+        (event.matcher as string | undefined) ??
+        "unknown";
+      this.failureReason = `claude_stop_failure_${reason}`;
+
+      const info = event.rate_limit_info as {
+        resetsAt?: number;
+        rateLimitType?: string;
+      } | undefined;
+      if (reason === "rate_limit" && info?.resetsAt && info.rateLimitType) {
+        this.rateLimitInfo = {
+          resetsAt: info.resetsAt,
+          rateLimitType: info.rateLimitType,
+        };
+      }
+    }
+  }
+
   getResult(): string {
     // Prefer the final result field, fall back to accumulated text
     return this.finalResult || truncateFallback(this.textChunks.join("\n\n"));
@@ -155,6 +224,7 @@ export class CodexStreamHandler implements StreamHandler {
   private messages: string[] = [];
   private lastMessage: string | null = null;
   private complete = false;
+  private finalResult: string | null = null;
   private threadId: string | null = null;
 
   onEvent(event: Record<string, unknown>): void {
@@ -174,12 +244,15 @@ export class CodexStreamHandler implements StreamHandler {
 
     if (type === "turn.completed") {
       this.complete = true;
+      // Snapshot the last agent_message as the final result at the terminal
+      // event. Mirrors Claude's pattern: getResult() prefers finalResult and
+      // falls back to the full accumulated trail on timeout / no completion.
+      this.finalResult = this.lastMessage;
     }
   }
 
   getResult(): string {
-    // Prefer the final agent_message, fall back to all accumulated messages
-    return this.lastMessage || truncateFallback(this.messages.join("\n\n"));
+    return this.finalResult || truncateFallback(this.messages.join("\n\n"));
   }
 
   isTerminal(): boolean {
@@ -310,16 +383,7 @@ export function buildCommand(
         "stream-json",
         "--disable-slash-commands",
         "--disallowedTools",
-        "AskUserQuestion",
-        "NotebookEdit",
-        "PushNotification",
-        "RemoteTrigger",
-        "mcp__claude_ai_Gmail__authenticate",
-        "mcp__claude_ai_Gmail__complete_authentication",
-        "mcp__claude_ai_Google_Calendar__authenticate",
-        "mcp__claude_ai_Google_Calendar__complete_authentication",
-        "mcp__claude_ai_Google_Drive__authenticate",
-        "mcp__claude_ai_Google_Drive__complete_authentication",
+        ...CLAUDE_DISALLOWED_TOOLS,
       ];
       if (options.model) {
         args.push("--model", options.model);
@@ -367,4 +431,39 @@ export function buildCommand(
     default:
       throw new Error(`Unknown harness: ${harness}`);
   }
+}
+
+/**
+ * Build the Claude command used by the interactive wrapper.
+ *
+ * This intentionally omits -p/--print and stream-json output. Hook settings are
+ * passed explicitly, so headless mode remains unaffected by wrapper hooks.
+ */
+export function buildInteractiveClaudeCommand(
+  options: InteractiveClaudeCommandOptions
+): CommandResult {
+  const args = [
+    "--dangerously-skip-permissions",
+    "--disable-slash-commands",
+    "--disallowedTools",
+    ...CLAUDE_DISALLOWED_TOOLS,
+  ];
+
+  if (options.model) {
+    args.push("--model", options.model);
+  }
+  if (options.settingsPath) {
+    args.push("--settings", options.settingsPath);
+  }
+  if (options.settingSources) {
+    args.push("--setting-sources", options.settingSources);
+  }
+  if (options.sessionId) {
+    args.push("--resume", options.sessionId);
+    if (options.forkSession) {
+      args.push("--fork-session");
+    }
+  }
+
+  return { cmd: "claude", args };
 }

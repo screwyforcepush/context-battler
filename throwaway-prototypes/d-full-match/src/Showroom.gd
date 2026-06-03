@@ -2,6 +2,18 @@ extends Node3D
 
 const EntityRendererScript = preload("res://src/EntityRenderer.gd")
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
+const GLITCH_REAPER_PROTOTYPE_PATH := "res://shared-harness/art-kit/characters/generated/glitch_reaper.glb"
+const GLITCH_REAPER_PROTOTYPE_SCALE := 0.93464883
+const GLITCH_REAPER_CLIP_FALLBACKS := {
+	"idle": ["Idle", "Idle_Loop", "Zombie_Idle"],
+	"walk": ["Walk", "Walk_Loop", "Zombie_Walk_Fwd"],
+	"run": ["Sprint", "Sprint_Loop", "Jog_Fwd"],
+	"attack_unarmed": ["Punch_Jab", "Melee_Hook", "Sword_Attack"],
+	"attack_armed": ["Sword_Attack", "Sword_Regular_A", "Melee_Hook"],
+	"loot": ["PickUp_Table", "Interact"],
+	"take_hit": ["Hit_Chest", "Hit_Head"],
+	"death": ["Death01"],
+}
 const STATION_SPACING := 1.6
 const SAMPLE_MAP_WIDTH := 32
 const SAMPLE_MAP_HEIGHT := 12
@@ -11,6 +23,10 @@ const LAYER_WEAPONS := "weapons"
 const LAYER_ARMOUR := "armour"
 const ARMOUR_RENDER_PROP := "modular_submesh_prop"
 const ARMOUR_PROP_ALL := "all"
+const PERSONA_NAME_LABEL_HEIGHT := 2.20
+const PERSONA_CLIP_LABEL_HEIGHT := 1.96
+const GLITCH_REAPER_NAME_LABEL_HEIGHT := 2.42
+const GLITCH_REAPER_CLIP_LABEL_HEIGHT := 2.18
 
 var current_weapon_tier := 0
 var current_armour_tier := 0
@@ -20,12 +36,15 @@ var weapon_by_tier := {0: "", 1: "", 2: "", 3: ""}
 var armour_by_tier := {0: "", 1: "", 2: "", 3: ""}
 var armour_prop_options := []
 var clip_labels: Dictionary = {}
+var glitch_reaper_animation_player: AnimationPlayer
+var glitch_reaper_clip_label: Label3D
+var glitch_reaper_current_clip := ""
 var selected_tier_buttons: Dictionary = {}
 var layer_enabled := {
 	LAYER_SKIN: true,
-	LAYER_GORE: true,
-	LAYER_WEAPONS: true,
-	LAYER_ARMOUR: true,
+	LAYER_GORE: false,
+	LAYER_WEAPONS: false,
+	LAYER_ARMOUR: false,
 }
 var fallback_material: StandardMaterial3D
 var armour_asset_selector: OptionButton
@@ -86,9 +105,20 @@ func _build_sample_environment() -> void:
 
 
 func _spawn_persona_row() -> void:
-	var offset := float(PERSONAS.size() - 1) * STATION_SPACING * 0.5
-	for i in range(PERSONAS.size()):
-		var persona := str(PERSONAS[i])
+	var total_stations := PERSONAS.size() + 1
+	var prototype_index := int(floor(float(total_stations) * 0.5))
+	var offset := float(total_stations - 1) * STATION_SPACING * 0.5
+	var persona_index := 0
+	for i in range(total_stations):
+		if i == prototype_index:
+			var prototype_station := Node3D.new()
+			prototype_station.name = "Station_glitch_reaper_prototype"
+			prototype_station.position = Vector3(float(i) * STATION_SPACING - offset, 0.0, 0.0)
+			persona_stations.add_child(prototype_station)
+			_spawn_glitch_reaper_prototype_station(prototype_station)
+			continue
+		var persona := str(PERSONAS[persona_index])
+		persona_index += 1
 		var station := Node3D.new()
 		station.name = "Station_%s" % persona
 		station.position = Vector3(float(i) * STATION_SPACING - offset, 0.0, 0.0)
@@ -107,11 +137,29 @@ func _spawn_persona_station(station: Node3D, persona: String) -> void:
 	station.add_child(character)
 	equipment_attachment.register_character(showroom_id, character, persona)
 	var source_key := _source_key_for_persona(persona)
-	var name_label := _make_label("NameLabel", "%s\n%s" % [persona, source_key], Vector3(0.0, 1.28, 0.0), 0.0048, 18)
+	var name_label := _make_label("NameLabel", "%s\n%s" % [persona, source_key], Vector3(0.0, PERSONA_NAME_LABEL_HEIGHT, 0.0), 0.0048, 18)
 	station.add_child(name_label)
-	var clip_label := _make_label("ClipLabel", "(idle/none)", Vector3(0.0, 1.06, 0.0), 0.0040, 12)
+	var clip_label := _make_label("ClipLabel", "(idle/none)", Vector3(0.0, PERSONA_CLIP_LABEL_HEIGHT, 0.0), 0.0040, 12)
 	station.add_child(clip_label)
 	clip_labels[showroom_id] = clip_label
+
+
+func _spawn_glitch_reaper_prototype_station(station: Node3D) -> void:
+	var scene = load(GLITCH_REAPER_PROTOTYPE_PATH)
+	if scene is PackedScene:
+		var instance = (scene as PackedScene).instantiate()
+		if instance is Node3D:
+			var visual := instance as Node3D
+			visual.name = "visual"
+			visual.scale = Vector3.ONE * GLITCH_REAPER_PROTOTYPE_SCALE
+			station.add_child(visual)
+			glitch_reaper_animation_player = _first_descendant_of_class(visual, "AnimationPlayer") as AnimationPlayer
+	else:
+		push_warning("Glitch Reaper prototype asset did not load: %s" % GLITCH_REAPER_PROTOTYPE_PATH)
+	var name_label := _make_label("NameLabel", "glitch_reaper\nreplacement_head_glb", Vector3(0.0, GLITCH_REAPER_NAME_LABEL_HEIGHT, 0.0), 0.0048, 18)
+	station.add_child(name_label)
+	glitch_reaper_clip_label = _make_label("ClipLabel", "(idle/none)", Vector3(0.0, GLITCH_REAPER_CLIP_LABEL_HEIGHT, 0.0), 0.0040, 12)
+	station.add_child(glitch_reaper_clip_label)
 
 
 func _make_label(label_name: String, label_text: String, label_position: Vector3, pixel_size: float, font_size: int) -> Label3D:
@@ -266,6 +314,7 @@ func _trigger_animation(kind: String) -> void:
 	for persona in PERSONAS:
 		var showroom_id := _showroom_id(str(persona))
 		equipment_attachment.play_character_animation(showroom_id, kind)
+	_play_glitch_reaper_animation(kind)
 	_update_clip_labels()
 
 
@@ -347,8 +396,8 @@ func _apply_surface_layers() -> void:
 func _build_tier_maps() -> void:
 	weapon_by_tier = _numeric_tier_map_for_assets("weapon_assets_by_name")
 	armour_by_tier = _armour_visual_tier_map()
-	current_weapon_tier = _default_visible_tier(weapon_by_tier)
-	current_armour_tier = _default_visible_tier(armour_by_tier)
+	current_weapon_tier = 0
+	current_armour_tier = 0
 
 
 func _build_armour_prop_options() -> void:
@@ -471,6 +520,8 @@ func _update_clip_labels() -> void:
 			continue
 		var state: Dictionary = equipment_attachment.animation_state_for_character(showroom_id)
 		clip_label.text = _clip_label_text(state)
+	if glitch_reaper_clip_label != null:
+		glitch_reaper_clip_label.text = glitch_reaper_current_clip if not glitch_reaper_current_clip.is_empty() else "(idle/none)"
 
 
 func _clip_label_text(state: Dictionary) -> String:
@@ -499,12 +550,46 @@ func _showroom_id(persona: String) -> String:
 	return "showroom-%s" % persona
 
 
+func _play_glitch_reaper_animation(kind: String) -> void:
+	if glitch_reaper_animation_player == null:
+		return
+	var clip := _first_glitch_reaper_clip(kind)
+	if clip.is_empty():
+		glitch_reaper_current_clip = "(missing %s)" % kind
+		return
+	glitch_reaper_animation_player.play(clip)
+	glitch_reaper_current_clip = clip
+
+
+func _first_glitch_reaper_clip(kind: String) -> String:
+	var candidates = GLITCH_REAPER_CLIP_FALLBACKS.get(kind, GLITCH_REAPER_CLIP_FALLBACKS.get("idle", []))
+	for candidate in candidates:
+		var clip := str(candidate)
+		if glitch_reaper_animation_player != null and glitch_reaper_animation_player.has_animation(clip):
+			return clip
+	return ""
+
+
+func _first_descendant_of_class(node: Node, target_class: String) -> Node:
+	if node == null:
+		return null
+	if node.is_class(target_class):
+		return node
+	for child in node.get_children():
+		var found := _first_descendant_of_class(child, target_class)
+		if found != null:
+			return found
+	return null
+
+
 func _make_materials() -> void:
 	fallback_material = StandardMaterial3D.new()
-	fallback_material.albedo_color = Color(0.62, 0.76, 0.82)
+	fallback_material.albedo_color = Color(0.025, 0.028, 0.032)
 	fallback_material.emission_enabled = true
-	fallback_material.emission = Color(0.2, 0.85, 1.0)
-	fallback_material.emission_energy_multiplier = 0.18
+	fallback_material.emission = Color(0.85, 0.05, 0.04)
+	fallback_material.emission_energy_multiplier = 0.08
+	fallback_material.metallic = 0.82
+	fallback_material.roughness = 0.34
 
 
 func _on_back_pressed() -> void:

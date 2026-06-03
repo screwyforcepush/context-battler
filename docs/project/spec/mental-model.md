@@ -170,6 +170,17 @@ How the substrate is grown, stated as enduring intent rather than a phase log:
   nominally about a finer axis. Surface-treatment rounds keep the body fixed
   and vary only the adhering layer (§13).
 
+- **Locking a winner preserves the validated *instance*, not just the
+  technique label.** What gets locked is the exact artifact the user saw and
+  approved — the specific texture, the specific mark set, the specific death
+  pose — not the category name it belongs to. Re-deriving the look from the
+  label in a later round ("everyone now uses the uv-painted approach")
+  homogenizes the personas and throws away the distinctive thing the user
+  actually chose. And a fix to one property (e.g. extending a texture to cover
+  the whole body) must never regress a separately-validated property (the
+  texture's richness, the personas' distinctiveness). Preserve-then-extend;
+  never rebuild-from-label.
+
 - **Breadth needs a dedicated viewing surface.** Once breadth-sampling
   is wide, chasing comparison moments in replay scrubs does not scale
   — the user cannot reliably evaluate 8 personas × N animation states
@@ -431,9 +442,11 @@ layers carry them.
   world-space-projected mapping "slides" on a deforming body but makes
   **cover** surfaces shimmer attractively as units move through them; flat
   pinned decals fail to wrap a body but point toward **armour** if done as a
-  true surface-conforming projection or a UV-painted region. Bankable
-  insights for where a technique meets its proper application surface — not
-  current-round work.
+  true surface-conforming projection or a UV-painted region; and the glowy
+  floating sticker-decal that failed as **skin** (it hovers off the body
+  instead of wrapping) is a natural **energy / forcefield armour** shell —
+  precisely *because* it floats and glows. Bankable insights for where a
+  technique meets its proper application surface — not current-round work.
 
 - This whole surface stays **§10-gated**: the consumer-render era, sequenced
   *after* the map pool and RNG slice. R&D de-risked the substrate direction;

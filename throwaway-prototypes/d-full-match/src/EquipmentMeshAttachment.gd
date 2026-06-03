@@ -3,6 +3,11 @@ extends Node
 const MANIFEST_PATH := "res://shared-harness/art-kit/manifest.json"
 const ART_ROOT := "res://shared-harness/art-kit/"
 const SKIN_UV2_SHADER_PATH := "shaders/uv2_body_texture.gdshader"
+const HELL_CYBORG_SKIN_ALBEDO := "textures/skin/hell-cyborg-face-body-albedo.png"
+const HELL_CYBORG_SKIN_EMISSION := "textures/skin/hell-cyborg-face-body-emission.png"
+const HUMAN_SKIN_BASE_ALBEDO := "textures/skin/cc0-theness-human-body-texture.png"
+const HUMAN_SKIN_ALBEDO := "textures/skin/human-face-body-albedo.png"
+const HUMAN_SKIN_EMISSION := "textures/skin/human-face-body-emission.png"
 const WEAPON_SOCKET_NAME := "weapon_socket"
 const ARMOUR_SOCKET_NAME := "armour_socket"
 const WEAPON_ATTACHMENT_SCALE := 0.22
@@ -31,6 +36,7 @@ var skin_mark_nodes_by_character: Dictionary = {}
 var corpse_mark_nodes_by_character: Dictionary = {}
 var corpse_bone_mutations_by_character: Dictionary = {}
 var armor_overlay_nodes_by_character: Dictionary = {}
+var character_design_nodes_by_character: Dictionary = {}
 var last_applied_skin_approach: Dictionary = {}
 var last_applied_corpse_approach: Dictionary = {}
 var currentArmourRenderMode := ARMOUR_RENDER_MODULAR
@@ -52,6 +58,7 @@ func configure(_root: Dictionary = {}) -> void:
 	corpse_mark_nodes_by_character.clear()
 	corpse_bone_mutations_by_character.clear()
 	armor_overlay_nodes_by_character.clear()
+	character_design_nodes_by_character.clear()
 	last_applied_skin_approach.clear()
 	last_applied_corpse_approach.clear()
 	currentArmourRenderMode = ARMOUR_RENDER_MODULAR
@@ -173,6 +180,7 @@ func register_character(character_id: String, character_node: Node3D, persona: S
 	var weapon_socket := _ensure_weapon_socket(character_node, skeleton, str(asset.get("attachBone", DEFAULT_WEAPON_ATTACH_BONE)))
 	_register_character_record(character_id, character_node, persona, asset, visual, weapon_socket, 0)
 	_apply_persona_skin(character_id, 0)
+	_apply_hell_cyborg_design(character_id)
 
 
 func _register_character_record(character_id: String, character_node: Node3D, persona: String, asset: Dictionary, visual: Node3D, weapon_socket: Node3D, armour_tier: int) -> void:
@@ -224,6 +232,7 @@ func _forget_registered_character(character_id: String) -> void:
 	corpse_mark_nodes_by_character.erase(character_id)
 	corpse_bone_mutations_by_character.erase(character_id)
 	armor_overlay_nodes_by_character.erase(character_id)
+	_clear_hell_cyborg_design(character_id)
 	last_applied_skin_approach.erase(character_id)
 	last_applied_corpse_approach.erase(character_id)
 
@@ -428,6 +437,7 @@ func tick(delta: float) -> void:
 		if flash != null:
 			flash.visible = flash_age < 0.36 or (socket != null and socket.scale.x > 1.04)
 			flash.scale = Vector3.ONE * (0.92 + max(0.0, 1.0 - flash_age / 0.36) * 0.45)
+		_tick_hell_cyborg_design(character_id, registered_characters.get(character_id, {}), delta)
 
 
 func _load_manifest() -> void:
@@ -704,6 +714,661 @@ func _record_armour_state(character_id: String, armour_name: String, armour_tier
 	character["usesArmourPaint"] = false
 	character["flashAge"] = 0.0
 	registered_characters[character_id] = character
+
+
+func _apply_hell_cyborg_design(character_id: String) -> void:
+	_clear_hell_cyborg_design(character_id)
+	if not registered_characters.has(character_id):
+		return
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var skeleton := character.get("skeleton") as Skeleton3D
+	if skeleton == null or not is_instance_valid(skeleton):
+		return
+	var persona := str(character.get("persona", ""))
+	var spec := _hell_cyborg_spec_for_persona(persona)
+	var materials := _hell_cyborg_materials(spec)
+	_apply_hell_cyborg_body_skin(character_id, int(character.get("bodyArmourTier", 0)))
+	_build_cyborg_head(character_id, skeleton, spec, materials)
+	_build_cyborg_torso(character_id, skeleton, spec, materials)
+	_build_cyborg_shoulders(character_id, skeleton, spec, materials)
+	_build_cyborg_arms(character_id, skeleton, spec, materials)
+	_build_cyborg_legs(character_id, skeleton, spec, materials)
+	_build_cyborg_cloth(character_id, skeleton, spec, materials)
+	_build_cyborg_back(character_id, skeleton, spec, materials)
+	_build_cyborg_glitch(character_id, skeleton, spec, materials)
+	character["designAge"] = 0.0
+	character["designVariant"] = str(spec.get("variant", "glitch_reaper"))
+	registered_characters[character_id] = character
+
+
+func _clear_hell_cyborg_design(character_id: String) -> void:
+	var nodes: Array = character_design_nodes_by_character.get(character_id, [])
+	for node_value in nodes:
+		var node := _valid_node(node_value)
+		if node != null:
+			_detach_and_free_node(node)
+	character_design_nodes_by_character.erase(character_id)
+
+
+func _tick_hell_cyborg_design(character_id: String, character: Dictionary, delta: float) -> void:
+	var nodes: Array = character_design_nodes_by_character.get(character_id, [])
+	if nodes.is_empty():
+		return
+	var age := float(character.get("designAge", 0.0)) + delta
+	character["designAge"] = age
+	registered_characters[character_id] = character
+	for node_value in nodes:
+		var node := _valid_node(node_value)
+		if node == null:
+			continue
+		_tick_cyborg_node(node, age)
+
+
+func _tick_cyborg_node(node: Node, age: float) -> void:
+	if node is MeshInstance3D:
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.has_meta("cyborg_pulse"):
+			var material := mesh_instance.material_override as StandardMaterial3D
+			if material != null:
+				var phase := float(mesh_instance.get_meta("cyborg_phase", 0.0))
+				var speed := float(mesh_instance.get_meta("cyborg_speed", 5.0))
+				var base_energy := float(mesh_instance.get_meta("cyborg_energy", material.emission_energy_multiplier))
+				var wave := 0.5 + 0.5 * sin(age * speed + phase)
+				material.emission_energy_multiplier = base_energy * (0.72 + wave * 0.42)
+		if mesh_instance.has_meta("cyborg_spin"):
+			var spin_phase := float(mesh_instance.get_meta("cyborg_phase", 0.0))
+			var spin_speed := float(mesh_instance.get_meta("cyborg_spin_speed", 20.0))
+			var spin_axis := str(mesh_instance.get_meta("cyborg_spin_axis", "z"))
+			var base_rotation = mesh_instance.get_meta("cyborg_base_rotation", mesh_instance.rotation_degrees)
+			if typeof(base_rotation) == TYPE_VECTOR3:
+				var base_rotation_vector: Vector3 = base_rotation
+				var spin_amount := age * spin_speed + sin(age * 9.0 + spin_phase) * 7.5
+				match spin_axis:
+					"x":
+						mesh_instance.rotation_degrees = base_rotation_vector + Vector3(spin_amount, 0.0, 0.0)
+					"y":
+						mesh_instance.rotation_degrees = base_rotation_vector + Vector3(0.0, spin_amount, 0.0)
+					_:
+						mesh_instance.rotation_degrees = base_rotation_vector + Vector3(0.0, 0.0, spin_amount)
+		if mesh_instance.has_meta("cyborg_glitch"):
+			var glitch_phase := float(mesh_instance.get_meta("cyborg_phase", 0.0))
+			var base_position = mesh_instance.get_meta("cyborg_base_position", mesh_instance.position)
+			if typeof(base_position) == TYPE_VECTOR3:
+				var base_vector: Vector3 = base_position
+				mesh_instance.position = base_vector + Vector3(
+					sin(age * 17.0 + glitch_phase) * 0.006,
+					cos(age * 13.0 + glitch_phase) * 0.004,
+					sin(age * 19.0 + glitch_phase) * 0.005
+				)
+			mesh_instance.visible = sin(age * 11.0 + glitch_phase) > -0.35
+	for child in node.get_children():
+		_tick_cyborg_node(child, age)
+
+
+func _hell_cyborg_spec_for_persona(persona: String) -> Dictionary:
+	var specs := {
+		"rat": {
+			"variant": "portal_shard_drone",
+			"metal": "#090c0f",
+			"secondary": "#2d3438",
+			"cloth": "#141111",
+			"glow": "#ff1d1d",
+			"glitch": "#36f4ff",
+			"bulk": 0.95,
+			"head_scale": 1.05,
+			"head_spikes": 3,
+			"shoulder_scale": 0.82,
+			"shoulder_spikes": 2,
+			"blade_sides": ["l", "r"],
+			"blade_len": 0.28,
+			"cloth_count": 2,
+			"glitch_count": 12,
+			"back_style": "shards",
+			"rune_count": 5,
+		},
+		"duelist": {
+			"variant": "glitch_reaper",
+			"metal": "#08090b",
+			"secondary": "#34383d",
+			"cloth": "#181113",
+			"glow": "#ff2020",
+			"glitch": "#20e6ff",
+			"bulk": 1.10,
+			"head_scale": 1.12,
+			"head_spikes": 5,
+			"shoulder_scale": 1.10,
+			"shoulder_spikes": 3,
+			"blade_sides": ["r"],
+			"blade_len": 0.62,
+			"cloth_count": 5,
+			"glitch_count": 15,
+			"back_style": "cables",
+			"rune_count": 8,
+		},
+		"trader": {
+			"variant": "portal_knight",
+			"metal": "#0b0b0c",
+			"secondary": "#4b3930",
+			"cloth": "#1b1010",
+			"glow": "#ff3a16",
+			"glitch": "#21c8ff",
+			"bulk": 1.36,
+			"head_scale": 1.16,
+			"head_spikes": 6,
+			"shoulder_scale": 1.55,
+			"shoulder_spikes": 4,
+			"blade_sides": ["l"],
+			"blade_len": 0.52,
+			"cloth_count": 5,
+			"glitch_count": 11,
+			"back_style": "cathedral",
+			"rune_count": 10,
+		},
+		"opportunist": {
+			"variant": "ash_wraith_cyborg",
+			"metal": "#0a0d10",
+			"secondary": "#232b30",
+			"cloth": "#111214",
+			"glow": "#e61625",
+			"glitch": "#60f8ff",
+			"bulk": 0.88,
+			"head_scale": 1.08,
+			"head_spikes": 5,
+			"shoulder_scale": 0.75,
+			"shoulder_spikes": 2,
+			"blade_sides": ["l", "r"],
+			"blade_len": 0.38,
+			"cloth_count": 7,
+			"glitch_count": 20,
+			"back_style": "cables",
+			"rune_count": 6,
+		},
+		"paranoid": {
+			"variant": "rune_executioner",
+			"metal": "#08070a",
+			"secondary": "#3a2d46",
+			"cloth": "#160b16",
+			"glow": "#ff1515",
+			"glitch": "#2ddcff",
+			"bulk": 1.25,
+			"head_scale": 1.15,
+			"head_spikes": 8,
+			"shoulder_scale": 1.35,
+			"shoulder_spikes": 4,
+			"blade_sides": ["l", "r"],
+			"blade_len": 0.72,
+			"cloth_count": 6,
+			"glitch_count": 16,
+			"back_style": "cathedral",
+			"rune_count": 12,
+		},
+		"camper": {
+			"variant": "ember_bastion",
+			"metal": "#090806",
+			"secondary": "#4a2a18",
+			"cloth": "#1a0d08",
+			"glow": "#ff4b18",
+			"glitch": "#26d7ff",
+			"bulk": 1.32,
+			"head_scale": 1.10,
+			"head_spikes": 5,
+			"shoulder_scale": 1.45,
+			"shoulder_spikes": 4,
+			"blade_sides": ["l", "r"],
+			"blade_len": 0.46,
+			"cloth_count": 6,
+			"glitch_count": 12,
+			"back_style": "shards",
+			"rune_count": 10,
+		},
+		"sprinter": {
+			"variant": "ash_wraith_cyborg",
+			"metal": "#080b0d",
+			"secondary": "#1f3034",
+			"cloth": "#101214",
+			"glow": "#ff1a2d",
+			"glitch": "#74f6ff",
+			"bulk": 0.86,
+			"head_scale": 1.05,
+			"head_spikes": 5,
+			"shoulder_scale": 0.72,
+			"shoulder_spikes": 2,
+			"blade_sides": ["l", "r"],
+			"blade_len": 0.38,
+			"cloth_count": 4,
+			"glitch_count": 22,
+			"back_style": "cables",
+			"rune_count": 6,
+		},
+		"vulture": {
+			"variant": "shard_reaper",
+			"metal": "#07090a",
+			"secondary": "#2f342b",
+			"cloth": "#10110c",
+			"glow": "#ff2418",
+			"glitch": "#8afff1",
+			"bulk": 1.05,
+			"head_scale": 1.10,
+			"head_spikes": 6,
+			"shoulder_scale": 1.08,
+			"shoulder_spikes": 3,
+			"blade_sides": ["l", "r"],
+			"blade_len": 0.56,
+			"cloth_count": 5,
+			"glitch_count": 18,
+			"back_style": "shards",
+			"rune_count": 8,
+		},
+	}
+	var value = specs.get(persona, specs.get("duelist", {}))
+	return (value as Dictionary).duplicate(true) if typeof(value) == TYPE_DICTIONARY else {}
+
+
+func _hell_cyborg_materials(spec: Dictionary) -> Dictionary:
+	var metal := _cyborg_material(
+		_color_from_hex(str(spec.get("metal", "#090b0d")), Color(0.04, 0.05, 0.06)),
+		_color_from_hex(str(spec.get("glow", "#ff2020")), Color(1.0, 0.1, 0.1)),
+		0.16,
+		0.86,
+		0.30
+	)
+	var secondary := _cyborg_material(
+		_color_from_hex(str(spec.get("secondary", "#34383d")), Color(0.20, 0.22, 0.24)),
+		_color_from_hex(str(spec.get("glow", "#ff2020")), Color(1.0, 0.1, 0.1)),
+		0.22,
+		0.72,
+		0.38
+	)
+	var cloth := _cyborg_material(
+		_color_from_hex(str(spec.get("cloth", "#151010")), Color(0.08, 0.06, 0.06)),
+		Color(0.20, 0.02, 0.01),
+		0.08,
+		0.04,
+		0.86
+	)
+	var glow := _cyborg_material(
+		_color_from_hex(str(spec.get("glow", "#ff2020")), Color(1.0, 0.1, 0.1)),
+		_color_from_hex(str(spec.get("glow", "#ff2020")), Color(1.0, 0.1, 0.1)),
+		4.2,
+		0.0,
+		0.18
+	)
+	var glitch := _cyborg_material(
+		_color_from_hex(str(spec.get("glitch", "#35e8ff")), Color(0.2, 0.9, 1.0)),
+		_color_from_hex(str(spec.get("glitch", "#35e8ff")), Color(0.2, 0.9, 1.0)),
+		2.65,
+		0.0,
+		0.22
+	)
+	return {
+		"metal": metal,
+		"secondary": secondary,
+		"cloth": cloth,
+		"glow": glow,
+		"glitch": glitch,
+	}
+
+
+func _cyborg_material(albedo: Color, emission: Color, energy: float, metallic: float, roughness: float) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = albedo
+	material.emission_enabled = energy > 0.0
+	material.emission = emission
+	material.emission_energy_multiplier = energy
+	material.metallic = clamp(metallic, 0.0, 1.0)
+	material.roughness = clamp(roughness, 0.02, 1.0)
+	return material
+
+
+func _apply_hell_cyborg_body_skin(character_id: String, armour_tier: int) -> void:
+	if not registered_characters.has(character_id):
+		return
+	var character: Dictionary = registered_characters.get(character_id, {})
+	var persona := str(character.get("persona", "duelist"))
+	var spec := _hell_cyborg_spec_for_persona(persona)
+	var params := _hell_cyborg_body_skin_params(spec)
+	if _bool_param_from_aliases(params, ["useVertexColorOverlay", "use_vertex_color_overlay"], false):
+		_apply_human_face_vertex_colors(character_id)
+	var material := _uv2_body_texture_material(
+		params,
+		_color_from_hex(str(spec.get("metal", "#090b0d")), Color(0.030, 0.032, 0.036)),
+		Color.WHITE,
+		armour_tier
+	)
+	_apply_material_to_body_meshes(character_id, material)
+
+
+func _hell_cyborg_body_skin_params(spec: Dictionary) -> Dictionary:
+	return {
+		"baseColor": "#d39a7a",
+		"tint": "#ffffff",
+		"metallicValue": 0.0,
+		"roughnessValue": 0.58,
+		"normalDepth": 0.0,
+		"aoStrength": 0.72,
+		"useProceduralHumanFace": false,
+		"useVertexColorOverlay": true,
+		"vertexColorOverlayStrength": 1.0,
+		"uvAlbedoOverlay": HUMAN_SKIN_ALBEDO,
+		"uvEmissionOverlay": HUMAN_SKIN_EMISSION,
+		"uvOverlayStrength": 0.0,
+		"uvEmissionEnergy": 0.0,
+		"uv2_scale": [1.0, 1.0],
+	}
+
+
+func _apply_human_face_vertex_colors(character_id: String) -> void:
+	for mesh in _body_meshes_for_character(character_id):
+		var mesh_instance := mesh as MeshInstance3D
+		if mesh_instance == null or not is_instance_valid(mesh_instance):
+			continue
+		if bool(mesh_instance.get_meta("human_face_vertex_colors_applied", false)):
+			continue
+		var colored_mesh := _mesh_with_human_face_vertex_colors(mesh_instance.mesh)
+		if colored_mesh == null:
+			continue
+		mesh_instance.mesh = colored_mesh
+		mesh_instance.set_meta("human_face_vertex_colors_applied", true)
+
+
+func _mesh_with_human_face_vertex_colors(source_mesh: Mesh) -> ArrayMesh:
+	if source_mesh == null:
+		return null
+	var out := ArrayMesh.new()
+	for surface in range(source_mesh.get_surface_count()):
+		var arrays := source_mesh.surface_get_arrays(surface)
+		if arrays.is_empty():
+			continue
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var colors := PackedColorArray()
+		colors.resize(vertices.size())
+		for i in range(vertices.size()):
+			colors[i] = _human_face_vertex_color(vertices[i])
+		arrays[Mesh.ARRAY_COLOR] = colors
+		out.add_surface_from_arrays(source_mesh.surface_get_primitive_type(surface), arrays)
+		var surface_material := source_mesh.surface_get_material(surface)
+		if surface_material != null:
+			out.surface_set_material(out.get_surface_count() - 1, surface_material)
+	return out
+
+
+func _human_face_vertex_color(vertex: Vector3) -> Color:
+	var overlay := Color(0.0, 0.0, 0.0, 0.0)
+	var front := _smoothstep_float(0.026, 0.074, vertex.z)
+	var face_y := _band_mask_float(vertex.y, 1.405, 1.820, 0.020)
+	var face_x: float = 1.0 - _smoothstep_float(0.112, 0.165, abs(vertex.x))
+	var face := front * face_y * face_x
+	overlay = _blend_overlay_color(overlay, Color(0.820, 0.545, 0.405, face * 0.30))
+
+	var point := Vector2(vertex.x, vertex.y)
+	var left_eye_white := _ellipse_mask_float(point, Vector2(-0.056, 1.656), Vector2(0.048, 0.032)) * front
+	var right_eye_white := _ellipse_mask_float(point, Vector2(0.056, 1.656), Vector2(0.048, 0.032)) * front
+	overlay = _blend_overlay_color(overlay, Color(0.960, 0.900, 0.810, clamp(left_eye_white + right_eye_white, 0.0, 1.0)))
+
+	var left_pupil := _ellipse_mask_float(point, Vector2(-0.056, 1.654), Vector2(0.019, 0.022)) * front
+	var right_pupil := _ellipse_mask_float(point, Vector2(0.056, 1.654), Vector2(0.019, 0.022)) * front
+	overlay = _blend_overlay_color(overlay, Color(0.020, 0.012, 0.008, clamp(left_pupil + right_pupil, 0.0, 1.0)))
+
+	var brow_l := _ellipse_mask_float(point, Vector2(-0.057, 1.704), Vector2(0.060, 0.014)) * front
+	var brow_r := _ellipse_mask_float(point, Vector2(0.057, 1.704), Vector2(0.060, 0.014)) * front
+	overlay = _blend_overlay_color(overlay, Color(0.175, 0.085, 0.052, clamp((brow_l + brow_r) * 0.85, 0.0, 1.0)))
+
+	var nose := _ellipse_mask_float(point, Vector2(0.000, 1.585), Vector2(0.022, 0.068)) * front
+	overlay = _blend_overlay_color(overlay, Color(0.690, 0.335, 0.245, nose * 0.58))
+
+	var upper_lip := _ellipse_mask_float(point, Vector2(0.000, 1.503), Vector2(0.090, 0.016)) * front
+	var lower_lip := _ellipse_mask_float(point, Vector2(0.000, 1.484), Vector2(0.080, 0.015)) * front
+	overlay = _blend_overlay_color(overlay, Color(0.450, 0.110, 0.105, clamp(upper_lip + lower_lip * 0.75, 0.0, 1.0)))
+	return overlay
+
+
+func _blend_overlay_color(dst: Color, src: Color) -> Color:
+	if src.a <= 0.0:
+		return dst
+	var out_alpha := src.a + dst.a * (1.0 - src.a)
+	if out_alpha <= 0.0001:
+		return Color(0.0, 0.0, 0.0, 0.0)
+	return Color(
+		(src.r * src.a + dst.r * dst.a * (1.0 - src.a)) / out_alpha,
+		(src.g * src.a + dst.g * dst.a * (1.0 - src.a)) / out_alpha,
+		(src.b * src.a + dst.b * dst.a * (1.0 - src.a)) / out_alpha,
+		out_alpha
+	)
+
+
+func _band_mask_float(value: float, low: float, high: float, feather: float) -> float:
+	return _smoothstep_float(low - feather, low + feather, value) * (1.0 - _smoothstep_float(high - feather, high + feather, value))
+
+
+func _ellipse_mask_float(point: Vector2, center: Vector2, radius: Vector2) -> float:
+	var delta := Vector2((point.x - center.x) / radius.x, (point.y - center.y) / radius.y)
+	return 1.0 - _smoothstep_float(0.72, 1.0, delta.dot(delta))
+
+
+func _smoothstep_float(edge0: float, edge1: float, value: float) -> float:
+	if is_equal_approx(edge0, edge1):
+		return 1.0 if value >= edge1 else 0.0
+	var t: float = clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
+
+
+func _build_cyborg_head(character_id: String, skeleton: Skeleton3D, spec: Dictionary, materials: Dictionary) -> void:
+	var head_scale: float = float(spec.get("head_scale", 1.0))
+	var spike_count: int = max(0, int(spec.get("head_spikes", 2)))
+	for i in range(spike_count):
+		var t: float = 0.0 if spike_count <= 1 else inverse_lerp(0.0, float(spike_count - 1), float(i))
+		var x: float = lerp(-0.105, 0.105, t)
+		var z: float = -0.052 if i % 2 == 0 else -0.028
+		var height: float = (0.140 + 0.030 * float(i % 3)) * head_scale
+		_add_cyborg_cone(character_id, skeleton, "head", "crown_spike_%02d" % i, 0.018 * head_scale, height, Vector3(x, 0.248, z), Vector3(18.0, 0.0, lerp(24.0, -24.0, t)), materials["secondary"])
+		if i % 2 == 0:
+			_add_cyborg_box(character_id, skeleton, "head", "crown_glitch_rune_%02d" % i, Vector3(0.010, 0.056, 0.012) * head_scale, Vector3(x * 0.72, 0.220, -0.036), Vector3(0.0, 0.0, lerp(-30.0, 30.0, t)), materials["glitch"], true, float(i) * 0.55)
+	_add_cyborg_cylinder(character_id, skeleton, "head", "back_antenna_l", 0.007 * head_scale, 0.190 * head_scale, Vector3(-0.060, 0.205, -0.072), Vector3(16.0, 0.0, -12.0), materials["metal"])
+	_add_cyborg_cylinder(character_id, skeleton, "head", "back_antenna_r", 0.007 * head_scale, 0.190 * head_scale, Vector3(0.060, 0.205, -0.072), Vector3(16.0, 0.0, 12.0), materials["metal"])
+
+
+func _build_cyborg_torso(character_id: String, skeleton: Skeleton3D, spec: Dictionary, materials: Dictionary) -> void:
+	var bulk: float = float(spec.get("bulk", 1.0))
+	_add_cyborg_sphere(character_id, skeleton, "spine_03", "molten_core", 0.066 * bulk, Vector3(0.0, -0.022, 0.145), materials["glow"], true, 2.6)
+	_add_cyborg_cylinder(character_id, skeleton, "spine_03", "core_spine", 0.023 * bulk, 0.335 * bulk, Vector3(0.0, -0.030, 0.122), Vector3.ZERO, materials["glow"], true, 3.3)
+	_add_cyborg_box(character_id, skeleton, "spine_03", "black_sternum", Vector3(0.040 * bulk, 0.255, 0.026), Vector3(0.0, -0.020, 0.154), Vector3.ZERO, materials["metal"])
+	for i in range(7):
+		var y: float = 0.088 - float(i) * 0.032
+		var rib_width: float = (0.120 + float(i) * 0.014) * bulk
+		_add_cyborg_box(character_id, skeleton, "spine_03", "rib_l_%02d" % i, Vector3(rib_width, 0.020, 0.027), Vector3(-0.088 * bulk, y, 0.121), Vector3(0.0, 0.0, -13.0 - float(i) * 2.4), materials["secondary"])
+		_add_cyborg_box(character_id, skeleton, "spine_03", "rib_r_%02d" % i, Vector3(rib_width, 0.020, 0.027), Vector3(0.088 * bulk, y, 0.121), Vector3(0.0, 0.0, 13.0 + float(i) * 2.4), materials["secondary"])
+		if i % 2 == 0:
+			_add_cyborg_box(character_id, skeleton, "spine_03", "rib_molten_gap_%02d" % i, Vector3(0.080 * bulk, 0.008, 0.012), Vector3(0.0, y - 0.010, 0.162), Vector3(0.0, 0.0, 5.0 if i % 4 == 0 else -5.0), materials["glow"], true, float(i) * 0.47)
+	var rune_count: int = max(0, int(spec.get("rune_count", 3)))
+	for i in range(rune_count):
+		var column: int = i % 4
+		var row: int = floori(float(i) / 4.0)
+		var x: float = -0.078 + float(column) * 0.052
+		var y: float = -0.112 - float(row) * 0.030
+		var slash_height: float = 0.056 + 0.018 * float(i % 2)
+		_add_cyborg_box(character_id, skeleton, "spine_02", "rune_slash_%02d" % i, Vector3(0.011, slash_height, 0.012), Vector3(x, y, 0.134), Vector3(0.0, 0.0, -38.0 + float(column) * 25.0), materials["glow"], true, float(i) * 0.9)
+	for i in range(4):
+		_add_cyborg_box(character_id, skeleton, "spine_03", "molten_fissure_%02d" % i, Vector3(0.012, 0.120, 0.014), Vector3(-0.072 + float(i) * 0.048, -0.040 + float(i % 2) * 0.040, 0.168), Vector3(0.0, 0.0, -42.0 + float(i) * 28.0), materials["glow"], true, 3.8 + float(i) * 0.5)
+	if str(spec.get("back_style", "")) == "cathedral":
+		_add_cyborg_box(character_id, skeleton, "spine_03", "cathedral_chest_plate", Vector3(0.205 * bulk, 0.150, 0.038), Vector3(0.0, 0.028, 0.104), Vector3.ZERO, materials["metal"])
+		_add_cyborg_cone(character_id, skeleton, "spine_03", "cathedral_sternum_spike", 0.025 * bulk, 0.185, Vector3(0.0, 0.132, 0.112), Vector3.ZERO, materials["secondary"])
+		_add_cyborg_box(character_id, skeleton, "spine_03", "cathedral_plate_rune", Vector3(0.018, 0.120, 0.014), Vector3(0.0, 0.026, 0.132), Vector3(0.0, 0.0, 0.0), materials["glow"], true, 5.2)
+
+
+func _build_cyborg_shoulders(character_id: String, skeleton: Skeleton3D, spec: Dictionary, materials: Dictionary) -> void:
+	var shoulder_scale: float = float(spec.get("shoulder_scale", 0.9))
+	var spike_count: int = max(0, int(spec.get("shoulder_spikes", 1)))
+	for side in ["l", "r"]:
+		var bone := "upperarm_%s" % side
+		var side_sign: float = -1.0 if side == "l" else 1.0
+		_add_cyborg_box(character_id, skeleton, bone, "pauldron_%s" % side, Vector3(0.130, 0.086, 0.108) * shoulder_scale, Vector3(0.0, 0.070, 0.034), Vector3(0.0, 0.0, 20.0 if side == "l" else -20.0), materials["metal"])
+		_add_cyborg_box(character_id, skeleton, bone, "pauldron_outer_blade_%s" % side, Vector3(0.036, 0.170, 0.032) * shoulder_scale, Vector3(side_sign * 0.064, 0.090, 0.042), Vector3(0.0, 0.0, 38.0 if side == "l" else -38.0), materials["secondary"])
+		_add_cyborg_box(character_id, skeleton, bone, "pauldron_crack_%s" % side, Vector3(0.010, 0.090, 0.014) * shoulder_scale, Vector3(side_sign * 0.010, 0.086, 0.096), Vector3(0.0, 0.0, -28.0 if side == "l" else 28.0), materials["glow"], true, 2.0 if side == "l" else 2.7)
+		for i in range(spike_count):
+			var t: float = 0.0 if spike_count <= 1 else inverse_lerp(0.0, float(spike_count - 1), float(i))
+			_add_cyborg_cone(character_id, skeleton, bone, "pauldron_spike_%s_%02d" % [side, i], 0.019 * shoulder_scale, (0.128 + 0.024 * float(i % 2)) * shoulder_scale, Vector3(lerp(-0.055, 0.055, t), 0.142 + float(i % 2) * 0.020, 0.028), Vector3(0.0, 0.0, 24.0 if side == "l" else -24.0), materials["secondary"])
+
+
+func _build_cyborg_arms(character_id: String, skeleton: Skeleton3D, spec: Dictionary, materials: Dictionary) -> void:
+	var blade_sides := _array_from_value(spec.get("blade_sides", []))
+	var blade_len: float = float(spec.get("blade_len", 0.34))
+	var bulk: float = float(spec.get("bulk", 1.0))
+	for side in ["l", "r"]:
+		var forearm_bone := "lowerarm_%s" % side
+		var hand_bone := "hand_%s" % side
+		_add_cyborg_box(character_id, skeleton, forearm_bone, "forearm_splint_%s" % side, Vector3(0.062 * bulk, 0.235, 0.042), Vector3(0.0, -0.038, 0.050), Vector3.ZERO, materials["secondary"])
+		_add_cyborg_box(character_id, skeleton, forearm_bone, "forearm_molten_rail_%s" % side, Vector3(0.012, 0.180, 0.012), Vector3(0.028 if side == "l" else -0.028, -0.035, 0.081), Vector3(0.0, 0.0, 9.0 if side == "l" else -9.0), materials["glow"], true, 1.1 if side == "l" else 1.8)
+		if blade_sides.has(side):
+			_add_cyborg_box(character_id, skeleton, forearm_bone, "hell_blade_%s" % side, Vector3(0.052, blade_len, 0.024), Vector3(0.0, -0.105, 0.112), Vector3(0.0, 0.0, 6.0 if side == "l" else -6.0), materials["metal"])
+			_add_cyborg_box(character_id, skeleton, forearm_bone, "hell_blade_edge_%s" % side, Vector3(0.014, blade_len * 0.88, 0.014), Vector3(0.034 if side == "l" else -0.034, -0.105, 0.130), Vector3(0.0, 0.0, 6.0 if side == "l" else -6.0), materials["glow"], true, 1.3 if side == "l" else 2.1)
+			_add_cyborg_box(character_id, skeleton, forearm_bone, "hell_blade_back_edge_%s" % side, Vector3(0.010, blade_len * 0.72, 0.012), Vector3(-0.030 if side == "l" else 0.030, -0.095, 0.124), Vector3(0.0, 0.0, -4.0 if side == "l" else 4.0), materials["glitch"], true, 3.3 if side == "l" else 3.9)
+			_add_cyborg_cone(character_id, skeleton, forearm_bone, "hell_blade_tip_%s" % side, 0.025, 0.115, Vector3(0.0, -0.125 - blade_len * 0.50, 0.112), Vector3(0.0, 0.0, 6.0 if side == "l" else -6.0), materials["secondary"])
+		else:
+			for claw_index in range(4):
+				var claw_x: float = (float(claw_index) - 1.5) * 0.018
+				_add_cyborg_box(character_id, skeleton, hand_bone, "claw_%s_%02d" % [side, claw_index], Vector3(0.012, 0.132, 0.012), Vector3(claw_x, -0.046, 0.066), Vector3(22.0, 0.0, (float(claw_index) - 1.5) * 10.0), materials["secondary"])
+				_add_cyborg_sphere(character_id, skeleton, hand_bone, "claw_tip_glow_%s_%02d" % [side, claw_index], 0.009, Vector3(claw_x, -0.108, 0.085), materials["glow"], true, float(claw_index) * 0.4)
+
+
+func _build_cyborg_legs(character_id: String, skeleton: Skeleton3D, spec: Dictionary, materials: Dictionary) -> void:
+	var bulk: float = float(spec.get("bulk", 1.0))
+	for side in ["l", "r"]:
+		var bone := "thigh_%s" % side
+		_add_cyborg_box(character_id, skeleton, bone, "thigh_rail_%s" % side, Vector3(0.074 * bulk, 0.250, 0.040), Vector3(0.0, -0.078, 0.048), Vector3(0.0, 0.0, 7.0 if side == "l" else -7.0), materials["secondary"])
+		_add_cyborg_box(character_id, skeleton, bone, "thigh_side_blade_%s" % side, Vector3(0.026, 0.208, 0.026), Vector3(0.044 if side == "l" else -0.044, -0.078, 0.060), Vector3(0.0, 0.0, 19.0 if side == "l" else -19.0), materials["metal"])
+		_add_cyborg_box(character_id, skeleton, bone, "knee_rune_%s" % side, Vector3(0.048, 0.022, 0.012), Vector3(0.0, -0.205, 0.080), Vector3(0.0, 0.0, 35.0 if side == "l" else -35.0), materials["glow"], true, 4.0 if side == "l" else 4.8)
+		_add_cyborg_box(character_id, skeleton, bone, "knee_spike_%s" % side, Vector3(0.044, 0.070, 0.024), Vector3(0.0, -0.232, 0.096), Vector3(20.0, 0.0, 0.0), materials["secondary"])
+		var lower_bone := "lowerleg_%s" % side
+		_add_cyborg_box(character_id, skeleton, lower_bone, "shin_core_%s" % side, Vector3(0.052 * bulk, 0.208, 0.036), Vector3(0.0, -0.055, 0.046), Vector3(0.0, 0.0, -5.0 if side == "l" else 5.0), materials["secondary"])
+		_add_cyborg_box(character_id, skeleton, lower_bone, "shin_glow_%s" % side, Vector3(0.012, 0.150, 0.012), Vector3(0.026 if side == "l" else -0.026, -0.050, 0.072), Vector3(0.0, 0.0, 8.0 if side == "l" else -8.0), materials["glow"], true, 5.1 if side == "l" else 5.8)
+
+
+func _build_cyborg_cloth(character_id: String, skeleton: Skeleton3D, spec: Dictionary, materials: Dictionary) -> void:
+	var strip_count: int = max(0, int(spec.get("cloth_count", 2)))
+	for i in range(strip_count):
+		var t: float = 0.5 if strip_count <= 1 else inverse_lerp(0.0, float(strip_count - 1), float(i))
+		var x: float = lerp(-0.135, 0.135, t)
+		var length: float = 0.190 + 0.054 * float(i % 4)
+		var width: float = 0.034 + 0.008 * float((i + 1) % 2)
+		_add_cyborg_box(character_id, skeleton, "spine_01", "burnt_cloth_%02d" % i, Vector3(width, length, 0.014), Vector3(x, -0.166 - length * 0.19, 0.086), Vector3(0.0, 0.0, lerp(-20.0, 20.0, t)), materials["cloth"])
+		if i % 2 == 0:
+			_add_cyborg_box(character_id, skeleton, "spine_01", "embered_cloth_edge_%02d" % i, Vector3(width * 0.55, 0.012, 0.010), Vector3(x, -0.172 - length * 0.72, 0.100), Vector3(0.0, 0.0, lerp(-22.0, 22.0, t)), materials["glow"], true, float(i) * 0.6)
+
+
+func _build_cyborg_back(character_id: String, skeleton: Skeleton3D, spec: Dictionary, materials: Dictionary) -> void:
+	var style := str(spec.get("back_style", "shards"))
+	match style:
+		"cathedral":
+			for i in range(5):
+				var x: float = (float(i) - 2.0) * 0.052
+				var height: float = 0.175 + float(2 - abs(i - 2)) * 0.035
+				_add_cyborg_cone(character_id, skeleton, "spine_03", "back_cathedral_spire_%02d" % i, 0.022, height, Vector3(x, 0.078 + float(i % 2) * 0.026, -0.135), Vector3(20.0, 0.0, 0.0), materials["secondary"])
+				_add_cyborg_box(character_id, skeleton, "spine_03", "back_spire_rune_%02d" % i, Vector3(0.009, 0.072, 0.010), Vector3(x, 0.070, -0.110), Vector3(0.0, 0.0, -18.0 + float(i) * 9.0), materials["glow"], true, float(i) * 0.42)
+		"cables":
+			for i in range(6):
+				_add_cyborg_cylinder(character_id, skeleton, "spine_03", "corrupt_cable_%02d" % i, 0.008, 0.285 + float(i % 2) * 0.045, Vector3((float(i) - 2.5) * 0.026, -0.060 + float(i % 2) * 0.020, -0.128), Vector3(10.0, 0.0, -16.0 + float(i) * 7.0), materials["metal"])
+				if i % 2 == 0:
+					_add_cyborg_box(character_id, skeleton, "spine_03", "cable_glitch_break_%02d" % i, Vector3(0.016, 0.040, 0.014), Vector3((float(i) - 2.5) * 0.026, -0.120, -0.112), Vector3(float(i) * 12.0, 0.0, float(i) * 8.0), materials["glitch"], true, float(i) * 0.52)
+		_:
+			for i in range(7):
+				_add_cyborg_box(character_id, skeleton, "spine_03", "portal_shard_%02d" % i, Vector3(0.034, 0.165 + float(i % 3) * 0.046, 0.016), Vector3((float(i) - 3.0) * 0.041, 0.012 + float(i % 2) * 0.046, -0.136), Vector3(24.0, 0.0, -30.0 + float(i) * 10.0), materials["secondary"])
+				if i % 3 == 0:
+					_add_cyborg_box(character_id, skeleton, "spine_03", "portal_shard_red_core_%02d" % i, Vector3(0.010, 0.090, 0.010), Vector3((float(i) - 3.0) * 0.041, 0.024, -0.116), Vector3(18.0, 0.0, -26.0 + float(i) * 10.0), materials["glow"], true, float(i) * 0.31)
+
+
+func _build_cyborg_glitch(character_id: String, skeleton: Skeleton3D, spec: Dictionary, materials: Dictionary) -> void:
+	var count: int = max(0, int(spec.get("glitch_count", 5)))
+	var bones := ["head", "spine_03", "spine_02", "hand_l", "hand_r", "lowerarm_l", "lowerarm_r", "thigh_l", "thigh_r"]
+	var offsets := [
+		Vector3(0.150, 0.180, 0.072),
+		Vector3(-0.150, 0.075, -0.030),
+		Vector3(0.130, -0.042, 0.150),
+		Vector3(-0.095, -0.040, 0.090),
+		Vector3(0.095, -0.050, 0.090),
+		Vector3(-0.080, -0.035, 0.096),
+		Vector3(0.078, -0.030, 0.096),
+		Vector3(-0.070, -0.132, 0.054),
+		Vector3(0.072, -0.120, 0.054),
+	]
+	for i in range(count):
+		var bone := str(bones[i % bones.size()])
+		var size: float = 0.022 + float(i % 4) * 0.007
+		var bar_scale := Vector3(size * (1.0 + float(i % 3) * 1.7), size, size * 0.65)
+		var mesh_instance := _add_cyborg_box(character_id, skeleton, bone, "glitch_pixel_%02d" % i, bar_scale, offsets[i % offsets.size()], Vector3(float(i * 17 % 70), float(i * 29 % 80), float(i * 11 % 75)), materials["glitch"], false, float(i) * 0.71)
+		if mesh_instance != null:
+			mesh_instance.set_meta("cyborg_glitch", true)
+			mesh_instance.set_meta("cyborg_phase", float(i) * 0.83)
+			mesh_instance.set_meta("cyborg_base_position", mesh_instance.position)
+		if i % 4 == 0:
+			var tear := _add_cyborg_box(character_id, skeleton, bone, "red_data_tear_%02d" % i, Vector3(size * 0.55, size * 4.2, size * 0.45), offsets[(i + 3) % offsets.size()] + Vector3(0.0, -0.020, 0.028), Vector3(0.0, 0.0, -34.0 + float(i % 7) * 11.0), materials["glow"], true, float(i) * 0.36)
+			if tear != null:
+				tear.set_meta("cyborg_glitch", true)
+				tear.set_meta("cyborg_phase", float(i) * 0.58)
+				tear.set_meta("cyborg_base_position", tear.position)
+
+
+func _add_cyborg_box(character_id: String, skeleton: Skeleton3D, bone: String, label: String, size: Vector3, position: Vector3, rotation_degrees: Vector3, material: Material, pulse: bool = false, phase: float = 0.0) -> MeshInstance3D:
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	return _add_cyborg_mesh(character_id, skeleton, bone, label, mesh, position, rotation_degrees, material, pulse, phase)
+
+
+func _add_cyborg_sphere(character_id: String, skeleton: Skeleton3D, bone: String, label: String, radius: float, position: Vector3, material: Material, pulse: bool = false, phase: float = 0.0) -> MeshInstance3D:
+	var mesh := SphereMesh.new()
+	mesh.radius = max(radius, 0.004)
+	mesh.height = max(radius * 2.0, 0.008)
+	return _add_cyborg_mesh(character_id, skeleton, bone, label, mesh, position, Vector3.ZERO, material, pulse, phase)
+
+
+func _add_cyborg_cylinder(character_id: String, skeleton: Skeleton3D, bone: String, label: String, radius: float, height: float, position: Vector3, rotation_degrees: Vector3, material: Material, pulse: bool = false, phase: float = 0.0) -> MeshInstance3D:
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = max(radius, 0.002)
+	mesh.bottom_radius = max(radius, 0.002)
+	mesh.height = max(height, 0.006)
+	return _add_cyborg_mesh(character_id, skeleton, bone, label, mesh, position, rotation_degrees, material, pulse, phase)
+
+
+func _add_cyborg_cone(character_id: String, skeleton: Skeleton3D, bone: String, label: String, radius: float, height: float, position: Vector3, rotation_degrees: Vector3, material: Material, pulse: bool = false, phase: float = 0.0) -> MeshInstance3D:
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.0
+	mesh.bottom_radius = max(radius, 0.002)
+	mesh.height = max(height, 0.006)
+	return _add_cyborg_mesh(character_id, skeleton, bone, label, mesh, position, rotation_degrees, material, pulse, phase)
+
+
+func _add_cyborg_mesh(character_id: String, skeleton: Skeleton3D, bone: String, label: String, mesh: Mesh, position: Vector3, rotation_degrees: Vector3, material: Material, pulse: bool, phase: float) -> MeshInstance3D:
+	if skeleton == null or not is_instance_valid(skeleton) or skeleton.find_bone(bone) < 0:
+		return null
+	var attachment := BoneAttachment3D.new()
+	attachment.name = _unique_child_name(skeleton, "cyborg_%s_%s" % [bone, label])
+	attachment.bone_name = bone
+	skeleton.add_child(attachment)
+	var mesh_instance := MeshInstance3D.new()
+	mesh_instance.name = label
+	mesh_instance.mesh = mesh
+	mesh_instance.material_override = material
+	mesh_instance.position = position
+	mesh_instance.rotation_degrees = rotation_degrees
+	attachment.add_child(mesh_instance)
+	if pulse:
+		if material is StandardMaterial3D:
+			mesh_instance.material_override = (material as StandardMaterial3D).duplicate(true)
+		mesh_instance.set_meta("cyborg_pulse", true)
+		mesh_instance.set_meta("cyborg_phase", phase)
+		mesh_instance.set_meta("cyborg_speed", 4.6 + fmod(abs(phase), 2.0))
+		var pulse_material := mesh_instance.material_override as StandardMaterial3D
+		if pulse_material != null:
+			mesh_instance.set_meta("cyborg_energy", pulse_material.emission_energy_multiplier)
+	_track_cyborg_design_node(character_id, attachment)
+	return mesh_instance
+
+
+func _track_cyborg_design_node(character_id: String, node: Node) -> void:
+	if not character_design_nodes_by_character.has(character_id):
+		character_design_nodes_by_character[character_id] = []
+	var nodes: Array = character_design_nodes_by_character.get(character_id, [])
+	nodes.append(node)
+	character_design_nodes_by_character[character_id] = nodes
 
 
 func _armour_prop_id(armor_overlay_block: Dictionary) -> String:
@@ -1166,6 +1831,7 @@ func _apply_persona_skin(character_id: String, armour_tier: int) -> void:
 			push_warning("unknown skin.approach: %s; falling back to palette_flat" % approach)
 			applied_approach = "palette_flat"
 			_apply_skin_palette_flat(character_id, skin, body_tier)
+	_apply_hell_cyborg_body_skin(character_id, body_tier)
 	last_applied_skin_approach[character_id] = applied_approach
 	character = registered_characters.get(character_id, {})
 	character["armourTier"] = max(0, armour_tier)
@@ -1603,6 +2269,11 @@ func _uv2_body_texture_material(params: Dictionary, fallback_color: Color, fallb
 	material.set_shader_parameter("metallic", _float_param_from_aliases(params, ["metallicValue", "metallic_value"], 0.0))
 	material.set_shader_parameter("normal_depth", _float_param_from_aliases(params, ["normalDepth", "normal_depth"], 1.0))
 	material.set_shader_parameter("ao_strength", _float_param_from_aliases(params, ["aoStrength", "ao_strength"], 1.0))
+	material.set_shader_parameter("uv_overlay_strength", _float_param_from_aliases(params, ["uvOverlayStrength", "uv_overlay_strength"], 1.0))
+	material.set_shader_parameter("uv_emission_energy", _float_param_from_aliases(params, ["uvEmissionEnergy", "uv_emission_energy"], 1.0))
+	material.set_shader_parameter("use_procedural_human_face", _bool_param_from_aliases(params, ["useProceduralHumanFace", "use_procedural_human_face"], false))
+	material.set_shader_parameter("use_vertex_color_overlay", _bool_param_from_aliases(params, ["useVertexColorOverlay", "use_vertex_color_overlay"], false))
+	material.set_shader_parameter("vertex_color_overlay_strength", _float_param_from_aliases(params, ["vertexColorOverlayStrength", "vertex_color_overlay_strength"], 1.0))
 	material.set_shader_parameter("armour_tier", armour_tier)
 	material.set_shader_parameter("armour_amount", clamp(float(armour_tier) / 4.0, 0.0, 1.0))
 	_set_uv2_texture_param(material, params, ["albedo", "albedoTexture", "texture", "patternTexture"], "albedo_texture", "use_albedo_texture")
@@ -1610,6 +2281,8 @@ func _uv2_body_texture_material(params: Dictionary, fallback_color: Color, fallb
 	_set_uv2_texture_param(material, params, ["roughness", "roughnessTexture"], "roughness_texture", "use_roughness_texture")
 	_set_uv2_texture_param(material, params, ["metallic", "metallicTexture"], "metallic_texture", "use_metallic_texture")
 	_set_uv2_texture_param(material, params, ["ao", "aoTexture", "ambientOcclusion"], "ao_texture", "use_ao_texture")
+	_set_uv2_texture_param(material, params, ["uvAlbedoOverlay", "uv_albedo_overlay", "faceAlbedo", "faceTexture"], "uv_albedo_overlay", "use_uv_albedo_overlay")
+	_set_uv2_texture_param(material, params, ["uvEmissionOverlay", "uv_emission_overlay", "faceEmission", "emissionTexture"], "uv_emission_overlay", "use_uv_emission_overlay")
 	return material
 
 
@@ -1753,6 +2426,23 @@ func _float_param_from_aliases(params: Dictionary, keys: Array[String], fallback
 		var value = params.get(key, null)
 		if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
 			return float(value)
+	return fallback
+
+
+func _bool_param_from_aliases(params: Dictionary, keys: Array[String], fallback: bool) -> bool:
+	for key in keys:
+		var value = params.get(key, null)
+		match typeof(value):
+			TYPE_BOOL:
+				return bool(value)
+			TYPE_INT, TYPE_FLOAT:
+				return float(value) != 0.0
+			TYPE_STRING:
+				var text := str(value).strip_edges().to_lower()
+				if ["true", "1", "yes", "on"].has(text):
+					return true
+				if ["false", "0", "no", "off"].has(text):
+					return false
 	return fallback
 
 

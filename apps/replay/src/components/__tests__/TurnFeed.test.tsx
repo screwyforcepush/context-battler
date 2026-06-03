@@ -196,6 +196,10 @@ function makeBundle(
           characterId: character._id,
           from: { x: 45, y: 47 },
           to: { x: 46, y: 47 },
+          path: [
+            { x: 45, y: 47 },
+            { x: 46, y: 47 },
+          ],
         },
       ],
       actions: [],

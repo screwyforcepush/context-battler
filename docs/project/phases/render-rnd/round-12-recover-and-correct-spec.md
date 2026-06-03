@@ -6,6 +6,7 @@ Previous: [`round-11-lock-and-breadth-spec.md`](./round-11-lock-and-breadth-spec
 R10 reference (the looks to recover): [`ROUND-10-CLOSING-READOUT.md`](../../../../throwaway-prototypes/d-full-match/ROUND-10-CLOSING-READOUT.md) + manifest at commit **e42e23b** (R10 final close)
 Scope: `throwaway-prototypes/d-full-match/**` only. No Convex / production / apps-replay.
 Mental model: [`mental-model.md`](../../spec/mental-model.md) §10.1 (preserve-the-validated-instance), §13 (gore loud by design), §13.1 (locked-body adherence lanes).
+Status: **Complete** — implemented commit `24c08a3`, validated GREEN (lint/typecheck/build/test/Godot-audits/web-export), closing readout written. User Showroom UAT pending.
 
 ---
 

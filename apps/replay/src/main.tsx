@@ -22,6 +22,7 @@ import ReactDOM from "react-dom/client";
 import { ConvexProvider } from "convex/react";
 import { convexClient } from "./lib/convexClient";
 import { useHashRoute } from "./lib/useHashRoute";
+import { Cards } from "./routes/Cards";
 import { Diagnostics } from "./routes/Diagnostics";
 import { MatchPicker } from "./routes/MatchPicker";
 import { Replay } from "./routes/Replay";
@@ -107,6 +108,8 @@ function App(): React.ReactElement {
     <AppFrame active={route.kind}>
       {route.kind === "diagnostics" ? (
         <Diagnostics last={route.last} />
+      ) : route.kind === "cards" ? (
+        <Cards />
       ) : (
         <MatchPicker />
       )}
@@ -115,7 +118,7 @@ function App(): React.ReactElement {
 }
 
 function AppFrame(props: {
-  active: "picker" | "diagnostics";
+  active: "picker" | "diagnostics" | "cards";
   children: React.ReactNode;
 }): React.ReactElement {
   return (
@@ -139,6 +142,15 @@ function AppFrame(props: {
             }}
           >
             Diagnostics
+          </a>
+          <a
+            href="#/cards"
+            style={{
+              ...appTabStyle,
+              ...(props.active === "cards" ? appTabActiveStyle : {}),
+            }}
+          >
+            Cards
           </a>
         </nav>
       </header>

@@ -27,6 +27,7 @@ import { useEffect, useState } from "react";
 export type HashRoute =
   | { kind: "picker" }
   | { kind: "diagnostics"; last: number }
+  | { kind: "cards" }
   | {
       kind: "replay";
       matchId: string;
@@ -70,6 +71,10 @@ export function parseHash(rawHash: string): HashRoute {
       kind: "diagnostics",
       last: parseDiagnosticsLast(params.get("last")),
     };
+  }
+
+  if (path === "/cards") {
+    return { kind: "cards" };
   }
 
   // Only the `/match/<id>[?turn=N]` shape is recognised. Everything else

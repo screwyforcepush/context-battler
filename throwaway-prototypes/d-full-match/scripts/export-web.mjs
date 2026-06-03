@@ -337,8 +337,18 @@ export function exportWeb() {
     );
   }
 
+  const charactersDir = path.join(distDir, "characters");
+  const preservedCharactersDir = path.join(os.tmpdir(), `d-full-match-characters-${process.pid}`);
+  if (existsSync(charactersDir)) {
+    rmSync(preservedCharactersDir, { recursive: true, force: true });
+    cpSync(charactersDir, preservedCharactersDir, { recursive: true });
+  }
   rmSync(distDir, { recursive: true, force: true });
   mkdirSync(distDir, { recursive: true });
+  if (existsSync(preservedCharactersDir)) {
+    cpSync(preservedCharactersDir, charactersDir, { recursive: true });
+    rmSync(preservedCharactersDir, { recursive: true, force: true });
+  }
 
   const result = spawnSync(
     godot,

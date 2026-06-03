@@ -511,7 +511,7 @@ function visibleEntryFor(
         key,
         value: {
           ...baseVisibleValue(observer, entity.pos),
-          countdown: entity.countdown,
+          spawnsIn: entity.countdown,
         },
       };
     }

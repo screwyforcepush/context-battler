@@ -1743,7 +1743,7 @@ describe("Phase 6 input builder — visible object", () => {
     ] as const) {
       const atTurn = { ...state, turn };
       const visible = parseVisible(atTurn, "c_duelist");
-      expect(visible.Crate_50_50).toMatchObject({ countdown });
+      expect(visible.Crate_50_50).toMatchObject({ spawnsIn: countdown });
     }
   });
 
@@ -1766,7 +1766,7 @@ describe("Phase 6 input builder — visible object", () => {
       dist: 1,
       bearing: "E",
     });
-    expect(landedVisible.Crate_50_50).not.toHaveProperty("countdown");
+    expect(landedVisible.Crate_50_50).not.toHaveProperty("spawnsIn");
 
     const spent = makeState({
       characters: [me],

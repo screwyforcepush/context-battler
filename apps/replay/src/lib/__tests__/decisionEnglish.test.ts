@@ -173,6 +173,10 @@ describe("summariseDecision — Phase 6 position vocabulary", () => {
           characterId: me._id,
           from: { x: 1, y: 4 },
           to: { x: 4, y: 1 },
+          path: [
+            { x: 1, y: 4 },
+            { x: 4, y: 1 },
+          ],
         },
       ],
     };
@@ -199,6 +203,7 @@ describe("summariseDecision — Phase 6 position vocabulary", () => {
           characterId: me._id,
           from: { x: 1, y: 1 },
           to: { x: 1, y: 1 },
+          path: [{ x: 1, y: 1 }],
           bodyCollision: { kind: "character", defenderId: defender._id },
         },
       ],
@@ -231,6 +236,7 @@ describe("summariseDecision — Phase 6 position vocabulary", () => {
           characterId: me._id,
           from: { x: 1, y: 1 },
           to: { x: 1, y: 1 },
+          path: [{ x: 1, y: 1 }],
           blockedBy: "wall",
           bodyCollision: { kind: "wall", wallRectId: "Wall_2_1" },
         },
@@ -262,6 +268,10 @@ describe("summariseDecision — Phase 6 position vocabulary", () => {
           characterId: me._id,
           from: { x: 1, y: 4 },
           to: { x: 2, y: 4 },
+          path: [
+            { x: 1, y: 4 },
+            { x: 2, y: 4 },
+          ],
           slide: {
             wallRectId: "Wall_2_3",
             axis: "E",
@@ -277,6 +287,11 @@ describe("summariseDecision — Phase 6 position vocabulary", () => {
           characterId: me._id,
           from: { x: 1, y: 4 },
           to: { x: 3, y: 4 },
+          path: [
+            { x: 1, y: 4 },
+            { x: 2, y: 4 },
+            { x: 3, y: 4 },
+          ],
           slide: {
             wallRectId: "Wall_2_3",
             axis: "E",

@@ -208,6 +208,10 @@ describe("reconstruct — §1.9 synthetic turn 0 (D-P2-13)", () => {
               characterId: charA._id,
               from: { x: 28, y: 28 },
               to: { x: 99, y: 99 },
+              path: [
+                { x: 28, y: 28 },
+                { x: 99, y: 99 },
+              ],
             },
           ],
         }),
@@ -260,6 +264,10 @@ describe("reconstruct — §1.9 synthetic turn 0 (D-P2-13)", () => {
               characterId: charA._id,
               from: { x: 28, y: 28 },
               to: { x: 30, y: 30 },
+              path: [
+                { x: 28, y: 28 },
+                { x: 30, y: 30 },
+              ],
             },
           ],
         }),
@@ -428,6 +436,10 @@ describe("reconstruct — §1.1 stationary character keeps position", () => {
               characterId: A._id,
               from: { x: 28, y: 28 },
               to: { x: 29, y: 29 },
+              path: [
+                { x: 28, y: 28 },
+                { x: 29, y: 29 },
+              ],
             },
           ],
         }),
@@ -438,6 +450,10 @@ describe("reconstruct — §1.1 stationary character keeps position", () => {
               characterId: A._id,
               from: { x: 29, y: 29 },
               to: { x: 30, y: 30 },
+              path: [
+                { x: 29, y: 29 },
+                { x: 30, y: 30 },
+              ],
             },
           ],
         }),
@@ -471,6 +487,10 @@ describe("reconstruct — §1.1 stationary character keeps position", () => {
               characterId: A._id,
               from: { x: 28, y: 28 },
               to: { x: 29, y: 28 },
+              path: [
+                { x: 28, y: 28 },
+                { x: 29, y: 28 },
+              ],
             },
           ],
         }),
@@ -481,6 +501,10 @@ describe("reconstruct — §1.1 stationary character keeps position", () => {
               characterId: A._id,
               from: { x: 29, y: 28 },
               to: { x: 30, y: 28 },
+              path: [
+                { x: 29, y: 28 },
+                { x: 30, y: 28 },
+              ],
             },
           ],
         }),
@@ -491,6 +515,10 @@ describe("reconstruct — §1.1 stationary character keeps position", () => {
               characterId: A._id,
               from: { x: 30, y: 28 },
               to: { x: 31, y: 28 },
+              path: [
+                { x: 30, y: 28 },
+                { x: 31, y: 28 },
+              ],
             },
           ],
         }),
@@ -522,6 +550,10 @@ describe("reconstruct — §1.2 death timing (post-movement, pre-visibilityUpdat
               characterId: A._id,
               from: { x: 28, y: 28 },
               to: { x: 35, y: 35 },
+              path: [
+                { x: 28, y: 28 },
+                { x: 35, y: 35 },
+              ],
             },
           ],
           // Phase-6 deaths are listed AFTER moves in the resolution trace;
@@ -581,6 +613,10 @@ describe("reconstruct — phase-12 environmental deaths (telefrag)", () => {
               characterId: A._id,
               from: { x: 28, y: 28 },
               to: { x: 50, y: 50 },
+              path: [
+                { x: 28, y: 28 },
+                { x: 50, y: 50 },
+              ],
             },
           ],
           deaths: [],
@@ -934,6 +970,10 @@ describe("reconstruct — §1.6 idempotency", () => {
               characterId: A._id,
               from: { x: 28, y: 28 },
               to: { x: 30, y: 30 },
+              path: [
+                { x: 28, y: 28 },
+                { x: 30, y: 30 },
+              ],
             },
           ],
         }),
@@ -1096,6 +1136,10 @@ describe("reconstruct — phase-order integration", () => {
               characterId: A._id,
               from: { x: 28, y: 28 },
               to: { x: 40, y: 30 },
+              path: [
+                { x: 28, y: 28 },
+                { x: 40, y: 30 },
+              ],
             },
           ],
           actions: [
@@ -1143,6 +1187,10 @@ describe("reconstruct — atTurn beyond last ledger row", () => {
               characterId: A._id,
               from: { x: 28, y: 28 },
               to: { x: 30, y: 30 },
+              path: [
+                { x: 28, y: 28 },
+                { x: 30, y: 30 },
+              ],
             },
           ],
         }),
@@ -1153,6 +1201,10 @@ describe("reconstruct — atTurn beyond last ledger row", () => {
               characterId: A._id,
               from: { x: 30, y: 30 },
               to: { x: 32, y: 30 },
+              path: [
+                { x: 30, y: 30 },
+                { x: 32, y: 30 },
+              ],
             },
           ],
         }),
