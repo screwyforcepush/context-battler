@@ -27,7 +27,7 @@ const STANDALONE_SHOWROOM_MODELS := [
 	{
 		"id": "experiment",
 		"label": "experiment",
-		"source": "blank_carrier_glb",
+		"source": "reallusion_head_transplant",
 		"path": EXPERIMENT_MODEL_PATH,
 		"phase_driver": false,
 	},
