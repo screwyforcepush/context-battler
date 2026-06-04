@@ -3,6 +3,7 @@ extends Node3D
 const EntityRendererScript = preload("res://src/EntityRenderer.gd")
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
 const GLITCH_REAPER_PROTOTYPE_PATH := "res://shared-harness/art-kit/characters/generated/glitch_reaper.glb"
+const EXPERIMENT_MODEL_PATH := "res://shared-harness/art-kit/characters/generated/experiment.glb"
 const GLITCH_REAPER_PROTOTYPE_SCALE := 0.93464883
 const GLITCH_REAPER_CLIP_FALLBACKS := {
 	"idle": ["Idle", "Idle_Loop", "Zombie_Idle"],
@@ -14,6 +15,23 @@ const GLITCH_REAPER_CLIP_FALLBACKS := {
 	"take_hit": ["Hit_Chest", "Hit_Head"],
 	"death": ["Death01"],
 }
+const SHOW_MANIFEST_PERSONAS := false
+const STANDALONE_SHOWROOM_MODELS := [
+	{
+		"id": "glitch_reaper",
+		"label": "glitch_reaper",
+		"source": "replacement_head_glb",
+		"path": GLITCH_REAPER_PROTOTYPE_PATH,
+		"phase_driver": true,
+	},
+	{
+		"id": "experiment",
+		"label": "experiment",
+		"source": "blank_carrier_glb",
+		"path": EXPERIMENT_MODEL_PATH,
+		"phase_driver": false,
+	},
+]
 const STATION_SPACING := 1.6
 const SAMPLE_MAP_WIDTH := 32
 const SAMPLE_MAP_HEIGHT := 12
@@ -44,11 +62,12 @@ var weapon_by_tier := {0: "", 1: "", 2: "", 3: ""}
 var armour_by_tier := {0: "", 1: "", 2: "", 3: ""}
 var armour_prop_options := []
 var clip_labels: Dictionary = {}
-var glitch_reaper_animation_player: AnimationPlayer
-var glitch_reaper_clip_label: Label3D
-var glitch_reaper_current_clip := ""
+var standalone_animation_players: Dictionary = {}
+var standalone_clip_labels: Dictionary = {}
+var standalone_current_clips: Dictionary = {}
 var glitch_reaper_phase_time := 0.0
 var glitch_reaper_phase_nodes: Array[Dictionary] = []
+var cover_visible := false
 var selected_tier_buttons: Dictionary = {}
 var layer_enabled := {
 	LAYER_SKIN: true,
@@ -71,6 +90,7 @@ func _ready() -> void:
 	_make_materials()
 	equipment_attachment.configure({})
 	_build_sample_environment()
+	_apply_cover_visibility()
 	_build_tier_maps()
 	_build_armour_prop_options()
 	_spawn_persona_row()
@@ -116,6 +136,9 @@ func _build_sample_environment() -> void:
 
 
 func _spawn_persona_row() -> void:
+	if not SHOW_MANIFEST_PERSONAS:
+		_spawn_standalone_model_row()
+		return
 	var total_stations := PERSONAS.size() + 1
 	var prototype_index := int(floor(float(total_stations) * 0.5))
 	var offset := float(total_stations - 1) * STATION_SPACING * 0.5
@@ -126,7 +149,7 @@ func _spawn_persona_row() -> void:
 			prototype_station.name = "Station_glitch_reaper_prototype"
 			prototype_station.position = Vector3(float(i) * STATION_SPACING - offset, 0.0, 0.0)
 			persona_stations.add_child(prototype_station)
-			_spawn_glitch_reaper_prototype_station(prototype_station)
+			_spawn_standalone_model_station(prototype_station, STANDALONE_SHOWROOM_MODELS[0] as Dictionary)
 			continue
 		var persona := str(PERSONAS[persona_index])
 		persona_index += 1
@@ -135,6 +158,24 @@ func _spawn_persona_row() -> void:
 		station.position = Vector3(float(i) * STATION_SPACING - offset, 0.0, 0.0)
 		persona_stations.add_child(station)
 		_spawn_persona_station(station, persona)
+
+
+func _spawn_standalone_model_row() -> void:
+	standalone_animation_players.clear()
+	standalone_clip_labels.clear()
+	standalone_current_clips.clear()
+	glitch_reaper_phase_time = 0.0
+	glitch_reaper_phase_nodes.clear()
+	var total_stations := STANDALONE_SHOWROOM_MODELS.size()
+	var offset := float(total_stations - 1) * STATION_SPACING * 0.5
+	for i in range(total_stations):
+		var config := STANDALONE_SHOWROOM_MODELS[i] as Dictionary
+		var model_id := str(config.get("id", "model_%d" % i))
+		var station := Node3D.new()
+		station.name = "Station_%s" % model_id
+		station.position = Vector3(float(i) * STATION_SPACING - offset, 0.0, 0.0)
+		persona_stations.add_child(station)
+		_spawn_standalone_model_station(station, config)
 
 
 func _spawn_persona_station(station: Node3D, persona: String) -> void:
@@ -155,8 +196,12 @@ func _spawn_persona_station(station: Node3D, persona: String) -> void:
 	clip_labels[showroom_id] = clip_label
 
 
-func _spawn_glitch_reaper_prototype_station(station: Node3D) -> void:
-	var scene = load(GLITCH_REAPER_PROTOTYPE_PATH)
+func _spawn_standalone_model_station(station: Node3D, config: Dictionary) -> void:
+	var model_id := str(config.get("id", station.name))
+	var display_label := str(config.get("label", model_id))
+	var source_label := str(config.get("source", "standalone_glb"))
+	var model_path := str(config.get("path", ""))
+	var scene = load(model_path)
 	if scene is PackedScene:
 		var instance = (scene as PackedScene).instantiate()
 		if instance is Node3D:
@@ -164,14 +209,17 @@ func _spawn_glitch_reaper_prototype_station(station: Node3D) -> void:
 			visual.name = "visual"
 			visual.scale = Vector3.ONE * GLITCH_REAPER_PROTOTYPE_SCALE
 			station.add_child(visual)
-			glitch_reaper_animation_player = _first_descendant_of_class(visual, "AnimationPlayer") as AnimationPlayer
-			_configure_glitch_reaper_phase_driver(visual)
+			standalone_animation_players[model_id] = _first_descendant_of_class(visual, "AnimationPlayer") as AnimationPlayer
+			if bool(config.get("phase_driver", false)):
+				_configure_glitch_reaper_phase_driver(visual)
 	else:
-		push_warning("Glitch Reaper prototype asset did not load: %s" % GLITCH_REAPER_PROTOTYPE_PATH)
-	var name_label := _make_label("NameLabel", "glitch_reaper\nreplacement_head_glb", Vector3(0.0, GLITCH_REAPER_NAME_LABEL_HEIGHT, 0.0), 0.0048, 18)
+		push_warning("Standalone showroom asset did not load: %s" % model_path)
+	var name_label := _make_label("NameLabel", "%s\n%s" % [display_label, source_label], Vector3(0.0, GLITCH_REAPER_NAME_LABEL_HEIGHT, 0.0), 0.0048, 18)
 	station.add_child(name_label)
-	glitch_reaper_clip_label = _make_label("ClipLabel", "(idle/none)", Vector3(0.0, GLITCH_REAPER_CLIP_LABEL_HEIGHT, 0.0), 0.0040, 12)
-	station.add_child(glitch_reaper_clip_label)
+	var clip_label := _make_label("ClipLabel", "(idle/none)", Vector3(0.0, GLITCH_REAPER_CLIP_LABEL_HEIGHT, 0.0), 0.0040, 12)
+	station.add_child(clip_label)
+	standalone_clip_labels[model_id] = clip_label
+	standalone_current_clips[model_id] = "(idle/none)"
 
 
 func _make_label(label_name: String, label_text: String, label_position: Vector3, pixel_size: float, font_size: int) -> Label3D:
@@ -254,6 +302,7 @@ func _make_ui() -> void:
 	_make_layer_toggle(layers_bar, "Gore", LAYER_GORE)
 	_make_layer_toggle(layers_bar, "Weapons", LAYER_WEAPONS)
 	_make_layer_toggle(layers_bar, "Armour", LAYER_ARMOUR)
+	_make_cover_toggle(layers_bar)
 	var tier_box := VBoxContainer.new()
 	tier_box.name = "EquipmentTierBar"
 	tier_box.add_theme_constant_override("separation", 4)
@@ -269,6 +318,15 @@ func _make_layer_toggle(parent: Node, label_text: String, layer: String) -> void
 	button.text = label_text
 	button.button_pressed = bool(layer_enabled.get(layer, true))
 	button.toggled.connect(_set_layer_enabled.bind(layer))
+	parent.add_child(button)
+
+
+func _make_cover_toggle(parent: Node) -> void:
+	var button := CheckButton.new()
+	button.name = "CoverToggle"
+	button.text = "Cover"
+	button.button_pressed = cover_visible
+	button.toggled.connect(_set_cover_visible)
 	parent.add_child(button)
 
 
@@ -323,10 +381,10 @@ func _make_armour_asset_row(parent: Node) -> void:
 
 
 func _trigger_animation(kind: String) -> void:
-	for persona in PERSONAS:
+	for persona in _visible_personas():
 		var showroom_id := _showroom_id(str(persona))
 		equipment_attachment.play_character_animation(showroom_id, kind)
-	_play_glitch_reaper_animation(kind)
+	_play_standalone_model_animation(kind)
 	_update_clip_labels()
 
 
@@ -344,6 +402,13 @@ func _set_layer_enabled(enabled: bool, layer: String) -> void:
 		return
 	layer_enabled[layer] = enabled
 	_reapply_showroom_layers()
+
+
+func _set_cover_visible(enabled: bool) -> void:
+	if cover_visible == enabled:
+		return
+	cover_visible = enabled
+	_apply_cover_visibility()
 
 
 func _set_armour_prop_selection(index: int) -> void:
@@ -381,7 +446,7 @@ func _apply_equipment_layers() -> void:
 	var weapon_name := str(weapon_by_tier.get(current_weapon_tier, "")) if _layer_is_enabled(LAYER_WEAPONS) else ""
 	var armour_name := str(armour_by_tier.get(current_armour_tier, "")) if _layer_is_enabled(LAYER_ARMOUR) else ""
 	var equipped := {}
-	for persona in PERSONAS:
+	for persona in _visible_personas():
 		equipped[_showroom_id(str(persona))] = {
 			"weapon": {"name": weapon_name},
 			"armour": {"name": armour_name},
@@ -391,7 +456,7 @@ func _apply_equipment_layers() -> void:
 
 func _apply_surface_layers() -> void:
 	var armour_tier := _surface_armour_tier()
-	for persona in PERSONAS:
+	for persona in _visible_personas():
 		var showroom_id := _showroom_id(str(persona))
 		if not _layer_is_enabled(LAYER_GORE):
 			equipment_attachment.restore_persona_skin_to_live_character(showroom_id)
@@ -403,6 +468,22 @@ func _apply_surface_layers() -> void:
 			equipment_attachment.apply_persona_skin(showroom_id, armour_tier)
 		if _layer_is_enabled(LAYER_GORE):
 			equipment_attachment.apply_corpse_skin_to_live_character(showroom_id)
+
+
+func _apply_cover_visibility() -> void:
+	if scene_builder == null:
+		return
+	var map_root := scene_builder.get_node_or_null("map_geometry_root")
+	if map_root == null:
+		return
+	_apply_cover_visibility_recursive(map_root)
+
+
+func _apply_cover_visibility_recursive(node: Node) -> void:
+	if node is Node3D and str(node.name).begins_with("cover-"):
+		(node as Node3D).visible = cover_visible
+	for child in node.get_children():
+		_apply_cover_visibility_recursive(child)
 
 
 func _build_tier_maps() -> void:
@@ -525,15 +606,18 @@ func _update_tier_buttons(slot: String, selected_tier: int) -> void:
 
 
 func _update_clip_labels() -> void:
-	for persona in PERSONAS:
+	for persona in _visible_personas():
 		var showroom_id := _showroom_id(str(persona))
 		var clip_label := clip_labels.get(showroom_id) as Label3D
 		if clip_label == null:
 			continue
 		var state: Dictionary = equipment_attachment.animation_state_for_character(showroom_id)
 		clip_label.text = _clip_label_text(state)
-	if glitch_reaper_clip_label != null:
-		glitch_reaper_clip_label.text = glitch_reaper_current_clip if not glitch_reaper_current_clip.is_empty() else "(idle/none)"
+	for model_id_value in standalone_clip_labels.keys():
+		var model_id := str(model_id_value)
+		var label := standalone_clip_labels.get(model_id) as Label3D
+		if label != null:
+			label.text = str(standalone_current_clips.get(model_id, "(idle/none)"))
 
 
 func _clip_label_text(state: Dictionary) -> String:
@@ -562,31 +646,38 @@ func _showroom_id(persona: String) -> String:
 	return "showroom-%s" % persona
 
 
-func _play_glitch_reaper_animation(kind: String) -> void:
-	if glitch_reaper_animation_player == null:
-		return
-	var clip := _first_glitch_reaper_clip(kind)
-	if clip.is_empty():
-		glitch_reaper_current_clip = "(missing %s)" % kind
-		return
-	glitch_reaper_animation_player.play(clip)
-	glitch_reaper_current_clip = clip
+func _visible_personas() -> Array:
+	return PERSONAS if SHOW_MANIFEST_PERSONAS else []
 
 
-func _first_glitch_reaper_clip(kind: String) -> String:
+func _play_standalone_model_animation(kind: String) -> void:
+	for model_id_value in standalone_animation_players.keys():
+		var model_id := str(model_id_value)
+		var player := standalone_animation_players.get(model_id) as AnimationPlayer
+		if player == null:
+			standalone_current_clips[model_id] = "(missing %s)" % kind
+			continue
+		var clip := _first_standalone_model_clip(player, kind)
+		if clip.is_empty():
+			standalone_current_clips[model_id] = "(missing %s)" % kind
+			continue
+		player.play(clip)
+		standalone_current_clips[model_id] = clip
+
+
+func _first_standalone_model_clip(player: AnimationPlayer, kind: String) -> String:
 	var candidates = GLITCH_REAPER_CLIP_FALLBACKS.get(kind, GLITCH_REAPER_CLIP_FALLBACKS.get("idle", []))
 	for candidate in candidates:
 		var clip := str(candidate)
-		if glitch_reaper_animation_player != null and glitch_reaper_animation_player.has_animation(clip):
+		if player.has_animation(clip):
 			return clip
 	return ""
 
 
 func _configure_glitch_reaper_phase_driver(root: Node3D) -> void:
-	glitch_reaper_phase_time = 0.0
-	glitch_reaper_phase_nodes.clear()
+	var before_count := glitch_reaper_phase_nodes.size()
 	_collect_glitch_reaper_phase_nodes(root)
-	if glitch_reaper_phase_nodes.is_empty():
+	if glitch_reaper_phase_nodes.size() == before_count:
 		push_warning("Glitch Reaper phase driver found no phase/cyan nodes under imported GLB.")
 
 
