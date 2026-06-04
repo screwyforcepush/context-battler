@@ -71,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--min-animations", type=int, default=80)
     parser.add_argument("--max-meshes", type=int, default=6)
-    parser.add_argument("--max-materials", type=int, default=18)
+    parser.add_argument("--max-materials", type=int, default=26)
     parser.add_argument(
         "--json",
         action="store_true",
