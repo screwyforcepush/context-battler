@@ -53,6 +53,11 @@ const GLITCH_REAPER_PHASE_MARKERS := [
 	"scanline",
 	"dimension_slice",
 ]
+const SHOWROOM_REVIEW_CLEAR := Color(0.145, 0.148, 0.150, 1.0)
+const SHOWROOM_REVIEW_BACKGROUND := Color(0.155, 0.156, 0.158, 1.0)
+const SHOWROOM_REVIEW_FLOOR := Color(0.205, 0.205, 0.198, 1.0)
+const SHOWROOM_REVIEW_WALL := Color(0.115, 0.120, 0.124, 1.0)
+const SHOWROOM_REVIEW_COVER := Color(0.145, 0.125, 0.110, 1.0)
 
 var current_weapon_tier := 0
 var current_armour_tier := 0
@@ -86,10 +91,10 @@ var armour_asset_selector: OptionButton
 
 
 func _ready() -> void:
-	RenderingServer.set_default_clear_color(Color(0.006, 0.008, 0.012, 1.0))
 	_make_materials()
 	equipment_attachment.configure({})
 	_build_sample_environment()
+	_apply_model_review_render_profile()
 	_apply_cover_visibility()
 	_build_tier_maps()
 	_build_armour_prop_options()
@@ -133,6 +138,116 @@ func _build_sample_environment() -> void:
 		},
 	}
 	scene_builder.build_from_snapshot(synthetic_snapshot)
+
+
+func _apply_model_review_render_profile() -> void:
+	RenderingServer.set_default_clear_color(SHOWROOM_REVIEW_CLEAR)
+	_apply_review_environment()
+	_apply_review_lighting()
+	_apply_review_map_materials()
+
+
+func _apply_review_environment() -> void:
+	var world_environment := scene_builder.get_node_or_null("neon-world-environment") as WorldEnvironment
+	if world_environment == null:
+		world_environment = WorldEnvironment.new()
+		world_environment.name = "showroom-review-world-environment"
+		add_child(world_environment)
+	var env := world_environment.environment
+	if env == null:
+		env = Environment.new()
+		world_environment.environment = env
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = SHOWROOM_REVIEW_BACKGROUND
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.72, 0.76, 0.78)
+	env.ambient_light_energy = 1.26
+	env.glow_enabled = true
+	env.glow_intensity = 0.58
+	env.glow_bloom = 0.18
+	env.adjustment_enabled = true
+	env.adjustment_brightness = 1.24
+	env.adjustment_contrast = 0.90
+	env.adjustment_saturation = 1.03
+
+
+func _apply_review_lighting() -> void:
+	var key := scene_builder.get_node_or_null("neon-key-light") as DirectionalLight3D
+	if key != null:
+		key.light_color = Color(0.86, 0.92, 1.0)
+		key.light_energy = 3.15
+		key.shadow_enabled = false
+		key.rotation_degrees = Vector3(-46.0, -34.0, 0.0)
+	var old_rim := scene_builder.get_node_or_null("crimson-rim-light") as OmniLight3D
+	if old_rim != null:
+		old_rim.light_color = Color(1.0, 0.18, 0.12)
+		old_rim.light_energy = 0.95
+		old_rim.omni_range = 9.0
+		old_rim.shadow_enabled = false
+		old_rim.position = Vector3(-2.6, 2.2, -2.4)
+	_ensure_review_omni_light("showroom-softbox-left", Vector3(-2.8, 2.6, -3.4), Color(0.82, 0.91, 1.0), 2.6, 8.0)
+	_ensure_review_omni_light("showroom-softbox-right", Vector3(2.8, 1.8, -2.0), Color(0.78, 0.84, 0.88), 1.65, 7.0)
+	_ensure_review_omni_light("showroom-warm-low-fill", Vector3(0.0, 0.85, 2.4), Color(1.0, 0.68, 0.44), 0.72, 5.5)
+	_ensure_review_reflection_probe()
+
+
+func _ensure_review_omni_light(light_name: String, light_position: Vector3, light_color: Color, energy: float, light_range: float) -> void:
+	var light := get_node_or_null(light_name) as OmniLight3D
+	if light == null:
+		light = OmniLight3D.new()
+		light.name = light_name
+		add_child(light)
+	light.position = light_position
+	light.light_color = light_color
+	light.light_energy = energy
+	light.omni_range = light_range
+	light.shadow_enabled = false
+
+
+func _ensure_review_reflection_probe() -> void:
+	var probe := get_node_or_null("showroom-review-reflection-probe") as ReflectionProbe
+	if probe == null:
+		probe = ReflectionProbe.new()
+		probe.name = "showroom-review-reflection-probe"
+		add_child(probe)
+	probe.position = Vector3(0.0, 1.05, 0.0)
+	probe.size = Vector3(7.0, 4.0, 7.0)
+	probe.intensity = 1.24
+
+
+func _apply_review_map_materials() -> void:
+	var map_root := scene_builder.get_node_or_null("map_geometry_root")
+	if map_root == null:
+		return
+	var floor_mat := _review_surface_material("showroom-review-floor", SHOWROOM_REVIEW_FLOOR, 0.0, 0.72)
+	var wall_mat := _review_surface_material("showroom-review-wall", SHOWROOM_REVIEW_WALL, 0.0, 0.66)
+	var cover_mat := _review_surface_material("showroom-review-cover", SHOWROOM_REVIEW_COVER, 0.0, 0.70)
+	_apply_review_map_materials_recursive(map_root, floor_mat, wall_mat, cover_mat)
+
+
+func _apply_review_map_materials_recursive(node: Node, floor_mat: Material, wall_mat: Material, cover_mat: Material) -> void:
+	if node is MeshInstance3D:
+		var mesh_node := node as MeshInstance3D
+		var node_name := str(mesh_node.name)
+		if node_name == "floor":
+			mesh_node.material_override = floor_mat
+		elif node_name.begins_with("wall-"):
+			mesh_node.material_override = wall_mat
+			mesh_node.visible = false
+		elif node_name.begins_with("cover-"):
+			mesh_node.material_override = cover_mat
+	for child in node.get_children():
+		_apply_review_map_materials_recursive(child, floor_mat, wall_mat, cover_mat)
+
+
+func _review_surface_material(material_name: String, albedo: Color, metallic: float, roughness: float) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.resource_name = material_name
+	mat.albedo_color = albedo
+	mat.metallic = metallic
+	mat.roughness = roughness
+	mat.emission_enabled = false
+	return mat
 
 
 func _spawn_persona_row() -> void:
@@ -208,6 +323,7 @@ func _spawn_standalone_model_station(station: Node3D, config: Dictionary) -> voi
 			var visual := instance as Node3D
 			visual.name = "visual"
 			visual.scale = Vector3.ONE * GLITCH_REAPER_PROTOTYPE_SCALE
+			_apply_standalone_material_review_lift(visual, model_id)
 			station.add_child(visual)
 			standalone_animation_players[model_id] = _first_descendant_of_class(visual, "AnimationPlayer") as AnimationPlayer
 			if bool(config.get("phase_driver", false)):
@@ -242,11 +358,11 @@ func _configure_camera() -> void:
 	camera_rig.configure({"characters": []}, null, scene_builder, null)
 	camera_rig.lock_free_mode = true
 	camera_rig.mode = camera_rig.MODE_FREE
-	camera_rig.yaw = 2.45
-	camera_rig.pitch = -0.46
-	camera_rig.director_radius = 10.0
-	camera_rig.radius = 10.0
-	camera_rig.free_anchor = Vector3(0.0, 0.52, 0.0)
+	camera_rig.yaw = 0.0
+	camera_rig.pitch = -0.34
+	camera_rig.director_radius = 4.55
+	camera_rig.radius = 4.55
+	camera_rig.free_anchor = Vector3(0.0, 0.86, -0.02)
 	camera_rig.smooth_anchor = camera_rig.free_anchor
 
 
@@ -255,6 +371,13 @@ func _make_ui() -> void:
 	panel.name = "ShowroomPanel"
 	panel.position = Vector2(16, 14)
 	panel.custom_minimum_size = Vector2(1030, 218)
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.34, 0.34, 0.34, 1.0)
+	panel_style.corner_radius_top_left = 3
+	panel_style.corner_radius_top_right = 3
+	panel_style.corner_radius_bottom_left = 3
+	panel_style.corner_radius_bottom_right = 3
+	panel.add_theme_stylebox_override("panel", panel_style)
 	ui.add_child(panel)
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 8)
@@ -762,6 +885,149 @@ func _first_descendant_of_class(node: Node, target_class: String) -> Node:
 		if found != null:
 			return found
 	return null
+
+
+func _apply_standalone_material_review_lift(node: Node, model_id: String = "") -> void:
+	if node is MeshInstance3D:
+		_apply_mesh_material_review_lift(node as MeshInstance3D, model_id)
+	for child in node.get_children():
+		_apply_standalone_material_review_lift(child, model_id)
+
+
+func _apply_mesh_material_review_lift(mesh_node: MeshInstance3D, model_id: String) -> void:
+	var mesh := mesh_node.mesh
+	if mesh == null:
+		return
+	for surface_index in range(mesh.get_surface_count()):
+		var source_material := mesh_node.get_surface_override_material(surface_index)
+		if source_material == null:
+			source_material = mesh.surface_get_material(surface_index)
+		if source_material == null:
+			continue
+		var lifted := source_material.duplicate(true)
+		if lifted is BaseMaterial3D:
+			_lift_base_material_for_review(lifted as BaseMaterial3D, str(source_material.resource_name), model_id)
+			mesh_node.set_surface_override_material(surface_index, lifted as Material)
+
+
+func _lift_base_material_for_review(material: BaseMaterial3D, source_name: String, model_id: String) -> void:
+	var palette := _review_palette_for_material(source_name, model_id)
+	if not palette.is_empty():
+		material.albedo_texture = null
+		material.albedo_color = palette.get("albedo", material.albedo_color)
+		material.metallic = float(palette.get("metallic", material.metallic))
+		material.roughness = float(palette.get("roughness", material.roughness))
+		if palette.has("emission"):
+			material.emission_enabled = true
+			material.emission = palette.get("emission", Color.BLACK)
+			material.emission_energy_multiplier = float(palette.get("emission_energy", 0.0))
+		return
+	if model_id.to_lower() == "experiment":
+		material.albedo_texture = null
+		material.albedo_color = _lifted_experiment_review_color(material.albedo_color)
+		material.metallic = clamp(material.metallic * 0.42, 0.0, 0.28)
+		material.roughness = clamp(material.roughness * 0.72, 0.18, 0.56)
+		if material.emission_enabled:
+			material.emission = _lifted_review_emission(material.emission)
+			material.emission_energy_multiplier = clamp(material.emission_energy_multiplier * 1.14, 0.0, 1.8)
+		return
+	material.albedo_color = _lifted_review_color(material.albedo_color)
+	material.metallic = clamp(material.metallic * 0.58, 0.0, 0.62)
+	material.roughness = clamp(material.roughness * 0.88, 0.20, 0.74)
+	if material.emission_enabled:
+		material.emission = _lifted_review_emission(material.emission)
+		material.emission_energy_multiplier = clamp(material.emission_energy_multiplier * 1.18, 0.0, 2.4)
+
+
+func _lifted_review_color(color: Color) -> Color:
+	return Color(
+		clamp(max(color.r * 1.55 + 0.085, 0.13), 0.0, 1.0),
+		clamp(max(color.g * 1.55 + 0.085, 0.13), 0.0, 1.0),
+		clamp(max(color.b * 1.55 + 0.085, 0.13), 0.0, 1.0),
+		color.a
+	)
+
+
+func _lifted_experiment_review_color(color: Color) -> Color:
+	return Color(
+		clamp(max(color.r * 1.85 + 0.18, 0.30), 0.0, 1.0),
+		clamp(max(color.g * 1.85 + 0.208, 0.38), 0.0, 1.0),
+		clamp(max(color.b * 1.85 + 0.20, 0.36), 0.0, 1.0),
+		color.a
+	)
+
+
+func _lifted_review_emission(color: Color) -> Color:
+	return Color(
+		clamp(color.r * 1.18, 0.0, 1.0),
+		clamp(color.g * 1.18, 0.0, 1.0),
+		clamp(color.b * 1.18, 0.0, 1.0),
+		color.a
+	)
+
+
+func _review_palette_for_material(source_name: String, model_id: String = "") -> Dictionary:
+	var key := source_name.to_lower()
+	var model_key := model_id.to_lower()
+	if model_key == "glitch_reaper":
+		if key.contains("blackened_metal"):
+			return _review_palette(Color(0.040, 0.045, 0.055, 1.0), 0.60, 0.42)
+		if key.contains("body_burnished_gunmetal") or key.contains("dark_gunmetal") or key.contains("gunmetal"):
+			return _review_palette(Color(0.085, 0.098, 0.118, 1.0), 0.66, 0.34)
+	if model_key == "experiment":
+		if key.contains("body_burnished_gunmetal") or key.contains("gunmetal"):
+			return _review_palette(Color(0.66, 0.78, 0.73, 1.0), 0.04, 0.34, Color(0.16, 0.24, 0.22), 0.42)
+		if key.contains("body_deep_joint") or key.contains("deep_joint"):
+			return _review_palette(Color(0.050, 0.058, 0.062, 1.0), 0.18, 0.48)
+		if key.contains("necron_oxidized_cybermetal") or key.contains("cybermetal"):
+			return _review_palette(Color(0.42, 0.60, 0.56, 1.0), 0.10, 0.34, Color(0.07, 0.15, 0.13), 0.30)
+		if key.contains("burnished_cut_metal") or key.contains("cut_metal") or key.contains("raw_metal") or key.contains("scraped"):
+			return _review_palette(Color(0.62, 0.72, 0.68, 1.0), 0.12, 0.28, Color(0.12, 0.18, 0.17), 0.24)
+	if key.contains("head_pallid"):
+		return _review_palette(Color(0.70, 0.78, 0.76, 1.0), 0.0, 0.58)
+	if key.contains("phase_skin") or key.contains("transient_human"):
+		return _review_palette(Color(0.46, 0.39, 0.34, 1.0), 0.0, 0.56)
+	if key.contains("neck_torn") or key.contains("livid"):
+		return _review_palette(Color(0.40, 0.065, 0.050, 1.0), 0.0, 0.40)
+	if key.contains("subdermal") or key.contains("gore_flesh"):
+		return _review_palette(Color(0.48, 0.070, 0.052, 1.0), 0.0, 0.24)
+	if key.contains("clotted") or key.contains("wet_black_blood"):
+		return _review_palette(Color(0.22, 0.020, 0.014, 1.0), 0.0, 0.18)
+	if key.contains("tendon"):
+		return _review_palette(Color(0.38, 0.26, 0.17, 1.0), 0.0, 0.36)
+	if key.contains("bone"):
+		return _review_palette(Color(0.62, 0.56, 0.42, 1.0), 0.0, 0.68)
+	if key.contains("torso_masked"):
+		return _review_palette(Color(0.50, 0.160, 0.130, 1.0), 0.12, 0.32)
+	if key.contains("burnished_gunmetal") or key.contains("dark_gunmetal") or key.contains("gunmetal"):
+		return _review_palette(Color(0.26, 0.33, 0.33, 1.0), 0.40, 0.36)
+	if key.contains("deep_joint") or key.contains("dark_cavity") or key.contains("optic_core"):
+		return _review_palette(Color(0.060, 0.066, 0.070, 1.0), 0.12, 0.48)
+	if key.contains("cut_metal") or key.contains("raw_metal") or key.contains("scraped"):
+		return _review_palette(Color(0.46, 0.52, 0.50, 1.0), 0.50, 0.28)
+	if key.contains("necron") or key.contains("cybermetal"):
+		return _review_palette(Color(0.22, 0.39, 0.37, 1.0), 0.48, 0.30)
+	if key.contains("copper") or key.contains("patina"):
+		return _review_palette(Color(0.43, 0.22, 0.11, 1.0), 0.34, 0.38)
+	if key.contains("cyan") or key.contains("green") or key.contains("fissure"):
+		return _review_palette(Color(0.02, 0.42, 0.34, 1.0), 0.0, 0.24, Color(0.00, 0.95, 0.72), 0.75)
+	if key.contains("infernal") or key.contains("red_emissive") or key.contains("red_optic"):
+		return _review_palette(Color(0.54, 0.030, 0.022, 1.0), 0.0, 0.22, Color(1.0, 0.04, 0.02), 0.95)
+	if key.contains("pale_flayed"):
+		return _review_palette(Color(0.62, 0.50, 0.42, 1.0), 0.0, 0.48)
+	return {}
+
+
+func _review_palette(albedo: Color, metallic: float, roughness: float, emission := Color.BLACK, emission_energy := 0.0) -> Dictionary:
+	var palette := {
+		"albedo": albedo,
+		"metallic": metallic,
+		"roughness": roughness,
+	}
+	if emission_energy > 0.0:
+		palette["emission"] = emission
+		palette["emission_energy"] = emission_energy
+	return palette
 
 
 func _make_materials() -> void:

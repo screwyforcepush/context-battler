@@ -394,12 +394,12 @@ async function main() {
     };
     const outputs = {
       both: path.join(opts.outDir, "showroom-canvas-both.png"),
-      experiment: path.join(opts.outDir, "showroom-canvas-experiment.png"),
       glitch_reaper: path.join(opts.outDir, "showroom-canvas-glitch_reaper.png"),
+      experiment: path.join(opts.outDir, "showroom-canvas-experiment.png"),
     };
     await capture(cdp, outputs.both, full);
-    await capture(cdp, outputs.experiment, leftClip);
-    await capture(cdp, outputs.glitch_reaper, rightClip);
+    await capture(cdp, outputs.glitch_reaper, leftClip);
+    await capture(cdp, outputs.experiment, rightClip);
     console.log(JSON.stringify({ url: opts.url, outputs, fullClip: full, cropY: lowerY }, null, 2));
   } finally {
     if (cdp) cdp.close();
