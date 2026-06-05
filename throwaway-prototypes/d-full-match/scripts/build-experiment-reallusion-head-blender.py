@@ -70,6 +70,7 @@ def main() -> None:
     mats = make_materials()
     mask_material_uses = apply_mask_atlas_to_materials(mats, mask_image, torso_detail_image)
     apply_body_torso_attribute_grades(mats)
+    apply_machine_surface_breakup(mats)
     mask_metadata["embedded_materials"] = mask_material_uses
     assign_carrier_material(carrier_mesh, mats["carrier"])
     carrier_head_bounds = high_region_bounds(carrier_mesh, 1.515)
@@ -184,10 +185,11 @@ def build_experiment_mask_atlas(project_root: Path, dist_dir: Path) -> dict:
         clot_trace = smoothstep(0.24, 0.95, clot[index])
         radial_falloff = max(0.0, 1.0 - min(radial / 0.72, 1.0))
 
-        r = clamp01(0.22 + torn_edge * 0.54 + vein_trace * 0.18 + diagonal * 0.08)
-        g = clamp01(0.12 + vein_trace * 0.52 + clot_trace * 0.22 + cellular_break * 0.16)
-        b = clamp01(0.06 + max(torn_edge - cellular_break * 0.34, 0.0) * 0.70 + radial_falloff * 0.12)
-        a = clamp01(0.18 + clot_trace * 0.62 + cellular_break * 0.24 + (1.0 - radial_falloff) * 0.08)
+        striation_gate = smoothstep(0.38, 0.88, diagonal) * (0.55 + vein_trace * 0.45)
+        r = clamp01(0.16 + torn_edge * 0.48 + vein_trace * 0.16 + striation_gate * 0.10)
+        g = clamp01(0.06 + vein_trace * 0.58 + clot_trace * 0.18 + cellular_break * 0.20)
+        b = clamp01(0.03 + max(torn_edge - cellular_break * 0.42, 0.0) * 0.78 + radial_falloff * 0.10)
+        a = clamp01(0.10 + clot_trace * 0.68 + cellular_break * 0.30 + (1.0 - radial_falloff) * 0.06)
 
         flat_pixels.extend((r, g, b, a))
         channel_values["R"].append(r)
@@ -252,7 +254,7 @@ def build_torso_micro_detail_map(dist_dir: Path) -> dict:
         up = heights[min(size - 1, y + 1) * size + x]
         dx = right - left
         dy = up - down
-        normal = Vector((-dx * 3.4, -dy * 3.4, 1.0))
+        normal = Vector((-dx * 4.6, -dy * 4.6, 1.0))
         normal.normalize()
         normal_pixels.extend(
             (
@@ -285,6 +287,7 @@ def torso_micro_detail_height_uv(u: float, v: float) -> float:
     wound_falloff = 1.0 - smoothstep(0.20, 0.88, radial)
     diagonal_a = 0.5 + 0.5 * math.sin((u * 10.7 - v * 15.8 + 0.22 * math.sin(v * math.tau * 3.0)) * math.tau)
     diagonal_b = 0.5 + 0.5 * math.sin((u * 17.0 + v * 8.5) * math.tau + 0.7)
+    tendon_threads = 0.5 + 0.5 * math.sin((u * 34.0 + v * 2.6 + 0.18 * math.sin(u * math.tau * 5.0)) * math.tau)
     vein = smoothstep(0.72, 0.98, diagonal_a) * 0.70 + smoothstep(0.80, 1.0, diagonal_b) * 0.30
     groove_wave = 0.5 + 0.5 * math.sin((u * 26.0 - v * 4.0) * math.tau)
     wet_pits = smoothstep(0.82, 1.0, groove_wave)
@@ -294,7 +297,7 @@ def torso_micro_detail_height_uv(u: float, v: float) -> float:
         + 0.35 * math.sin((u + v) * 271.0)
     ) / 1.90
     clot_breakup = smoothstep(0.40, 0.96, 0.5 + cellular * 0.5)
-    height = 0.48 + wound_falloff * (0.26 * vein - 0.20 * wet_pits + 0.10 * clot_breakup)
+    height = 0.48 + wound_falloff * (0.28 * vein + 0.11 * smoothstep(0.72, 1.0, tendon_threads) - 0.24 * wet_pits + 0.13 * clot_breakup)
     return clamp01(height)
 
 
@@ -361,25 +364,25 @@ def object_named(objects: list[bpy.types.Object], name: str):
 
 def make_materials() -> dict[str, bpy.types.Material]:
     return {
-        "carrier": make_mat("EX_body_burnished_gunmetal", (0.140, 0.174, 0.168, 1.0), 0.78, 0.36),
+        "carrier": make_mat("EX_body_burnished_gunmetal", (0.118, 0.126, 0.122, 1.0), 0.78, 0.36),
         "carrier_shadow": make_mat("EX_body_deep_joint_shadow", (0.018, 0.022, 0.024, 1.0), 0.58, 0.48),
-        "head_skin": make_mat("EX_head_pallid_necrotic_skin", (0.170, 0.188, 0.182, 1.0), 0.0, 0.61),
-        "phase_skin": make_mat("EX_transient_human_phase_skin", (0.066, 0.061, 0.058, 1.0), 0.0, 0.57),
-        "neck_skin": make_mat("EX_neck_torn_skin_edge", (0.060, 0.023, 0.021, 1.0), 0.0, 0.38),
-        "scar_edge": make_mat("EX_livid_torn_transition_skin", (0.046, 0.011, 0.010, 1.0), 0.0, 0.38),
+        "head_skin": make_mat("EX_head_pallid_necrotic_skin", (0.275, 0.252, 0.220, 1.0), 0.0, 0.68),
+        "phase_skin": make_mat("EX_transient_human_phase_skin", (0.130, 0.100, 0.080, 1.0), 0.0, 0.70),
+        "neck_skin": make_mat("EX_neck_torn_skin_edge", (0.052, 0.018, 0.016, 1.0), 0.0, 0.42),
+        "scar_edge": make_mat("EX_livid_torn_transition_skin", (0.030, 0.004, 0.004, 1.0), 0.0, 0.44),
         "muscle": make_mat("EX_subdermal_wet_muscle", (0.044, 0.004, 0.004, 1.0), 0.0, 0.18),
         "muscle_gloss": make_mat("EX_subdermal_wet_muscle_gloss", (0.078, 0.012, 0.010, 1.0), 0.0, 0.12),
         "clot": make_mat("EX_clotted_black_blood", (0.032, 0.002, 0.002, 1.0), 0.0, 0.16),
         "tendon": make_mat("EX_frayed_tendon_strand", (0.116, 0.082, 0.058, 1.0), 0.0, 0.34),
         "bone": make_mat("EX_sick_exposed_bone", (0.128, 0.110, 0.078, 1.0), 0.0, 0.70),
         "torso_blend": make_mat("EX_torso_masked_telefrag_wound", (0.055, 0.074, 0.070, 1.0), 0.45, 0.26),
-        "cyber_metal": make_mat("EX_necron_oxidized_cybermetal", (0.112, 0.175, 0.170, 1.0), 0.88, 0.25),
-        "metal_edge": make_mat("EX_burnished_cut_metal_edge", (0.142, 0.188, 0.178, 1.0), 0.90, 0.30),
+        "cyber_metal": make_mat("EX_necron_oxidized_cybermetal", (0.082, 0.092, 0.088, 1.0), 0.88, 0.27),
+        "metal_edge": make_mat("EX_burnished_cut_metal_edge", (0.225, 0.230, 0.210, 1.0), 0.90, 0.30),
         "copper": make_mat("EX_copper_patina_corrosion", (0.168, 0.085, 0.047, 1.0), 0.82, 0.34),
-        "green_glow": make_mat("EX_sparse_molten_green_fissure", (0.004, 0.066, 0.044, 1.0), 0.0, 0.20, (0.035, 0.46, 0.27), 0.42),
+        "green_glow": make_mat("EX_sparse_molten_green_fissure", (0.001, 0.018, 0.014, 1.0), 0.0, 0.30, (0.006, 0.115, 0.064), 0.08),
         "eyelash": make_mat("EX_reallusion_eyelash_dark", (0.015, 0.012, 0.010, 1.0), 0.0, 0.68),
-        "eye": make_mat("EX_milky_green_machine_eye", (0.34, 0.58, 0.50, 1.0), 0.0, 0.10, (0.055, 0.55, 0.31), 0.34),
-        "optic_dark": make_mat("EX_recessed_black_optic_core", (0.003, 0.010, 0.008, 1.0), 0.0, 0.05, (0.00, 0.16, 0.08), 0.20),
+        "eye": make_mat("EX_milky_dead_machine_eye", (0.640, 0.612, 0.530, 1.0), 0.0, 0.18, (0.030, 0.026, 0.018), 0.025),
+        "optic_dark": make_mat("EX_recessed_black_optic_core", (0.004, 0.005, 0.005, 1.0), 0.0, 0.08, (0.006, 0.008, 0.007), 0.025),
         "teeth": make_mat("EX_reallusion_teeth_bone_probe", (0.70, 0.66, 0.56, 1.0), 0.0, 0.52),
         "tongue": make_mat("EX_reallusion_tongue_probe", (0.45, 0.12, 0.13, 1.0), 0.0, 0.30),
     }
@@ -497,6 +500,69 @@ def apply_body_torso_attribute_grade(mat: bpy.types.Material, material_key: str)
     overlay_color_mix(nodes, links, base_color, mat.diffuse_color, factor.outputs["Result"], target, blend_type, f"EX_{material_key}_body_torso_grade")
 
 
+def apply_machine_surface_breakup(mats: dict[str, bpy.types.Material]) -> None:
+    settings = {
+        "carrier": ((0.48, 0.52, 0.50, 1.0), 38.0, 0.05, 0.20, 0.040),
+        "cyber_metal": ((0.46, 0.50, 0.48, 1.0), 44.0, 0.06, 0.18, 0.034),
+        "metal_edge": ((0.70, 0.68, 0.60, 1.0), 52.0, 0.03, 0.11, 0.025),
+        "copper": ((0.58, 0.42, 0.30, 1.0), 48.0, 0.04, 0.13, 0.028),
+    }
+    for key, (dark_color, scale, factor_min, factor_max, bump_strength) in settings.items():
+        mat = mats.get(key)
+        if mat is not None:
+            apply_machine_surface_breakup_to_material(mat, key, dark_color, scale, factor_min, factor_max, bump_strength)
+
+
+def apply_machine_surface_breakup_to_material(
+    mat: bpy.types.Material,
+    material_key: str,
+    dark_color: tuple[float, float, float, float],
+    scale: float,
+    factor_min: float,
+    factor_max: float,
+    bump_strength: float,
+) -> None:
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+    if bsdf is None:
+        return
+
+    tex_coord = nodes.new(type="ShaderNodeTexCoord")
+    tex_coord.name = f"EX_{material_key}_surface_breakup_coords"
+    noise = nodes.new(type="ShaderNodeTexNoise")
+    noise.name = f"EX_{material_key}_burnished_surface_breakup"
+    noise.inputs["Scale"].default_value = scale
+    noise.inputs["Detail"].default_value = 9.0
+    noise.inputs["Roughness"].default_value = 0.62
+    links.new(tex_coord.outputs["Object"], noise.inputs["Vector"])
+
+    factor = map_range_node(nodes, f"EX_{material_key}_surface_grime_factor", 0.20, 1.0, factor_min, factor_max)
+    links.new(noise.outputs["Fac"], factor.inputs["Value"])
+    base_color = bsdf.inputs.get("Base Color")
+    if base_color is not None:
+        overlay_color_mix(
+            nodes,
+            links,
+            base_color,
+            mat.diffuse_color,
+            factor.outputs["Result"],
+            dark_color,
+            "MULTIPLY",
+            f"EX_{material_key}_integrated_surface_grime",
+        )
+
+    normal_input = bsdf.inputs.get("Normal")
+    if normal_input is not None and not normal_input.links:
+        bump = nodes.new(type="ShaderNodeBump")
+        bump.name = f"EX_{material_key}_subtle_pitted_bump"
+        bump.inputs["Strength"].default_value = bump_strength
+        bump.inputs["Distance"].default_value = 0.038
+        links.new(noise.outputs["Fac"], bump.inputs["Height"])
+        links.new(bump.outputs["Normal"], normal_input)
+
+
 def overlay_color_mix(
     nodes,
     links,
@@ -526,18 +592,18 @@ def overlay_color_mix(
 
 def body_torso_attribute_settings(material_key: str) -> tuple[str, tuple[float, float, float, float], float, float, str]:
     settings = {
-        "carrier": ("R", (0.050, 0.072, 0.070, 1.0), 0.00, 0.26, "MIX"),
+        "carrier": ("R", (0.044, 0.048, 0.046, 1.0), 0.00, 0.26, "MIX"),
         "carrier_shadow": ("R", (0.008, 0.010, 0.010, 1.0), 0.00, 0.16, "MIX"),
-        "phase_skin": ("R", (0.034, 0.022, 0.020, 1.0), 0.08, 0.62, "MIX"),
-        "neck_skin": ("R", (0.070, 0.012, 0.010, 1.0), 0.04, 0.30, "MIX"),
-        "scar_edge": ("G", (0.014, 0.001, 0.001, 1.0), 0.08, 0.58, "MIX"),
+        "phase_skin": ("R", (0.096, 0.064, 0.050, 1.0), 0.06, 0.48, "MIX"),
+        "neck_skin": ("R", (0.064, 0.010, 0.009, 1.0), 0.04, 0.28, "MIX"),
+        "scar_edge": ("G", (0.006, 0.000, 0.000, 1.0), 0.10, 0.66, "MIX"),
         "muscle": ("G", (0.070, 0.007, 0.005, 1.0), 0.10, 0.42, "MIX"),
         "muscle_gloss": ("G", (0.098, 0.014, 0.009, 1.0), 0.08, 0.36, "MIX"),
         "clot": ("G", (0.004, 0.000, 0.000, 1.0), 0.06, 0.44, "MIX"),
         "tendon": ("B", (0.058, 0.030, 0.022, 1.0), 0.12, 0.54, "MIX"),
         "bone": ("B", (0.064, 0.050, 0.036, 1.0), 0.14, 0.58, "MIX"),
-        "cyber_metal": ("R", (0.036, 0.090, 0.086, 1.0), 0.08, 0.46, "MIX"),
-        "metal_edge": ("R", (0.060, 0.118, 0.110, 1.0), 0.10, 0.54, "MIX"),
+        "cyber_metal": ("R", (0.038, 0.044, 0.042, 1.0), 0.08, 0.46, "MIX"),
+        "metal_edge": ("R", (0.082, 0.088, 0.084, 1.0), 0.10, 0.54, "MIX"),
         "copper": ("G", (0.060, 0.120, 0.096, 1.0), 0.04, 0.24, "MIX"),
     }
     return settings.get(material_key, ("R", (0.0, 0.0, 0.0, 1.0), 0.0, 0.0, "MIX"))
@@ -662,9 +728,9 @@ def apply_torso_blend_material(
     body_channels.name = "EX_torso_blend_body_torso_mask_channels"
     links.new(body_attr.outputs["Color"], body_channels.inputs["Image"])
 
-    damage_factor = map_range_node(nodes, "EX_torso_blend_damage_factor", 0.0, 1.0, 0.12, 0.86)
-    wet_factor = map_range_node(nodes, "EX_torso_blend_wet_clot_factor", 0.0, 1.0, 0.08, 0.62)
-    bone_factor = map_range_node(nodes, "EX_torso_blend_bone_tendon_factor", 0.0, 1.0, 0.00, 0.18)
+    damage_factor = map_range_node(nodes, "EX_torso_blend_damage_factor", 0.0, 1.0, 0.12, 0.88)
+    wet_factor = map_range_node(nodes, "EX_torso_blend_wet_clot_factor", 0.0, 1.0, 0.08, 0.88)
+    bone_factor = map_range_node(nodes, "EX_torso_blend_bone_tendon_factor", 0.0, 1.0, 0.00, 0.50)
     body_damage_factor = map_range_node(nodes, "EX_torso_blend_body_damage_factor", 0.0, 1.0, 0.00, 0.96)
     links.new(body_channels.outputs["R"], body_damage_factor.inputs["Value"])
     damage_merge = nodes.new(type="ShaderNodeMath")
@@ -690,23 +756,34 @@ def apply_torso_blend_material(
     links.new(atlas_channels.outputs["B"], bone_mix.inputs[1])
     links.new(bone_mix.outputs["Value"], bone_factor.inputs["Value"])
 
+    skin_shred_mix = nodes.new(type="ShaderNodeMath")
+    skin_shred_mix.name = "EX_torso_blend_pallid_skin_island_product"
+    skin_shred_mix.operation = "MULTIPLY"
+    links.new(body_channels.outputs["R"], skin_shred_mix.inputs[0])
+    links.new(atlas_channels.outputs["R"], skin_shred_mix.inputs[1])
+    skin_shred_factor = map_range_node(nodes, "EX_torso_blend_pallid_skin_island_factor", 0.18, 0.86, 0.00, 0.34)
+    links.new(skin_shred_mix.outputs["Value"], skin_shred_factor.inputs["Value"])
+
+    deep_clot_factor = map_range_node(nodes, "EX_torso_blend_deep_clot_pocket_factor", 0.20, 0.92, 0.00, 0.46)
+    links.new(clot_mix.outputs["Value"], deep_clot_factor.inputs["Value"])
+
     metal_to_tissue = mix_rgb_node(
         nodes,
         "EX_torso_blend_metal_to_tissue",
-        (0.020, 0.017, 0.016, 1.0),
-        (0.064, 0.006, 0.005, 1.0),
+        (0.012, 0.013, 0.013, 1.0),
+        (0.100, 0.012, 0.008, 1.0),
     )
     wet_clot = mix_rgb_node(
         nodes,
         "EX_torso_blend_tissue_to_clot",
-        (0.064, 0.006, 0.005, 1.0),
-        (0.014, 0.000, 0.000, 1.0),
+        (0.100, 0.012, 0.008, 1.0),
+        (0.010, 0.000, 0.000, 1.0),
     )
     tendon_bone = mix_rgb_node(
         nodes,
         "EX_torso_blend_clot_to_tendon_bone",
-        (0.014, 0.000, 0.000, 1.0),
-        (0.058, 0.030, 0.020, 1.0),
+        (0.010, 0.000, 0.000, 1.0),
+        (0.170, 0.124, 0.074, 1.0),
     )
     links.new(damage_factor.outputs["Result"], metal_to_tissue.inputs[0])
     links.new(metal_to_tissue.outputs["Color"], wet_clot.inputs[1])
@@ -714,24 +791,38 @@ def apply_torso_blend_material(
     links.new(wet_clot.outputs["Color"], tendon_bone.inputs[1])
     links.new(bone_factor.outputs["Result"], tendon_bone.inputs[0])
 
-    micro_dark_factor = map_range_node(nodes, "EX_torso_blend_micro_clot_factor", 0.35, 0.65, 0.00, 0.50)
+    micro_dark_factor = map_range_node(nodes, "EX_torso_blend_micro_clot_factor", 0.32, 0.68, 0.08, 0.72)
     links.new(detail_channels.outputs["R"], micro_dark_factor.inputs["Value"])
     micro_clot = nodes.new(type="ShaderNodeMixRGB")
     micro_clot.name = "EX_torso_blend_micro_clotted_striations"
     micro_clot.blend_type = "MULTIPLY"
-    micro_clot.inputs[2].default_value = (0.46, 0.24, 0.20, 1.0)
+    micro_clot.inputs[2].default_value = (0.30, 0.11, 0.09, 1.0)
     links.new(tendon_bone.outputs["Color"], micro_clot.inputs[1])
     links.new(micro_dark_factor.outputs["Result"], micro_clot.inputs[0])
+
+    deep_clot = nodes.new(type="ShaderNodeMixRGB")
+    deep_clot.name = "EX_torso_blend_dark_clot_pockets"
+    deep_clot.blend_type = "MIX"
+    deep_clot.inputs[2].default_value = (0.004, 0.000, 0.000, 1.0)
+    links.new(micro_clot.outputs["Color"], deep_clot.inputs[1])
+    links.new(deep_clot_factor.outputs["Result"], deep_clot.inputs[0])
+
+    pallid_skin = nodes.new(type="ShaderNodeMixRGB")
+    pallid_skin.name = "EX_torso_blend_torn_pallid_skin_islands"
+    pallid_skin.blend_type = "MIX"
+    pallid_skin.inputs[2].default_value = (0.220, 0.188, 0.154, 1.0)
+    links.new(deep_clot.outputs["Color"], pallid_skin.inputs[1])
+    links.new(skin_shred_factor.outputs["Result"], pallid_skin.inputs[0])
 
     base_color = bsdf.inputs.get("Base Color")
     if base_color is not None:
         for link in list(base_color.links):
             links.remove(link)
-        links.new(micro_clot.outputs["Color"], base_color)
+        links.new(pallid_skin.outputs["Color"], base_color)
 
     roughness = bsdf.inputs.get("Roughness")
     if roughness is not None:
-        roughness_factor = map_range_node(nodes, "EX_torso_blend_roughness_from_wetness", 0.0, 1.0, 0.62, 0.28)
+        roughness_factor = map_range_node(nodes, "EX_torso_blend_roughness_from_wetness", 0.0, 1.0, 0.70, 0.18)
         links.new(clot_mix.outputs["Value"], roughness_factor.inputs["Value"])
         links.new(roughness_factor.outputs["Result"], roughness)
     normal_input = bsdf.inputs.get("Normal")
@@ -739,16 +830,16 @@ def apply_torso_blend_material(
         normal_map = nodes.new(type="ShaderNodeNormalMap")
         normal_map.name = "EX_torso_blend_micro_striation_normal_map"
         normal_map.space = "TANGENT"
-        normal_map.inputs["Strength"].default_value = 0.68
+        normal_map.inputs["Strength"].default_value = 1.32
         links.new(detail_texture.outputs["Color"], normal_map.inputs["Color"])
         links.new(normal_map.outputs["Normal"], normal_input)
     set_input(bsdf, "Metallic", 0.0)
     set_input(bsdf, "Specular", 0.28)
     set_input(bsdf, "Specular IOR Level", 0.28)
-    set_input(bsdf, "Clearcoat", 0.16)
-    set_input(bsdf, "Coat Weight", 0.16)
-    set_input(bsdf, "Clearcoat Roughness", 0.24)
-    set_input(bsdf, "Coat Roughness", 0.24)
+    set_input(bsdf, "Clearcoat", 0.28)
+    set_input(bsdf, "Coat Weight", 0.28)
+    set_input(bsdf, "Clearcoat Roughness", 0.14)
+    set_input(bsdf, "Coat Roughness", 0.14)
 
 
 def map_range_node(
@@ -811,19 +902,19 @@ def connect_masked_color_mix(
 
 def material_mask_color_settings(material_key: str) -> tuple[str, tuple[float, float, float, float], float, float, str]:
     settings = {
-        "head_skin": ("A", (0.080, 0.096, 0.092, 1.0), 0.10, 0.30, "MIX"),
-        "phase_skin": ("R", (0.082, 0.065, 0.060, 1.0), 0.05, 0.18, "MIX"),
-        "neck_skin": ("R", (0.090, 0.020, 0.018, 1.0), 0.18, 0.60, "MIX"),
-        "scar_edge": ("A", (0.018, 0.001, 0.001, 1.0), 0.22, 0.70, "MIX"),
+        "head_skin": ("A", (0.145, 0.118, 0.094, 1.0), 0.14, 0.42, "MIX"),
+        "phase_skin": ("R", (0.172, 0.132, 0.102, 1.0), 0.10, 0.34, "MIX"),
+        "neck_skin": ("R", (0.082, 0.016, 0.014, 1.0), 0.18, 0.56, "MIX"),
+        "scar_edge": ("A", (0.005, 0.000, 0.000, 1.0), 0.26, 0.78, "MIX"),
         "muscle": ("G", (0.078, 0.008, 0.006, 1.0), 0.18, 0.56, "MIX"),
         "muscle_gloss": ("G", (0.104, 0.014, 0.010, 1.0), 0.22, 0.62, "MIX"),
         "clot": ("A", (0.006, 0.000, 0.000, 1.0), 0.12, 0.70, "MIX"),
         "tendon": ("G", (0.094, 0.056, 0.038, 1.0), 0.10, 0.26, "MIX"),
         "bone": ("B", (0.120, 0.092, 0.064, 1.0), 0.04, 0.14, "MIX"),
-        "cyber_metal": ("R", (0.046, 0.094, 0.094, 1.0), 0.10, 0.34, "MIX"),
-        "metal_edge": ("B", (0.230, 0.286, 0.263, 1.0), 0.06, 0.18, "MIX"),
+        "cyber_metal": ("R", (0.042, 0.048, 0.046, 1.0), 0.10, 0.34, "MIX"),
+        "metal_edge": ("B", (0.235, 0.238, 0.220, 1.0), 0.06, 0.18, "MIX"),
         "copper": ("G", (0.050, 0.185, 0.140, 1.0), 0.06, 0.22, "MIX"),
-        "green_glow": ("A", (0.000, 0.520, 0.300, 1.0), 0.04, 0.18, "MIX"),
+        "green_glow": ("A", (0.000, 0.260, 0.150, 1.0), 0.02, 0.10, "MIX"),
     }
     return settings.get(material_key, ("A", (0.0, 0.0, 0.0, 1.0), 0.08, 0.25, "MIX"))
 
@@ -1134,30 +1225,59 @@ def apply_body_torso_vertex_mask(obj: bpy.types.Object) -> None:
 
 
 def body_torso_mask_channels(center: Vector) -> tuple[float, float, float, float]:
-    if not (center.y < -0.004 and 1.270 < center.z < 1.565 and abs(center.x) < 0.205):
+    front_region = center.y < -0.004 and 1.245 < center.z < 1.590 and abs(center.x) < 0.220
+    rear_field = rear_torso_rupture_field(center)
+    side_field = side_torso_wrap_field(center)
+    lower_transition = lower_body_transition_field(center)
+    limb_scarring = limb_transition_scar_field(center)
+    if not (front_region or rear_field > 0.01 or side_field > 0.01 or lower_transition > 0.01 or limb_scarring > 0.01):
         return (0.0, 0.0, 0.0, 1.0)
 
-    rupture = front_torso_rupture_field(center)
-    feather = front_torso_feather_field(center)
-    upper_gate = front_torso_upper_edge_gate(center)
-    upper_collar = 1.0 - smoothstep(
-        0.84,
-        1.42,
-        ellipsoid(center, (0.008, -0.052, 1.492), (0.172, 0.050, 0.060)),
+    rupture = front_torso_rupture_field(center) if front_region else 0.0
+    feather = front_torso_feather_field(center) if front_region else 0.0
+    upper_gate = front_torso_upper_edge_gate(center) if front_region else 1.0
+    upper_collar = (
+        1.0 - smoothstep(
+            0.84,
+            1.42,
+            ellipsoid(center, (0.008, -0.052, 1.492), (0.172, 0.050, 0.060)),
+        )
+        if front_region
+        else 0.0
     )
-    lower_cavity = 1.0 - smoothstep(
-        0.94,
-        1.46,
-        ellipsoid(center, (0.026, -0.064, 1.392), (0.104, 0.054, 0.124)),
+    lower_cavity = (
+        1.0 - smoothstep(
+            0.94,
+            1.46,
+            ellipsoid(center, (0.026, -0.064, 1.392), (0.104, 0.054, 0.124)),
+        )
+        if front_region
+        else 0.0
+    )
+    rib_bowl = (
+        1.0 - smoothstep(
+            0.72,
+            1.36,
+            ellipsoid(center, (0.020, -0.070, 1.408), (0.134, 0.058, 0.150)),
+        )
+        if front_region
+        else 0.0
     )
     collar_fusion = neck_collar_fusion_field(center)
+    neck_chest_bridge = neck_chest_telefrag_transition_field(center)
     field = clamp01(
         max(
             rupture,
             upper_collar * 0.62 * upper_gate,
-            lower_cavity * 0.50,
+            lower_cavity * 0.58,
+            rib_bowl * 0.54,
             feather * 0.78,
             collar_fusion * 0.76,
+            neck_chest_bridge * 0.70,
+            rear_field * 0.92,
+            side_field * 0.82,
+            lower_transition * 0.36,
+            limb_scarring * 0.22,
         )
     )
     if field <= 0.01:
@@ -1167,22 +1287,38 @@ def body_torso_mask_channels(center: Vector) -> tuple[float, float, float, float
         front_torso_rupture_rim(center),
         front_torso_torn_border_field(center) * 0.72,
         neck_collar_fusion_rim(center) * 0.74,
+        neck_chest_bridge * 0.44,
+        rear_torso_rupture_rim(center) * 0.86,
+        side_torso_wrap_rim(center) * 0.72,
+        lower_body_transition_rim(center) * 0.38,
+        limb_transition_scar_rim(center) * 0.30,
     )
     breakup = 0.5 + 0.5 * organic_breakup(center, 91)
+    coarse_islands = 0.5 + 0.5 * organic_breakup(center, 157)
     fine_breakup = 0.5 + 0.5 * math.sin(center.x * 191.0 - center.z * 127.0 + center.y * 43.0)
     tendon_band = (
         diagonal_band_xz(center, (0.000, 1.512), (0.026, 1.372), 0.012)
         or diagonal_band_xz(center, (0.030, 1.480), (-0.032, 1.374), 0.010)
         or diagonal_band_xz(center, (0.058, 1.448), (0.100, 1.374), 0.010)
         or neck_collar_fusion_strand(center)
+        or rear_torso_tendon_strand(center)
     )
     bone_hint = 0.82 if telefrag_sternum_bone(center) else 0.0
+    if rear_torso_bone_hint(center):
+        bone_hint = max(bone_hint, 0.56)
     if tendon_band:
         bone_hint = max(bone_hint, 0.48)
 
-    damage = clamp01(field * (0.72 + 0.22 * breakup) + rim * 0.20)
-    wetness = clamp01(field * (0.45 + 0.24 * breakup) + rim * 0.22 + fine_breakup * 0.12)
-    exposed_bone = clamp01(bone_hint + rim * 0.18 + field * 0.10)
+    island_cut = 0.58 + 0.34 * breakup - 0.18 * coarse_islands
+    wet_pocket = max(0.0, fine_breakup - 0.26) * (0.56 + 0.36 * breakup)
+    damage = clamp01(field * island_cut + rim * 0.24 + neck_chest_bridge * 0.10)
+    wetness = clamp01(field * (0.24 + wet_pocket * 0.48) + rim * 0.26 + neck_chest_bridge * 0.08)
+    exposed_bone = clamp01(bone_hint + rim * 0.30 + field * (0.06 + coarse_islands * 0.10) + neck_chest_bridge * 0.05)
+    if lower_transition > 0.01 or limb_scarring > 0.01:
+        transition_noise = 0.5 + 0.5 * organic_breakup(center, 337)
+        damage = clamp01(damage + lower_transition * (0.15 + 0.12 * transition_noise) + limb_scarring * (0.08 + 0.08 * transition_noise))
+        wetness = clamp01(wetness + lower_transition * 0.08 + limb_scarring * 0.035)
+        exposed_bone = clamp01(exposed_bone + lower_body_bone_chip_hint(center) * 0.20)
     return (damage, wetness, exposed_bone, 1.0)
 
 
@@ -1193,6 +1329,8 @@ def author_integrated_horror_pass(
     mats: dict[str, bpy.types.Material],
 ) -> None:
     refine_front_torso_wound_topology(carrier_mesh)
+    refine_rear_torso_wound_topology(carrier_mesh)
+    refine_head_telefrag_topology(head_obj)
     assign_body_material_regions(carrier_mesh, mats)
     assign_head_material_regions(head_obj, mats)
     sculpt_head_asymmetry(head_obj)
@@ -1208,6 +1346,109 @@ def material_slot(obj: bpy.types.Object, mat: bpy.types.Material) -> int:
             return index
     obj.data.materials.append(mat)
     return len(obj.data.materials) - 1
+
+
+def refine_head_telefrag_topology(head_obj: bpy.types.Object) -> None:
+    mesh = head_obj.data
+    if len(mesh.polygons) < 8:
+        return
+
+    matrix = head_obj.matrix_world.copy()
+    inv_basis = matrix.inverted().to_3x3()
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.faces.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+
+    target_edges: set[bmesh.types.BMEdge] = set()
+    for face in bm.faces:
+        center = matrix @ face.calc_center_median()
+        if head_telefrag_refinement_region(center):
+            target_edges.update(face.edges)
+
+    if not target_edges:
+        bm.free()
+        return
+
+    bmesh.ops.subdivide_edges(
+        bm,
+        edges=list(target_edges),
+        cuts=2,
+        use_grid_fill=True,
+        smooth=0.0,
+    )
+
+    bm.verts.ensure_lookup_table()
+    for vertex in bm.verts:
+        world = matrix @ vertex.co
+        if not head_telefrag_refinement_region(world, feather=0.020):
+            continue
+
+        front_field = max(
+            head_telefrag_transition_field(world),
+            head_ruptured_flesh_field(world) * 0.92,
+            head_cyber_intrusion_field(world) * 0.86,
+            cranial_flayed_scalp_field(world) * 0.82,
+            uncanny_left_eye_socket_field(world) * 0.88,
+            uncanny_right_eye_wound_field(world) * 0.72,
+            readable_mouth_cavity_field(world) * 0.86,
+        )
+        rear_field = rear_head_rupture_field(world)
+        field = max(front_field, rear_field)
+        if field <= 0.02:
+            continue
+
+        scalp_field = cranial_flayed_scalp_field(world)
+        scalp_rim = cranial_flayed_scalp_rim(world)
+        rim = max(head_telefrag_transition_rim(world), rear_head_rupture_rim(world), scalp_rim)
+        chatter = organic_breakup(world, 203)
+        fine = math.sin(world.x * 211.0 - world.z * 157.0 + world.y * 61.0)
+        side_bias = smoothstep(0.060, 0.122, abs(world.x))
+        front_gate = 1.0 - smoothstep(0.000, 0.070, world.y)
+        back_gate = smoothstep(0.026, 0.070, world.y)
+        crown_gate = smoothstep(1.675, 1.748, world.z)
+
+        delta = Vector((0.0, 0.0, 0.0))
+        delta.y += front_gate * (-0.0048 * front_field + 0.0034 * rim)
+        delta.y += back_gate * (0.0038 * rear_field + 0.0016 * rim)
+        delta.x += (0.0020 * chatter + 0.0012 * fine) * field * (0.55 + side_bias)
+        delta.z += (0.0018 * math.sin(world.x * 173.0 + world.y * 47.0) - 0.0010 * chatter) * rim
+        delta.y += crown_gate * (0.0054 * scalp_rim - 0.0096 * scalp_field)
+        delta.z += crown_gate * (-0.0056 * scalp_field + 0.0038 * scalp_rim * math.sin(world.x * 131.0))
+        delta.x += crown_gate * scalp_field * (0.0034 * math.sin(world.z * 117.0) + 0.0022 * chatter)
+        if cranial_scalp_bone(world):
+            delta.y += 0.0032 * crown_gate
+            delta.z += 0.0024 * crown_gate * math.sin(world.x * 180.0)
+        if head_tendon_shred(world):
+            delta.y += 0.0038 * front_gate
+            delta.z += 0.0018 * math.sin(world.x * 260.0)
+        if head_bone_splinter(world):
+            delta.y += 0.0022 * front_gate
+        if delta.length_squared > 0.0:
+            vertex.co += inv_basis @ delta
+
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+
+
+def head_telefrag_refinement_region(center: Vector, feather: float = 0.0) -> bool:
+    if center.z < 1.540 - feather or center.z > 1.812 + feather:
+        return False
+    if abs(center.x) > 0.136 + feather or center.y > 0.078 + feather:
+        return False
+    return (
+        center.y < -0.010 + feather
+        and (
+            head_telefrag_transition_field(center) > 0.05
+            or head_ruptured_flesh_field(center) > 0.08
+            or head_cyber_intrusion_field(center) > 0.08
+            or cranial_flayed_scalp_field(center) > 0.05
+            or uncanny_left_eye_socket_field(center) > 0.08
+            or uncanny_right_eye_wound_field(center) > 0.08
+            or readable_mouth_cavity_field(center) > 0.08
+        )
+    ) or rear_head_rupture_field(center) > 0.06 or cranial_flayed_scalp_field(center) > 0.08
 
 
 def refine_front_torso_wound_topology(carrier_mesh: bpy.types.Object) -> None:
@@ -1260,13 +1501,87 @@ def refine_front_torso_wound_topology(carrier_mesh: bpy.types.Object) -> None:
         )
         lateral_noise = math.sin(world.z * 73.0 + world.x * 41.0)
         vertical_noise = math.sin(world.x * 118.0 - world.z * 29.0)
-        recess = -0.0068 * field
-        rim_lift = 0.0036 * rim
-        shear = 0.0024 * field * lateral_noise
-        z_fray = 0.0018 * rim * vertical_noise
-        micro_relief = front_torso_micro_relief(world)
-        micro_shear = 0.0011 * field * math.sin(world.z * 163.0 - world.x * 87.0)
+        rib_bowl = 1.0 - smoothstep(
+            0.72,
+            1.36,
+            ellipsoid(world, (0.020, -0.070, 1.408), (0.134, 0.058, 0.150)),
+        )
+        recess = -0.0148 * max(field, rib_bowl * 0.72)
+        rim_lift = 0.0082 * rim
+        shear = 0.0048 * field * lateral_noise
+        z_fray = 0.0038 * rim * vertical_noise
+        micro_relief = front_torso_micro_relief(world) * 2.15
+        micro_shear = 0.0017 * field * math.sin(world.z * 163.0 - world.x * 87.0)
+        if abs(world.x) > 0.070 and rib_bowl > 0.20:
+            recess += 0.0068 * rib_bowl
+            z_fray += 0.0020 * math.sin(abs(world.x) * 81.0 + world.z * 43.0) * rib_bowl
         vertex.co += inv_basis @ Vector((shear + micro_shear, recess + rim_lift + micro_relief, z_fray))
+
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+
+
+def refine_rear_torso_wound_topology(carrier_mesh: bpy.types.Object) -> None:
+    mesh = carrier_mesh.data
+    if len(mesh.polygons) < 8:
+        return
+
+    matrix = carrier_mesh.matrix_world.copy()
+    inv_basis = matrix.inverted().to_3x3()
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.faces.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+
+    target_edges: set[bmesh.types.BMEdge] = set()
+    for face in bm.faces:
+        center = matrix @ face.calc_center_median()
+        if rear_torso_refinement_region(center):
+            target_edges.update(face.edges)
+
+    if not target_edges:
+        bm.free()
+        return
+
+    bmesh.ops.subdivide_edges(
+        bm,
+        edges=list(target_edges),
+        cuts=2,
+        use_grid_fill=True,
+        smooth=0.0,
+    )
+
+    bm.verts.ensure_lookup_table()
+    for vertex in bm.verts:
+        world = matrix @ vertex.co
+        if not rear_torso_refinement_region(world, feather=0.026):
+            continue
+        field = max(rear_torso_rupture_field(world), side_torso_wrap_field(world) * 0.84)
+        if field <= 0.0:
+            continue
+
+        rim = max(rear_torso_rupture_rim(world), side_torso_wrap_rim(world) * 0.78)
+        side_sign = -1.0 if world.x < 0.0 else 1.0
+        back_gate = smoothstep(0.020, 0.082, world.y)
+        side_gate = smoothstep(0.132, 0.190, abs(world.x)) * (1.0 - smoothstep(0.080, 0.145, world.y))
+        lateral_noise = math.sin(world.z * 81.0 + world.x * 39.0)
+        vertical_noise = math.sin(world.x * 104.0 - world.z * 46.0)
+        core_sink = -0.0116 * field * back_gate
+        lip_lift = 0.0074 * rim * back_gate
+        wrap_pull = -side_sign * 0.0052 * side_gate * field
+        side_lip = side_sign * 0.0038 * side_gate * rim
+        delta = Vector(
+            (
+                wrap_pull + side_lip + 0.0018 * lateral_noise * field,
+                core_sink + lip_lift + 0.0020 * vertical_noise * rim,
+                0.0032 * rim * vertical_noise - 0.0018 * field * lateral_noise,
+            )
+        )
+        if rear_torso_bone_hint(world):
+            delta.y += 0.0020 * back_gate
+            delta.z += 0.0016 * math.sin(world.x * 130.0)
+        vertex.co += inv_basis @ delta
 
     bm.to_mesh(mesh)
     bm.free()
@@ -1276,10 +1591,10 @@ def refine_front_torso_wound_topology(carrier_mesh: bpy.types.Object) -> None:
 def front_torso_refinement_region(center: Vector, feather: float = 0.0) -> bool:
     if center.y >= -0.006 + feather:
         return False
-    if not (1.290 - feather < center.z < 1.550 + feather and abs(center.x) < 0.185 + feather):
+    if not (1.260 - feather < center.z < 1.565 + feather and abs(center.x) < 0.205 + feather):
         return False
     return (
-        ellipsoid(center, (0.024, -0.062, 1.414), (0.120 + feather, 0.066 + feather, 0.142 + feather)) < 1.28
+        ellipsoid(center, (0.024, -0.062, 1.414), (0.142 + feather, 0.072 + feather, 0.164 + feather)) < 1.34
         or ellipsoid(center, (0.006, -0.055, 1.496), (0.165 + feather, 0.045 + feather, 0.052 + feather)) < 1.18
         or front_torso_feather_field(center) > 0.20
         or neck_collar_fusion_field(center) > 0.16
@@ -1287,21 +1602,21 @@ def front_torso_refinement_region(center: Vector, feather: float = 0.0) -> bool:
 
 
 def front_torso_rupture_field(center: Vector) -> float:
-    core = ellipsoid(center, (0.022, -0.064, 1.414), (0.086, 0.047, 0.112))
+    core = ellipsoid(center, (0.022, -0.066, 1.412), (0.104, 0.052, 0.132))
     collar = ellipsoid(center, (0.006, -0.055, 1.495), (0.150, 0.034, 0.040)) * 1.08
     rupture = min(core, collar)
     return 1.0 - smoothstep(0.48, 1.16, rupture)
 
 
 def front_torso_rupture_rim(center: Vector) -> float:
-    core = ellipsoid(center, (0.022, -0.064, 1.414), (0.090, 0.050, 0.116))
+    core = ellipsoid(center, (0.022, -0.066, 1.412), (0.110, 0.054, 0.138))
     collar = ellipsoid(center, (0.006, -0.055, 1.495), (0.154, 0.036, 0.043)) * 1.08
     rupture = min(core, collar)
     return max(0.0, 1.0 - min(abs(rupture - 0.86) / 0.24, 1.0))
 
 
 def front_torso_feather_field(center: Vector) -> float:
-    if not (center.y < -0.004 and 1.285 < center.z < 1.555 and abs(center.x) < 0.190):
+    if not (center.y < -0.004 and 1.255 < center.z < 1.565 and abs(center.x) < 0.212):
         return 0.0
 
     upper_gate = front_torso_upper_edge_gate(center)
@@ -1313,7 +1628,7 @@ def front_torso_feather_field(center: Vector) -> float:
     sternum_bridge = 1.0 - smoothstep(
         0.78,
         1.62,
-        ellipsoid(center, (0.024, -0.064, 1.418), (0.096, 0.052, 0.132)),
+        ellipsoid(center, (0.024, -0.066, 1.414), (0.126, 0.058, 0.158)),
     )
     left_cut = diagonal_band_xz_value(center, (-0.112, 1.492), (0.018, 1.438), 0.018, 0.042)
     right_rip = diagonal_band_xz_value(center, (0.116, 1.486), (0.020, 1.406), 0.017, 0.040)
@@ -1364,6 +1679,195 @@ def front_torso_micro_relief(center: Vector) -> float:
     secondary_sinew = smoothstep(0.84, 1.0, cross_strand) * 0.0011
     clotted_groove = smoothstep(0.80, 1.0, wet_pit) * -0.0023
     return field * (raised_sinew + secondary_sinew + clotted_groove)
+
+
+def rear_torso_refinement_region(center: Vector, feather: float = 0.0) -> bool:
+    if not (1.130 - feather < center.z < 1.585 + feather and abs(center.x) < 0.218 + feather):
+        return False
+    return rear_torso_rupture_field(center) > 0.08 or side_torso_wrap_field(center) > 0.10 or rear_torso_rupture_rim(center) > 0.18
+
+
+def rear_torso_rupture_field(center: Vector) -> float:
+    if not (center.y > 0.020 and 1.145 < center.z < 1.575 and abs(center.x) < 0.205):
+        return 0.0
+    back_gate = smoothstep(0.018, 0.070, center.y)
+    spinal_breach = 1.0 - smoothstep(0.020, 0.074, abs(center.x - rear_spine_wave(center)))
+    dorsal_cavity = 1.0 - smoothstep(
+        0.52,
+        1.30,
+        ellipsoid(center, (0.018, 0.080, 1.405), (0.106, 0.058, 0.166)),
+    )
+    left_scapula_pull = 1.0 - smoothstep(
+        0.64,
+        1.24,
+        ellipsoid(center, (-0.082, 0.074, 1.420), (0.066, 0.046, 0.138)),
+    )
+    right_flesh_slough = 1.0 - smoothstep(
+        0.58,
+        1.20,
+        ellipsoid(center, (0.086, 0.076, 1.375), (0.072, 0.046, 0.150)),
+    )
+    diagonal_machine_break = diagonal_band_xz_value(center, (-0.118, 1.520), (0.064, 1.300), 0.022, 0.052)
+    tendon_drag = diagonal_band_xz_value(center, (0.106, 1.500), (-0.032, 1.250), 0.018, 0.046)
+    breakup = 0.84 + 0.14 * organic_breakup(center, 301)
+    return clamp01(
+        max(
+            spinal_breach * 0.66,
+            dorsal_cavity * 0.92,
+            left_scapula_pull * 0.54,
+            right_flesh_slough * 0.78,
+            diagonal_machine_break * 0.82,
+            tendon_drag * 0.58,
+        )
+        * back_gate
+        * breakup
+    )
+
+
+def rear_torso_rupture_rim(center: Vector) -> float:
+    field = rear_torso_rupture_field(center)
+    if field <= 0.0:
+        return 0.0
+    shell = ellipsoid(center, (0.018, 0.080, 1.405), (0.112, 0.060, 0.174))
+    shell_lip = max(0.0, 1.0 - abs(shell - 0.92) / 0.30)
+    spine_lip = max(0.0, 1.0 - abs(abs(center.x - rear_spine_wave(center)) - 0.058) / 0.028)
+    diagonal_lip = max(
+        diagonal_band_xz_value(center, (-0.124, 1.524), (0.070, 1.294), 0.026, 0.038),
+        diagonal_band_xz_value(center, (0.112, 1.500), (-0.038, 1.248), 0.022, 0.036),
+    )
+    return clamp01(max(shell_lip * 0.72, spine_lip * 0.54, diagonal_lip * 0.62, field * 0.26) * (0.88 + 0.10 * organic_breakup(center, 303)))
+
+
+def side_torso_wrap_field(center: Vector) -> float:
+    if not (1.185 < center.z < 1.545 and 0.126 < abs(center.x) < 0.218 and -0.036 < center.y < 0.110):
+        return 0.0
+    side_sign = -1.0 if center.x < 0.0 else 1.0
+    side_gate = smoothstep(0.126, 0.184, abs(center.x))
+    depth_gate = smoothstep(-0.040, 0.030, center.y) * (1.0 - smoothstep(0.104, 0.148, center.y))
+    shoulder_wrap = diagonal_band_xz_value(center, (side_sign * 0.142, 1.505), (side_sign * 0.182, 1.285), 0.022, 0.050)
+    rib_wrap = 1.0 - smoothstep(
+        0.62,
+        1.24,
+        ellipsoid(center, (side_sign * 0.166, 0.034, 1.384), (0.042, 0.074, 0.146)),
+    )
+    front_bleed = front_torso_feather_field(Vector((center.x * 0.82, -0.030, center.z))) * 0.58
+    rear_bleed = rear_torso_rupture_field(Vector((center.x * 0.82, 0.072, center.z))) * 0.70
+    breakup = 0.86 + 0.12 * organic_breakup(center, 307)
+    return clamp01(max(shoulder_wrap * 0.74, rib_wrap * 0.66, front_bleed, rear_bleed) * side_gate * depth_gate * breakup)
+
+
+def side_torso_wrap_rim(center: Vector) -> float:
+    field = side_torso_wrap_field(center)
+    if field <= 0.0:
+        return 0.0
+    side_sign = -1.0 if center.x < 0.0 else 1.0
+    band_lip = diagonal_band_xz_value(center, (side_sign * 0.138, 1.510), (side_sign * 0.188, 1.280), 0.026, 0.034)
+    rib_lip = max(0.0, 1.0 - abs(abs(center.x) - 0.168) / 0.034) * smoothstep(1.210, 1.360, center.z)
+    return clamp01(max(band_lip * 0.62, rib_lip * 0.46, field * 0.30))
+
+
+def rear_torso_tendon_strand(center: Vector) -> bool:
+    if max(rear_torso_rupture_field(center), side_torso_wrap_field(center)) <= 0.16:
+        return False
+    return (
+        diagonal_band_xz(center, (0.104, 1.500), (-0.034, 1.258), 0.007)
+        or diagonal_band_xz(center, (-0.116, 1.504), (0.056, 1.300), 0.007)
+        or (abs(center.x - rear_spine_wave(center)) < 0.010 and 1.220 < center.z < 1.535)
+    ) and sparse_cell(center, 4)
+
+
+def rear_torso_bone_hint(center: Vector) -> bool:
+    if max(rear_torso_rupture_field(center), side_torso_wrap_field(center)) <= 0.22:
+        return False
+    vertebral_chip = abs(center.x - rear_spine_wave(center)) < 0.014 and 1.235 < center.z < 1.520
+    scapula_chip = (
+        diagonal_band_xz(center, (-0.110, 1.478), (-0.030, 1.338), 0.008)
+        or diagonal_band_xz(center, (0.104, 1.438), (0.034, 1.292), 0.008)
+    )
+    return (vertebral_chip or scapula_chip) and sparse_cell(center, 5)
+
+
+def lower_body_transition_field(center: Vector) -> float:
+    if not (-0.060 < center.y < 0.086 and 0.780 < center.z < 1.295 and abs(center.x) < 0.205):
+        return 0.0
+    front_gate = 1.0 - smoothstep(-0.012, 0.060, center.y)
+    side_gate = smoothstep(0.094, 0.178, abs(center.x)) * (1.0 - smoothstep(0.050, 0.100, center.y))
+    abdomen_drop = diagonal_band_xz_value(center, (0.028, 1.280), (0.080, 0.980), 0.016, 0.044)
+    belt_scrape = diagonal_band_xz_value(center, (-0.128, 1.235), (0.118, 1.125), 0.018, 0.050)
+    left_hip_corrosion = 1.0 - smoothstep(
+        0.72,
+        1.28,
+        ellipsoid(center, (-0.105, -0.008, 1.040), (0.062, 0.052, 0.142)),
+    )
+    right_iliac_scar = diagonal_band_xz_value(center, (0.108, 1.182), (0.034, 0.918), 0.014, 0.040)
+    rear_bleed = (
+        diagonal_band_xz_value(center, (-0.082, 1.210), (0.066, 1.012), 0.014, 0.038)
+        * smoothstep(0.028, 0.080, center.y)
+    )
+    breakup = 0.88 + 0.10 * organic_breakup(center, 331)
+    return clamp01(
+        max(
+            abdomen_drop * 0.58 * front_gate,
+            belt_scrape * 0.50 * max(front_gate, side_gate),
+            left_hip_corrosion * 0.46 * max(front_gate, side_gate),
+            right_iliac_scar * 0.42 * max(front_gate, side_gate),
+            rear_bleed * 0.34,
+        )
+        * breakup
+    )
+
+
+def lower_body_transition_rim(center: Vector) -> float:
+    field = lower_body_transition_field(center)
+    if field <= 0.0:
+        return 0.0
+    belt_lip = diagonal_band_xz_value(center, (-0.136, 1.244), (0.126, 1.120), 0.020, 0.032)
+    abdomen_lip = diagonal_band_xz_value(center, (0.020, 1.284), (0.088, 0.978), 0.018, 0.030)
+    hip_lip = max(0.0, 1.0 - abs(ellipsoid(center, (-0.105, -0.008, 1.040), (0.064, 0.054, 0.146)) - 0.92) / 0.32)
+    return clamp01(max(belt_lip * 0.58, abdomen_lip * 0.52, hip_lip * 0.40, field * 0.28))
+
+
+def lower_body_bone_chip_hint(center: Vector) -> bool:
+    if lower_body_transition_field(center) <= 0.22:
+        return False
+    hip_chip = diagonal_band_xz(center, (-0.126, 1.122), (-0.060, 1.030), 0.006)
+    abdomen_chip = diagonal_band_xz(center, (0.046, 1.190), (0.074, 1.050), 0.005)
+    return (hip_chip or abdomen_chip) and sparse_cell(center, 7)
+
+
+def limb_transition_scar_field(center: Vector) -> float:
+    arm_zone = 0.138 < abs(center.x) < 0.360 and 0.680 < center.z < 1.485 and -0.110 < center.y < 0.110
+    leg_zone = 0.036 < abs(center.x) < 0.188 and 0.360 < center.z < 1.045 and -0.105 < center.y < 0.095
+    if not (arm_zone or leg_zone):
+        return 0.0
+    side = -1.0 if center.x < 0.0 else 1.0
+    if arm_zone:
+        upper_arm_rake = diagonal_band_xz_value(center, (side * 0.220, 1.388), (side * 0.286, 1.118), 0.012, 0.032)
+        forearm_burn = diagonal_band_xz_value(center, (side * 0.252, 1.060), (side * 0.214, 0.842), 0.010, 0.028)
+        outer_forearm_scrape = diagonal_band_xz_value(center, (side * 0.304, 1.142), (side * 0.202, 0.760), 0.014, 0.034)
+        elbow_patina = 1.0 - smoothstep(
+            0.62,
+            1.12,
+            ellipsoid(center, (side * 0.250, 0.002, 1.055), (0.050, 0.052, 0.060)),
+        )
+        return clamp01(max(upper_arm_rake * 0.58, forearm_burn * 0.54, outer_forearm_scrape * 0.50, elbow_patina * 0.36) * (0.86 + 0.12 * organic_breakup(center, 341)))
+    thigh_scar = diagonal_band_xz_value(center, (side * 0.104, 0.948), (side * 0.064, 0.690), 0.012, 0.034)
+    knee_scrape = diagonal_band_xz_value(center, (side * 0.060, 0.760), (side * 0.136, 0.620), 0.010, 0.028)
+    shin_score = diagonal_band_xz_value(center, (side * 0.094, 0.710), (side * 0.070, 0.420), 0.012, 0.030)
+    return clamp01(max(thigh_scar * 0.50, knee_scrape * 0.42, shin_score * 0.36) * (0.88 + 0.10 * organic_breakup(center, 343)))
+
+
+def limb_transition_scar_rim(center: Vector) -> float:
+    field = limb_transition_scar_field(center)
+    if field <= 0.0:
+        return 0.0
+    side = -1.0 if center.x < 0.0 else 1.0
+    arm_lip = diagonal_band_xz_value(center, (side * 0.226, 1.388), (side * 0.292, 1.112), 0.014, 0.022)
+    forearm_lip = diagonal_band_xz_value(center, (side * 0.256, 1.062), (side * 0.218, 0.838), 0.012, 0.020)
+    outer_forearm_lip = diagonal_band_xz_value(center, (side * 0.306, 1.142), (side * 0.204, 0.760), 0.016, 0.022)
+    thigh_lip = diagonal_band_xz_value(center, (side * 0.106, 0.948), (side * 0.066, 0.690), 0.014, 0.022)
+    shin_lip = diagonal_band_xz_value(center, (side * 0.096, 0.710), (side * 0.072, 0.420), 0.014, 0.020)
+    return clamp01(max(arm_lip * 0.36, forearm_lip * 0.34, outer_forearm_lip * 0.32, thigh_lip * 0.30, shin_lip * 0.26, field * 0.24))
 
 
 def assign_body_material_regions(carrier_mesh: bpy.types.Object, mats: dict[str, bpy.types.Material]) -> None:
@@ -1426,6 +1930,14 @@ def assign_body_material_regions(carrier_mesh: bpy.types.Object, mats: dict[str,
             abs(abs(center.x) - (0.112 - 0.050 * abs(center.z - 1.335))) < 0.026
         )
         side_graft_channel = abs(center.x) > 0.168 and 1.055 < center.z < 1.430 and -0.030 < center.y < 0.070
+        rear_rupture = rear_torso_rupture_field(center)
+        rear_rim = rear_torso_rupture_rim(center)
+        side_wrap = side_torso_wrap_field(center)
+        side_wrap_rim = side_torso_wrap_rim(center)
+        lower_transition = lower_body_transition_field(center)
+        lower_transition_rim = lower_body_transition_rim(center)
+        limb_scarring = limb_transition_scar_field(center)
+        limb_scar_rim = limb_transition_scar_rim(center)
         telefrag_core_value = ellipsoid(center, (0.023, -0.064, 1.402), (0.078, 0.046, 0.100))
         telefrag_outer = front and ragged_value(telefrag_core_value, center, 0.88, 1.20, 0.035, 41)
         telefrag_edge = front and ragged_value(telefrag_core_value, center, 0.60, 0.88, 0.030, 42)
@@ -1520,11 +2032,11 @@ def assign_body_material_regions(carrier_mesh: bpy.types.Object, mats: dict[str,
         if rear_spine_edge:
             poly.material_index = slots["cyber"] if not sparse_cell(center, 5) else slots["clot"]
         if rear_spine:
-            poly.material_index = slots["green"] if rear_fissure(center) else slots["cyber"]
+            poly.material_index = slots["metal_edge"] if rear_fissure(center) else slots["cyber"]
         if rear_scapula_frame:
             poly.material_index = slots["cyber"] if not sparse_cell(center, 10) else slots["copper"]
             if abs(center.x - rear_spine_wave(center)) < 0.040 and sparse_cell(center, 4):
-                poly.material_index = slots["green"]
+                poly.material_index = slots["clot"]
         if rear_left_tear:
             poly.material_index = slots["cyber"] if not sparse_cell(center, 10) else slots["copper"]
         if side_graft_channel:
@@ -1565,6 +2077,12 @@ def assign_body_material_regions(carrier_mesh: bpy.types.Object, mats: dict[str,
             poly.material_index = slots["scar"] if not sparse_cell(center, 5) else slots["muscle_gloss"]
             if sparse_cell(center, 17):
                 poly.material_index = slots["tendon"]
+        if rear_rupture > 0.08 or side_wrap > 0.10 or rear_rim > 0.22 or side_wrap_rim > 0.24:
+            poly.material_index = polished_back_torso_material(center, slots, poly.material_index)
+        if lower_transition > 0.08 or lower_transition_rim > 0.18:
+            poly.material_index = polished_lower_transition_material(center, slots, poly.material_index)
+        if limb_scarring > 0.08 or limb_scar_rim > 0.18:
+            poly.material_index = polished_limb_transition_material(center, slots, poly.material_index)
         if front and 1.315 < center.z < 1.535 and abs(center.x) < 0.160:
             protected_core = throat_socket or ellipsoid(center, (0.023, -0.064, 1.402), (0.052, 0.040, 0.076)) < 1.0
             if poly.material_index == slots["phase_skin"] and sparse_cell(center, 2):
@@ -1610,6 +2128,7 @@ def assign_head_material_regions(head_obj: bpy.types.Object, mats: dict[str, bpy
         "cyber": material_slot(head_obj, mats["cyber_metal"]),
         "metal_edge": material_slot(head_obj, mats["metal_edge"]),
         "copper": material_slot(head_obj, mats["copper"]),
+        "optic": material_slot(head_obj, mats["optic_dark"]),
         "green": material_slot(head_obj, mats["green_glow"]),
         "lash": material_slot(head_obj, mats["eyelash"]),
     }
@@ -1672,13 +2191,36 @@ def assign_head_material_regions(head_obj: bpy.types.Object, mats: dict[str, bpy
         right_socket = front and ragged_value(ellipsoid(center, (0.047, -0.064, 1.666), (0.044, 0.024, 0.031)), center, 0.0, 0.58, 0.030, 22)
         left_socket_ring = front and ragged_value(ellipsoid(center, (-0.044, -0.064, 1.674), (0.057, 0.030, 0.041)), center, 0.56, 1.04, 0.035, 23)
         right_socket_ring = front and ragged_value(ellipsoid(center, (0.047, -0.064, 1.666), (0.058, 0.031, 0.041)), center, 0.56, 1.02, 0.035, 24)
+        mouth_cavity = readable_mouth_cavity_field(center)
+        mouth_rim = readable_mouth_rim_field(center)
+        left_socket_shadow = uncanny_left_eye_socket_field(center)
+        left_socket_rim = uncanny_left_eye_socket_rim(center)
+        right_socket_wound = uncanny_right_eye_wound_field(center)
+        right_socket_rim = uncanny_right_eye_wound_rim(center)
         phase_echo = cranial_phase_echo(center)
         crown_suture = cranial_cyber_suture(center)
         scalp_mottle = cranial_necrotic_mottling(center)
-        cranial_shell = front and cranial_cyber_shell(center)
-        cranial_shell_feather = front and cranial_cyber_shell_feather(center)
+        scalp_flay = cranial_flayed_scalp_field(center)
+        scalp_rim = cranial_flayed_scalp_rim(center)
+        cranial_shell = cranial_cyber_shell(center)
+        cranial_shell_feather = cranial_cyber_shell_feather(center)
         temple_tear = side and center.x < -0.040 and 1.622 < center.z < 1.742 and abs(center.y - 0.000) < 0.042
 
+        if scalp_flay > 0.10:
+            if scalp_rim > 0.42:
+                poly.material_index = slots["scar"] if center.x > -0.012 else slots["metal_edge"]
+                if cranial_scalp_tendon(center):
+                    poly.material_index = slots["tendon"]
+            elif scalp_flay > 0.62:
+                poly.material_index = slots["muscle"] if center.x > -0.020 else slots["cyber"]
+                if wet_highlight_cell(center) and center.x > -0.020:
+                    poly.material_index = slots["muscle_gloss"]
+                if cranial_scalp_bone(center):
+                    poly.material_index = slots["bone"]
+                elif sparse_cell(center, 9):
+                    poly.material_index = slots["clot"]
+            else:
+                poly.material_index = slots["phase_skin"] if center.x > -0.024 else slots["metal_edge"]
         if scalp_mottle:
             poly.material_index = slots["phase_skin"]
             if sparse_cell(center, 19):
@@ -1695,8 +2237,23 @@ def assign_head_material_regions(head_obj: bpy.types.Object, mats: dict[str, bpy
                 poly.material_index = slots["green"]
         if crown_suture:
             poly.material_index = slots["metal_edge"] if sparse_cell(center, 3) else slots["cyber"]
-            if cranial_green_spark(center):
+            if cranial_green_spark(center) and scalp_flay > 0.46:
                 poly.material_index = slots["green"]
+        if scalp_flay > 0.12:
+            if scalp_rim > 0.44:
+                poly.material_index = slots["scar"] if center.x > -0.014 else slots["metal_edge"]
+                if cranial_scalp_tendon(center):
+                    poly.material_index = slots["tendon"]
+            elif scalp_flay > 0.64:
+                poly.material_index = slots["muscle"] if center.x > -0.020 else slots["cyber"]
+                if wet_highlight_cell(center) and center.x > -0.020:
+                    poly.material_index = slots["muscle_gloss"]
+                if cranial_scalp_bone(center):
+                    poly.material_index = slots["bone"]
+                elif sparse_cell(center, 9):
+                    poly.material_index = slots["clot"]
+            else:
+                poly.material_index = slots["phase_skin"] if center.x > -0.024 else slots["metal_edge"]
         if cyber_outer:
             poly.material_index = slots["metal_edge"] if center.z > 1.610 else slots["phase_skin"]
             if sparse_cell(center, 10):
@@ -1708,7 +2265,7 @@ def assign_head_material_regions(head_obj: bpy.types.Object, mats: dict[str, bpy
         if cyber_core:
             poly.material_index = slots["cyber"]
             if cyber_face_fissure(center):
-                poly.material_index = slots["green"]
+                poly.material_index = slots["metal_edge"] if sparse_cell(center, 5) else slots["cyber"]
             elif copper_transition(center, (-0.056, -0.055, 1.654), (0.070, 0.050, 0.093)):
                 poly.material_index = slots["copper"]
 
@@ -1738,7 +2295,7 @@ def assign_head_material_regions(head_obj: bpy.types.Object, mats: dict[str, bpy
         if left_socket:
             poly.material_index = slots["cyber"]
             if cyber_eye_cut(center):
-                poly.material_index = slots["green"]
+                poly.material_index = slots["metal_edge"] if sparse_cell(center, 4) else slots["cyber"]
             elif sparse_cell(center, 6):
                 poly.material_index = slots["clot"]
         if right_socket_ring:
@@ -1751,18 +2308,180 @@ def assign_head_material_regions(head_obj: bpy.types.Object, mats: dict[str, bpy
                 poly.material_index = slots["muscle_gloss"]
             if human_eye_blood_pool(center):
                 poly.material_index = slots["clot"]
+        if left_socket_shadow > 0.14:
+            if left_socket_shadow > 0.68:
+                poly.material_index = slots["optic"] if center.x > -0.064 else slots["cyber"]
+                if cyber_eye_cut(center) and left_socket_shadow < 0.86:
+                    poly.material_index = slots["metal_edge"]
+            elif left_socket_rim > 0.34:
+                poly.material_index = slots["metal_edge"] if center.z > 1.666 else slots["cyber"]
+        if right_socket_wound > 0.12:
+            if right_socket_wound > 0.66:
+                poly.material_index = slots["clot"] if center.z < 1.667 or human_eye_blood_pool(center) else slots["scar"]
+                if wet_highlight_cell(center) and center.z > 1.668:
+                    poly.material_index = slots["muscle_gloss"]
+            elif right_socket_rim > 0.32:
+                poly.material_index = slots["scar"] if not sparse_cell(center, 10) else slots["tendon"]
+        if mouth_cavity > 0.10:
+            if mouth_cavity > 0.66:
+                poly.material_index = slots["clot"]
+                if center.x < -0.030 and sparse_cell(center, 5):
+                    poly.material_index = slots["optic"]
+                elif center.x > 0.036 and wet_highlight_cell(center):
+                    poly.material_index = slots["muscle_gloss"]
+            elif mouth_rim > 0.34:
+                if readable_mouth_tendon_strand(center):
+                    poly.material_index = slots["tendon"] if not sparse_cell(center, 6) else slots["bone"]
+                else:
+                    poly.material_index = slots["scar"] if center.x > -0.018 else slots["metal_edge"]
         if temple_tear:
             poly.material_index = slots["cyber"] if sparse_cell(center, 2) else slots["metal_edge"]
             if cranial_green_spark(center):
                 poly.material_index = slots["green"]
         if rear_occipital_rift:
-            poly.material_index = slots["cyber"]
+            poly.material_index = slots["scar"] if sparse_cell(center, 4) else slots["cyber"]
             if rear_head_fissure(center):
-                poly.material_index = slots["green"]
+                poly.material_index = slots["metal_edge"] if not sparse_cell(center, 5) else slots["clot"]
+            elif rear_head_rupture_rim(center) > 0.48 and sparse_cell(center, 3):
+                poly.material_index = slots["tendon"] if center.z < 1.690 else slots["metal_edge"]
             elif sparse_cell(center, 5):
+                poly.material_index = slots["clot"]
+        if center.z > 1.706 and center.y < 0.064 and poly.material_index in {slots["skin"], slots["phase_skin"]}:
+            cap_noise = organic_breakup(center, 207)
+            if abs(center.x) < 0.092 and cap_noise > -0.46:
+                poly.material_index = slots["scar"] if cap_noise < 0.34 else slots["muscle"]
+            if center.x < -0.024 and cap_noise > -0.08:
                 poly.material_index = slots["metal_edge"]
+            if center.x > 0.036 and cap_noise > 0.22:
+                poly.material_index = slots["clot"] if sparse_cell(center, 5) else slots["muscle_gloss"]
+        if cranial_embedded_fragment(center) and poly.material_index not in {slots["lash"], slots["green"]}:
+            if center.x < -0.014:
+                poly.material_index = slots["metal_edge"] if not sparse_cell(center, 4) else slots["cyber"]
+            elif sparse_cell(center, 3):
+                poly.material_index = slots["tendon"]
+            else:
+                poly.material_index = slots["clot"] if center.z < 1.750 else slots["scar"]
         poly.material_index = polished_cheek_material(center, slots, poly.material_index)
+        poly.material_index = polished_head_telefrag_material(center, slots, poly.material_index)
     smooth_isolated_material_faces(head_obj, {slots["lash"], slots["green"]}, passes=3)
+
+
+def polished_lower_transition_material(center: Vector, slots: dict[str, int], fallback: int) -> int:
+    field = lower_body_transition_field(center)
+    rim = lower_body_transition_rim(center)
+    if field <= 0.08 and rim <= 0.18:
+        return fallback
+
+    metal_side = center.x < -0.018
+    flesh_side = center.x > 0.032
+    if lower_body_bone_chip_hint(center) and field > 0.34:
+        return slots["bone"] if sparse_cell(center, 11) else slots["tendon"]
+    if field > 0.56:
+        if metal_side:
+            return slots["cyber"] if not sparse_cell(center, 6) else slots["metal_edge"]
+        if flesh_side and center.y < 0.018:
+            return slots["scar"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+        return slots["torso_blend"]
+    if field > 0.32:
+        if metal_side:
+            return slots["metal_edge"] if not copper_transition(center, (-0.100, -0.008, 1.050), (0.090, 0.064, 0.174)) else slots["copper"]
+        if flesh_side:
+            return slots["scar"] if not sparse_cell(center, 8) else slots["clot"]
+        return slots["torso_blend"]
+    if rim > 0.28:
+        if fallback in {slots["carrier"], slots["shadow"], slots["cyber"], slots["metal_edge"]}:
+            return slots["metal_edge"] if not sparse_cell(center, 7) else slots["copper"]
+        if fallback in {slots["phase_skin"], slots["scar"], slots["muscle"], slots["muscle_gloss"]}:
+            return slots["scar"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+        return slots["torso_blend"] if sparse_cell(center, 4) else fallback
+    if fallback in {slots["carrier"], slots["shadow"]} and sparse_cell(center, 3):
+        return slots["torso_blend"] if center.y < 0.020 else slots["cyber"]
+    return fallback
+
+
+def polished_limb_transition_material(center: Vector, slots: dict[str, int], fallback: int) -> int:
+    field = limb_transition_scar_field(center)
+    rim = limb_transition_scar_rim(center)
+    if field <= 0.10 and rim <= 0.20:
+        return fallback
+
+    arm_zone = 0.176 < abs(center.x) < 0.330 and 0.780 < center.z < 1.445
+    left_side = center.x < 0.0
+    if field > 0.34:
+        if arm_zone and not left_side:
+            return slots["scar"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+        if sparse_cell(center, 9):
+            return slots["copper"]
+        return slots["cyber"] if left_side else slots["metal_edge"]
+    if rim > 0.22:
+        if arm_zone and not left_side and sparse_cell(center, 5):
+            return slots["scar"]
+        return slots["metal_edge"] if not sparse_cell(center, 8) else slots["copper"]
+    if fallback in {slots["carrier"], slots["shadow"]} and sparse_cell(center, 4):
+        return slots["copper"] if left_side else slots["metal_edge"]
+    return fallback
+
+
+def polished_back_torso_material(center: Vector, slots: dict[str, int], fallback: int) -> int:
+    if not (1.145 < center.z < 1.575 and abs(center.x) < 0.220 and -0.040 < center.y < 0.150):
+        return fallback
+
+    rear_field = rear_torso_rupture_field(center)
+    rear_rim = rear_torso_rupture_rim(center)
+    side_field = side_torso_wrap_field(center)
+    side_rim = side_torso_wrap_rim(center)
+    field = max(rear_field, side_field * 0.90)
+    rim = max(rear_rim, side_rim * 0.82)
+    if field <= 0.06 and rim <= 0.16:
+        return fallback
+
+    side_zone = side_field > rear_field * 0.82 and abs(center.x) > 0.128
+    metal_bias = center.x < rear_spine_wave(center) - 0.014
+    flesh_bias = center.x > rear_spine_wave(center) + 0.018
+    tendon = rear_torso_tendon_strand(center)
+    bone = rear_torso_bone_hint(center)
+    fissure = rear_fissure(center) or (
+        side_zone and diagonal_band_xz(center, (0.156 if center.x > 0.0 else -0.156, 1.500), (0.188 if center.x > 0.0 else -0.188, 1.282), 0.006)
+    )
+
+    if bone and field > 0.22:
+        return slots["bone"] if not tendon else slots["tendon"]
+    if tendon and (field > 0.24 or rim > 0.32):
+        return slots["tendon"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+    if fissure and field > 0.34:
+        return slots["clot"] if flesh_bias or sparse_cell(center, 5) else slots["metal_edge"]
+
+    if field > 0.62:
+        if side_zone and center.x > 0.0:
+            return slots["muscle_gloss"] if wet_highlight_cell(center) else slots["muscle"]
+        if metal_bias:
+            return slots["cyber"] if not sparse_cell(center, 7) else slots["metal_edge"]
+        if flesh_bias:
+            return slots["clot"] if sparse_cell(center, 4) else slots["muscle"]
+        return slots["clot"]
+
+    if field > 0.36:
+        if side_zone:
+            return slots["torso_blend"] if not sparse_cell(center, 4) else (slots["scar"] if center.x > 0.0 else slots["metal_edge"])
+        if metal_bias:
+            return slots["cyber"] if not sparse_cell(center, 6) else slots["copper"]
+        if flesh_bias:
+            return slots["muscle"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+        return slots["torso_blend"]
+
+    if rim > 0.30:
+        if metal_bias and not side_zone:
+            return slots["metal_edge"] if not sparse_cell(center, 5) else slots["copper"]
+        if flesh_bias or center.x > 0.035:
+            return slots["scar"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+        return slots["torso_blend"]
+
+    if field > 0.12:
+        if fallback in {slots["carrier"], slots["shadow"], slots["cyber"], slots["metal_edge"], slots["scar"], slots["muscle"], slots["clot"], slots["tendon"], slots["bone"]}:
+            return slots["torso_blend"] if fallback in {slots["carrier"], slots["shadow"]} or sparse_cell(center, 3) else fallback
+        return slots["torso_blend"]
+
+    return fallback
 
 
 def polished_front_torso_material(center: Vector, slots: dict[str, int], fallback: int) -> int:
@@ -1821,7 +2540,7 @@ def polished_front_torso_material(center: Vector, slots: dict[str, int], fallbac
         slots["metal_edge"],
     }
     if patch_edge_candidate and patch_edge_unifier > 0.075:
-        if telefrag_sternum_fissure(center) and field > 0.50:
+        if telefrag_sternum_fissure(center) and field > 0.64 and sparse_cell(center, 5):
             return slots["green"]
         if tendon_strand and patch_edge_unifier > 0.42 and sparse_cell(center, 12):
             return slots["tendon"]
@@ -1866,7 +2585,7 @@ def polished_front_torso_material(center: Vector, slots: dict[str, int], fallbac
         or (outer_shell and center.z > 1.455 and upper_gate > 0.18)
     )
     if blend_zone:
-        if telefrag_sternum_fissure(center) and field > 0.54:
+        if telefrag_sternum_fissure(center) and field > 0.68 and sparse_cell(center, 5):
             return slots["green"]
         if tendon_strand and (field > 0.48 or torn_border > 0.58) and sparse_cell(center, 7):
             return slots["tendon"]
@@ -1904,7 +2623,7 @@ def polished_front_torso_material(center: Vector, slots: dict[str, int], fallbac
 
     central_clot = ellipsoid(center, (0.024, -0.067, 1.414), (0.050, 0.032, 0.070)) < 1.0
     if central_clot or seam:
-        if telefrag_sternum_fissure(center):
+        if telefrag_sternum_fissure(center) and sparse_cell(center, 5):
             return slots["green"]
         if telefrag_sternum_bone(center) and tendon_strand:
             return slots["tendon"]
@@ -1917,6 +2636,126 @@ def polished_front_torso_material(center: Vector, slots: dict[str, int], fallbac
         return slots["muscle_gloss"] if wet_highlight_cell(center) else slots["muscle"]
 
     return slots["clot"]
+
+
+def polished_head_telefrag_material(center: Vector, slots: dict[str, int], fallback: int) -> int:
+    if not (1.540 < center.z < 1.812 and center.y < 0.080 and abs(center.x) < 0.136):
+        return fallback
+
+    back = center.y > 0.032
+    if back:
+        rear_field = rear_head_rupture_field(center)
+        rear_rim = rear_head_rupture_rim(center)
+        if rear_field <= 0.08:
+            return fallback
+        if rear_head_fissure(center):
+            return slots["metal_edge"] if not sparse_cell(center, 5) else slots["clot"]
+        if head_tendon_shred(center) and rear_rim > 0.36:
+            return slots["tendon"]
+        if rear_field > 0.68:
+            return slots["clot"] if sparse_cell(center, 4) else slots["cyber"]
+        if rear_rim > 0.44:
+            return slots["metal_edge"] if sparse_cell(center, 3) else slots["scar"]
+        return slots["phase_skin"] if sparse_cell(center, 5) else fallback
+
+    if center.y > 0.026 and head_cyber_intrusion_field(center) < 0.20:
+        return fallback
+
+    seam_x = head_telefrag_boundary_x(center)
+    transition = head_telefrag_transition_field(center)
+    rim = head_telefrag_transition_rim(center)
+    cyber = head_cyber_intrusion_field(center)
+    flesh = head_ruptured_flesh_field(center)
+    left_socket = uncanny_left_eye_socket_field(center)
+    left_socket_rim = uncanny_left_eye_socket_rim(center)
+    right_socket = uncanny_right_eye_wound_field(center)
+    right_socket_rim = uncanny_right_eye_wound_rim(center)
+    mouth_cavity = readable_mouth_cavity_field(center)
+    mouth_rim = readable_mouth_rim_field(center)
+    if left_socket > 0.12:
+        if left_socket > 0.70:
+            return slots["optic"] if center.x > -0.066 else slots["cyber"]
+        if left_socket_rim > 0.36:
+            return slots["metal_edge"] if center.z > 1.664 else slots["cyber"]
+    if right_socket > 0.12:
+        if right_socket > 0.68:
+            if human_eye_blood_pool(center) or center.z < 1.666:
+                return slots["clot"]
+            return slots["muscle_gloss"] if wet_highlight_cell(center) else slots["scar"]
+        if right_socket_rim > 0.34:
+            return slots["scar"] if not readable_mouth_tendon_strand(center) else slots["tendon"]
+    if mouth_cavity > 0.12:
+        if mouth_cavity > 0.68:
+            if center.x < -0.036 and sparse_cell(center, 7):
+                return slots["optic"]
+            if readable_mouth_tendon_strand(center) and center.z > 1.604:
+                return slots["tendon"]
+            return slots["clot"]
+        if mouth_rim > 0.36:
+            if readable_mouth_tendon_strand(center):
+                return slots["tendon"] if not sparse_cell(center, 6) else slots["bone"]
+            return slots["metal_edge"] if center.x < -0.018 else slots["scar"]
+    field = max(transition, cyber * 0.92, flesh * 0.96)
+    if field <= 0.05:
+        return fallback
+
+    metal_bias = center.x < seam_x - 0.010
+    flesh_bias = center.x > seam_x + 0.010
+    cross_metal = head_crossing_metal_shard(center)
+    cross_flesh = head_crossing_flesh_tear(center)
+    tendon = head_tendon_shred(center)
+    bone = head_bone_splinter(center)
+    island_breakup = head_material_island_breakup_field(center)
+
+    if head_sparse_glitch_fissure(center) and field > 0.58 and sparse_cell(center, 7):
+        return slots["green"]
+    if island_breakup > 0.58 and fallback in {slots["skin"], slots["phase_skin"], slots["cyber"], slots["metal_edge"], slots["scar"], slots["muscle"], slots["muscle_gloss"], slots["clot"]}:
+        if island_breakup > 0.78 and sparse_cell(center, 4):
+            return slots["clot"] if flesh_bias else slots["cyber"]
+        if tendon and island_breakup > 0.60:
+            return slots["tendon"]
+        if fallback in {slots["cyber"], slots["metal_edge"]}:
+            return slots["scar"] if sparse_cell(center, 5) else slots["metal_edge"]
+        if fallback in {slots["scar"], slots["muscle"], slots["muscle_gloss"], slots["clot"]} and sparse_cell(center, 6):
+            return slots["metal_edge"] if center.x < seam_x else slots["tendon"]
+        return slots["scar"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+    if bone and field > 0.28:
+        return slots["bone"] if not tendon else slots["tendon"]
+    if tendon and (rim > 0.22 or transition > 0.32):
+        return slots["tendon"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+    if cross_metal:
+        if rim > 0.48 and sparse_cell(center, 7):
+            return slots["clot"]
+        return slots["metal_edge"] if rim > 0.30 or sparse_cell(center, 4) else slots["cyber"]
+    if cross_flesh:
+        if cheek_blood_crack(center) or wet_highlight_cell(center):
+            return slots["muscle_gloss"] if wet_highlight_cell(center) else slots["clot"]
+        return slots["muscle"] if field > 0.42 else slots["scar"]
+
+    if transition > 0.42:
+        if abs(center.x - seam_x) < 0.016:
+            if sparse_cell(center, 5):
+                return slots["tendon"]
+            return slots["clot"] if center.z < 1.650 else slots["metal_edge"]
+        if metal_bias:
+            return slots["cyber"] if not sparse_cell(center, 6) else slots["metal_edge"]
+        if flesh_bias:
+            return slots["muscle_gloss"] if wet_highlight_cell(center) else slots["muscle"]
+
+    if rim > 0.34:
+        if metal_bias and sparse_cell(center, 3):
+            return slots["scar"]
+        if flesh_bias and sparse_cell(center, 4):
+            return slots["metal_edge"]
+        return slots["scar"] if flesh_bias else slots["metal_edge"]
+
+    if cyber > 0.56 and flesh < 0.50:
+        return slots["cyber"] if not sparse_cell(center, 8) else slots["copper"]
+    if flesh > 0.48:
+        return slots["muscle"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+    if field > 0.18 and fallback == slots["skin"]:
+        return slots["phase_skin"] if not sparse_cell(center, 3) else slots["scar"]
+    return fallback
 
 
 def polished_cheek_material(center: Vector, slots: dict[str, int], fallback: int) -> int:
@@ -1948,6 +2787,22 @@ def polished_cheek_material(center: Vector, slots: dict[str, int], fallback: int
     if blood_crack or ellipsoid(center, (0.076, -0.067, 1.604), (0.030, 0.021, 0.032)) < 0.88:
         return slots["clot"]
     return slots["muscle_gloss"] if wet_highlight_cell(center) else slots["muscle"]
+
+
+def head_material_island_breakup_field(center: Vector) -> float:
+    if not (center.y < 0.030 and 1.560 < center.z < 1.748 and abs(center.x) < 0.124):
+        return 0.0
+    seam_x = head_telefrag_boundary_x(center)
+    seam_drag = 1.0 - smoothstep(0.018, 0.072, abs(center.x - seam_x))
+    brow_rake = diagonal_band_xz_value(center, (-0.082, 1.700), (0.086, 1.668), 0.012, 0.042)
+    cheek_rake = diagonal_band_xz_value(center, (-0.094, 1.642), (0.102, 1.596), 0.014, 0.046)
+    jaw_rake = diagonal_band_xz_value(center, (-0.064, 1.592), (0.070, 1.560), 0.012, 0.036)
+    socket_bleed = max(
+        1.0 - smoothstep(0.70, 1.12, ellipsoid(center, (-0.044, -0.064, 1.674), (0.064, 0.032, 0.044))),
+        1.0 - smoothstep(0.70, 1.12, ellipsoid(center, (0.047, -0.064, 1.666), (0.064, 0.033, 0.045))),
+    )
+    breakup = 0.82 + 0.16 * organic_breakup(center, 229)
+    return clamp01(max(seam_drag * 0.56, brow_rake * 0.42, cheek_rake * 0.48, jaw_rake * 0.36, socket_bleed * 0.22) * breakup)
 
 
 def smooth_isolated_material_faces(
@@ -2086,18 +2941,137 @@ def face_muscle_value(center: Vector) -> float:
     return min(cheek_flay, jaw_flay, lip_tear)
 
 
-def cranial_cyber_shell(center: Vector) -> bool:
-    if center.z < 1.666 or center.z > 1.812 or center.y > 0.018 or center.x > 0.020:
+def head_telefrag_boundary_x(center: Vector) -> float:
+    return (
+        -0.012
+        + 0.022 * math.sin((center.z - 1.575) * 21.0)
+        + 0.012 * math.sin(center.y * 53.0 + center.z * 14.0)
+        + 0.008 * organic_breakup(center, 177)
+    )
+
+
+def head_telefrag_transition_field(center: Vector) -> float:
+    if not (center.y < 0.036 and 1.548 < center.z < 1.765 and abs(center.x) < 0.124):
+        return 0.0
+    seam_x = head_telefrag_boundary_x(center)
+    seam = 1.0 - smoothstep(0.012, 0.052, abs(center.x - seam_x))
+    brow = diagonal_band_xz_value(center, (-0.085, 1.704), (0.058, 1.674), 0.018, 0.044)
+    cheek = diagonal_band_xz_value(center, (-0.080, 1.638), (0.092, 1.594), 0.018, 0.046)
+    jaw = diagonal_band_xz_value(center, (-0.046, 1.590), (0.068, 1.552), 0.016, 0.040)
+    front_gate = 1.0 - smoothstep(0.006, 0.052, center.y)
+    breakup = 0.86 + 0.12 * organic_breakup(center, 179)
+    return clamp01(max(seam * 0.78, brow * 0.58, cheek * 0.66, jaw * 0.54) * front_gate * breakup)
+
+
+def head_telefrag_transition_rim(center: Vector) -> float:
+    transition = head_telefrag_transition_field(center)
+    if transition <= 0.0:
+        return 0.0
+    seam_distance = abs(center.x - head_telefrag_boundary_x(center))
+    seam_lip = max(0.0, 1.0 - abs(seam_distance - 0.030) / 0.020)
+    cheek_lip = diagonal_band_xz_value(center, (-0.094, 1.650), (0.102, 1.588), 0.020, 0.038)
+    return clamp01(max(seam_lip * 0.76, cheek_lip * 0.58, transition * 0.36) * (0.90 + 0.08 * organic_breakup(center, 181)))
+
+
+def head_cyber_intrusion_field(center: Vector) -> float:
+    if not (center.y < 0.046 and 1.548 < center.z < 1.790 and abs(center.x) < 0.132):
+        return 0.0
+    left = 1.0 - smoothstep(0.46, 1.20, face_cyber_value(center))
+    right_forehead_shard = diagonal_band_xz_value(center, (0.018, 1.742), (0.090, 1.698), 0.014, 0.040)
+    right_mouth_shard = diagonal_band_xz_value(center, (-0.004, 1.628), (0.104, 1.584), 0.012, 0.034)
+    chin_plate = 1.0 - smoothstep(0.54, 1.20, ellipsoid(center, (-0.020, -0.056, 1.570), (0.054, 0.034, 0.036)))
+    front_gate = 1.0 - smoothstep(0.006, 0.056, center.y)
+    return clamp01(max(left, right_forehead_shard * 0.70, right_mouth_shard * 0.64, chin_plate * 0.50) * front_gate)
+
+
+def head_ruptured_flesh_field(center: Vector) -> float:
+    if not (center.y < 0.038 and 1.548 < center.z < 1.735 and abs(center.x) < 0.132):
+        return 0.0
+    right = 1.0 - smoothstep(0.44, 1.18, face_muscle_value(center))
+    left_cheek_gore = 1.0 - smoothstep(0.54, 1.18, ellipsoid(center, (-0.058, -0.060, 1.620), (0.050, 0.034, 0.056)))
+    left_brow_gore = diagonal_band_xz_value(center, (-0.092, 1.694), (-0.010, 1.660), 0.014, 0.036)
+    mouth_pull = diagonal_band_xz_value(center, (0.004, 1.602), (-0.070, 1.572), 0.014, 0.036)
+    front_gate = 1.0 - smoothstep(0.008, 0.058, center.y)
+    breakup = 0.90 + 0.09 * organic_breakup(center, 183)
+    return clamp01(max(right, left_cheek_gore * 0.66, left_brow_gore * 0.54, mouth_pull * 0.58) * front_gate * breakup)
+
+
+def head_crossing_metal_shard(center: Vector) -> bool:
+    return (
+        diagonal_band_xz(center, (0.020, 1.742), (0.096, 1.696), 0.010)
+        or diagonal_band_xz(center, (-0.010, 1.628), (0.106, 1.582), 0.010)
+        or diagonal_band_xz(center, (-0.090, 1.706), (0.012, 1.684), 0.008)
+    )
+
+
+def head_crossing_flesh_tear(center: Vector) -> bool:
+    return (
+        diagonal_band_xz(center, (-0.086, 1.642), (0.086, 1.594), 0.012)
+        or diagonal_band_xz(center, (-0.070, 1.586), (0.052, 1.556), 0.010)
+        or diagonal_band_xz(center, (-0.052, 1.690), (0.035, 1.650), 0.009)
+    )
+
+
+def head_tendon_shred(center: Vector) -> bool:
+    return (
+        diagonal_band_xz(center, (-0.070, 1.636), (0.092, 1.584), 0.006)
+        or diagonal_band_xz(center, (0.032, 1.666), (0.096, 1.566), 0.006)
+        or diagonal_band_xz(center, (-0.088, 1.694), (-0.006, 1.610), 0.005)
+        or (center.y > 0.030 and diagonal_band_xz(center, (-0.042, 1.736), (0.038, 1.620), 0.006))
+    )
+
+
+def head_bone_splinter(center: Vector) -> bool:
+    if not (center.y < -0.026 and 1.560 < center.z < 1.690 and abs(center.x) < 0.110):
         return False
-    value = ellipsoid(center, (-0.040, -0.030, 1.732), (0.064, 0.044, 0.082))
-    return ragged_value(value, center, 0.0, 0.64, 0.035, 28)
+    cheek = diagonal_band_xz(center, (0.050, 1.644), (0.094, 1.594), 0.007)
+    jaw = diagonal_band_xz(center, (-0.010, 1.592), (0.050, 1.558), 0.006)
+    brow = diagonal_band_xz(center, (-0.078, 1.686), (-0.026, 1.660), 0.006)
+    return (cheek or jaw or brow) and sparse_cell(center, 4)
+
+
+def head_sparse_glitch_fissure(center: Vector) -> bool:
+    if not (center.y < -0.022 and 1.575 < center.z < 1.736 and abs(center.x) < 0.106):
+        return False
+    seam = abs(center.x - head_telefrag_boundary_x(center)) < 0.004 and sparse_cell(center, 29)
+    cyber_cut = cyber_face_fissure(center) and sparse_cell(center, 11)
+    brow_cut = diagonal_band_xz(center, (-0.038, 1.714), (0.035, 1.674), 0.0035) and sparse_cell(center, 31)
+    return seam or cyber_cut or brow_cut
+
+
+def rear_head_rupture_field(center: Vector) -> float:
+    if not (center.y > 0.020 and 1.575 < center.z < 1.782 and abs(center.x) < 0.102):
+        return 0.0
+    wavering_x = 0.010 * math.sin((center.z - 1.585) * 38.0) + 0.006 * math.sin(center.y * 70.0)
+    central = 1.0 - smoothstep(0.018, 0.060, abs(center.x - wavering_x))
+    diagonal_rip = diagonal_band_xz_value(center, (-0.050, 1.740), (0.036, 1.610), 0.014, 0.040)
+    side_bite = 1.0 - smoothstep(0.62, 1.22, ellipsoid(center, (-0.044, 0.050, 1.674), (0.044, 0.032, 0.072)))
+    back_gate = smoothstep(0.020, 0.060, center.y)
+    return clamp01(max(central * 0.64, diagonal_rip * 0.72, side_bite * 0.50) * back_gate * (0.88 + 0.10 * organic_breakup(center, 187)))
+
+
+def rear_head_rupture_rim(center: Vector) -> float:
+    field = rear_head_rupture_field(center)
+    if field <= 0.0:
+        return 0.0
+    wavering_x = 0.010 * math.sin((center.z - 1.585) * 38.0) + 0.006 * math.sin(center.y * 70.0)
+    lip = max(0.0, 1.0 - abs(abs(center.x - wavering_x) - 0.040) / 0.022)
+    diagonal_lip = diagonal_band_xz_value(center, (-0.060, 1.750), (0.045, 1.602), 0.018, 0.030)
+    return clamp01(max(lip * 0.72, diagonal_lip * 0.58, field * 0.28))
+
+
+def cranial_cyber_shell(center: Vector) -> bool:
+    if center.z < 1.650 or center.z > 1.814 or center.y > 0.046 or center.x > 0.034:
+        return False
+    value = ellipsoid(center, (-0.040, -0.012, 1.732), (0.078, 0.060, 0.092))
+    return ragged_value(value, center, 0.0, 0.72, 0.040, 28)
 
 
 def cranial_cyber_shell_feather(center: Vector) -> bool:
-    if center.z < 1.650 or center.z > 1.818 or center.y > 0.026 or center.x > 0.036:
+    if center.z < 1.632 or center.z > 1.820 or center.y > 0.058 or center.x > 0.052:
         return False
-    value = ellipsoid(center, (-0.040, -0.030, 1.732), (0.070, 0.049, 0.087))
-    return ragged_value(value, center, 0.66, 1.10, 0.045, 39)
+    value = ellipsoid(center, (-0.040, -0.012, 1.732), (0.086, 0.066, 0.100))
+    return ragged_value(value, center, 0.68, 1.18, 0.050, 39)
 
 
 def cranial_phase_echo(center: Vector) -> bool:
@@ -2120,6 +3094,52 @@ def cranial_necrotic_mottling(center: Vector) -> bool:
     ) and not cranial_cyber_shell(center)
 
 
+def cranial_flayed_scalp_field(center: Vector) -> float:
+    if not (1.642 < center.z < 1.818 and -0.074 < center.y < 0.078 and abs(center.x) < 0.132):
+        return 0.0
+    crown_bite = 1.0 - smoothstep(
+        0.38,
+        1.22,
+        ellipsoid(center, (0.006, -0.010, 1.758), (0.106, 0.070, 0.064)),
+    )
+    left_peel = diagonal_band_xz_value(center, (-0.090, 1.806), (0.048, 1.692), 0.027, 0.052)
+    rear_peel = diagonal_band_xz_value(center, (-0.052, 1.782), (0.036, 1.640), 0.024, 0.050) * smoothstep(0.000, 0.058, center.y)
+    right_flesh = diagonal_band_xz_value(center, (0.084, 1.795), (-0.014, 1.678), 0.024, 0.048)
+    brow_drop = diagonal_band_xz_value(center, (-0.064, 1.742), (0.070, 1.704), 0.020, 0.044) * (1.0 - smoothstep(-0.010, 0.040, center.y))
+    cap_gate = 1.0 - smoothstep(0.062, 0.092, abs(center.y))
+    breakup = 0.84 + 0.14 * organic_breakup(center, 193)
+    return clamp01(max(crown_bite * 0.88, left_peel * 0.82, rear_peel * 0.74, right_flesh * 0.68, brow_drop * 0.62) * cap_gate * breakup)
+
+
+def cranial_flayed_scalp_rim(center: Vector) -> float:
+    field = cranial_flayed_scalp_field(center)
+    if field <= 0.0:
+        return 0.0
+    crown = ellipsoid(center, (0.006, -0.010, 1.758), (0.108, 0.072, 0.066))
+    shell_lip = max(0.0, 1.0 - abs(crown - 0.86) / 0.30)
+    tear_lip = max(
+        diagonal_band_xz_value(center, (-0.088, 1.806), (0.050, 1.704), 0.014, 0.036),
+        diagonal_band_xz_value(center, (0.076, 1.790), (-0.012, 1.688), 0.012, 0.034),
+    )
+    return clamp01(max(shell_lip * 0.68, tear_lip * 0.82, field * 0.28) * (0.88 + 0.10 * organic_breakup(center, 195)))
+
+
+def cranial_scalp_tendon(center: Vector) -> bool:
+    return (
+        diagonal_band_xz(center, (-0.076, 1.792), (0.042, 1.708), 0.006)
+        or diagonal_band_xz(center, (0.066, 1.782), (-0.006, 1.696), 0.005)
+        or (center.y > 0.018 and diagonal_band_xz(center, (-0.038, 1.754), (0.024, 1.664), 0.006))
+    ) and sparse_cell(center, 3)
+
+
+def cranial_scalp_bone(center: Vector) -> bool:
+    if not (center.y < 0.052 and 1.668 < center.z < 1.800 and -0.086 < center.x < 0.086):
+        return False
+    sagittal = abs(center.x - 0.012 * math.sin(center.z * 47.0)) < 0.008
+    cross = diagonal_band_xz(center, (-0.052, 1.762), (0.050, 1.724), 0.006)
+    return (sagittal or cross) and sparse_cell(center, 4)
+
+
 def cranial_cyber_suture(center: Vector) -> bool:
     if center.z < 1.655 or center.z > 1.820:
         return False
@@ -2133,9 +3153,19 @@ def cranial_green_spark(center: Vector) -> bool:
     if center.z < 1.635 or center.z > 1.815:
         return False
     return (
-        abs(center.x + 0.047 + 0.21 * (center.z - 1.690)) < 0.007
-        or abs(center.x - 0.012 * math.sin(center.z * 51.0)) < 0.008 and center.y > 0.020
-    ) and sparse_cell(center, 5)
+        abs(center.x + 0.047 + 0.21 * (center.z - 1.690)) < 0.003
+        or abs(center.x - 0.012 * math.sin(center.z * 51.0)) < 0.003 and center.y > 0.026
+    ) and sparse_cell(center, 41)
+
+
+def cranial_embedded_fragment(center: Vector) -> bool:
+    if not (center.y < 0.050 and 1.694 < center.z < 1.812 and abs(center.x) < 0.112):
+        return False
+    rake_a = diagonal_band_xz(center, (-0.080, 1.806), (0.046, 1.712), 0.009)
+    rake_b = diagonal_band_xz(center, (0.070, 1.790), (-0.024, 1.704), 0.008)
+    brow_crush = diagonal_band_xz(center, (-0.070, 1.724), (0.070, 1.700), 0.010)
+    sagittal_chip = abs(center.x - 0.010 * math.sin(center.z * 43.0)) < 0.006 and 1.720 < center.z
+    return (rake_a or rake_b or brow_crush or sagittal_chip) and sparse_cell(center, 3)
 
 
 def cyber_eye_cut(center: Vector) -> bool:
@@ -2152,6 +3182,88 @@ def human_eye_blood_pool(center: Vector) -> bool:
     lower_lid = center.z < 1.666 and abs((center.x - 0.050) - 0.18 * (center.z - 1.655)) < 0.017
     inner_corner = ellipsoid(center, (0.026, -0.066, 1.666), (0.017, 0.014, 0.018)) < 1.0
     return lower_lid or inner_corner
+
+
+def uncanny_left_eye_socket_field(center: Vector) -> float:
+    if not (center.y < -0.024 and -0.090 < center.x < -0.006 and 1.638 < center.z < 1.706):
+        return 0.0
+    socket = 1.0 - smoothstep(
+        0.38,
+        1.18,
+        ellipsoid(center, (-0.047, -0.064, 1.674), (0.052, 0.026, 0.034)),
+    )
+    horizontal_cut = diagonal_band_xz_value(center, (-0.088, 1.680), (-0.010, 1.664), 0.012, 0.036)
+    upper_lid_crush = diagonal_band_xz_value(center, (-0.082, 1.698), (-0.016, 1.678), 0.010, 0.030)
+    return clamp01(max(socket * 0.90, horizontal_cut * 0.72, upper_lid_crush * 0.62))
+
+
+def uncanny_left_eye_socket_rim(center: Vector) -> float:
+    field = uncanny_left_eye_socket_field(center)
+    if field <= 0.0:
+        return 0.0
+    shell = ellipsoid(center, (-0.047, -0.064, 1.674), (0.056, 0.028, 0.038))
+    rim = max(0.0, 1.0 - abs(shell - 0.92) / 0.30)
+    lower_cut = diagonal_band_xz_value(center, (-0.082, 1.656), (-0.018, 1.646), 0.007, 0.026)
+    return clamp01(max(rim * 0.76, lower_cut * 0.64, field * 0.24))
+
+
+def uncanny_right_eye_wound_field(center: Vector) -> float:
+    if not (center.y < -0.024 and 0.004 < center.x < 0.096 and 1.632 < center.z < 1.700):
+        return 0.0
+    socket = 1.0 - smoothstep(
+        0.44,
+        1.22,
+        ellipsoid(center, (0.050, -0.064, 1.664), (0.054, 0.027, 0.036)),
+    )
+    lower_blood = diagonal_band_xz_value(center, (0.012, 1.656), (0.090, 1.642), 0.011, 0.034)
+    inner_tear = 1.0 - smoothstep(0.38, 1.06, ellipsoid(center, (0.026, -0.067, 1.666), (0.018, 0.015, 0.020)))
+    return clamp01(max(socket * 0.74, lower_blood * 0.72, inner_tear * 0.66))
+
+
+def uncanny_right_eye_wound_rim(center: Vector) -> float:
+    field = uncanny_right_eye_wound_field(center)
+    if field <= 0.0:
+        return 0.0
+    shell = ellipsoid(center, (0.050, -0.064, 1.664), (0.060, 0.030, 0.042))
+    rim = max(0.0, 1.0 - abs(shell - 0.94) / 0.32)
+    brow_pull = diagonal_band_xz_value(center, (0.016, 1.686), (0.092, 1.670), 0.008, 0.028)
+    return clamp01(max(rim * 0.70, brow_pull * 0.58, field * 0.22))
+
+
+def readable_mouth_cavity_field(center: Vector) -> float:
+    if not (center.y < -0.030 and -0.086 < center.x < 0.104 and 1.566 < center.z < 1.630):
+        return 0.0
+    horizontal_gash = 1.0 - smoothstep(
+        0.42,
+        1.18,
+        ellipsoid(center, (0.014, -0.067, 1.598), (0.090, 0.021, 0.020)),
+    )
+    left_machine_pull = diagonal_band_xz_value(center, (-0.080, 1.616), (-0.012, 1.594), 0.012, 0.034)
+    right_flesh_pull = diagonal_band_xz_value(center, (0.010, 1.600), (0.096, 1.584), 0.014, 0.036)
+    lower_drop = diagonal_band_xz_value(center, (-0.046, 1.586), (0.070, 1.570), 0.010, 0.032)
+    breakup = 0.88 + 0.10 * organic_breakup(center, 233)
+    return clamp01(max(horizontal_gash * 0.92, left_machine_pull * 0.60, right_flesh_pull * 0.72, lower_drop * 0.56) * breakup)
+
+
+def readable_mouth_rim_field(center: Vector) -> float:
+    cavity = readable_mouth_cavity_field(center)
+    if cavity <= 0.0:
+        return 0.0
+    shell = ellipsoid(center, (0.014, -0.067, 1.598), (0.094, 0.024, 0.024))
+    rim = max(0.0, 1.0 - abs(shell - 0.92) / 0.30)
+    upper_lip = diagonal_band_xz_value(center, (-0.082, 1.620), (0.096, 1.606), 0.007, 0.026)
+    lower_lip = diagonal_band_xz_value(center, (-0.070, 1.586), (0.088, 1.566), 0.007, 0.028)
+    return clamp01(max(rim * 0.74, upper_lip * 0.66, lower_lip * 0.58, cavity * 0.20))
+
+
+def readable_mouth_tendon_strand(center: Vector) -> bool:
+    if readable_mouth_rim_field(center) <= 0.18:
+        return False
+    return (
+        diagonal_band_xz(center, (-0.074, 1.616), (0.084, 1.584), 0.005)
+        or diagonal_band_xz(center, (-0.026, 1.626), (0.052, 1.570), 0.005)
+        or diagonal_band_xz(center, (0.012, 1.610), (0.096, 1.592), 0.0045)
+    )
 
 
 def rear_spine_wave(center: Vector) -> float:
@@ -2182,7 +3294,7 @@ def cyber_face_fissure(center: Vector) -> bool:
         return False
     eye_spark = 1.638 < center.z < 1.707 and abs((center.x + 0.052) + 0.34 * (center.z - 1.660)) < 0.006
     jaw_spark = 1.575 < center.z < 1.628 and abs((center.x + 0.030) - 0.22 * (center.z - 1.610)) < 0.005
-    return (eye_spark and sparse_cell(center, 2)) or (jaw_spark and sparse_cell(center, 3))
+    return (eye_spark and sparse_cell(center, 7)) or (jaw_spark and sparse_cell(center, 9))
 
 
 def cheek_blood_crack(center: Vector) -> bool:
@@ -2195,13 +3307,15 @@ def rear_head_fissure(center: Vector) -> bool:
     if not (center.y > 0.032 and 1.590 < center.z < 1.775):
         return False
     wavering_x = 0.014 * math.sin((center.z - 1.58) * 42.0)
-    return abs(center.x - wavering_x) < 0.014 or abs(center.x + 0.034) < 0.009 and sparse_cell(center, 3)
+    central_spark = abs(center.x - wavering_x) < 0.0035 and sparse_cell(center, 29)
+    secondary_spark = abs(center.x + 0.034) < 0.0035 and sparse_cell(center, 37)
+    return central_spark or secondary_spark
 
 
 def rear_fissure(center: Vector) -> bool:
     wavering_x = rear_spine_wave(center)
-    interrupted_core = abs(center.x - wavering_x) < 0.007
-    secondary_sparks = abs(center.x - wavering_x) < 0.014 and sparse_cell(center, 11)
+    interrupted_core = abs(center.x - wavering_x) < 0.004 and sparse_cell(center, 19)
+    secondary_sparks = abs(center.x - wavering_x) < 0.010 and sparse_cell(center, 29)
     return interrupted_core or secondary_sparks
 
 
@@ -2327,6 +3441,28 @@ def sculpt_head_asymmetry(head_obj: bpy.types.Object) -> None:
             if local.x < -0.035 and local.y < 0.030:
                 local.y -= 0.0020
             continue
+        left_socket_field = uncanny_left_eye_socket_field(local)
+        if left_socket_field > 0.02:
+            rim = uncanny_left_eye_socket_rim(local)
+            local.y -= 0.0065 * left_socket_field
+            local.y += 0.0028 * rim
+            local.z += 0.0012 * rim * math.sin(local.x * 180.0)
+            local.x -= 0.0016 * left_socket_field
+        right_eye_field = uncanny_right_eye_wound_field(local)
+        if right_eye_field > 0.02:
+            rim = uncanny_right_eye_wound_rim(local)
+            lid_sag = max(0.0, min(1.0, (1.674 - local.z) / 0.046))
+            local.y -= 0.0024 * right_eye_field
+            local.y += 0.0032 * rim
+            local.z -= 0.0024 * lid_sag * right_eye_field
+            local.x += 0.0011 * math.sin(local.z * 96.0) * right_eye_field
+        mouth_field = readable_mouth_cavity_field(local)
+        if mouth_field > 0.02:
+            rim = readable_mouth_rim_field(local)
+            local.y -= 0.0060 * mouth_field
+            local.y += 0.0032 * rim
+            local.z -= 0.0026 * mouth_field * smoothstep(1.585, 1.610, local.z)
+            local.x += 0.0014 * math.sin(local.z * 118.0 + local.x * 57.0) * rim
         if ellipsoid(local, (-0.056, -0.055, 1.654), (0.078, 0.058, 0.104)) < 1.0:
             local.y -= 0.0035
             local.x -= 0.0015 + 0.0010 * math.sin(local.z * 75.0)
@@ -2407,11 +3543,15 @@ def sculpt_body_glitch_offsets(carrier_mesh: bpy.types.Object) -> None:
         telefrag_value = ellipsoid(local, (0.023, -0.064, 1.402), (0.088, 0.060, 0.110))
         if local.y < -0.014 and telefrag_value < 1.02:
             recession = max(0.0, 1.0 - telefrag_value)
-            local.y -= 0.0085 * recession
+            local.y -= 0.0125 * recession
             local.x += 0.0025 * math.sin(local.z * 69.0 + local.x * 37.0) * recession
         if local.y < -0.014 and 0.72 < telefrag_value < 1.20:
             rim = 1.0 - min(abs(telefrag_value - 0.94) / 0.26, 1.0)
-            local.y += 0.0042 * rim
+            local.y += 0.0064 * rim
+        if local.y < -0.016 and 1.285 < local.z < 1.505 and 0.070 < abs(local.x) < 0.158:
+            rib_relief = 1.0 - smoothstep(0.070, 0.158, abs(abs(local.x) - 0.112))
+            local.y += 0.0048 * rib_relief
+            local.z += 0.0022 * math.sin(local.z * 76.0 + abs(local.x) * 33.0) * rib_relief
         if local.y < -0.018 and ellipsoid(local, (0.038, -0.060, 1.455), (0.090, 0.060, 0.072)) < 1.05:
             local.y -= 0.0025
             local.x += 0.0015 * math.sin(local.z * 36.0)
@@ -2423,6 +3563,22 @@ def sculpt_body_glitch_offsets(carrier_mesh: bpy.types.Object) -> None:
         if local.y > 0.036 and 1.020 < local.z < 1.565 and abs(local.x - rear_spine_wave(local)) < 0.060:
             local.y += 0.0045
             local.x += 0.0020 * math.sin(local.z * 63.0)
+        rear_field = rear_torso_rupture_field(local)
+        side_field = side_torso_wrap_field(local)
+        if rear_field > 0.04 or side_field > 0.05:
+            rear_rim = rear_torso_rupture_rim(local)
+            side_rim = side_torso_wrap_rim(local)
+            field = max(rear_field, side_field * 0.86)
+            rim = max(rear_rim, side_rim * 0.74)
+            side_sign = -1.0 if local.x < 0.0 else 1.0
+            side_gate = smoothstep(0.132, 0.190, abs(local.x)) * (1.0 - smoothstep(0.088, 0.150, local.y))
+            local.y -= 0.0068 * rear_field
+            local.y += 0.0050 * rim
+            local.x += side_sign * 0.0038 * side_gate * rim
+            local.x -= side_sign * 0.0044 * side_gate * field
+            local.z += 0.0026 * rim * math.sin(local.x * 88.0 + local.z * 39.0)
+            if rear_torso_bone_hint(local):
+                local.y += 0.0024
         if local.y > 0.020 and 1.130 < local.z < 1.505 and 0.075 < abs(local.x) < 0.165:
             local.y += 0.0028
         if local.x < -0.130 and 0.780 < local.z < 1.455:
@@ -2431,6 +3587,19 @@ def sculpt_body_glitch_offsets(carrier_mesh: bpy.types.Object) -> None:
         if local.x > 0.142 and 1.045 < local.z < 1.420:
             local.x += 0.0025 * math.sin(local.z * 39.0)
             local.y += 0.0018 * math.cos(local.z * 27.0)
+        lower_transition = lower_body_transition_field(local)
+        if lower_transition > 0.04:
+            rim = lower_body_transition_rim(local)
+            local.y += 0.0024 * rim - 0.0018 * lower_transition
+            local.x += 0.0018 * math.sin(local.z * 66.0 + local.y * 29.0) * lower_transition
+            local.z += 0.0012 * rim * math.sin(local.x * 112.0)
+        limb_scar = limb_transition_scar_field(local)
+        if limb_scar > 0.05:
+            rim = limb_transition_scar_rim(local)
+            side = -1.0 if local.x < 0.0 else 1.0
+            local.x += side * (0.0015 * rim - 0.0010 * limb_scar)
+            local.y += 0.0014 * rim - 0.0009 * limb_scar
+            local.z += 0.0010 * math.sin(local.x * 94.0 + local.z * 58.0) * limb_scar
     carrier_mesh.data.update()
 
 
@@ -2465,15 +3634,15 @@ def assign_eye_material_regions(eye_obj: bpy.types.Object, mats: dict[str, bpy.t
         front_surface = rel.y < -0.0045
         poly.material_index = slots["eye"]
         if side_key == "left" and front_surface and radial < 0.034:
-            poly.material_index = slots["green"]
+            poly.material_index = slots["eye"] if radial > 0.014 else slots["optic"]
         if side_key == "right" and front_surface and radial < 0.032:
             poly.material_index = slots["eye"]
             if rel.z < -0.002 and sparse_cell(center, 4):
                 poly.material_index = slots["clot"]
         if front_surface and radial < 0.016:
             poly.material_index = slots["optic"]
-        if side_key == "left" and front_surface and abs((rel.x - iris_offset_x) + 0.55 * (rel.z - iris_offset_z)) < 0.006 and radial < 0.041:
-            poly.material_index = slots["green"]
+        if side_key == "left" and front_surface and abs((rel.x - iris_offset_x) + 0.55 * (rel.z - iris_offset_z)) < 0.003 and 0.020 < radial < 0.038 and sparse_cell(center, 11):
+            poly.material_index = slots["cyber"] if radial > 0.027 else slots["optic"]
         if side_key == "right" and front_surface and abs((rel.x - iris_offset_x) - 0.42 * (rel.z - iris_offset_z)) < 0.005 and radial < 0.038:
             poly.material_index = slots["optic"] if rel.z > 0.0 else slots["clot"]
         if not front_surface and side_key == "left" and sparse_cell(center, 7):
@@ -2525,6 +3694,7 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
     material_order = [
         mats["cyber_metal"],
         mats["metal_edge"],
+        mats["torso_blend"],
         mats["copper"],
         mats["green_glow"],
         mats["tendon"],
@@ -2549,8 +3719,8 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
             (width, 0.020, 0.031),
             slot("metal_edge" if index in {2, 6, 8} else "cyber_metal"),
         )
-        if index not in {1, 5}:
-            append_box_geometry(vertices, faces, face_materials, center + Vector((0.0, 0.014, 0.0)), (0.007, 0.006, 0.018), slot("green_glow"))
+        if index in {0, 4, 8}:
+            append_box_geometry(vertices, faces, face_materials, center + Vector((0.0, 0.014, 0.0)), (0.0035, 0.0035, 0.009), slot("green_glow"))
         side = -1.0 if index % 2 == 0 else 1.0
         append_bar_geometry(
             vertices,
@@ -2577,10 +3747,10 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
         vertices,
         faces,
         face_materials,
-        Vector((0.001, -0.088, 1.446)),
-        Vector((0.012, -0.089, 1.374)),
-        0.005,
-        0.006,
+        Vector((0.003, -0.090, 1.442)),
+        Vector((0.011, -0.091, 1.390)),
+        0.0025,
+        0.0035,
         slot("green_glow"),
     )
     append_front_ring_geometry(
@@ -2590,7 +3760,7 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
         Vector((0.023, -0.087, 1.402)),
         (0.052, 0.082),
         (0.028, 0.046),
-        lambda x, theta, index: slot("metal_edge")
+        lambda x, theta, index: slot("torso_blend" if index % 4 else "metal_edge")
         if x < 0.019
         else (slot("clot") if index % 3 else slot("tendon")),
         21,
@@ -2606,14 +3776,82 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
         18,
         50,
     )
+    for index, z in enumerate([1.476, 1.442, 1.406, 1.370, 1.336]):
+        left_end = Vector((-0.108 - 0.004 * index, -0.080, z + 0.018 - 0.004 * index))
+        right_end = Vector((0.108 + 0.003 * index, -0.081, z + 0.014 - 0.004 * index))
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((0.000, -0.086, z)),
+            left_end,
+            0.0042 if index < 3 else 0.0036,
+            0.0048 if index < 3 else 0.0040,
+            slot("torso_blend" if index % 2 else "cyber_metal"),
+        )
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((0.028, -0.087, z - 0.006)),
+            right_end,
+            0.0036,
+            0.0042,
+            slot("muscle_gloss" if index % 2 else "tendon"),
+        )
+    for index, (x, z, mat_key) in enumerate(
+        [
+            (-0.030, 1.462, "bone"),
+            (0.020, 1.430, "tendon"),
+            (-0.012, 1.394, "bone"),
+            (0.038, 1.358, "muscle_gloss"),
+        ]
+    ):
+        append_box_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((x, -0.087, z)),
+            (0.014 - index * 0.0014, 0.007, 0.030),
+            slot(mat_key),
+        )
+    for index, (start, end, mat_key, radius) in enumerate(
+        [
+            (Vector((-0.018, -0.082, 1.474)), Vector((0.046, -0.079, 1.386)), "clot", 0.0027),
+            (Vector((0.010, -0.083, 1.466)), Vector((-0.052, -0.079, 1.398)), "clot", 0.0026),
+            (Vector((0.044, -0.082, 1.446)), Vector((0.076, -0.078, 1.360)), "muscle_gloss", 0.0030),
+            (Vector((-0.030, -0.081, 1.426)), Vector((-0.082, -0.077, 1.364)), "torso_blend", 0.0034),
+        ]
+    ):
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            start,
+            end,
+            radius,
+            radius * 1.18,
+            slot(mat_key),
+        )
+        if index == 1:
+            append_bar_geometry(
+                vertices,
+                faces,
+                face_materials,
+                start + Vector((0.007, -0.002, -0.010)),
+                end + Vector((0.004, -0.002, -0.012)),
+                0.0014,
+                0.0017,
+                slot("clot"),
+            )
     append_bar_geometry(
         vertices,
         faces,
         face_materials,
-        Vector((0.019, -0.094, 1.458)),
-        Vector((0.028, -0.095, 1.346)),
-        0.005,
-        0.005,
+        Vector((0.019, -0.086, 1.454)),
+        Vector((0.026, -0.086, 1.390)),
+        0.0022,
+        0.0025,
         slot("green_glow"),
     )
     for index, z in enumerate([1.442, 1.405, 1.368]):
@@ -2621,20 +3859,20 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
             vertices,
             faces,
             face_materials,
-            Vector((0.002, -0.091, z)),
-            Vector((-0.086 - index * 0.004, -0.084, z + 0.020 - index * 0.008)),
-            0.007,
-            0.006,
-            slot("cyber_metal" if index != 1 else "metal_edge"),
+            Vector((0.002, -0.083, z)),
+            Vector((-0.078 - index * 0.003, -0.077, z + 0.016 - index * 0.006)),
+            0.0038,
+            0.0034,
+            slot("torso_blend" if index != 1 else "metal_edge"),
         )
         append_bar_geometry(
             vertices,
             faces,
             face_materials,
-            Vector((0.036, -0.092, z - 0.010)),
-            Vector((0.101 + index * 0.002, -0.084, z + 0.016 - index * 0.008)),
-            0.006,
-            0.006,
+            Vector((0.034, -0.083, z - 0.010)),
+            Vector((0.092 + index * 0.002, -0.077, z + 0.014 - index * 0.006)),
+            0.0035,
+            0.0035,
             slot("tendon" if index != 2 else "muscle_gloss"),
         )
 
@@ -2644,22 +3882,170 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
             vertices,
             faces,
             face_materials,
-            Vector((-0.168, -0.020, z)),
-            Vector((-0.224, 0.030, z + 0.065)),
-            0.012,
-            0.016,
+            Vector((-0.154, -0.010, z)),
+            Vector((-0.190, 0.026, z + 0.054)),
+            0.0048,
+            0.0062,
             slot("cyber_metal" if index != 1 else "copper"),
         )
         append_bar_geometry(
             vertices,
             faces,
             face_materials,
-            Vector((0.162, -0.026, z + 0.030)),
-            Vector((0.198, 0.028, z + 0.086)),
-            0.009,
-            0.012,
-            slot("tendon"),
+            Vector((0.150, -0.012, z + 0.030)),
+            Vector((0.176, 0.024, z + 0.078)),
+            0.0038,
+            0.0052,
+            slot("muscle_gloss"),
         )
+
+    for side in [-1.0, 1.0]:
+        side_key = "cyber_metal" if side < 0.0 else "clot"
+        for index, z in enumerate([1.215, 1.302, 1.388, 1.474]):
+            append_bar_geometry(
+                vertices,
+                faces,
+                face_materials,
+                Vector((side * 0.120, -0.016, z)),
+                Vector((side * (0.150 + 0.004 * math.sin(index)), 0.012, z + 0.024)),
+                0.0024 if side < 0.0 else 0.0020,
+                0.0032 if side < 0.0 else 0.0028,
+                slot("torso_blend" if index % 2 else ("cyber_metal" if side < 0.0 else "muscle_gloss")),
+            )
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((side * 0.070, 0.084, 1.500)),
+            Vector((side * 0.128, 0.096, 1.430)),
+            0.0056,
+            0.0076,
+            slot("metal_edge" if side < 0.0 else "clot"),
+        )
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((side * 0.032, 0.086, 1.450)),
+            Vector((side * 0.098, 0.098, 1.358)),
+            0.0036,
+            0.0048,
+            slot("cyber_metal" if side < 0.0 else "clot"),
+        )
+
+    for side in [-1.0, 1.0]:
+        for index, z in enumerate([1.512, 1.455, 1.396, 1.334, 1.272]):
+            append_bar_geometry(
+                vertices,
+                faces,
+                face_materials,
+                Vector((side * 0.024, 0.128, z + 0.006)),
+                Vector((side * (0.132 + 0.012 * math.sin(index * 1.4)), 0.154, z - 0.050)),
+                0.0110 if side < 0.0 else 0.0084,
+                0.0140 if side < 0.0 else 0.0104,
+                slot("metal_edge" if side < 0.0 else ("bone" if index % 2 else "tendon")),
+            )
+        append_box_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((side * 0.080, 0.152, 1.405)),
+            (0.046, 0.026, 0.112),
+            slot("cyber_metal" if side < 0.0 else "clot"),
+        )
+    for index, z in enumerate([1.555, 1.495, 1.435, 1.375, 1.315]):
+        append_box_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((rear_spine_wave(Vector((0.0, 0.096, z))), 0.158, z)),
+            (0.068 + 0.010 * (index % 2), 0.032, 0.040),
+            slot("metal_edge" if index in {0, 3} else "cyber_metal"),
+        )
+        if index in {1, 4}:
+            append_bar_geometry(
+                vertices,
+                faces,
+                face_materials,
+                Vector((-0.014, 0.176, z + 0.016)),
+                Vector((0.024, 0.178, z - 0.034)),
+                0.0030,
+                0.0038,
+                slot("green_glow"),
+            )
+    for index, z in enumerate([1.505, 1.452, 1.398]):
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((-0.104, 0.166, z)),
+            Vector((0.088, 0.170, z - 0.046)),
+            0.0066,
+            0.0090,
+            slot("metal_edge" if index != 1 else "copper"),
+        )
+
+    append_front_ring_geometry(
+        vertices,
+        faces,
+        face_materials,
+        Vector((0.018, 0.178, 1.410)),
+        (0.124, 0.164),
+        (0.056, 0.082),
+        lambda x, theta, index: (
+            slot("metal_edge")
+            if x < -0.018 and index % 3 == 0
+            else slot("tendon")
+            if x > 0.042 and index % 4 == 0
+            else slot("torso_blend")
+        ),
+        28,
+        71,
+    )
+    append_front_disc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        Vector((0.044, 0.180, 1.374)),
+        (0.050, 0.094),
+        slot("clot"),
+        22,
+        72,
+    )
+    append_front_disc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        Vector((-0.056, 0.181, 1.448)),
+        (0.040, 0.082),
+        slot("cyber_metal"),
+        20,
+        73,
+    )
+    for index, (x, z, mat_key) in enumerate(
+        [
+            (-0.018, 1.506, "bone"),
+            (0.024, 1.462, "tendon"),
+            (-0.006, 1.358, "metal_edge"),
+        ]
+    ):
+        append_box_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((x, 0.184, z)),
+            (0.024 - index * 0.002, 0.010, 0.062),
+            slot(mat_key),
+        )
+
+    vertices = soften_front_embedded_structure_vertices(vertices)
+    vertices = soften_rear_embedded_structure_vertices(vertices)
+
+    face_clearance_z = 1.528
+    vertices = [
+        (x, y, min(z, face_clearance_z - 0.003 * abs(math.sin(x * 91.0 + y * 37.0))))
+        for x, y, z in vertices
+    ]
 
     mesh = bpy.data.meshes.new("experiment_integrated_torso_spine_cage_mesh")
     mesh.from_pydata(vertices, [], faces)
@@ -2671,6 +4057,35 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
     obj = bpy.data.objects.new("experiment_integrated_torso_spine_cage", mesh)
     bpy.context.collection.objects.link(obj)
     return [obj]
+
+
+def soften_front_embedded_structure_vertices(vertices: list[tuple[float, float, float]]) -> list[tuple[float, float, float]]:
+    softened: list[tuple[float, float, float]] = []
+    for x, y, z in vertices:
+        if y < -0.078 and 1.318 < z < 1.535 and abs(x) < 0.152:
+            center_weight = 1.0 - smoothstep(0.050, 0.152, abs(x))
+            vertical_weight = 1.0 - smoothstep(0.0, 0.135, abs(z - 1.420))
+            embed = clamp01(max(center_weight * 0.70, vertical_weight * 0.54))
+            y += 0.010 * embed + 0.0025 * math.sin(x * 64.0 + z * 31.0)
+            x += 0.0012 * embed * math.sin(z * 83.0)
+            z += 0.0010 * embed * math.sin(x * 97.0 + z * 29.0)
+        softened.append((x, y, z))
+    return softened
+
+
+def soften_rear_embedded_structure_vertices(vertices: list[tuple[float, float, float]]) -> list[tuple[float, float, float]]:
+    softened: list[tuple[float, float, float]] = []
+    for x, y, z in vertices:
+        if y > 0.118 and 1.205 < z < 1.540 and abs(x) < 0.178:
+            center_weight = 1.0 - smoothstep(0.040, 0.155, abs(x - rear_spine_wave(Vector((x, y, z)))))
+            vertical_weight = 1.0 - smoothstep(0.0, 0.170, abs(z - 1.410))
+            embed = clamp01(max(center_weight * 0.62, vertical_weight * 0.54))
+            y -= 0.026 * embed
+            y = min(y, 0.132 + 0.012 * (1.0 - embed) + 0.003 * math.sin(x * 71.0 + z * 29.0))
+            x += 0.0018 * embed * math.sin(z * 77.0 + y * 21.0)
+            z += 0.0014 * embed * math.sin(x * 94.0 + z * 33.0)
+        softened.append((x, y, z))
+    return softened
 
 
 def ensure_generated_uv_projection(obj: bpy.types.Object) -> None:
@@ -3430,13 +4845,47 @@ def path_relative_to_project(path_value) -> str:
 
 
 def export_glb(path: Path) -> None:
-    bpy.ops.export_scene.gltf(
-        filepath=str(path),
-        export_format="GLB",
-        export_animations=True,
-        export_apply=False,
-        export_yup=True,
-    )
+    snapshots = flatten_runtime_base_color_links_for_export()
+    try:
+        bpy.ops.export_scene.gltf(
+            filepath=str(path),
+            export_format="GLB",
+            export_animations=True,
+            export_apply=False,
+            export_yup=True,
+        )
+    finally:
+        restore_runtime_base_color_links(snapshots)
+
+
+def flatten_runtime_base_color_links_for_export() -> list[tuple[bpy.types.Material, bpy.types.NodeSocket, list[bpy.types.NodeSocket], tuple[float, float, float, float]]]:
+    """Keep mask atlases as authoring inputs, but do not export them as visible albedo."""
+    snapshots = []
+    for mat in bpy.data.materials:
+        if not mat.name.startswith("EX_") or not mat.use_nodes:
+            continue
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf is None:
+            continue
+        base_color = bsdf.inputs.get("Base Color")
+        if base_color is None:
+            continue
+        source_sockets = [link.from_socket for link in list(base_color.links)]
+        default = tuple(base_color.default_value)
+        snapshots.append((mat, base_color, source_sockets, default))
+        for link in list(base_color.links):
+            mat.node_tree.links.remove(link)
+        base_color.default_value = mat.diffuse_color
+    return snapshots
+
+
+def restore_runtime_base_color_links(
+    snapshots: list[tuple[bpy.types.Material, bpy.types.NodeSocket, list[bpy.types.NodeSocket], tuple[float, float, float, float]]],
+) -> None:
+    for mat, base_color, source_sockets, default in snapshots:
+        base_color.default_value = default
+        for source_socket in source_sockets:
+            mat.node_tree.links.new(source_socket, base_color)
 
 
 if __name__ == "__main__":

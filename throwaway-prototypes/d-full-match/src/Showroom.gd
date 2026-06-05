@@ -904,10 +904,23 @@ func _apply_mesh_material_review_lift(mesh_node: MeshInstance3D, model_id: Strin
 			source_material = mesh.surface_get_material(surface_index)
 		if source_material == null:
 			continue
-		var lifted := source_material.duplicate(true)
-		if lifted is BaseMaterial3D:
-			_lift_base_material_for_review(lifted as BaseMaterial3D, str(source_material.resource_name), model_id)
-			mesh_node.set_surface_override_material(surface_index, lifted as Material)
+		var source_name := str(source_material.resource_name)
+		if source_name.is_empty() and mesh.has_method("surface_get_name"):
+			source_name = str(mesh.call("surface_get_name", surface_index))
+		if source_name.is_empty():
+			source_name = source_material.resource_path.get_file()
+		var lifted := StandardMaterial3D.new()
+		lifted.resource_name = "%s_showroom_review" % source_name
+		if source_material is BaseMaterial3D:
+			var source_base := source_material as BaseMaterial3D
+			lifted.albedo_color = source_base.albedo_color
+			lifted.metallic = source_base.metallic
+			lifted.roughness = source_base.roughness
+			lifted.emission_enabled = source_base.emission_enabled
+			lifted.emission = source_base.emission
+			lifted.emission_energy_multiplier = source_base.emission_energy_multiplier
+		_lift_base_material_for_review(lifted, source_name, model_id)
+		mesh_node.set_surface_override_material(surface_index, lifted)
 
 
 func _lift_base_material_for_review(material: BaseMaterial3D, source_name: String, model_id: String) -> void:
@@ -950,9 +963,9 @@ func _lifted_review_color(color: Color) -> Color:
 
 func _lifted_experiment_review_color(color: Color) -> Color:
 	return Color(
-		clamp(max(color.r * 1.85 + 0.18, 0.30), 0.0, 1.0),
-		clamp(max(color.g * 1.85 + 0.208, 0.38), 0.0, 1.0),
-		clamp(max(color.b * 1.85 + 0.20, 0.36), 0.0, 1.0),
+		clamp(max(color.r * 1.45 + 0.055, 0.075), 0.0, 1.0),
+		clamp(max(color.g * 1.36 + 0.048, 0.070), 0.0, 1.0),
+		clamp(max(color.b * 1.30 + 0.044, 0.065), 0.0, 1.0),
 		color.a
 	)
 
@@ -976,13 +989,19 @@ func _review_palette_for_material(source_name: String, model_id: String = "") ->
 			return _review_palette(Color(0.085, 0.098, 0.118, 1.0), 0.66, 0.34)
 	if model_key == "experiment":
 		if key.contains("body_burnished_gunmetal") or key.contains("gunmetal"):
-			return _review_palette(Color(0.66, 0.78, 0.73, 1.0), 0.04, 0.34, Color(0.16, 0.24, 0.22), 0.42)
+			return _review_palette(Color(0.118, 0.126, 0.122, 1.0), 0.72, 0.36)
 		if key.contains("body_deep_joint") or key.contains("deep_joint"):
 			return _review_palette(Color(0.050, 0.058, 0.062, 1.0), 0.18, 0.48)
+		if key.contains("head_pallid"):
+			return _review_palette(Color(0.46, 0.405, 0.340, 1.0), 0.0, 0.62)
+		if key.contains("phase_skin") or key.contains("transient_human"):
+			return _review_palette(Color(0.245, 0.170, 0.130, 1.0), 0.0, 0.58)
+		if key.contains("cyan") or key.contains("green") or key.contains("fissure"):
+			return _review_palette(Color(0.006, 0.046, 0.032, 1.0), 0.0, 0.30, Color(0.0, 0.22, 0.12), 0.18)
 		if key.contains("necron_oxidized_cybermetal") or key.contains("cybermetal"):
-			return _review_palette(Color(0.42, 0.60, 0.56, 1.0), 0.10, 0.34, Color(0.07, 0.15, 0.13), 0.30)
+			return _review_palette(Color(0.105, 0.112, 0.110, 1.0), 0.76, 0.34)
 		if key.contains("burnished_cut_metal") or key.contains("cut_metal") or key.contains("raw_metal") or key.contains("scraped"):
-			return _review_palette(Color(0.62, 0.72, 0.68, 1.0), 0.12, 0.28, Color(0.12, 0.18, 0.17), 0.24)
+			return _review_palette(Color(0.42, 0.410, 0.365, 1.0), 0.72, 0.30)
 	if key.contains("head_pallid"):
 		return _review_palette(Color(0.70, 0.78, 0.76, 1.0), 0.0, 0.58)
 	if key.contains("phase_skin") or key.contains("transient_human"):
