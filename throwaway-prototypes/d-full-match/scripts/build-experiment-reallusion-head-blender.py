@@ -1227,10 +1227,24 @@ def apply_body_torso_vertex_mask(obj: bpy.types.Object) -> None:
 def body_torso_mask_channels(center: Vector) -> tuple[float, float, float, float]:
     front_region = center.y < -0.004 and 1.245 < center.z < 1.590 and abs(center.x) < 0.220
     rear_field = rear_torso_rupture_field(center)
+    rear_machine = rear_readable_machine_field(center)
     side_field = side_torso_wrap_field(center)
     lower_transition = lower_body_transition_field(center)
     limb_scarring = limb_transition_scar_field(center)
-    if not (front_region or rear_field > 0.01 or side_field > 0.01 or lower_transition > 0.01 or limb_scarring > 0.01):
+    shoulder_field = shoulder_collar_machine_wound_field(center)
+    joint_field = industrial_joint_wound_field(center)
+    hardware_seam = embedded_hardware_seam_field(center)
+    if not (
+        front_region
+        or rear_field > 0.01
+        or rear_machine > 0.01
+        or side_field > 0.01
+        or lower_transition > 0.01
+        or limb_scarring > 0.01
+        or shoulder_field > 0.01
+        or joint_field > 0.01
+        or hardware_seam > 0.01
+    ):
         return (0.0, 0.0, 0.0, 1.0)
 
     rupture = front_torso_rupture_field(center) if front_region else 0.0
@@ -1275,9 +1289,13 @@ def body_torso_mask_channels(center: Vector) -> tuple[float, float, float, float
             collar_fusion * 0.76,
             neck_chest_bridge * 0.70,
             rear_field * 0.92,
+            rear_machine * 0.74,
             side_field * 0.82,
             lower_transition * 0.36,
             limb_scarring * 0.22,
+            shoulder_field * 0.70,
+            joint_field * 0.50,
+            hardware_seam * 0.64,
         )
     )
     if field <= 0.01:
@@ -1289,9 +1307,13 @@ def body_torso_mask_channels(center: Vector) -> tuple[float, float, float, float
         neck_collar_fusion_rim(center) * 0.74,
         neck_chest_bridge * 0.44,
         rear_torso_rupture_rim(center) * 0.86,
+        rear_readable_machine_rim(center) * 0.74,
         side_torso_wrap_rim(center) * 0.72,
         lower_body_transition_rim(center) * 0.38,
         limb_transition_scar_rim(center) * 0.30,
+        shoulder_collar_machine_wound_rim(center) * 0.62,
+        industrial_joint_wound_rim(center) * 0.44,
+        embedded_hardware_seam_rim(center) * 0.58,
     )
     breakup = 0.5 + 0.5 * organic_breakup(center, 91)
     coarse_islands = 0.5 + 0.5 * organic_breakup(center, 157)
@@ -1302,10 +1324,13 @@ def body_torso_mask_channels(center: Vector) -> tuple[float, float, float, float
         or diagonal_band_xz(center, (0.058, 1.448), (0.100, 1.374), 0.010)
         or neck_collar_fusion_strand(center)
         or rear_torso_tendon_strand(center)
+        or rear_readable_machine_tendon_strand(center)
     )
     bone_hint = 0.82 if telefrag_sternum_bone(center) else 0.0
     if rear_torso_bone_hint(center):
         bone_hint = max(bone_hint, 0.56)
+    if rear_readable_machine_bone_hint(center):
+        bone_hint = max(bone_hint, 0.46)
     if tendon_band:
         bone_hint = max(bone_hint, 0.48)
 
@@ -1319,6 +1344,21 @@ def body_torso_mask_channels(center: Vector) -> tuple[float, float, float, float
         damage = clamp01(damage + lower_transition * (0.15 + 0.12 * transition_noise) + limb_scarring * (0.08 + 0.08 * transition_noise))
         wetness = clamp01(wetness + lower_transition * 0.08 + limb_scarring * 0.035)
         exposed_bone = clamp01(exposed_bone + lower_body_bone_chip_hint(center) * 0.20)
+    if shoulder_field > 0.01 or joint_field > 0.01:
+        machine_noise = 0.5 + 0.5 * organic_breakup(center, 431)
+        damage = clamp01(damage + shoulder_field * (0.24 + 0.16 * machine_noise) + joint_field * (0.16 + 0.12 * machine_noise))
+        wetness = clamp01(wetness + shoulder_field * 0.14 + joint_field * 0.075)
+        exposed_bone = clamp01(exposed_bone + shoulder_collar_bone_hint(center) * 0.24 + industrial_joint_bone_hint(center) * 0.18)
+    if hardware_seam > 0.01:
+        seam_noise = 0.5 + 0.5 * organic_breakup(center, 443)
+        damage = clamp01(damage + hardware_seam * (0.16 + 0.16 * seam_noise))
+        wetness = clamp01(wetness + hardware_seam * 0.10)
+        exposed_bone = clamp01(exposed_bone + embedded_hardware_bone_hint(center) * 0.16)
+    if rear_machine > 0.01:
+        rear_noise = 0.5 + 0.5 * organic_breakup(center, 467)
+        damage = clamp01(damage + rear_machine * (0.18 + 0.14 * rear_noise))
+        wetness = clamp01(wetness + rear_machine * 0.085 + rear_readable_machine_rim(center) * 0.055)
+        exposed_bone = clamp01(exposed_bone + rear_readable_machine_bone_hint(center) * 0.18)
     return (damage, wetness, exposed_bone, 1.0)
 
 
@@ -1684,44 +1724,129 @@ def front_torso_micro_relief(center: Vector) -> float:
 def rear_torso_refinement_region(center: Vector, feather: float = 0.0) -> bool:
     if not (1.130 - feather < center.z < 1.585 + feather and abs(center.x) < 0.218 + feather):
         return False
-    return rear_torso_rupture_field(center) > 0.08 or side_torso_wrap_field(center) > 0.10 or rear_torso_rupture_rim(center) > 0.18
+    return (
+        rear_torso_rupture_field(center) > 0.08
+        or rear_readable_machine_field(center) > 0.08
+        or side_torso_wrap_field(center) > 0.10
+        or rear_torso_rupture_rim(center) > 0.18
+        or rear_readable_machine_rim(center) > 0.18
+    )
 
 
 def rear_torso_rupture_field(center: Vector) -> float:
     if not (center.y > 0.020 and 1.145 < center.z < 1.575 and abs(center.x) < 0.205):
         return 0.0
     back_gate = smoothstep(0.018, 0.070, center.y)
-    spinal_breach = 1.0 - smoothstep(0.020, 0.074, abs(center.x - rear_spine_wave(center)))
+    spinal_breach = 1.0 - smoothstep(0.022, 0.060, abs(center.x - rear_spine_wave(center)))
     dorsal_cavity = 1.0 - smoothstep(
-        0.52,
-        1.30,
-        ellipsoid(center, (0.018, 0.080, 1.405), (0.106, 0.058, 0.166)),
+        0.58,
+        1.18,
+        ellipsoid(center, (0.020, 0.080, 1.402), (0.086, 0.050, 0.148)),
     )
     left_scapula_pull = 1.0 - smoothstep(
         0.64,
         1.24,
-        ellipsoid(center, (-0.082, 0.074, 1.420), (0.066, 0.046, 0.138)),
+        ellipsoid(center, (-0.094, 0.076, 1.428), (0.052, 0.040, 0.104)),
     )
     right_flesh_slough = 1.0 - smoothstep(
         0.58,
         1.20,
-        ellipsoid(center, (0.086, 0.076, 1.375), (0.072, 0.046, 0.150)),
+        ellipsoid(center, (0.098, 0.076, 1.352), (0.056, 0.040, 0.116)),
     )
-    diagonal_machine_break = diagonal_band_xz_value(center, (-0.118, 1.520), (0.064, 1.300), 0.022, 0.052)
-    tendon_drag = diagonal_band_xz_value(center, (0.106, 1.500), (-0.032, 1.250), 0.018, 0.046)
-    breakup = 0.84 + 0.14 * organic_breakup(center, 301)
+    diagonal_machine_break = diagonal_band_xz_value(center, (-0.122, 1.502), (0.040, 1.360), 0.016, 0.034)
+    tendon_drag = diagonal_band_xz_value(center, (0.116, 1.452), (-0.018, 1.250), 0.014, 0.034)
+    breakup = 0.92 + 0.06 * organic_breakup(center, 301)
     return clamp01(
         max(
-            spinal_breach * 0.66,
-            dorsal_cavity * 0.92,
-            left_scapula_pull * 0.54,
-            right_flesh_slough * 0.78,
-            diagonal_machine_break * 0.82,
-            tendon_drag * 0.58,
+            spinal_breach * 0.48,
+            dorsal_cavity * 0.58,
+            left_scapula_pull * 0.42,
+            right_flesh_slough * 0.50,
+            diagonal_machine_break * 0.46,
+            tendon_drag * 0.42,
         )
         * back_gate
         * breakup
     )
+
+
+def rear_readable_machine_field(center: Vector) -> float:
+    if not (center.y > 0.038 and 1.055 < center.z < 1.575 and abs(center.x) < 0.225):
+        return 0.0
+    back_gate = smoothstep(0.038, 0.092, center.y) * (1.0 - smoothstep(0.188, 0.238, center.y))
+    spine_x = rear_spine_wave(center)
+    rail_core = 1.0 - smoothstep(0.012, 0.048, abs(center.x - spine_x))
+    rail_range = smoothstep(1.075, 1.155, center.z) * (1.0 - smoothstep(1.528, 1.588, center.z))
+    left_socket = 1.0 - smoothstep(
+        0.52,
+        1.18,
+        ellipsoid(center, (-0.112, 0.108, 1.448), (0.070, 0.044, 0.102)),
+    )
+    right_socket = 1.0 - smoothstep(
+        0.58,
+        1.20,
+        ellipsoid(center, (0.120, 0.104, 1.340), (0.078, 0.044, 0.122)),
+    )
+    upper_drive = diagonal_band_xz_value(center, (-0.150, 1.502), (0.024, 1.398), 0.030, 0.052)
+    lower_drive = diagonal_band_xz_value(center, (0.150, 1.326), (-0.018, 1.180), 0.028, 0.052)
+    right_drop = diagonal_band_xz_value(center, (0.166, 1.462), (0.118, 1.085), 0.024, 0.046)
+    side_wrap_drive = diagonal_band_xz_value(center, (0.188, 1.420), (0.214, 1.170), 0.016, 0.042)
+    breakup = 0.95 + 0.035 * organic_breakup(center, 461)
+    return clamp01(
+        max(
+            rail_core * rail_range * 0.88,
+            left_socket * 0.90,
+            right_socket * 0.84,
+            upper_drive * 0.68,
+            lower_drive * 0.62,
+            right_drop * 0.58,
+            side_wrap_drive * 0.44,
+        )
+        * back_gate
+        * breakup
+    )
+
+
+def rear_readable_machine_rim(center: Vector) -> float:
+    field = rear_readable_machine_field(center)
+    if field <= 0.0:
+        return 0.0
+    spine_x = rear_spine_wave(center)
+    rail_lip = max(0.0, 1.0 - abs(abs(center.x - spine_x) - 0.046) / 0.014)
+    left_socket_shell = ellipsoid(center, (-0.112, 0.108, 1.448), (0.078, 0.050, 0.112))
+    right_socket_shell = ellipsoid(center, (0.120, 0.104, 1.340), (0.086, 0.050, 0.132))
+    socket_lip = max(
+        max(0.0, 1.0 - abs(left_socket_shell - 0.92) / 0.24),
+        max(0.0, 1.0 - abs(right_socket_shell - 0.92) / 0.25),
+    )
+    actuator_lip = max(
+        diagonal_band_xz_value(center, (-0.154, 1.506), (0.030, 1.394), 0.034, 0.024),
+        diagonal_band_xz_value(center, (0.154, 1.328), (-0.024, 1.174), 0.032, 0.024),
+        diagonal_band_xz_value(center, (0.170, 1.462), (0.120, 1.088), 0.026, 0.022),
+        diagonal_band_xz_value(center, (0.188, 1.420), (0.214, 1.170), 0.019, 0.020),
+    )
+    return clamp01(max(rail_lip * 0.70, socket_lip * 0.82, actuator_lip * 0.60, field * 0.18) * (0.94 + 0.04 * organic_breakup(center, 463)))
+
+
+def rear_readable_machine_tendon_strand(center: Vector) -> bool:
+    if rear_readable_machine_field(center) <= 0.16:
+        return False
+    return (
+        diagonal_band_xz(center, (-0.140, 1.492), (0.030, 1.386), 0.008)
+        or diagonal_band_xz(center, (0.132, 1.336), (-0.020, 1.176), 0.007)
+        or (center.x > 0.070 and diagonal_band_xz(center, (0.150, 1.468), (0.102, 1.100), 0.006))
+    ) and sparse_cell(center, 4)
+
+
+def rear_readable_machine_bone_hint(center: Vector) -> bool:
+    if rear_readable_machine_field(center) <= 0.24:
+        return False
+    spine_chip = abs(center.x - rear_spine_wave(center)) < 0.014 and 1.160 < center.z < 1.525
+    socket_chip = (
+        diagonal_band_xz(center, (-0.136, 1.472), (-0.060, 1.410), 0.007)
+        or diagonal_band_xz(center, (0.074, 1.396), (0.154, 1.292), 0.007)
+    )
+    return (spine_chip or socket_chip) and sparse_cell(center, 6)
 
 
 def rear_torso_rupture_rim(center: Vector) -> float:
@@ -1767,7 +1892,7 @@ def side_torso_wrap_rim(center: Vector) -> float:
 
 
 def rear_torso_tendon_strand(center: Vector) -> bool:
-    if max(rear_torso_rupture_field(center), side_torso_wrap_field(center)) <= 0.16:
+    if max(rear_torso_rupture_field(center), side_torso_wrap_field(center), rear_readable_machine_field(center)) <= 0.16:
         return False
     return (
         diagonal_band_xz(center, (0.104, 1.500), (-0.034, 1.258), 0.007)
@@ -1777,7 +1902,7 @@ def rear_torso_tendon_strand(center: Vector) -> bool:
 
 
 def rear_torso_bone_hint(center: Vector) -> bool:
-    if max(rear_torso_rupture_field(center), side_torso_wrap_field(center)) <= 0.22:
+    if max(rear_torso_rupture_field(center), side_torso_wrap_field(center), rear_readable_machine_field(center)) <= 0.22:
         return False
     vertebral_chip = abs(center.x - rear_spine_wave(center)) < 0.014 and 1.235 < center.z < 1.520
     scapula_chip = (
@@ -1870,6 +1995,307 @@ def limb_transition_scar_rim(center: Vector) -> float:
     return clamp01(max(arm_lip * 0.36, forearm_lip * 0.34, outer_forearm_lip * 0.32, thigh_lip * 0.30, shin_lip * 0.26, field * 0.24))
 
 
+def shoulder_collar_machine_wound_field(center: Vector) -> float:
+    collar = 1.0 - smoothstep(
+        0.64,
+        1.18,
+        ellipsoid(center, (0.002, -0.018, 1.502), (0.208, 0.088, 0.058)),
+    )
+    left_trap_socket = 1.0 - smoothstep(
+        0.56,
+        1.12,
+        ellipsoid(center, (-0.142, -0.006, 1.470), (0.084, 0.092, 0.070)),
+    )
+    right_trap_rip = 1.0 - smoothstep(
+        0.58,
+        1.14,
+        ellipsoid(center, (0.164, -0.018, 1.456), (0.072, 0.080, 0.076)),
+    )
+    rear_yoke = 1.0 - smoothstep(
+        0.66,
+        1.20,
+        ellipsoid(center, (-0.018, 0.096, 1.492), (0.174, 0.064, 0.076)),
+    )
+    front_clavicle_rip = diagonal_band_xz_value(center, (-0.174, 1.502), (0.098, 1.454), 0.018, 0.052) if center.y < -0.010 else 0.0
+    rear_scapula_rip = diagonal_band_xz_value(center, (-0.132, 1.528), (0.114, 1.448), 0.016, 0.048) if center.y > 0.040 else 0.0
+    jagged = 0.74 + 0.20 * organic_breakup(center, 419) + 0.10 * math.sin(center.x * 77.0 - center.z * 53.0)
+    return clamp01(max(collar * 0.70, left_trap_socket, right_trap_rip * 0.92, rear_yoke * 0.78, front_clavicle_rip, rear_scapula_rip) * jagged)
+
+
+def shoulder_collar_machine_wound_rim(center: Vector) -> float:
+    collar_v = ellipsoid(center, (0.002, -0.018, 1.502), (0.212, 0.092, 0.062))
+    left_v = ellipsoid(center, (-0.142, -0.006, 1.470), (0.088, 0.096, 0.074))
+    right_v = ellipsoid(center, (0.164, -0.018, 1.456), (0.076, 0.084, 0.080))
+    rear_v = ellipsoid(center, (-0.018, 0.096, 1.492), (0.178, 0.068, 0.080))
+    rim = max(
+        max(0.0, 1.0 - abs(collar_v - 0.92) / 0.24),
+        max(0.0, 1.0 - abs(left_v - 0.86) / 0.26),
+        max(0.0, 1.0 - abs(right_v - 0.88) / 0.25),
+        max(0.0, 1.0 - abs(rear_v - 0.94) / 0.25),
+    )
+    ragged = 0.78 + 0.18 * organic_breakup(center, 421)
+    return clamp01(rim * ragged)
+
+
+def shoulder_collar_bone_hint(center: Vector) -> bool:
+    if shoulder_collar_machine_wound_field(center) <= 0.22:
+        return False
+    clavicle_splinter = diagonal_band_xz(center, (-0.120, 1.504), (0.042, 1.462), 0.006)
+    trap_splinter = diagonal_band_xz(center, (0.116, 1.506), (0.178, 1.430), 0.007)
+    rear_splinter = center.y > 0.042 and diagonal_band_xz(center, (-0.088, 1.518), (0.046, 1.436), 0.007)
+    return (clavicle_splinter or trap_splinter or rear_splinter) and sparse_cell(center, 6)
+
+
+def industrial_joint_wound_field(center: Vector) -> float:
+    side = -1.0 if center.x < 0.0 else 1.0
+    shoulder_x = side * (0.234 if side < 0.0 else 0.216)
+    elbow_x = side * (0.276 if side < 0.0 else 0.252)
+    hip_x = side * (0.108 if side < 0.0 else 0.126)
+    knee_x = side * (0.084 if side < 0.0 else 0.110)
+    candidates = [
+        ((shoulder_x, -0.004, 1.328), (0.070 if side < 0.0 else 0.058, 0.074, 0.072), 1.06 if side < 0.0 else 0.88),  # upper arm/shoulder socket
+        ((elbow_x, -0.004, 1.065), (0.076 if side < 0.0 else 0.062, 0.070, 0.094), 1.22 if side < 0.0 else 1.04),  # elbow
+        ((hip_x, -0.006, 1.070), (0.052 if side < 0.0 else 0.056, 0.066, 0.074), 0.34 if side < 0.0 else 0.42),  # hip, restrained to avoid prop-like overhang
+        ((knee_x, -0.004, 0.640), (0.052 if side < 0.0 else 0.058, 0.064, 0.076), 0.42 if side < 0.0 else 0.52),  # knee, material/sculpt cue only
+    ]
+    value = 0.0
+    for origin, radii, weight in candidates:
+        field = 1.0 - smoothstep(0.58, 1.16, ellipsoid(center, origin, radii))
+        value = max(value, field * weight)
+    rake = 0.0
+    if 0.760 < center.z < 1.405 and 0.156 < abs(center.x) < 0.326:
+        rake = max(
+            diagonal_band_xz_value(center, (side * 0.222, 1.336), (side * 0.292, 1.028), 0.010, 0.028),
+            diagonal_band_xz_value(center, (side * 0.264, 1.082), (side * 0.210, 0.812), 0.010, 0.026),
+        )
+    if 0.290 < center.z < 1.060 and 0.052 < abs(center.x) < 0.152:
+        rake = max(
+            rake,
+            diagonal_band_xz_value(center, (side * 0.104, 0.956), (side * 0.070, 0.620), 0.010, 0.028),
+            diagonal_band_xz_value(center, (side * 0.066, 0.690), (side * 0.126, 0.500), 0.010, 0.024),
+        )
+    flesh_flap = 0.0
+    if center.y < 0.030:
+        flesh_flap = max(
+            diagonal_band_xz_value(center, (side * 0.292, 1.122), (side * 0.216, 0.976), 0.018, 0.040),
+            diagonal_band_xz_value(center, (side * 0.120, 0.742), (side * 0.060, 0.566), 0.018, 0.038),
+            diagonal_band_xz_value(center, (side * 0.146, 1.118), (side * 0.080, 0.990), 0.016, 0.036),
+        )
+    focused_embedding = focused_limb_machine_embedding_field(center)
+    return clamp01(max(value, rake * 0.56, flesh_flap * 0.54, focused_embedding * 0.74) * (0.80 + 0.16 * organic_breakup(center, 433)))
+
+
+def industrial_joint_wound_rim(center: Vector) -> float:
+    side = -1.0 if center.x < 0.0 else 1.0
+    shoulder_x = side * (0.234 if side < 0.0 else 0.216)
+    elbow_x = side * (0.276 if side < 0.0 else 0.252)
+    hip_x = side * (0.108 if side < 0.0 else 0.126)
+    knee_x = side * (0.084 if side < 0.0 else 0.110)
+    candidates = [
+        ((shoulder_x, -0.004, 1.328), (0.072 if side < 0.0 else 0.060, 0.076, 0.074), 1.02 if side < 0.0 else 0.84),
+        ((elbow_x, -0.004, 1.065), (0.078 if side < 0.0 else 0.064, 0.072, 0.096), 1.20 if side < 0.0 else 1.04),
+        ((hip_x, -0.006, 1.070), (0.054 if side < 0.0 else 0.058, 0.068, 0.076), 0.34 if side < 0.0 else 0.42),
+        ((knee_x, -0.004, 0.640), (0.054 if side < 0.0 else 0.060, 0.066, 0.078), 0.42 if side < 0.0 else 0.52),
+    ]
+    rim = 0.0
+    for origin, radii, weight in candidates:
+        value = ellipsoid(center, origin, radii)
+        rim = max(rim, max(0.0, 1.0 - abs(value - 0.88) / 0.24) * weight)
+    rim = max(rim, focused_limb_machine_embedding_rim(center) * 1.04)
+    return clamp01(rim * (0.78 + 0.18 * organic_breakup(center, 435)))
+
+
+def embedded_hardware_seam_field(center: Vector) -> float:
+    side = -1.0 if center.x < 0.0 else 1.0
+    collar_socket_lip = 0.0
+    if center.y < -0.006 and 1.430 < center.z < 1.532 and abs(center.x) < 0.210:
+        collar_socket_lip = max(
+            diagonal_band_xz_value(center, (-0.178, 1.522), (-0.012, 1.486), 0.010, 0.030),
+            diagonal_band_xz_value(center, (-0.020, 1.512), (0.170, 1.452), 0.010, 0.032),
+            diagonal_band_xz_value(center, (0.070, 1.514), (0.156, 1.452), 0.012, 0.036),
+        )
+    shoulder_socket = 0.0
+    if 1.245 < center.z < 1.405 and 0.170 < abs(center.x) < 0.292:
+        shoulder_socket = max(
+            diagonal_band_xz_value(center, (side * 0.188, 1.392), (side * 0.270, 1.292), 0.012, 0.034),
+            diagonal_band_xz_value(center, (side * 0.262, 1.360), (side * 0.196, 1.250), 0.010, 0.030),
+        )
+    elbow_knee_lip = 0.0
+    if 0.510 < center.z < 1.145:
+        elbow_knee_lip = max(
+            diagonal_band_xz_value(center, (side * 0.288, 1.118), (side * 0.224, 0.990), 0.014, 0.034),
+            diagonal_band_xz_value(center, (side * 0.122, 0.760), (side * 0.060, 0.565), 0.014, 0.034),
+        )
+    rear_drive_lip = 0.0
+    if center.y > 0.036 and side > 0.0 and 1.020 < center.z < 1.510:
+        rear_drive_lip = max(
+            diagonal_band_xz_value(center, (0.162, 1.492), (0.118, 1.088), 0.014, 0.040),
+            diagonal_band_xz_value(center, (0.102, 1.430), (0.168, 1.150), 0.012, 0.034),
+        )
+    focused_limb_lip = focused_limb_machine_embedding_field(center) * 0.72
+    breakup = 0.74 + 0.20 * organic_breakup(center, 445)
+    return clamp01(max(collar_socket_lip, shoulder_socket * 0.86, elbow_knee_lip * 0.78, rear_drive_lip * 0.92, focused_limb_lip) * breakup)
+
+
+def embedded_hardware_seam_rim(center: Vector) -> float:
+    field = embedded_hardware_seam_field(center)
+    if field <= 0.0:
+        return 0.0
+    side = -1.0 if center.x < 0.0 else 1.0
+    collar_rim = 0.0
+    if center.y < -0.006 and 1.426 < center.z < 1.536 and abs(center.x) < 0.216:
+        collar_rim = max(
+            diagonal_band_xz_value(center, (-0.186, 1.528), (-0.006, 1.490), 0.004, 0.018),
+            diagonal_band_xz_value(center, (-0.026, 1.516), (0.178, 1.450), 0.004, 0.020),
+        )
+    joint_rim = max(
+        diagonal_band_xz_value(center, (side * 0.292, 1.120), (side * 0.220, 0.988), 0.005, 0.020),
+        diagonal_band_xz_value(center, (side * 0.126, 0.762), (side * 0.056, 0.560), 0.005, 0.020),
+    )
+    rear_rim = 0.0
+    if center.y > 0.036 and side > 0.0:
+        rear_rim = diagonal_band_xz_value(center, (0.164, 1.500), (0.116, 1.086), 0.006, 0.024)
+    focused_limb_rim = focused_limb_machine_embedding_rim(center)
+    return clamp01(max(collar_rim, joint_rim * 0.70, rear_rim * 0.90, focused_limb_rim * 0.86, field * 0.42))
+
+
+def embedded_hardware_bone_hint(center: Vector) -> bool:
+    if embedded_hardware_seam_field(center) <= 0.26:
+        return False
+    side = -1.0 if center.x < 0.0 else 1.0
+    collar_splinter = diagonal_band_xz(center, (-0.144, 1.516), (0.072, 1.462), 0.005)
+    elbow_splinter = diagonal_band_xz(center, (side * 0.286, 1.110), (side * 0.228, 1.000), 0.005)
+    rear_splinter = center.y > 0.036 and side > 0.0 and diagonal_band_xz(center, (0.154, 1.448), (0.124, 1.150), 0.005)
+    focused_splinter = focused_limb_machine_embedding_rim(center) > 0.36 and sparse_cell(center, 9)
+    return (collar_splinter or elbow_splinter or rear_splinter or focused_splinter) and sparse_cell(center, 7)
+
+
+def industrial_joint_bone_hint(center: Vector) -> bool:
+    if industrial_joint_wound_field(center) <= 0.26:
+        return False
+    side = -1.0 if center.x < 0.0 else 1.0
+    arm_pin = diagonal_band_xz(center, (side * 0.236, 1.342), (side * 0.292, 1.030), 0.006)
+    elbow_tendon = diagonal_band_xz(center, (side * 0.276, 1.100), (side * 0.218, 0.870), 0.006)
+    knee_pin = diagonal_band_xz(center, (side * 0.078, 0.760), (side * 0.126, 0.530), 0.006)
+    return (arm_pin or elbow_tendon or knee_pin) and sparse_cell(center, 8)
+
+
+def primary_joint_gore_flap(center: Vector) -> float:
+    side = -1.0 if center.x < 0.0 else 1.0
+    if center.y > 0.045:
+        return 0.0
+    elbow_pull = diagonal_band_xz_value(center, (side * 0.294, 1.126), (side * 0.212, 0.976), 0.018, 0.042)
+    elbow_under = diagonal_band_xz_value(center, (side * 0.228, 1.112), (side * 0.292, 1.010), 0.016, 0.036)
+    knee_pull = diagonal_band_xz_value(center, (side * 0.124, 0.746), (side * 0.058, 0.566), 0.018, 0.040)
+    hip_pull = diagonal_band_xz_value(center, (side * 0.146, 1.120), (side * 0.078, 0.990), 0.016, 0.036)
+    focused_grip = focused_limb_gore_grip_field(center)
+    breakup = 0.72 + 0.22 * organic_breakup(center, 439)
+    return clamp01(max(elbow_pull, elbow_under * 0.82, knee_pull * 0.72, hip_pull * 0.44, focused_grip * 0.96) * breakup)
+
+
+def focused_limb_machine_embedding_field(center: Vector) -> float:
+    side = -1.0 if center.x < 0.0 else 1.0
+    front_side_gate = 1.0 - smoothstep(0.040, 0.118, abs(center.y + 0.010))
+    if front_side_gate <= 0.0:
+        return 0.0
+    if side < 0.0:
+        elbow_socket = 1.0 - smoothstep(0.50, 1.18, ellipsoid(center, (-0.312, -0.006, 1.062), (0.092, 0.084, 0.138)))
+        forearm_sleeve = diagonal_band_xz_value(center, (-0.332, 1.050), (-0.286, 0.872), 0.030, 0.066)
+        upper_arm_socket = diagonal_band_xz_value(center, (-0.226, 1.302), (-0.330, 1.090), 0.024, 0.060)
+        upper_arm_sleeve = 1.0 - smoothstep(0.52, 1.16, ellipsoid(center, (-0.292, -0.006, 1.242), (0.070, 0.074, 0.112)))
+        outer_hinge_bite = 1.0 - smoothstep(0.54, 1.16, ellipsoid(center, (-0.354, -0.004, 1.018), (0.070, 0.070, 0.112)))
+        hinge_fork = max(
+            diagonal_band_xz_value(center, (-0.356, 1.136), (-0.314, 1.010), 0.018, 0.042),
+            diagonal_band_xz_value(center, (-0.350, 0.988), (-0.294, 0.884), 0.018, 0.040),
+        )
+        value = max(elbow_socket * 1.18, forearm_sleeve * 1.08, upper_arm_socket * 0.92, upper_arm_sleeve * 0.84, outer_hinge_bite * 0.98, hinge_fork * 0.88)
+    else:
+        side_elbow_socket = 1.0 - smoothstep(0.52, 1.18, ellipsoid(center, (0.292, -0.006, 1.062), (0.074, 0.076, 0.124)))
+        side_forearm_sleeve = diagonal_band_xz_value(center, (0.306, 1.040), (0.256, 0.878), 0.026, 0.058)
+        side_upper_socket = diagonal_band_xz_value(center, (0.218, 1.278), (0.308, 1.090), 0.020, 0.052)
+        side_upper_sleeve = 1.0 - smoothstep(0.50, 1.16, ellipsoid(center, (0.326, -0.006, 1.238), (0.082, 0.080, 0.128)))
+        side_upper_cut = diagonal_band_xz_value(center, (0.258, 1.354), (0.356, 1.152), 0.024, 0.058)
+        side_hinge_bite = 1.0 - smoothstep(0.56, 1.16, ellipsoid(center, (0.338, -0.004, 1.024), (0.064, 0.070, 0.108)))
+        hip_socket = 1.0 - smoothstep(0.56, 1.16, ellipsoid(center, (0.154, -0.004, 1.054), (0.080, 0.080, 0.112)))
+        thigh_sleeve = diagonal_band_xz_value(center, (0.162, 1.044), (0.122, 0.768), 0.018, 0.046)
+        knee_housing = 1.0 - smoothstep(0.54, 1.14, ellipsoid(center, (0.136, -0.004, 0.640), (0.082, 0.076, 0.118)))
+        shin_sleeve = diagonal_band_xz_value(center, (0.154, 0.710), (0.112, 0.500), 0.016, 0.040)
+        value = max(
+            side_elbow_socket * 1.08,
+            side_forearm_sleeve * 0.94,
+            side_upper_socket * 0.78,
+            side_upper_sleeve * 1.08,
+            side_upper_cut * 0.92,
+            side_hinge_bite * 0.88,
+            hip_socket * 0.34,
+            thigh_sleeve * 0.24,
+            knee_housing * 0.44,
+            shin_sleeve * 0.24,
+        )
+    return clamp01(value * front_side_gate * (0.82 + 0.16 * organic_breakup(center, 451)))
+
+
+def focused_limb_machine_embedding_rim(center: Vector) -> float:
+    side = -1.0 if center.x < 0.0 else 1.0
+    front_side_gate = 1.0 - smoothstep(0.046, 0.124, abs(center.y + 0.010))
+    if front_side_gate <= 0.0:
+        return 0.0
+    if side < 0.0:
+        elbow_shell = max(0.0, 1.0 - abs(ellipsoid(center, (-0.312, -0.006, 1.062), (0.094, 0.086, 0.140)) - 0.88) / 0.25)
+        forearm_lip = diagonal_band_xz_value(center, (-0.334, 1.052), (-0.286, 0.870), 0.010, 0.030)
+        arm_lip = diagonal_band_xz_value(center, (-0.226, 1.304), (-0.330, 1.088), 0.010, 0.030)
+        upper_sleeve_lip = max(0.0, 1.0 - abs(ellipsoid(center, (-0.292, -0.006, 1.242), (0.072, 0.076, 0.116)) - 0.90) / 0.25)
+        hinge_shell = max(0.0, 1.0 - abs(ellipsoid(center, (-0.354, -0.004, 1.018), (0.072, 0.072, 0.114)) - 0.92) / 0.26)
+        fork_lip = max(
+            diagonal_band_xz_value(center, (-0.356, 1.136), (-0.314, 1.010), 0.006, 0.022),
+            diagonal_band_xz_value(center, (-0.350, 0.988), (-0.294, 0.884), 0.006, 0.020),
+        )
+        rim = max(elbow_shell * 1.08, forearm_lip * 1.02, arm_lip * 0.84, upper_sleeve_lip * 0.72, hinge_shell * 0.96, fork_lip * 0.82)
+    else:
+        side_elbow_shell = max(0.0, 1.0 - abs(ellipsoid(center, (0.292, -0.006, 1.062), (0.076, 0.078, 0.126)) - 0.90) / 0.26)
+        side_forearm_lip = diagonal_band_xz_value(center, (0.306, 1.040), (0.256, 0.878), 0.009, 0.028)
+        side_upper_lip = diagonal_band_xz_value(center, (0.218, 1.278), (0.308, 1.090), 0.008, 0.024)
+        side_upper_sleeve_lip = max(0.0, 1.0 - abs(ellipsoid(center, (0.326, -0.006, 1.238), (0.084, 0.082, 0.132)) - 0.88) / 0.24)
+        side_hinge_shell = max(0.0, 1.0 - abs(ellipsoid(center, (0.338, -0.004, 1.024), (0.066, 0.072, 0.110)) - 0.92) / 0.26)
+        hip_shell = max(0.0, 1.0 - abs(ellipsoid(center, (0.154, -0.004, 1.054), (0.082, 0.082, 0.114)) - 0.90) / 0.26)
+        thigh_lip = diagonal_band_xz_value(center, (0.162, 1.044), (0.122, 0.768), 0.009, 0.026)
+        knee_shell = max(0.0, 1.0 - abs(ellipsoid(center, (0.136, -0.004, 0.640), (0.084, 0.078, 0.120)) - 0.88) / 0.24)
+        shin_lip = diagonal_band_xz_value(center, (0.154, 0.710), (0.112, 0.500), 0.008, 0.024)
+        rim = max(
+            side_elbow_shell * 1.04,
+            side_forearm_lip * 0.88,
+            side_upper_lip * 0.68,
+            side_upper_sleeve_lip * 0.96,
+            side_hinge_shell * 0.86,
+            hip_shell * 0.30,
+            thigh_lip * 0.24,
+            knee_shell * 0.40,
+            shin_lip * 0.24,
+        )
+    return clamp01(rim * front_side_gate * (0.78 + 0.18 * organic_breakup(center, 453)))
+
+
+def focused_limb_gore_grip_field(center: Vector) -> float:
+    side = -1.0 if center.x < 0.0 else 1.0
+    front_side_gate = 1.0 - smoothstep(0.036, 0.112, abs(center.y + 0.012))
+    if front_side_gate <= 0.0:
+        return 0.0
+    if side < 0.0:
+        elbow_grip = diagonal_band_xz_value(center, (-0.222, 1.146), (-0.350, 1.066), 0.016, 0.042)
+        forearm_grip = diagonal_band_xz_value(center, (-0.226, 0.998), (-0.336, 0.902), 0.016, 0.040)
+        lower_wrap = diagonal_band_xz_value(center, (-0.334, 1.030), (-0.276, 0.914), 0.014, 0.034)
+        fork_grip = diagonal_band_xz_value(center, (-0.362, 1.116), (-0.304, 0.972), 0.012, 0.034)
+        return clamp01(max(elbow_grip, forearm_grip * 0.90, lower_wrap * 0.78, fork_grip * 0.84) * front_side_gate)
+    side_elbow_grip = diagonal_band_xz_value(center, (0.216, 1.128), (0.330, 1.040), 0.014, 0.038)
+    side_forearm_grip = diagonal_band_xz_value(center, (0.224, 0.992), (0.322, 0.904), 0.014, 0.034)
+    side_upper_grip = diagonal_band_xz_value(center, (0.238, 1.322), (0.360, 1.210), 0.014, 0.040)
+    side_hinge_grip = diagonal_band_xz_value(center, (0.342, 1.118), (0.286, 0.968), 0.010, 0.030)
+    hip_grip = diagonal_band_xz_value(center, (0.086, 1.104), (0.162, 1.036), 0.010, 0.028)
+    knee_grip = diagonal_band_xz_value(center, (0.082, 0.718), (0.150, 0.636), 0.011, 0.030)
+    shin_grip = diagonal_band_xz_value(center, (0.154, 0.690), (0.108, 0.520), 0.009, 0.026)
+    return clamp01(max(side_elbow_grip * 0.88, side_forearm_grip * 0.72, side_upper_grip * 0.86, side_hinge_grip * 0.64, hip_grip * 0.24, knee_grip * 0.34, shin_grip * 0.20) * front_side_gate)
+
+
 def assign_body_material_regions(carrier_mesh: bpy.types.Object, mats: dict[str, bpy.types.Material]) -> None:
     slots = {
         "carrier": material_slot(carrier_mesh, mats["carrier"]),
@@ -1911,9 +2337,9 @@ def assign_body_material_regions(carrier_mesh: bpy.types.Object, mats: dict[str,
         cyber_breastplate_outer = front and ragged_value(cyber_breastplate_value, center, 0.88, 1.18, 0.040, 35)
         cyber_breastplate_edge = front and ragged_value(cyber_breastplate_value, center, 0.58, 0.88, 0.045, 18)
         cyber_breastplate = front and ragged_value(cyber_breastplate_value, center, 0.0, 0.44, 0.035, 19)
-        rear_spine_edge = back and 0.96 < center.z < 1.595 and abs(center.x - rear_spine_wave(center)) < 0.032
-        rear_spine = back and 0.96 < center.z < 1.595 and abs(center.x - rear_spine_wave(center)) < 0.018
-        rear_left_tear = back and center.x < -0.120 and 1.07 < center.z < 1.48
+        rear_spine_edge = back and 1.080 < center.z < 1.565 and abs(center.x - rear_spine_wave(center)) < 0.024
+        rear_spine = back and 1.105 < center.z < 1.535 and abs(center.x - rear_spine_wave(center)) < 0.014
+        rear_left_tear = back and center.x < -0.128 and 1.145 < center.z < 1.480 and rear_readable_machine_field(center) < 0.12
         left_limb_corruption = center.x < -0.145 and 0.72 < center.z < 1.50
         right_limb_patina = center.x > 0.145 and 0.78 < center.z < 1.44
         throat_socket = front and diagonal_band_xz(center, (-0.004, 1.520), (0.018, 1.405), 0.030) and center.y < -0.020
@@ -1925,19 +2351,27 @@ def assign_body_material_regions(carrier_mesh: bpy.types.Object, mats: dict[str,
             diagonal_band_xz(center, (0.010, 1.456 - step * 0.031), (0.118, 1.425 - step * 0.035), 0.010)
             for step in range(4)
         )
-        rear_scapula_frame = back and 1.145 < center.z < 1.520 and 0.060 < abs(center.x) < 0.160 and abs(center.y) < 0.105
+        rear_scapula_frame = back and 1.160 < center.z < 1.500 and 0.074 < abs(center.x) < 0.158 and abs(center.y) < 0.105
         rear_scapula_frame = rear_scapula_frame and (
             abs(abs(center.x) - (0.112 - 0.050 * abs(center.z - 1.335))) < 0.026
-        )
+        ) and rear_readable_machine_field(center) < 0.18
         side_graft_channel = abs(center.x) > 0.168 and 1.055 < center.z < 1.430 and -0.030 < center.y < 0.070
         rear_rupture = rear_torso_rupture_field(center)
         rear_rim = rear_torso_rupture_rim(center)
+        rear_machine = rear_readable_machine_field(center)
+        rear_machine_rim = rear_readable_machine_rim(center)
         side_wrap = side_torso_wrap_field(center)
         side_wrap_rim = side_torso_wrap_rim(center)
         lower_transition = lower_body_transition_field(center)
         lower_transition_rim = lower_body_transition_rim(center)
         limb_scarring = limb_transition_scar_field(center)
         limb_scar_rim = limb_transition_scar_rim(center)
+        shoulder_machine = shoulder_collar_machine_wound_field(center)
+        shoulder_machine_rim = shoulder_collar_machine_wound_rim(center)
+        joint_machine = industrial_joint_wound_field(center)
+        joint_machine_rim = industrial_joint_wound_rim(center)
+        hardware_seam = embedded_hardware_seam_field(center)
+        hardware_seam_rim = embedded_hardware_seam_rim(center)
         telefrag_core_value = ellipsoid(center, (0.023, -0.064, 1.402), (0.078, 0.046, 0.100))
         telefrag_outer = front and ragged_value(telefrag_core_value, center, 0.88, 1.20, 0.035, 41)
         telefrag_edge = front and ragged_value(telefrag_core_value, center, 0.60, 0.88, 0.030, 42)
@@ -2030,11 +2464,11 @@ def assign_body_material_regions(carrier_mesh: bpy.types.Object, mats: dict[str,
             if sternum_fissure(center):
                 poly.material_index = slots["green"]
         if rear_spine_edge:
-            poly.material_index = slots["cyber"] if not sparse_cell(center, 5) else slots["clot"]
+            poly.material_index = slots["shadow"] if not sparse_cell(center, 6) else slots["torso_blend"]
         if rear_spine:
             poly.material_index = slots["metal_edge"] if rear_fissure(center) else slots["cyber"]
         if rear_scapula_frame:
-            poly.material_index = slots["cyber"] if not sparse_cell(center, 10) else slots["copper"]
+            poly.material_index = slots["shadow"] if not sparse_cell(center, 8) else slots["tendon"]
             if abs(center.x - rear_spine_wave(center)) < 0.040 and sparse_cell(center, 4):
                 poly.material_index = slots["clot"]
         if rear_left_tear:
@@ -2079,10 +2513,18 @@ def assign_body_material_regions(carrier_mesh: bpy.types.Object, mats: dict[str,
                 poly.material_index = slots["tendon"]
         if rear_rupture > 0.08 or side_wrap > 0.10 or rear_rim > 0.22 or side_wrap_rim > 0.24:
             poly.material_index = polished_back_torso_material(center, slots, poly.material_index)
+        if rear_machine > 0.08 or rear_machine_rim > 0.18:
+            poly.material_index = polished_rear_readable_machine_material(center, slots, poly.material_index)
         if lower_transition > 0.08 or lower_transition_rim > 0.18:
             poly.material_index = polished_lower_transition_material(center, slots, poly.material_index)
         if limb_scarring > 0.08 or limb_scar_rim > 0.18:
             poly.material_index = polished_limb_transition_material(center, slots, poly.material_index)
+        if shoulder_machine > 0.08 or shoulder_machine_rim > 0.18:
+            poly.material_index = polished_shoulder_collar_machine_material(center, slots, poly.material_index)
+        if joint_machine > 0.08 or joint_machine_rim > 0.18:
+            poly.material_index = polished_industrial_joint_material(center, slots, poly.material_index)
+        if hardware_seam > 0.08 or hardware_seam_rim > 0.16:
+            poly.material_index = polished_embedded_hardware_seam_material(center, slots, poly.material_index)
         if front and 1.315 < center.z < 1.535 and abs(center.x) < 0.160:
             protected_core = throat_socket or ellipsoid(center, (0.023, -0.064, 1.402), (0.052, 0.040, 0.076)) < 1.0
             if poly.material_index == slots["phase_skin"] and sparse_cell(center, 2):
@@ -2374,8 +2816,13 @@ def polished_lower_transition_material(center: Vector, slots: dict[str, int], fa
 
     metal_side = center.x < -0.018
     flesh_side = center.x > 0.032
+    focused_right_leg_machine = center.x > 0.070 and 0.500 < center.z < 1.120 and focused_limb_machine_embedding_field(center) > 0.18
     if lower_body_bone_chip_hint(center) and field > 0.34:
         return slots["bone"] if sparse_cell(center, 11) else slots["tendon"]
+    if focused_right_leg_machine and field > 0.30:
+        if focused_limb_gore_grip_field(center) > 0.58 and rim > 0.34 and sparse_cell(center, 4):
+            return slots["tendon"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+        return slots["metal_edge"] if center.z < 0.760 else slots["cyber"]
     if field > 0.56:
         if metal_side:
             return slots["cyber"] if not sparse_cell(center, 6) else slots["metal_edge"]
@@ -2422,18 +2869,185 @@ def polished_limb_transition_material(center: Vector, slots: dict[str, int], fal
     return fallback
 
 
+def polished_shoulder_collar_machine_material(center: Vector, slots: dict[str, int], fallback: int) -> int:
+    field = shoulder_collar_machine_wound_field(center)
+    rim = shoulder_collar_machine_wound_rim(center)
+    if field <= 0.08 and rim <= 0.18:
+        return fallback
+
+    front = center.y < -0.010
+    back = center.y > 0.040
+    left_machine_bias = center.x < -0.034
+    right_flesh_bias = center.x > 0.044
+    central_throat = abs(center.x) < 0.052 and 1.468 < center.z < 1.530
+    tendon = (
+        neck_collar_fusion_strand(center)
+        or diagonal_band_xz(center, (-0.126, 1.516), (0.054, 1.454), 0.006)
+        or (back and diagonal_band_xz(center, (-0.084, 1.518), (0.060, 1.438), 0.007))
+    )
+
+    if shoulder_collar_bone_hint(center) and (field > 0.24 or rim > 0.38):
+        return slots["bone"] if not tendon else slots["tendon"]
+    if central_throat and field > 0.30:
+        return slots["clot"] if not sparse_cell(center, 4) else slots["muscle_gloss"]
+    if field > 0.62:
+        if left_machine_bias or back:
+            return slots["cyber"] if not sparse_cell(center, 6) else slots["metal_edge"]
+        if right_flesh_bias and front:
+            return slots["muscle_gloss"] if wet_highlight_cell(center) else slots["muscle"]
+        return slots["torso_blend"]
+    if field > 0.34:
+        if tendon:
+            return slots["tendon"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+        if left_machine_bias:
+            return slots["metal_edge"] if not sparse_cell(center, 8) else slots["copper"]
+        if right_flesh_bias:
+            return slots["scar"] if not sparse_cell(center, 5) else slots["clot"]
+        return slots["torso_blend"]
+    if rim > 0.28:
+        if left_machine_bias or back:
+            return slots["metal_edge"] if not sparse_cell(center, 7) else slots["copper"]
+        return slots["scar"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+    if fallback in {slots["carrier"], slots["shadow"]} and sparse_cell(center, 4):
+        return slots["torso_blend"] if center.x > 0.0 else slots["metal_edge"]
+    return fallback
+
+
+def polished_industrial_joint_material(center: Vector, slots: dict[str, int], fallback: int) -> int:
+    field = industrial_joint_wound_field(center)
+    rim = industrial_joint_wound_rim(center)
+    gore_flap = primary_joint_gore_flap(center)
+    focused_embedding = focused_limb_machine_embedding_field(center)
+    focused_rim = focused_limb_machine_embedding_rim(center)
+    focused_grip = focused_limb_gore_grip_field(center)
+    if field <= 0.08 and rim <= 0.18:
+        return fallback
+
+    side = -1.0 if center.x < 0.0 else 1.0
+    shoulder_x = side * (0.234 if side < 0.0 else 0.216)
+    elbow_x = side * (0.276 if side < 0.0 else 0.252)
+    hip_x = side * (0.108 if side < 0.0 else 0.126)
+    knee_x = side * (0.084 if side < 0.0 else 0.110)
+    elbow_or_knee_core = (
+        ellipsoid(center, (elbow_x, -0.002, 1.065), (0.062 if side < 0.0 else 0.052, 0.060, 0.078)) < 0.88
+        or ellipsoid(center, (knee_x, -0.002, 0.640), (0.052 if side < 0.0 else 0.064, 0.060, 0.080)) < 0.88
+    )
+    shoulder_or_hip = (
+        ellipsoid(center, (shoulder_x, -0.002, 1.328), (0.062 if side < 0.0 else 0.052, 0.066, 0.064)) < 0.94
+        or ellipsoid(center, (hip_x, -0.004, 1.070), (0.056 if side < 0.0 else 0.066, 0.068, 0.078)) < 0.94
+    )
+    flesh_side = side > 0.0
+    tendon = industrial_joint_bone_hint(center) or wet_highlight_cell(center)
+    focused_limb = (side < 0.0 and 0.840 < center.z < 1.300 and abs(center.x) > 0.205) or (
+        side > 0.0
+        and (
+            (0.840 < center.z < 1.300 and abs(center.x) > 0.205)
+            or (0.500 < center.z < 1.120 and abs(center.x) > 0.072)
+        )
+    )
+
+    if industrial_joint_bone_hint(center) and field > 0.32:
+        return slots["tendon"] if sparse_cell(center, 5) else slots["bone"]
+    if focused_limb and focused_grip > 0.52:
+        if side > 0.0 and center.z < 1.120 and (focused_rim < 0.38 or not sparse_cell(center, 4)):
+            return slots["metal_edge"] if center.z < 0.760 else slots["cyber"]
+        if sparse_cell(center, 6):
+            return slots["tendon"]
+        return slots["muscle_gloss"] if wet_highlight_cell(center) else slots["clot"]
+    if focused_limb and focused_embedding > 0.58:
+        if focused_rim > 0.34 and sparse_cell(center, 5):
+            return slots["scar"] if side > 0.0 else slots["tendon"]
+        if side > 0.0 and 0.840 < center.z < 1.300 and abs(center.x) > 0.205:
+            return slots["metal_edge"] if not sparse_cell(center, 6) else slots["cyber"]
+        if side < 0.0:
+            return slots["metal_edge"] if not sparse_cell(center, 5) else slots["copper"]
+        return slots["cyber"] if not sparse_cell(center, 6) else slots["metal_edge"]
+    if focused_limb and focused_rim > 0.30:
+        return slots["scar"] if side > 0.0 and sparse_cell(center, 4) else slots["metal_edge"]
+    if gore_flap > 0.58:
+        if sparse_cell(center, 4):
+            return slots["tendon"]
+        return slots["muscle_gloss"] if wet_highlight_cell(center) else slots["clot"]
+    if gore_flap > 0.34 and rim > 0.22:
+        return slots["scar"] if not sparse_cell(center, 5) else slots["muscle"]
+    if field > 0.58:
+        if elbow_or_knee_core:
+            return slots["metal_edge"] if not sparse_cell(center, 4) else slots["cyber"]
+        if flesh_side and not shoulder_or_hip:
+            return slots["muscle_gloss"] if tendon else slots["muscle"]
+        return slots["cyber"] if not sparse_cell(center, 8) else slots["copper"]
+    if field > 0.32:
+        if flesh_side and sparse_cell(center, 3):
+            return slots["scar"] if not tendon else slots["muscle_gloss"]
+        return slots["metal_edge"] if not sparse_cell(center, 7) else slots["copper"]
+    if rim > 0.24:
+        if flesh_side and sparse_cell(center, 6):
+            return slots["scar"]
+        return slots["metal_edge"] if not sparse_cell(center, 9) else slots["tendon"]
+    if fallback in {slots["carrier"], slots["shadow"]} and sparse_cell(center, 5):
+        return slots["cyber"] if side < 0.0 else slots["torso_blend"]
+    return fallback
+
+
+def polished_embedded_hardware_seam_material(center: Vector, slots: dict[str, int], fallback: int) -> int:
+    field = embedded_hardware_seam_field(center)
+    rim = embedded_hardware_seam_rim(center)
+    if field <= 0.08 and rim <= 0.16:
+        return fallback
+
+    side = -1.0 if center.x < 0.0 else 1.0
+    front = center.y < -0.010
+    back = center.y > 0.036
+    collar_band = front and 1.430 < center.z < 1.532 and abs(center.x) < 0.216
+    rear_drive = back and side > 0.0 and 1.030 < center.z < 1.510
+    tendon = (
+        embedded_hardware_bone_hint(center)
+        or diagonal_band_xz(center, (-0.158, 1.518), (0.068, 1.462), 0.006)
+        or diagonal_band_xz(center, (side * 0.292, 1.118), (side * 0.222, 0.992), 0.006)
+    )
+
+    if field > 0.68:
+        if collar_band and abs(center.x) < 0.048:
+            return slots["shadow"] if not wet_highlight_cell(center) else slots["clot"]
+        if rear_drive:
+            return slots["metal_edge"] if not sparse_cell(center, 6) else slots["cyber"]
+        if side < 0.0:
+            return slots["metal_edge"] if not sparse_cell(center, 5) else slots["copper"]
+        return slots["muscle_gloss"] if wet_highlight_cell(center) else slots["clot"]
+    if field > 0.38:
+        if tendon:
+            return slots["tendon"] if not sparse_cell(center, 5) else slots["bone"]
+        if rear_drive or side < 0.0:
+            return slots["cyber"] if not sparse_cell(center, 8) else slots["metal_edge"]
+        return slots["scar"] if not sparse_cell(center, 6) else slots["muscle"]
+    if rim > 0.24:
+        if rear_drive or side < 0.0:
+            return slots["metal_edge"] if not sparse_cell(center, 7) else slots["copper"]
+        return slots["scar"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+    if fallback in {slots["carrier"], slots["shadow"]} and sparse_cell(center, 4):
+        return slots["metal_edge"] if side < 0.0 or back else slots["scar"]
+    return fallback
+
+
 def polished_back_torso_material(center: Vector, slots: dict[str, int], fallback: int) -> int:
     if not (1.145 < center.z < 1.575 and abs(center.x) < 0.220 and -0.040 < center.y < 0.150):
         return fallback
 
     rear_field = rear_torso_rupture_field(center)
     rear_rim = rear_torso_rupture_rim(center)
+    machine_guard = rear_readable_machine_field(center)
+    machine_rim = rear_readable_machine_rim(center)
     side_field = side_torso_wrap_field(center)
     side_rim = side_torso_wrap_rim(center)
     field = max(rear_field, side_field * 0.90)
     rim = max(rear_rim, side_rim * 0.82)
     if field <= 0.06 and rim <= 0.16:
         return fallback
+
+    if machine_guard > 0.18:
+        if rim > 0.34 or machine_rim > 0.32:
+            return slots["tendon"] if center.x > rear_spine_wave(center) else slots["metal_edge"]
+        return slots["shadow"] if field > 0.30 else slots["torso_blend"]
 
     side_zone = side_field > rear_field * 0.82 and abs(center.x) > 0.128
     metal_bias = center.x < rear_spine_wave(center) - 0.014
@@ -2455,16 +3069,16 @@ def polished_back_torso_material(center: Vector, slots: dict[str, int], fallback
         if side_zone and center.x > 0.0:
             return slots["muscle_gloss"] if wet_highlight_cell(center) else slots["muscle"]
         if metal_bias:
-            return slots["cyber"] if not sparse_cell(center, 7) else slots["metal_edge"]
+            return slots["metal_edge"] if not sparse_cell(center, 5) else slots["copper"]
         if flesh_bias:
-            return slots["clot"] if sparse_cell(center, 4) else slots["muscle"]
+            return slots["muscle_gloss"] if wet_highlight_cell(center) else (slots["clot"] if sparse_cell(center, 4) else slots["muscle"])
         return slots["clot"]
 
     if field > 0.36:
         if side_zone:
-            return slots["torso_blend"] if not sparse_cell(center, 4) else (slots["scar"] if center.x > 0.0 else slots["metal_edge"])
+            return slots["tendon"] if center.x > 0.0 and sparse_cell(center, 4) else (slots["metal_edge"] if center.x < 0.0 else slots["scar"])
         if metal_bias:
-            return slots["cyber"] if not sparse_cell(center, 6) else slots["copper"]
+            return slots["metal_edge"] if not sparse_cell(center, 6) else slots["copper"]
         if flesh_bias:
             return slots["muscle"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
         return slots["torso_blend"]
@@ -2473,7 +3087,7 @@ def polished_back_torso_material(center: Vector, slots: dict[str, int], fallback
         if metal_bias and not side_zone:
             return slots["metal_edge"] if not sparse_cell(center, 5) else slots["copper"]
         if flesh_bias or center.x > 0.035:
-            return slots["scar"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+            return slots["tendon"] if sparse_cell(center, 5) else (slots["scar"] if not wet_highlight_cell(center) else slots["muscle_gloss"])
         return slots["torso_blend"]
 
     if field > 0.12:
@@ -2481,6 +3095,60 @@ def polished_back_torso_material(center: Vector, slots: dict[str, int], fallback
             return slots["torso_blend"] if fallback in {slots["carrier"], slots["shadow"]} or sparse_cell(center, 3) else fallback
         return slots["torso_blend"]
 
+    return fallback
+
+
+def polished_rear_readable_machine_material(center: Vector, slots: dict[str, int], fallback: int) -> int:
+    if not (center.y > 0.034 and 1.055 < center.z < 1.575 and abs(center.x) < 0.230):
+        return fallback
+
+    field = rear_readable_machine_field(center)
+    rim = rear_readable_machine_rim(center)
+    if field <= 0.06 and rim <= 0.16:
+        return fallback
+
+    spine_x = rear_spine_wave(center)
+    rail_core = abs(center.x - spine_x) < 0.019 and 1.105 < center.z < 1.540
+    rail_edge = abs(abs(center.x - spine_x) - 0.038) < 0.013 and 1.105 < center.z < 1.540
+    left_socket_core = ellipsoid(center, (-0.104, 0.108, 1.444), (0.040, 0.032, 0.064)) < 1.0
+    right_socket_core = ellipsoid(center, (0.116, 0.104, 1.348), (0.046, 0.032, 0.076)) < 1.0
+    socket_core = left_socket_core or right_socket_core
+    tendon = rear_readable_machine_tendon_strand(center)
+    bone = rear_readable_machine_bone_hint(center)
+    flesh_side = center.x > spine_x + 0.020
+    metal_side = center.x < spine_x - 0.010
+    actuator = max(
+        diagonal_band_xz_value(center, (-0.144, 1.504), (0.040, 1.386), 0.030, 0.038),
+        diagonal_band_xz_value(center, (0.144, 1.338), (-0.026, 1.166), 0.028, 0.038),
+        diagonal_band_xz_value(center, (0.154, 1.476), (0.102, 1.088), 0.024, 0.034),
+    )
+
+    if socket_core and field > 0.42:
+        return slots["shadow"]
+    if bone and field > 0.26:
+        return slots["bone"] if not tendon else slots["tendon"]
+    if rail_core and field > 0.28:
+        return slots["metal_edge"] if not sparse_cell(center, 5) else slots["copper"]
+    if rail_edge and rim > 0.26:
+        return slots["metal_edge"] if metal_side or sparse_cell(center, 3) else slots["tendon"]
+    if actuator > 0.44:
+        if flesh_side:
+            return slots["muscle_gloss"] if wet_highlight_cell(center) or sparse_cell(center, 3) else slots["tendon"]
+        return slots["metal_edge"] if not sparse_cell(center, 6) else slots["copper"]
+    if rim > 0.42:
+        if tendon or flesh_side:
+            return slots["tendon"] if sparse_cell(center, 5) else (slots["scar"] if not wet_highlight_cell(center) else slots["muscle_gloss"])
+        return slots["metal_edge"] if not sparse_cell(center, 5) else slots["copper"]
+    if field > 0.40:
+        if flesh_side:
+            return slots["muscle_gloss"] if wet_highlight_cell(center) else (slots["muscle"] if not sparse_cell(center, 4) else slots["clot"])
+        return slots["metal_edge"] if metal_side or sparse_cell(center, 4) else slots["cyber"]
+    if field > 0.14 and fallback in {slots["carrier"], slots["shadow"]}:
+        if metal_side:
+            return slots["metal_edge"] if not sparse_cell(center, 5) else slots["copper"]
+        if flesh_side:
+            return slots["scar"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
+        return slots["torso_blend"] if sparse_cell(center, 3) else slots["metal_edge"]
     return fallback
 
 
@@ -3579,6 +4247,18 @@ def sculpt_body_glitch_offsets(carrier_mesh: bpy.types.Object) -> None:
             local.z += 0.0026 * rim * math.sin(local.x * 88.0 + local.z * 39.0)
             if rear_torso_bone_hint(local):
                 local.y += 0.0024
+        rear_machine = rear_readable_machine_field(local)
+        if rear_machine > 0.04:
+            rim = rear_readable_machine_rim(local)
+            spine_delta = abs(local.x - rear_spine_wave(local))
+            local.y -= 0.0044 * rear_machine
+            local.y += 0.0048 * rim
+            if spine_delta < 0.026:
+                local.y += 0.0030 * rear_machine
+                local.x += 0.0016 * math.sin(local.z * 82.0)
+            if rear_readable_machine_bone_hint(local):
+                local.y += 0.0018
+            local.z += 0.0014 * rim * math.sin(local.x * 90.0 + local.z * 47.0)
         if local.y > 0.020 and 1.130 < local.z < 1.505 and 0.075 < abs(local.x) < 0.165:
             local.y += 0.0028
         if local.x < -0.130 and 0.780 < local.z < 1.455:
@@ -3600,6 +4280,36 @@ def sculpt_body_glitch_offsets(carrier_mesh: bpy.types.Object) -> None:
             local.x += side * (0.0015 * rim - 0.0010 * limb_scar)
             local.y += 0.0014 * rim - 0.0009 * limb_scar
             local.z += 0.0010 * math.sin(local.x * 94.0 + local.z * 58.0) * limb_scar
+        shoulder_machine = shoulder_collar_machine_wound_field(local)
+        if shoulder_machine > 0.04:
+            rim = shoulder_collar_machine_wound_rim(local)
+            side = -1.0 if local.x < 0.0 else 1.0
+            local.y += 0.0038 * rim - 0.0032 * shoulder_machine
+            local.z += 0.0020 * rim - 0.0014 * shoulder_machine
+            local.x += side * 0.0024 * math.sin(local.z * 84.0 + local.y * 31.0) * shoulder_machine
+            if abs(local.x) > 0.105:
+                local.x += side * 0.0026 * rim
+        joint_machine = industrial_joint_wound_field(local)
+        if joint_machine > 0.05:
+            rim = industrial_joint_wound_rim(local)
+            focused = focused_limb_machine_embedding_field(local)
+            focused_rim = focused_limb_machine_embedding_rim(local)
+            gore_grip = primary_joint_gore_flap(local)
+            side = -1.0 if local.x < 0.0 else 1.0
+            carve = max(joint_machine, focused * 0.84)
+            rim_mix = max(rim, focused_rim * 0.88)
+            local.x += side * (0.0058 * rim_mix - 0.0042 * carve + 0.0018 * gore_grip)
+            local.y += 0.0064 * rim_mix - 0.0066 * carve + 0.0022 * gore_grip
+            local.z += 0.0028 * math.sin(local.x * 102.0 + local.z * 67.0) * carve
+            local.z += 0.0016 * rim_mix * math.sin(local.x * 121.0 + local.y * 45.0)
+        hardware_seam = embedded_hardware_seam_field(local)
+        if hardware_seam > 0.04:
+            rim = embedded_hardware_seam_rim(local)
+            side = -1.0 if local.x < 0.0 else 1.0
+            local.y += 0.0044 * rim - 0.0042 * hardware_seam
+            local.x -= side * 0.0028 * hardware_seam
+            local.x += side * 0.0018 * rim
+            local.z += 0.0020 * rim * math.sin(local.x * 118.0 + local.z * 53.0)
     carrier_mesh.data.update()
 
 
@@ -3702,36 +4412,27 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
         mats["clot"],
         mats["muscle"],
         mats["muscle_gloss"],
+        mats["carrier_shadow"],
+        mats["scar_edge"],
     ]
     slots = {mat.name: index for index, mat in enumerate(material_order)}
 
     def slot(key: str) -> int:
         return slots[mats[key].name]
 
-    for index, z in enumerate([0.990, 1.045, 1.102, 1.160, 1.220, 1.282, 1.344, 1.405, 1.466, 1.525]):
+    for index, z in enumerate([1.045, 1.175, 1.305, 1.435, 1.525]):
         center = Vector((rear_spine_wave(Vector((0.0, 0.080, z))), 0.091, z))
-        width = 0.040 + (0.010 if index in {2, 6, 8} else 0.0)
+        width = 0.034 + (0.008 if index in {1, 3} else 0.0)
         append_box_geometry(
             vertices,
             faces,
             face_materials,
             center,
-            (width, 0.020, 0.031),
-            slot("metal_edge" if index in {2, 6, 8} else "cyber_metal"),
+            (width, 0.014, 0.036),
+            slot("carrier_shadow" if index in {0, 2, 4} else "cyber_metal"),
         )
-        if index in {0, 4, 8}:
-            append_box_geometry(vertices, faces, face_materials, center + Vector((0.0, 0.014, 0.0)), (0.0035, 0.0035, 0.009), slot("green_glow"))
-        side = -1.0 if index % 2 == 0 else 1.0
-        append_bar_geometry(
-            vertices,
-            faces,
-            face_materials,
-            center + Vector((side * 0.014, 0.006, -0.012)),
-            center + Vector((side * 0.074, 0.004, 0.012)),
-            0.010,
-            0.014,
-            slot("copper" if index % 3 == 0 else "cyber_metal"),
-        )
+        if index in {1, 3}:
+            append_box_geometry(vertices, faces, face_materials, center + Vector((0.0, 0.010, 0.0)), (0.010, 0.006, 0.030), slot("metal_edge"))
 
     append_bar_geometry(
         vertices,
@@ -3933,73 +4634,21 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
             slot("cyber_metal" if side < 0.0 else "clot"),
         )
 
-    for side in [-1.0, 1.0]:
-        for index, z in enumerate([1.512, 1.455, 1.396, 1.334, 1.272]):
-            append_bar_geometry(
-                vertices,
-                faces,
-                face_materials,
-                Vector((side * 0.024, 0.128, z + 0.006)),
-                Vector((side * (0.132 + 0.012 * math.sin(index * 1.4)), 0.154, z - 0.050)),
-                0.0110 if side < 0.0 else 0.0084,
-                0.0140 if side < 0.0 else 0.0104,
-                slot("metal_edge" if side < 0.0 else ("bone" if index % 2 else "tendon")),
-            )
-        append_box_geometry(
-            vertices,
-            faces,
-            face_materials,
-            Vector((side * 0.080, 0.152, 1.405)),
-            (0.046, 0.026, 0.112),
-            slot("cyber_metal" if side < 0.0 else "clot"),
-        )
-    for index, z in enumerate([1.555, 1.495, 1.435, 1.375, 1.315]):
-        append_box_geometry(
-            vertices,
-            faces,
-            face_materials,
-            Vector((rear_spine_wave(Vector((0.0, 0.096, z))), 0.158, z)),
-            (0.068 + 0.010 * (index % 2), 0.032, 0.040),
-            slot("metal_edge" if index in {0, 3} else "cyber_metal"),
-        )
-        if index in {1, 4}:
-            append_bar_geometry(
-                vertices,
-                faces,
-                face_materials,
-                Vector((-0.014, 0.176, z + 0.016)),
-                Vector((0.024, 0.178, z - 0.034)),
-                0.0030,
-                0.0038,
-                slot("green_glow"),
-            )
-    for index, z in enumerate([1.505, 1.452, 1.398]):
-        append_bar_geometry(
-            vertices,
-            faces,
-            face_materials,
-            Vector((-0.104, 0.166, z)),
-            Vector((0.088, 0.170, z - 0.046)),
-            0.0066,
-            0.0090,
-            slot("metal_edge" if index != 1 else "copper"),
-        )
-
     append_front_ring_geometry(
         vertices,
         faces,
         face_materials,
         Vector((0.018, 0.178, 1.410)),
-        (0.124, 0.164),
-        (0.056, 0.082),
+        (0.112, 0.150),
+        (0.064, 0.094),
         lambda x, theta, index: (
-            slot("metal_edge")
-            if x < -0.018 and index % 3 == 0
+            slot("carrier_shadow")
+            if index % 5 in {0, 1}
             else slot("tendon")
             if x > 0.042 and index % 4 == 0
             else slot("torso_blend")
         ),
-        28,
+        22,
         71,
     )
     append_front_disc_geometry(
@@ -4007,9 +4656,9 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
         faces,
         face_materials,
         Vector((0.044, 0.180, 1.374)),
-        (0.050, 0.094),
+        (0.038, 0.076),
         slot("clot"),
-        22,
+        18,
         72,
     )
     append_front_disc_geometry(
@@ -4017,26 +4666,17 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
         faces,
         face_materials,
         Vector((-0.056, 0.181, 1.448)),
-        (0.040, 0.082),
-        slot("cyber_metal"),
-        20,
+        (0.034, 0.070),
+        slot("carrier_shadow"),
+        18,
         73,
     )
-    for index, (x, z, mat_key) in enumerate(
-        [
-            (-0.018, 1.506, "bone"),
-            (0.024, 1.462, "tendon"),
-            (-0.006, 1.358, "metal_edge"),
-        ]
-    ):
-        append_box_geometry(
-            vertices,
-            faces,
-            face_materials,
-            Vector((x, 0.184, z)),
-            (0.024 - index * 0.002, 0.010, 0.062),
-            slot(mat_key),
-        )
+
+    append_rear_readability_machine_forms(vertices, faces, face_materials, slot)
+    append_shoulder_collar_repair_geometry(vertices, faces, face_materials, slot)
+    # Keep the successful back read, but do limb machinery as sculpt/material
+    # treatment on the body mesh instead of adding bolted-on joint props.
+    append_right_rear_industrial_drive(vertices, faces, face_materials, slot)
 
     vertices = soften_front_embedded_structure_vertices(vertices)
     vertices = soften_rear_embedded_structure_vertices(vertices)
@@ -4057,6 +4697,1190 @@ def create_body_telefrag_structures(mats: dict[str, bpy.types.Material]) -> list
     obj = bpy.data.objects.new("experiment_integrated_torso_spine_cage", mesh)
     bpy.context.collection.objects.link(obj)
     return [obj]
+
+
+def append_rear_readability_machine_forms(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    face_materials: list[int],
+    slot,
+) -> None:
+    # Agent 7 rear design polish: one readable engineered rail, two asymmetric
+    # housings, and a few flesh-gripped actuator paths. Keep this broad and
+    # quiet so the back stops reading as a collage of small armor shards.
+    append_front_disc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        Vector((0.012, 0.174, 1.360)),
+        (0.112, 0.198),
+        slot("carrier_shadow"),
+        24,
+        804,
+    )
+    append_bar_geometry(
+        vertices,
+        faces,
+        face_materials,
+        Vector((rear_spine_wave(Vector((0.0, 0.194, 1.522))), 0.196, 1.522)),
+        Vector((rear_spine_wave(Vector((0.0, 0.194, 1.135))), 0.196, 1.135)),
+        0.032,
+        0.022,
+        slot("metal_edge"),
+    )
+    append_bar_geometry(
+        vertices,
+        faces,
+        face_materials,
+        Vector((rear_spine_wave(Vector((0.0, 0.204, 1.488))) - 0.020, 0.208, 1.488)),
+        Vector((rear_spine_wave(Vector((0.0, 0.204, 1.182))) - 0.010, 0.208, 1.182)),
+        0.008,
+        0.014,
+        slot("carrier_shadow"),
+    )
+    for index, z in enumerate([1.500, 1.356, 1.214]):
+        spine_x = rear_spine_wave(Vector((0.0, 0.224, z)))
+        append_box_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((spine_x + (0.004 if index == 1 else -0.002), 0.212, z)),
+            (0.060 if index == 1 else 0.052, 0.018, 0.042),
+            slot("cyber_metal" if index != 1 else "metal_edge"),
+        )
+        append_box_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((spine_x + (0.024 if index == 1 else -0.020), 0.222, z - 0.004)),
+            (0.010, 0.010, 0.030),
+            slot("copper"),
+        )
+
+    scapula_specs = [
+        (Vector((-0.122, 0.224, 1.456)), (0.094, 0.116), (0.048, 0.064), "metal_edge", "tendon", 810),
+        (Vector((0.132, 0.218, 1.340)), (0.104, 0.132), (0.054, 0.074), "cyber_metal", "scar_edge", 840),
+    ]
+    for center, outer, inner, primary_key, rim_key, seed in scapula_specs:
+        append_front_disc_geometry(
+            vertices,
+            faces,
+            face_materials,
+            center + Vector((0.0, -0.016, 0.0)),
+            (inner[0] * 0.92, inner[1] * 0.90),
+            slot("carrier_shadow"),
+            20,
+            seed,
+        )
+        append_front_arc_geometry(
+            vertices,
+            faces,
+            face_materials,
+            center,
+            outer,
+            inner,
+            math.radians(206.0 if center.x < 0.0 else 24.0),
+            math.radians(340.0 if center.x < 0.0 else 158.0),
+            lambda x, theta, index, primary_key=primary_key, rim_key=rim_key: (
+                slot("metal_edge")
+                if index in {0, 1, 7}
+                else slot(rim_key)
+                if index % 4 == 0
+                else slot(primary_key)
+            ),
+            10,
+            seed + 1,
+        )
+        append_front_arc_geometry(
+            vertices,
+            faces,
+            face_materials,
+            center + Vector((0.0, 0.004, -0.006)),
+            (outer[0] * 0.92, outer[1] * 0.90),
+            (outer[0] * 0.78, outer[1] * 0.72),
+            math.radians(218.0 if center.x < 0.0 else 38.0),
+            math.radians(320.0 if center.x < 0.0 else 134.0),
+            lambda x, theta, index: slot("clot" if index % 3 else "muscle_gloss"),
+            8,
+            seed + 2,
+        )
+
+    for start, end, key, width in [
+        (Vector((-0.166, 0.212, 1.492)), Vector((-0.024, 0.202, 1.410)), "metal_edge", 0.0140),
+        (Vector((0.166, 0.206, 1.396)), Vector((0.014, 0.198, 1.294)), "metal_edge", 0.0120),
+        (Vector((0.152, 0.202, 1.320)), Vector((-0.010, 0.194, 1.164)), "cyber_metal", 0.0105),
+        (Vector((0.170, 0.196, 1.452)), Vector((0.214, 0.134, 1.176)), "metal_edge", 0.0095),
+    ]:
+        append_bar_geometry(vertices, faces, face_materials, start, end, width, width * 1.28, slot(key))
+
+    for start, end, key, width in [
+        (Vector((-0.148, 0.190, 1.462)), Vector((-0.052, 0.194, 1.408)), "muscle_gloss", 0.0110),
+        (Vector((0.072, 0.186, 1.396)), Vector((0.160, 0.190, 1.318)), "tendon", 0.0100),
+        (Vector((0.130, 0.178, 1.286)), Vector((0.208, 0.126, 1.168)), "clot", 0.0090),
+        (Vector((-0.044, 0.188, 1.486)), Vector((0.050, 0.190, 1.448)), "clot", 0.0080),
+        (Vector((-0.034, 0.184, 1.276)), Vector((0.062, 0.186, 1.228)), "muscle_gloss", 0.0076),
+    ]:
+        append_bar_geometry(vertices, faces, face_materials, start, end, width, width * 1.20, slot(key))
+
+
+def append_shoulder_collar_repair_geometry(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    face_materials: list[int],
+    slot,
+) -> None:
+    # Seam cover that reads as a recessed torn collar instead of a shelf of
+    # decorative plates. Keep the mass for top-view coverage, but bury it in
+    # shadow and let only a few welded edges catch light.
+    append_front_ring_geometry(
+        vertices,
+        faces,
+        face_materials,
+        Vector((-0.014, 0.136, 1.498)),
+        (0.122, 0.034),
+        (0.094, 0.020),
+        lambda x, theta, index: (
+            slot("metal_edge")
+            if x < -0.054 and index % 5 == 0
+            else slot("tendon")
+            if index % 6 == 0
+            else slot("carrier_shadow")
+        ),
+        18,
+        103,
+    )
+    append_front_disc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        Vector((-0.006, -0.078, 1.490)),
+        (0.078, 0.019),
+        slot("carrier_shadow"),
+        18,
+        203,
+    )
+    for start_angle, end_angle, material_bias, seed in [
+        (math.radians(184.0), math.radians(324.0), "metal_edge", 204),
+        (math.radians(28.0), math.radians(116.0), "clot", 205),
+        (math.radians(236.0), math.radians(282.0), "carrier_shadow", 206),
+    ]:
+        append_front_arc_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((-0.012, -0.080, 1.494)),
+            (0.104, 0.024),
+            (0.092, 0.016),
+            start_angle,
+            end_angle,
+            lambda x, theta, index, material_bias=material_bias: (
+                slot("tendon")
+                if index % 5 == 0
+                else slot("clot")
+                if material_bias == "clot" and index % 3 == 0
+                else slot("carrier_shadow" if index % 2 else material_bias)
+            ),
+            7,
+            seed,
+        )
+    for center, size, key in [
+        (Vector((-0.138, -0.010, 1.512)), (0.030, 0.018, 0.010), "carrier_shadow"),
+        (Vector((0.092, -0.006, 1.502)), (0.026, 0.016, 0.010), "metal_edge"),
+        (Vector((-0.064, 0.044, 1.514)), (0.030, 0.022, 0.012), "carrier_shadow"),
+        (Vector((0.052, 0.052, 1.504)), (0.034, 0.024, 0.012), "carrier_shadow"),
+        (Vector((-0.006, 0.098, 1.504)), (0.070, 0.030, 0.016), "carrier_shadow"),
+    ]:
+        append_box_geometry(vertices, faces, face_materials, center, size, slot(key))
+    for center, radius, seed in [
+        (Vector((-0.074, -0.084, 1.502)), (0.050, 0.015), 270),
+        (Vector((0.054, -0.084, 1.486)), (0.044, 0.014), 271),
+        (Vector((0.124, -0.066, 1.456)), (0.032, 0.014), 272),
+        (Vector((-0.116, 0.124, 1.492)), (0.042, 0.018), 273),
+    ]:
+        append_front_disc_geometry(vertices, faces, face_materials, center, radius, slot("carrier_shadow"), 18, seed)
+    for center, outer, inner, start, end, mat_key, seed in [
+        (Vector((-0.052, -0.086, 1.502)), (0.098, 0.022), (0.087, 0.016), 206.0, 326.0, "metal_edge", 274),
+        (Vector((0.070, -0.082, 1.480)), (0.062, 0.020), (0.052, 0.014), 32.0, 126.0, "clot", 275),
+        (Vector((-0.056, 0.126, 1.490)), (0.090, 0.026), (0.078, 0.018), 218.0, 320.0, "metal_edge", 276),
+    ]:
+        append_front_arc_geometry(
+            vertices,
+            faces,
+            face_materials,
+            center,
+            outer,
+            inner,
+            math.radians(start),
+            math.radians(end),
+            lambda x, theta, index, mat_key=mat_key: slot("copper" if index % 5 == 0 else mat_key),
+            9,
+            seed,
+        )
+    for index, (x, y, z, mat_key) in enumerate(
+        [
+            (-0.144, -0.086, 1.512, "metal_edge"),
+            (-0.092, -0.088, 1.500, "copper"),
+            (-0.018, -0.088, 1.490, "carrier_shadow"),
+            (0.074, -0.086, 1.482, "metal_edge"),
+            (0.130, -0.080, 1.456, "copper"),
+            (-0.136, 0.132, 1.494, "metal_edge"),
+            (-0.048, 0.134, 1.486, "copper"),
+        ]
+    ):
+        append_front_disc_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((x, y, z)),
+            (0.0068, 0.0048),
+            slot(mat_key),
+            10,
+            300 + index,
+        )
+    for start, end, key, width in [
+        (Vector((-0.160, -0.052, 1.516)), Vector((-0.024, -0.046, 1.490)), "carrier_shadow", 0.0018),
+        (Vector((-0.018, -0.052, 1.490)), Vector((0.136, -0.044, 1.452)), "metal_edge", 0.0020),
+        (Vector((0.058, -0.050, 1.504)), Vector((0.132, -0.040, 1.450)), "clot", 0.0024),
+        (Vector((-0.140, 0.132, 1.508)), Vector((0.040, 0.134, 1.458)), "metal_edge", 0.0030),
+    ]:
+        append_bar_geometry(vertices, faces, face_materials, start, end, width, width * 1.28, slot(key))
+    for start, end, key, width in [
+        (Vector((-0.112, -0.060, 1.508)), Vector((-0.036, -0.036, 1.486)), "clot", 0.0058),
+        (Vector((0.040, -0.058, 1.494)), Vector((0.120, -0.034, 1.456)), "muscle_gloss", 0.0062),
+        (Vector((0.102, -0.052, 1.480)), Vector((0.156, -0.026, 1.438)), "tendon", 0.0048),
+    ]:
+        append_bar_geometry(vertices, faces, face_materials, start, end, width, width * 1.22, slot(key))
+    for center, size, key in [
+        (Vector((-0.096, -0.066, 1.504)), (0.028, 0.010, 0.014), "carrier_shadow"),
+        (Vector((-0.016, -0.068, 1.496)), (0.034, 0.010, 0.014), "carrier_shadow"),
+        (Vector((0.066, -0.064, 1.484)), (0.030, 0.010, 0.016), "clot"),
+        (Vector((-0.026, -0.064, 1.470)), (0.038, 0.010, 0.018), "clot"),
+        (Vector((0.108, -0.066, 1.508)), (0.040, 0.010, 0.014), "muscle_gloss"),
+        (Vector((-0.132, -0.066, 1.496)), (0.042, 0.010, 0.014), "tendon"),
+        (Vector((0.146, 0.050, 1.470)), (0.050, 0.018, 0.016), "scar_edge"),
+        (Vector((-0.152, 0.056, 1.482)), (0.052, 0.020, 0.016), "clot"),
+    ]:
+        append_box_geometry(vertices, faces, face_materials, center, size, slot(key))
+    for side in [-1.0, 1.0]:
+        machine_key = "cyber_metal" if side < 0.0 else "torso_blend"
+        rim_key = "metal_edge" if side < 0.0 else "muscle_gloss"
+        append_box_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((side * 0.154, -0.016, 1.486)),
+            (0.044, 0.024, 0.030),
+            slot(machine_key),
+        )
+        append_box_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((side * 0.176, 0.046, 1.464)),
+            (0.044, 0.030, 0.034),
+            slot("metal_edge" if side < 0.0 else "clot"),
+        )
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((side * 0.048, -0.066, 1.518)),
+            Vector((side * 0.158, -0.050, 1.480)),
+            0.0062 if side < 0.0 else 0.0056,
+            0.0076 if side < 0.0 else 0.0070,
+            slot("tendon" if side < 0.0 else "muscle_gloss"),
+        )
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((side * 0.054, 0.154, 1.524)),
+            Vector((side * 0.150, 0.146, 1.456)),
+            0.0062,
+            0.0080,
+            slot(rim_key),
+        )
+        for strand in range(2):
+            start_z = 1.508 - strand * 0.016
+            end_z = 1.448 - strand * 0.012
+            append_bar_geometry(
+                vertices,
+                faces,
+                face_materials,
+                Vector((side * (0.082 + strand * 0.022), -0.038, start_z)),
+                Vector((side * (0.138 + strand * 0.016), -0.024, end_z)),
+                0.0018,
+                0.0024,
+                slot("tendon" if strand != 1 else "clot"),
+            )
+        for flap_index, z in enumerate([1.506, 1.474]):
+            append_bar_geometry(
+                vertices,
+                faces,
+                face_materials,
+                Vector((side * (0.060 + flap_index * 0.024), -0.048, z)),
+                Vector((side * (0.136 + flap_index * 0.016), -0.026, z - 0.032)),
+                0.0054 if flap_index == 0 else 0.0042,
+                0.0068 if flap_index == 0 else 0.0052,
+                slot("muscle_gloss" if side > 0.0 and flap_index != 2 else ("tendon" if flap_index == 1 else "clot")),
+            )
+        for flap_index, z in enumerate([1.500]):
+            append_bar_geometry(
+                vertices,
+                faces,
+                face_materials,
+                Vector((side * (0.028 + flap_index * 0.016), -0.050, z)),
+                Vector((side * (0.112 + flap_index * 0.020), -0.028, z - 0.026)),
+                0.0058 if flap_index == 0 else 0.0050,
+                0.0070 if flap_index == 0 else 0.0060,
+                slot("muscle_gloss" if side > 0.0 else "clot"),
+            )
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((side * 0.120, 0.080, 1.510)),
+            Vector((side * 0.178, 0.040, 1.456)),
+            0.0100,
+            0.0120,
+            slot("metal_edge" if side < 0.0 else "tendon"),
+        )
+    append_bar_geometry(
+        vertices,
+        faces,
+        face_materials,
+        Vector((-0.134, -0.050, 1.512)),
+        Vector((0.028, -0.038, 1.484)),
+        0.0030,
+        0.0040,
+        slot("carrier_shadow"),
+    )
+    append_bar_geometry(
+        vertices,
+        faces,
+        face_materials,
+        Vector((0.036, -0.046, 1.506)),
+        Vector((0.118, -0.030, 1.456)),
+        0.0030,
+        0.0040,
+        slot("muscle_gloss"),
+    )
+
+
+def append_industrial_joint_machinery(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    face_materials: list[int],
+    slot,
+) -> None:
+    for side in [-1.0, 1.0]:
+        metal_key = "cyber_metal" if side < 0.0 else "metal_edge"
+        wet_key = "torso_blend" if side > 0.0 else "copper"
+        shoulder_center = Vector((side * (0.234 if side < 0.0 else 0.216), -0.040, 1.328))
+        shoulder_scale = 1.08 if side < 0.0 else 0.82
+        elbow_center = Vector((side * (0.276 if side < 0.0 else 0.252), -0.040, 1.066))
+        elbow_scale = 1.28 if side < 0.0 else 1.16
+        hip_center = Vector((side * (0.108 if side < 0.0 else 0.126), -0.040, 1.070))
+        hip_scale = 0.88 if side < 0.0 else 1.00
+        knee_center = Vector((side * (0.084 if side < 0.0 else 0.110), -0.040, 0.640))
+        knee_scale = 0.98 if side < 0.0 else 1.22
+        append_anchored_joint_assembly(
+            vertices,
+            faces,
+            face_materials,
+            slot,
+            side,
+            shoulder_center,
+            "shoulder",
+            shoulder_scale,
+            metal_key,
+            wet_key,
+            511,
+        )
+        append_embedded_joint_housing(vertices, faces, face_materials, slot, side, shoulder_center + Vector((0.0, -0.004, 0.0)), "shoulder", shoulder_scale, metal_key, wet_key, 611)
+        append_anchored_joint_assembly(
+            vertices,
+            faces,
+            face_materials,
+            slot,
+            side,
+            elbow_center,
+            "elbow",
+            elbow_scale,
+            metal_key,
+            wet_key,
+            523,
+        )
+        append_embedded_joint_housing(vertices, faces, face_materials, slot, side, elbow_center + Vector((0.0, -0.004, 0.0)), "elbow", elbow_scale, metal_key, wet_key, 623)
+        append_anchored_joint_assembly(
+            vertices,
+            faces,
+            face_materials,
+            slot,
+            side,
+            hip_center,
+            "hip",
+            hip_scale,
+            "metal_edge" if side < 0.0 else "cyber_metal",
+            "torso_blend",
+            541,
+        )
+        append_embedded_joint_housing(vertices, faces, face_materials, slot, side, hip_center + Vector((0.0, -0.004, 0.0)), "hip", hip_scale, "metal_edge" if side < 0.0 else "cyber_metal", "torso_blend", 641)
+        append_anchored_joint_assembly(
+            vertices,
+            faces,
+            face_materials,
+            slot,
+            side,
+            knee_center,
+            "knee",
+            knee_scale,
+            metal_key,
+            wet_key,
+            557,
+        )
+        append_embedded_joint_housing(vertices, faces, face_materials, slot, side, knee_center + Vector((0.0, -0.004, 0.0)), "knee", knee_scale, metal_key, wet_key, 657)
+        for center, size, key in [
+            (shoulder_center + Vector((0.0, 0.006, 0.000)), (0.058 if side < 0.0 else 0.048, 0.024, 0.062), metal_key),
+            (elbow_center + Vector((0.0, 0.004, 0.000)), (0.058 if side < 0.0 else 0.044, 0.024, 0.070), metal_key),
+            (hip_center + Vector((0.0, 0.004, 0.000)), (0.052 if side < 0.0 else 0.060, 0.024, 0.070), wet_key),
+            (knee_center + Vector((0.0, 0.004, 0.000)), (0.044 if side < 0.0 else 0.058, 0.024, 0.074), metal_key),
+            (shoulder_center + Vector((side * 0.006, 0.086, -0.010)), (0.044 if side < 0.0 else 0.040, 0.022, 0.052), metal_key),
+            (elbow_center + Vector((side * 0.002, 0.086, -0.006)), (0.044 if side < 0.0 else 0.036, 0.022, 0.054), metal_key),
+            (knee_center + Vector((side * 0.002, 0.086, -0.008)), (0.036 if side < 0.0 else 0.046, 0.022, 0.058), wet_key),
+        ]:
+            append_box_geometry(vertices, faces, face_materials, center, size, slot(key))
+        for center, size, key in [
+            (Vector((side * 0.246, -0.042, 1.080)), (0.032, 0.014, 0.036), "clot" if side > 0.0 else "copper"),
+            (Vector((side * 0.086, -0.042, 0.650)), (0.032, 0.014, 0.038), "tendon" if side > 0.0 else "metal_edge"),
+        ]:
+            append_box_geometry(vertices, faces, face_materials, center, size, slot(key))
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            shoulder_center + Vector((-side * 0.006, 0.008, 0.000)),
+            elbow_center + Vector((-side * 0.026, 0.012, 0.102)),
+            0.0114 if side < 0.0 else 0.0090,
+            0.0138 if side < 0.0 else 0.0112,
+            slot("metal_edge"),
+        )
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            elbow_center + Vector((side * 0.014, 0.008, -0.036)),
+            elbow_center + Vector((-side * 0.034, 0.012, -0.148)),
+            0.0086 if side < 0.0 else 0.0070,
+            0.0104 if side < 0.0 else 0.0086,
+            slot("cyber_metal" if side < 0.0 else "tendon"),
+        )
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            hip_center + Vector((0.0, 0.008, -0.030)),
+            knee_center + Vector((-side * 0.010, 0.010, 0.132)),
+            0.0094 if side < 0.0 else 0.0124,
+            0.0116 if side < 0.0 else 0.0150,
+            slot("metal_edge"),
+        )
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            knee_center + Vector((-side * 0.002, 0.008, -0.036)),
+            knee_center + Vector((-side * 0.014, 0.012, -0.156)),
+            0.0068 if side < 0.0 else 0.0090,
+            0.0084 if side < 0.0 else 0.0110,
+            slot("cyber_metal" if side < 0.0 else "muscle_gloss"),
+        )
+        for index, z in enumerate([1.248, 0.946]):
+            append_box_geometry(
+                vertices,
+                faces,
+                face_materials,
+                Vector((side * (0.226 + 0.010 * math.sin(index * 1.7)), -0.036, z)),
+                (0.040, 0.024, 0.060),
+                slot("metal_edge" if index % 2 == 0 else wet_key),
+            )
+        for index, z in enumerate([0.910, 0.548]):
+            append_box_geometry(
+                vertices,
+                faces,
+                face_materials,
+                Vector((side * (0.094 + 0.006 * math.sin(index * 2.1)), -0.036, z)),
+                (0.040, 0.024, 0.062),
+                slot("cyber_metal" if index != 1 else "tendon"),
+            )
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((side * 0.238, -0.034, 1.090)),
+            Vector((side * 0.220, -0.030, 1.010)),
+            0.0082,
+            0.0098,
+            slot("clot" if side > 0.0 else "copper"),
+        )
+    append_focused_limb_integration_forms(vertices, faces, face_materials, slot)
+    append_right_rear_industrial_drive(vertices, faces, face_materials, slot)
+
+
+def append_focused_limb_integration_forms(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    face_materials: list[int],
+    slot,
+) -> None:
+    # Focused limb pass: keep one dominant arm-machine contour, then let flesh
+    # and tendon grip its edges instead of scattering small details.
+    left_elbow = Vector((-0.306, -0.046, 1.066))
+    left_forearm = Vector((-0.300, -0.042, 0.912))
+    for center, outer, inner, seed in [
+        (left_elbow + Vector((-0.046, 0.002, 0.000)), (0.086, 0.150), (0.034, 0.066), 780),
+        (left_forearm + Vector((-0.030, 0.000, 0.004)), (0.060, 0.108), (0.024, 0.046), 781),
+    ]:
+        append_side_disc_geometry(vertices, faces, face_materials, center + Vector((-0.002, -0.002, 0.0)), (inner[0] * 0.86, inner[1] * 0.82), slot("carrier_shadow"), 18, seed)
+        append_side_ring_geometry(
+            vertices,
+            faces,
+            face_materials,
+            center,
+            outer,
+            inner,
+            lambda theta, index: slot("copper" if index % 7 == 0 else ("metal_edge" if index % 2 else "cyber_metal")),
+            22,
+            seed + 20,
+        )
+    for center, size, key in [
+        (left_elbow + Vector((-0.028, -0.020, 0.018)), (0.142, 0.046, 0.146), "metal_edge"),
+        (left_elbow + Vector((-0.064, 0.006, -0.010)), (0.086, 0.054, 0.126), "carrier_shadow"),
+        (left_forearm + Vector((-0.030, -0.018, 0.008)), (0.118, 0.044, 0.142), "cyber_metal"),
+        (left_forearm + Vector((0.018, -0.022, 0.050)), (0.060, 0.030, 0.082), "copper"),
+    ]:
+        append_box_geometry(vertices, faces, face_materials, center, size, slot(key))
+    append_front_arc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        left_elbow + Vector((-0.014, -0.068, 0.004)),
+        (0.106, 0.154),
+        (0.060, 0.092),
+        math.radians(198.0),
+        math.radians(356.0),
+        lambda x, theta, index: slot("tendon" if index % 5 == 0 else ("metal_edge" if index % 2 else "cyber_metal")),
+        13,
+        782,
+    )
+    append_front_arc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        left_forearm + Vector((-0.022, -0.070, 0.044)),
+        (0.076, 0.112),
+        (0.044, 0.064),
+        math.radians(184.0),
+        math.radians(330.0),
+        lambda x, theta, index: slot("muscle_gloss" if index % 4 == 0 else ("scar_edge" if index % 5 == 0 else "metal_edge")),
+        10,
+        783,
+    )
+    for start, end, width, key in [
+        (Vector((-0.222, -0.074, 1.160)), Vector((-0.356, -0.054, 1.072)), 0.0092, "tendon"),
+        (Vector((-0.220, -0.070, 1.008)), Vector((-0.340, -0.052, 0.924)), 0.0084, "muscle_gloss"),
+        (Vector((-0.350, -0.042, 1.160)), Vector((-0.302, -0.036, 0.872)), 0.0140, "metal_edge"),
+        (Vector((-0.376, -0.030, 1.112)), Vector((-0.330, -0.028, 0.900)), 0.0108, "cyber_metal"),
+        (Vector((-0.282, -0.074, 1.130)), Vector((-0.370, -0.052, 1.010)), 0.0070, "clot"),
+        (Vector((-0.372, -0.040, 1.018)), Vector((-0.298, -0.038, 0.958)), 0.0120, "carrier_shadow"),
+    ]:
+        append_bar_geometry(vertices, faces, face_materials, start, end, width, width * 1.22, slot(key))
+    for index, z in enumerate([1.090, 0.968]):
+        append_side_disc_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((-0.374, -0.034, z)),
+            (0.0072, 0.0090),
+            slot("copper" if index % 2 else "metal_edge"),
+            10,
+            790 + index,
+        )
+
+    side_elbow = Vector((0.292, -0.056, 1.064))
+    append_side_disc_geometry(vertices, faces, face_materials, side_elbow + Vector((0.046, -0.004, 0.000)), (0.034, 0.060), slot("carrier_shadow"), 18, 794)
+    append_side_ring_geometry(
+        vertices,
+        faces,
+        face_materials,
+        side_elbow + Vector((0.048, -0.002, 0.000)),
+        (0.078, 0.138),
+        (0.030, 0.060),
+        lambda theta, index: slot("copper" if index % 8 == 0 else ("metal_edge" if index % 2 else "cyber_metal")),
+        22,
+        795,
+    )
+    append_front_arc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        side_elbow + Vector((-0.004, -0.070, 0.002)),
+        (0.094, 0.142),
+        (0.052, 0.082),
+        math.radians(18.0),
+        math.radians(178.0),
+        lambda x, theta, index: slot("muscle_gloss" if index % 5 == 0 else ("metal_edge" if index % 2 else "cyber_metal")),
+        12,
+        796,
+    )
+    for center, size, key in [
+        (side_elbow + Vector((0.026, -0.020, 0.008)), (0.126, 0.044, 0.138), "metal_edge"),
+        (side_elbow + Vector((0.064, 0.006, -0.020)), (0.074, 0.050, 0.106), "carrier_shadow"),
+        (side_elbow + Vector((-0.012, -0.022, -0.082)), (0.104, 0.040, 0.110), "cyber_metal"),
+        (side_elbow + Vector((-0.010, -0.044, -0.004)), (0.118, 0.066, 0.192), "metal_edge"),
+        (side_elbow + Vector((0.000, -0.064, -0.096)), (0.094, 0.048, 0.120), "cyber_metal"),
+    ]:
+        append_box_geometry(vertices, faces, face_materials, center, size, slot(key))
+    append_side_disc_geometry(vertices, faces, face_materials, side_elbow + Vector((0.040, -0.044, -0.006)), (0.022, 0.048), slot("carrier_shadow"), 16, 799)
+    append_side_ring_geometry(
+        vertices,
+        faces,
+        face_materials,
+        side_elbow + Vector((0.042, -0.044, -0.006)),
+        (0.048, 0.112),
+        (0.020, 0.050),
+        lambda theta, index: slot("metal_edge" if index % 2 else "cyber_metal"),
+        18,
+        804,
+    )
+    for start, end, width, key in [
+        (side_elbow + Vector((0.046, -0.004, 0.104)), side_elbow + Vector((-0.028, -0.004, -0.126)), 0.0126, "metal_edge"),
+        (Vector((0.212, -0.074, 1.138)), Vector((0.340, -0.058, 1.050)), 0.0086, "tendon"),
+        (Vector((0.236, -0.072, 1.000)), Vector((0.332, -0.056, 0.912)), 0.0078, "muscle_gloss"),
+        (Vector((0.350, -0.038, 1.126)), Vector((0.304, -0.034, 0.886)), 0.0110, "cyber_metal"),
+        (Vector((0.216, -0.116, 1.142)), Vector((0.350, -0.096, 1.064)), 0.0090, "tendon"),
+        (Vector((0.220, -0.108, 0.998)), Vector((0.340, -0.096, 0.916)), 0.0080, "muscle_gloss"),
+        (Vector((0.348, -0.096, 1.132)), Vector((0.318, -0.092, 0.884)), 0.0130, "metal_edge"),
+    ]:
+        append_bar_geometry(vertices, faces, face_materials, start, end, width, width * 1.18, slot(key))
+    for index, z in enumerate([1.098, 0.980]):
+        append_side_disc_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((0.366, -0.034, z)),
+            (0.0070, 0.0092),
+            slot("copper" if index % 2 else "metal_edge"),
+            10,
+            797 + index,
+        )
+
+    side_upper_arm = Vector((0.326, -0.052, 1.238))
+    append_side_disc_geometry(vertices, faces, face_materials, side_upper_arm + Vector((0.052, -0.004, 0.000)), (0.030, 0.062), slot("carrier_shadow"), 18, 812)
+    append_side_ring_geometry(
+        vertices,
+        faces,
+        face_materials,
+        side_upper_arm + Vector((0.054, -0.002, 0.000)),
+        (0.074, 0.140),
+        (0.030, 0.062),
+        lambda theta, index: slot("copper" if index % 9 == 0 else ("metal_edge" if index % 2 else "cyber_metal")),
+        22,
+        813,
+    )
+    for center, size, key in [
+        (side_upper_arm + Vector((0.044, -0.018, 0.000)), (0.148, 0.048, 0.190), "metal_edge"),
+        (side_upper_arm + Vector((0.082, 0.006, -0.018)), (0.082, 0.052, 0.124), "carrier_shadow"),
+    ]:
+        append_box_geometry(vertices, faces, face_materials, center, size, slot(key))
+    append_front_arc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        side_upper_arm + Vector((-0.008, -0.070, 0.002)),
+        (0.088, 0.128),
+        (0.050, 0.074),
+        math.radians(16.0),
+        math.radians(170.0),
+        lambda x, theta, index: slot("tendon" if index % 5 == 0 else ("metal_edge" if index % 2 else "cyber_metal")),
+        11,
+        814,
+    )
+    for start, end, width, key in [
+        (Vector((0.238, -0.070, 1.330)), Vector((0.374, -0.054, 1.248)), 0.0094, "tendon"),
+        (Vector((0.256, -0.074, 1.186)), Vector((0.374, -0.056, 1.226)), 0.0084, "muscle_gloss"),
+        (side_upper_arm + Vector((0.048, -0.004, 0.096)), side_elbow + Vector((0.046, -0.004, 0.104)), 0.0110, "metal_edge"),
+        (side_upper_arm + Vector((0.046, -0.004, -0.096)), side_elbow + Vector((0.046, -0.004, -0.126)), 0.0100, "cyber_metal"),
+    ]:
+        append_bar_geometry(vertices, faces, face_materials, start, end, width, width * 1.18, slot(key))
+
+    right_hip = Vector((0.156, -0.044, 1.050))
+    right_knee = Vector((0.142, -0.042, 0.640))
+    right_shin = Vector((0.132, -0.040, 0.512))
+    for center, outer, inner, seed in [
+        (right_hip + Vector((0.018, 0.004, 0.000)), (0.056, 0.122), (0.024, 0.052), 800),
+        (right_knee + Vector((0.022, 0.002, 0.000)), (0.058, 0.118), (0.024, 0.052), 801),
+        (right_shin + Vector((0.018, 0.000, -0.006)), (0.040, 0.076), (0.018, 0.034), 802),
+    ]:
+        append_side_disc_geometry(vertices, faces, face_materials, center + Vector((0.002, -0.002, 0.0)), (inner[0] * 0.82, inner[1] * 0.82), slot("carrier_shadow"), 18, seed)
+        append_side_ring_geometry(
+            vertices,
+            faces,
+            face_materials,
+            center,
+            outer,
+            inner,
+            lambda theta, index: slot("copper" if index % 6 == 0 else ("metal_edge" if index % 2 else "cyber_metal")),
+            22,
+            seed + 20,
+        )
+    for center, size, key in [
+        (right_hip + Vector((0.012, -0.016, 0.006)), (0.112, 0.034, 0.132), "cyber_metal"),
+        (right_hip + Vector((-0.024, -0.020, 0.038)), (0.060, 0.026, 0.082), "clot"),
+        (right_knee + Vector((0.018, -0.016, 0.000)), (0.104, 0.034, 0.128), "metal_edge"),
+        (right_knee + Vector((-0.026, -0.020, -0.040)), (0.058, 0.026, 0.076), "muscle_gloss"),
+        (right_shin + Vector((0.014, -0.014, -0.004)), (0.074, 0.030, 0.088), "cyber_metal"),
+    ]:
+        append_box_geometry(vertices, faces, face_materials, center, size, slot(key))
+    for start, end, width, key in [
+        (right_hip + Vector((0.028, 0.006, -0.034)), right_knee + Vector((0.024, 0.010, 0.112)), 0.0130, "metal_edge"),
+        (right_hip + Vector((-0.010, 0.002, -0.010)), right_knee + Vector((-0.014, 0.006, 0.086)), 0.0080, "copper"),
+        (right_knee + Vector((0.028, 0.006, -0.034)), right_shin + Vector((0.014, 0.006, -0.066)), 0.0100, "cyber_metal"),
+        (Vector((0.082, -0.068, 1.108)), Vector((0.170, -0.052, 1.044)), 0.0076, "clot"),
+        (Vector((0.076, -0.068, 0.722)), Vector((0.160, -0.052, 0.636)), 0.0078, "tendon"),
+        (Vector((0.104, -0.066, 0.584)), Vector((0.156, -0.052, 0.506)), 0.0062, "muscle_gloss"),
+    ]:
+        append_bar_geometry(vertices, faces, face_materials, start, end, width, width * 1.22, slot(key))
+    append_front_arc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        right_knee + Vector((-0.002, -0.064, 0.000)),
+        (0.078, 0.124),
+        (0.046, 0.074),
+        math.radians(18.0),
+        math.radians(176.0),
+        lambda x, theta, index: slot("scar_edge" if index % 5 == 0 else ("metal_edge" if index % 2 else "cyber_metal")),
+        13,
+        803,
+    )
+
+
+def append_right_rear_industrial_drive(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    face_materials: list[int],
+    slot,
+) -> None:
+    # A single anchored rear/side machine run strengthens the non-front read
+    # without sprinkling small detached details across every limb.
+    side = 1.0
+    for center, size, key in [
+        (Vector((0.168, 0.124, 1.438)), (0.064, 0.034, 0.080), "metal_edge"),
+        (Vector((0.138, 0.128, 1.260)), (0.058, 0.034, 0.090), "cyber_metal"),
+        (Vector((0.118, 0.126, 1.090)), (0.054, 0.032, 0.082), "metal_edge"),
+        (Vector((0.186, 0.104, 1.360)), (0.030, 0.040, 0.118), "carrier_shadow"),
+        (Vector((0.100, 0.104, 1.180)), (0.030, 0.040, 0.114), "carrier_shadow"),
+    ]:
+        append_box_geometry(vertices, faces, face_materials, center, size, slot(key))
+    for start, end, key, width, depth in [
+        (Vector((0.168, 0.142, 1.492)), Vector((0.128, 0.144, 1.096)), "metal_edge", 0.0150, 0.0180),
+        (Vector((0.112, 0.134, 1.430)), Vector((0.176, 0.136, 1.152)), "cyber_metal", 0.0100, 0.0130),
+        (Vector((0.188, 0.116, 1.394)), Vector((0.136, 0.118, 1.270)), "copper", 0.0060, 0.0080),
+        (Vector((0.110, 0.116, 1.260)), Vector((0.170, 0.118, 1.118)), "clot", 0.0054, 0.0070),
+        (Vector((0.042, 0.172, 1.484)), Vector((0.184, 0.166, 1.386)), "metal_edge", 0.0080, 0.0100),
+        (Vector((0.072, 0.174, 1.444)), Vector((0.162, 0.168, 1.328)), "copper", 0.0042, 0.0058),
+    ]:
+        append_bar_geometry(vertices, faces, face_materials, start, end, width, depth, slot(key))
+    for center, size, key in [
+        (Vector((0.066, 0.166, 1.458)), (0.038, 0.020, 0.070), "carrier_shadow"),
+        (Vector((0.148, 0.166, 1.390)), (0.050, 0.022, 0.052), "metal_edge"),
+    ]:
+        append_box_geometry(vertices, faces, face_materials, center, size, slot(key))
+    for index, (center, outer, inner, key) in enumerate(
+        [
+            (Vector((0.188, 0.124, 1.430)), (0.032, 0.058), (0.014, 0.026), "metal_edge"),
+            (Vector((0.132, 0.126, 1.092)), (0.030, 0.050), (0.012, 0.022), "metal_edge"),
+        ]
+    ):
+        append_side_disc_geometry(vertices, faces, face_materials, center + Vector((side * 0.002, 0.0, 0.0)), (inner[0] * 0.88, inner[1] * 0.82), slot("carrier_shadow"), 16, 700 + index)
+        append_side_ring_geometry(
+            vertices,
+            faces,
+            face_materials,
+            center,
+            outer,
+            inner,
+            lambda theta, bolt_index, key=key: slot("copper" if bolt_index % 5 == 0 else key),
+            20,
+            704 + index,
+        )
+    for index, z in enumerate([1.455, 1.358, 1.260, 1.144]):
+        append_side_disc_geometry(
+            vertices,
+            faces,
+            face_materials,
+            Vector((0.190, 0.146, z)),
+            (0.0048, 0.0058),
+            slot("metal_edge" if index % 2 else "copper"),
+            10,
+            720 + index,
+        )
+    for start, end, key in [
+        (Vector((0.150, 0.102, 1.480)), Vector((0.104, 0.108, 1.388)), "muscle_gloss"),
+        (Vector((0.116, 0.102, 1.310)), Vector((0.174, 0.108, 1.186)), "tendon"),
+        (Vector((0.098, 0.104, 1.160)), Vector((0.146, 0.110, 1.060)), "clot"),
+    ]:
+        append_bar_geometry(vertices, faces, face_materials, start, end, 0.0052, 0.0064, slot(key))
+    for start, end, key, width in [
+        (Vector((0.046, 0.158, 1.500)), Vector((0.186, 0.154, 1.404)), "tendon", 0.0072),
+        (Vector((0.064, 0.160, 1.370)), Vector((0.170, 0.156, 1.236)), "metal_edge", 0.0084),
+        (Vector((0.028, 0.152, 1.286)), Vector((0.136, 0.150, 1.110)), "clot", 0.0064),
+        (Vector((-0.118, 0.150, 1.498)), Vector((-0.018, 0.146, 1.418)), "metal_edge", 0.0068),
+        (Vector((-0.092, 0.148, 1.382)), Vector((0.006, 0.146, 1.296)), "tendon", 0.0056),
+    ]:
+        append_bar_geometry(vertices, faces, face_materials, start, end, width, width * 1.22, slot(key))
+    for center, radius, key, seed in [
+        (Vector((0.158, 0.152, 1.406)), (0.018, 0.032), "carrier_shadow", 734),
+        (Vector((0.158, 0.154, 1.406)), (0.034, 0.052), "metal_edge", 735),
+        (Vector((-0.054, 0.150, 1.418)), (0.026, 0.040), "carrier_shadow", 736),
+        (Vector((-0.054, 0.152, 1.418)), (0.040, 0.058), "tendon", 737),
+    ]:
+        if "shadow" in key:
+            append_side_disc_geometry(vertices, faces, face_materials, center, radius, slot(key), 16, seed)
+        else:
+            append_side_ring_geometry(
+                vertices,
+                faces,
+                face_materials,
+                center,
+                radius,
+                (radius[0] * 0.48, radius[1] * 0.48),
+                lambda theta, bolt_index, key=key: slot("copper" if bolt_index % 6 == 0 else key),
+                18,
+                seed,
+            )
+    for center, outer, inner, seed in [
+        (Vector((0.118, 0.166, 1.372)), (0.052, 0.112), (0.024, 0.060), 750),
+        (Vector((-0.062, 0.162, 1.428)), (0.044, 0.090), (0.020, 0.046), 751),
+    ]:
+        append_front_disc_geometry(vertices, faces, face_materials, center + Vector((0.0, -0.004, 0.0)), (inner[0] * 0.86, inner[1] * 0.86), slot("carrier_shadow"), 18, seed)
+        append_front_ring_geometry(
+            vertices,
+            faces,
+            face_materials,
+            center,
+            outer,
+            inner,
+            lambda x, theta, bolt_index: slot("copper" if bolt_index % 7 == 0 else ("tendon" if bolt_index % 4 == 0 else "metal_edge")),
+            22,
+            seed + 10,
+        )
+    for start, end, key, width in [
+        (Vector((0.052, 0.168, 1.482)), Vector((0.174, 0.164, 1.294)), "metal_edge", 0.0100),
+        (Vector((0.174, 0.164, 1.438)), Vector((0.064, 0.160, 1.190)), "tendon", 0.0070),
+        (Vector((-0.116, 0.164, 1.502)), Vector((-0.010, 0.160, 1.344)), "metal_edge", 0.0078),
+        (Vector((-0.030, 0.158, 1.456)), Vector((0.086, 0.156, 1.258)), "clot", 0.0064),
+    ]:
+        append_bar_geometry(vertices, faces, face_materials, start, end, width, width * 1.20, slot(key))
+
+
+def append_embedded_joint_housing(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    face_materials: list[int],
+    slot,
+    side: float,
+    center: Vector,
+    joint_kind: str,
+    scale: float,
+    metal_key: str,
+    flesh_key: str,
+    seed: int,
+) -> None:
+    if joint_kind == "shoulder":
+        outer = (0.066 * scale, 0.064 * scale)
+        inner = (0.032 * scale, 0.030 * scale)
+        block = (0.104 * scale, 0.038 * scale, 0.090 * scale)
+        upper_anchor = Vector((-side * 0.062 * scale, 0.002, 0.074 * scale))
+        lower_anchor = Vector((side * 0.044 * scale, 0.002, -0.092 * scale))
+    elif joint_kind == "hip":
+        outer = (0.060 * scale, 0.068 * scale)
+        inner = (0.028 * scale, 0.032 * scale)
+        block = (0.094 * scale, 0.038 * scale, 0.096 * scale)
+        upper_anchor = Vector((-side * 0.040 * scale, 0.002, 0.088 * scale))
+        lower_anchor = Vector((side * 0.038 * scale, 0.002, -0.108 * scale))
+    else:
+        outer = (0.060 * scale, 0.078 * scale)
+        inner = (0.026 * scale, 0.034 * scale)
+        block = (0.092 * scale, 0.040 * scale, 0.110 * scale)
+        upper_anchor = Vector((-side * 0.030 * scale, 0.002, 0.108 * scale))
+        lower_anchor = Vector((side * 0.030 * scale, 0.002, -0.112 * scale))
+
+    silhouette_interrupt = (
+        (side < 0.0 and joint_kind in {"shoulder", "elbow"})
+        or (side > 0.0 and joint_kind in {"elbow", "hip", "knee"})
+    )
+    if silhouette_interrupt:
+        outer = (outer[0] * 1.10, outer[1] * 1.08)
+        inner = (inner[0] * 1.04, inner[1] * 1.02)
+        block = (block[0] * 1.12, block[1] * 1.08, block[2] * 1.06)
+
+    append_front_disc_geometry(vertices, faces, face_materials, center + Vector((0.0, -0.006, 0.0)), (inner[0] * 0.94, inner[1] * 0.92), slot("carrier_shadow"), 18, seed)
+    side_socket_center = center + Vector((side * (block[0] * (0.43 if silhouette_interrupt else 0.36)), -0.010, 0.0))
+    append_side_disc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        side_socket_center + Vector((side * 0.002 * scale, 0.0, 0.0)),
+        ((0.027 if silhouette_interrupt else 0.022) * scale, max(inner[1] * 0.88, 0.018 * scale)),
+        slot("carrier_shadow"),
+        16,
+        seed + 20,
+    )
+    append_side_ring_geometry(
+        vertices,
+        faces,
+        face_materials,
+        side_socket_center,
+        ((0.048 if silhouette_interrupt else 0.040) * scale, outer[1] * 0.94),
+        ((0.022 if silhouette_interrupt else 0.020) * scale, inner[1] * 0.72),
+        lambda theta, index: slot("metal_edge" if index % 3 else metal_key),
+        20,
+        seed + 21,
+    )
+    append_front_arc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        center,
+        outer,
+        inner,
+        math.radians(18.0),
+        math.radians(164.0),
+        lambda x, theta, index: slot("metal_edge" if index % 3 else metal_key),
+        10,
+        seed + 1,
+    )
+    append_front_arc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        center,
+        outer,
+        inner,
+        math.radians(204.0),
+        math.radians(330.0),
+        lambda x, theta, index: slot(flesh_key if index % 4 == 0 else "metal_edge"),
+        9,
+        seed + 2,
+    )
+    append_box_geometry(vertices, faces, face_materials, center + Vector((0.0, -0.012, 0.0)), block, slot(metal_key))
+    append_box_geometry(
+        vertices,
+        faces,
+        face_materials,
+        center + Vector((-side * 0.026 * scale, -0.018, 0.026 * scale)),
+        (block[0] * 0.56, block[1] * 1.06, block[2] * 0.42),
+        slot("carrier_shadow"),
+    )
+    for index, offset in enumerate(
+        [
+            Vector((-side * 0.036 * scale, -0.034, 0.044 * scale)),
+            Vector((side * 0.034 * scale, -0.034, 0.040 * scale)),
+            Vector((-side * 0.030 * scale, -0.034, -0.044 * scale)),
+            Vector((side * 0.034 * scale, -0.034, -0.042 * scale)),
+        ]
+    ):
+        append_front_disc_geometry(
+            vertices,
+            faces,
+            face_materials,
+            center + offset,
+            (0.0058 * scale, 0.0046 * scale),
+            slot("copper" if index == 1 and side < 0.0 else "metal_edge"),
+            10,
+            seed + 30 + index,
+        )
+    for seam_offset, mat_key in [
+        (Vector((-side * 0.046 * scale, -0.036, 0.000)), "carrier_shadow"),
+        (Vector((side * 0.046 * scale, -0.036, 0.000)), "metal_edge"),
+    ]:
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            center + seam_offset + Vector((0.0, 0.0, 0.044 * scale)),
+            center + seam_offset + Vector((0.0, 0.0, -0.044 * scale)),
+            0.0028 * scale,
+            0.0038 * scale,
+            slot(mat_key),
+        )
+    append_bar_geometry(
+        vertices,
+        faces,
+        face_materials,
+        center + upper_anchor + Vector((0.0, -0.012, 0.0)),
+        center + Vector((side * 0.010 * scale, 0.018, 0.018 * scale)),
+        0.0130 * scale,
+        0.0160 * scale,
+        slot("metal_edge"),
+    )
+    append_bar_geometry(
+        vertices,
+        faces,
+        face_materials,
+        center + lower_anchor + Vector((0.0, -0.012, 0.0)),
+        center + Vector((-side * 0.010 * scale, 0.018, -0.018 * scale)),
+        0.0120 * scale,
+        0.0150 * scale,
+        slot(metal_key),
+    )
+    for offset, mat_key, width in [
+        (Vector((side * 0.044 * scale, -0.030, 0.038 * scale)), "muscle_gloss", 0.0086),
+        (Vector((-side * 0.034 * scale, -0.032, -0.044 * scale)), "clot", 0.0078),
+    ]:
+        append_bar_geometry(
+            vertices,
+            faces,
+            face_materials,
+            center + offset,
+            center + offset * 0.36 + Vector((side * 0.012 * scale, -0.004, 0.000)),
+            width * scale,
+            width * 1.20 * scale,
+            slot(mat_key if side > 0.0 else ("tendon" if mat_key == "muscle_gloss" else "copper")),
+        )
+
+
+def append_anchored_joint_assembly(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    face_materials: list[int],
+    slot,
+    side: float,
+    center: Vector,
+    joint_kind: str,
+    scale: float,
+    metal_key: str,
+    flesh_key: str,
+    seed: int,
+) -> None:
+    if joint_kind in {"elbow", "knee"}:
+        outer = (0.044 * scale, 0.062 * scale)
+        inner = (0.018 * scale, 0.028 * scale)
+        block = (0.070 * scale, 0.030 * scale, 0.088 * scale)
+        rear_block = (0.056 * scale, 0.030 * scale, 0.070 * scale)
+        upper_offset = Vector((-side * 0.020 * scale, -0.004, 0.092 * scale))
+        lower_offset = Vector((side * 0.018 * scale, -0.002, -0.098 * scale))
+    elif joint_kind == "shoulder":
+        outer = (0.052 * scale, 0.054 * scale)
+        inner = (0.022 * scale, 0.024 * scale)
+        block = (0.082 * scale, 0.034 * scale, 0.078 * scale)
+        rear_block = (0.062 * scale, 0.034 * scale, 0.066 * scale)
+        upper_offset = Vector((-side * 0.052 * scale, -0.004, 0.064 * scale))
+        lower_offset = Vector((side * 0.036 * scale, -0.002, -0.086 * scale))
+    elif joint_kind == "hip":
+        outer = (0.046 * scale, 0.058 * scale)
+        inner = (0.020 * scale, 0.026 * scale)
+        block = (0.076 * scale, 0.032 * scale, 0.084 * scale)
+        rear_block = (0.058 * scale, 0.032 * scale, 0.066 * scale)
+        upper_offset = Vector((-side * 0.030 * scale, -0.004, 0.082 * scale))
+        lower_offset = Vector((side * 0.026 * scale, -0.002, -0.100 * scale))
+    else:
+        outer = (0.034 * scale, 0.046 * scale)
+        inner = (0.014 * scale, 0.020 * scale)
+        block = (0.052 * scale, 0.026 * scale, 0.060 * scale)
+        rear_block = (0.042 * scale, 0.026 * scale, 0.050 * scale)
+        upper_offset = Vector((-side * 0.018 * scale, -0.004, 0.070 * scale))
+        lower_offset = Vector((side * 0.016 * scale, -0.002, -0.074 * scale))
+
+    silhouette_interrupt = (
+        (side < 0.0 and joint_kind in {"shoulder", "elbow"})
+        or (side > 0.0 and joint_kind in {"elbow", "hip", "knee"})
+    )
+    if silhouette_interrupt:
+        outer = (outer[0] * 1.08, outer[1] * 1.06)
+        inner = (inner[0] * 1.02, inner[1] * 1.02)
+        block = (block[0] * 1.12, block[1] * 1.08, block[2] * 1.06)
+        rear_block = (rear_block[0] * 1.10, rear_block[1] * 1.08, rear_block[2] * 1.04)
+
+    append_front_ring_geometry(
+        vertices,
+        faces,
+        face_materials,
+        center,
+        outer,
+        inner,
+        lambda x, theta, index: (
+            slot(flesh_key)
+            if index % 8 == 0 and joint_kind in {"elbow", "knee", "shoulder"}
+            else slot("metal_edge")
+            if index % 3 == 0 or (side < 0.0 and x * side > abs(center.x))
+            else slot(metal_key)
+        ),
+        22,
+        seed,
+    )
+    append_front_disc_geometry(
+        vertices,
+        faces,
+        face_materials,
+        center + Vector((0.0, -0.004, 0.0)),
+        (inner[0] * 0.78, inner[1] * 0.78),
+        slot("carrier_shadow" if joint_kind in {"elbow", "knee", "shoulder"} else "clot"),
+        18,
+        seed + 1,
+    )
+    append_box_geometry(vertices, faces, face_materials, center + Vector((0.0, -0.006, 0.0)), block, slot(metal_key))
+    append_box_geometry(vertices, faces, face_materials, center + Vector((side * 0.010 * scale, 0.096 * scale, -0.004 * scale)), rear_block, slot("metal_edge"))
+    append_box_geometry(
+        vertices,
+        faces,
+        face_materials,
+        center + Vector((-side * 0.032 * scale, -0.012, 0.038 * scale)),
+        (block[0] * 0.54, block[1] * 0.84, block[2] * 0.36),
+        slot("copper" if side < 0.0 else "tendon"),
+    )
+    append_bar_geometry(
+        vertices,
+        faces,
+        face_materials,
+        center + upper_offset + Vector((0.0, -0.010, 0.0)),
+        center + Vector((side * 0.006 * scale, 0.084 * scale, 0.014 * scale)),
+        0.0082 * scale,
+        0.0102 * scale,
+        slot("metal_edge"),
+    )
+    append_bar_geometry(
+        vertices,
+        faces,
+        face_materials,
+        center + lower_offset + Vector((0.0, -0.010, 0.0)),
+        center + Vector((-side * 0.008 * scale, 0.082 * scale, -0.012 * scale)),
+        0.0074 * scale,
+        0.0090 * scale,
+        slot(metal_key),
+    )
+    append_bar_geometry(
+        vertices,
+        faces,
+        face_materials,
+        center + Vector((side * 0.030 * scale, -0.073 * scale, 0.030 * scale)),
+        center + Vector((side * 0.052 * scale, -0.022 * scale, -0.046 * scale)),
+        0.0062 * scale,
+        0.0074 * scale,
+        slot("muscle_gloss" if side > 0.0 else "tendon"),
+    )
+    append_bar_geometry(
+        vertices,
+        faces,
+        face_materials,
+        center + Vector((-side * 0.022 * scale, -0.070 * scale, -0.036 * scale)),
+        center + Vector((-side * 0.054 * scale, -0.024 * scale, 0.038 * scale)),
+        0.0048 * scale,
+        0.0062 * scale,
+        slot("clot" if side > 0.0 else "copper"),
+    )
 
 
 def soften_front_embedded_structure_vertices(vertices: list[tuple[float, float, float]]) -> list[tuple[float, float, float]]:
@@ -4080,8 +5904,8 @@ def soften_rear_embedded_structure_vertices(vertices: list[tuple[float, float, f
             center_weight = 1.0 - smoothstep(0.040, 0.155, abs(x - rear_spine_wave(Vector((x, y, z)))))
             vertical_weight = 1.0 - smoothstep(0.0, 0.170, abs(z - 1.410))
             embed = clamp01(max(center_weight * 0.62, vertical_weight * 0.54))
-            y -= 0.026 * embed
-            y = min(y, 0.132 + 0.012 * (1.0 - embed) + 0.003 * math.sin(x * 71.0 + z * 29.0))
+            y -= 0.018 * embed
+            y = min(y, 0.154 + 0.014 * (1.0 - embed) + 0.003 * math.sin(x * 71.0 + z * 29.0))
             x += 0.0018 * embed * math.sin(z * 77.0 + y * 21.0)
             z += 0.0014 * embed * math.sin(x * 94.0 + z * 33.0)
         softened.append((x, y, z))
@@ -4207,6 +6031,36 @@ def append_front_ring_geometry(
         face_materials.append(material_selector(segment_x, mid_angle, index))
 
 
+def append_front_arc_geometry(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    face_materials: list[int],
+    center: Vector,
+    outer_radius: tuple[float, float],
+    inner_radius: tuple[float, float],
+    start_angle: float,
+    end_angle: float,
+    material_selector,
+    segments: int,
+    seed: int,
+) -> None:
+    base = len(vertices)
+    steps = max(2, segments)
+    for ring_radius in (outer_radius, inner_radius):
+        for index in range(steps + 1):
+            t = index / steps
+            angle = start_angle + (end_angle - start_angle) * t
+            jitter = 1.0 + 0.085 * math.sin(index * 2.37 + seed * 0.61) + 0.040 * math.sin(index * 4.13 + seed)
+            point = center + Vector((math.cos(angle) * ring_radius[0] * jitter, 0.0, math.sin(angle) * ring_radius[1] * jitter))
+            vertices.append(tuple(point))
+    stride = steps + 1
+    for index in range(steps):
+        mid_angle = start_angle + (end_angle - start_angle) * ((index + 0.5) / steps)
+        segment_x = center.x + math.cos(mid_angle) * outer_radius[0]
+        faces.append((base + index, base + index + 1, base + stride + index + 1, base + stride + index))
+        face_materials.append(material_selector(segment_x, mid_angle, index))
+
+
 def append_front_disc_geometry(
     vertices: list[tuple[float, float, float]],
     faces: list[tuple[int, ...]],
@@ -4223,6 +6077,54 @@ def append_front_disc_geometry(
         angle = (math.tau * index) / segments
         jitter = 1.0 + 0.090 * math.sin(index * 1.83 + seed * 0.41) + 0.045 * math.sin(index * 3.77 + seed)
         point = center + Vector((math.cos(angle) * radius[0] * jitter, 0.0, math.sin(angle) * radius[1] * jitter))
+        vertices.append(tuple(point))
+    for index in range(segments):
+        next_index = 1 + ((index + 1) % segments)
+        faces.append((base, base + 1 + index, base + next_index))
+        face_materials.append(material_index)
+
+
+def append_side_ring_geometry(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    face_materials: list[int],
+    center: Vector,
+    outer_radius: tuple[float, float],
+    inner_radius: tuple[float, float],
+    material_selector,
+    segments: int,
+    seed: int,
+) -> None:
+    base = len(vertices)
+    for ring_radius in (outer_radius, inner_radius):
+        for index in range(segments):
+            angle = (math.tau * index) / segments
+            jitter = 1.0 + 0.070 * math.sin(index * 2.03 + seed * 0.67) + 0.035 * math.sin(index * 4.29 + seed)
+            point = center + Vector((0.0, math.cos(angle) * ring_radius[0] * jitter, math.sin(angle) * ring_radius[1] * jitter))
+            vertices.append(tuple(point))
+    for index in range(segments):
+        next_index = (index + 1) % segments
+        mid_angle = (math.tau * (index + 0.5)) / segments
+        faces.append((base + index, base + next_index, base + segments + next_index, base + segments + index))
+        face_materials.append(material_selector(mid_angle, index))
+
+
+def append_side_disc_geometry(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    face_materials: list[int],
+    center: Vector,
+    radius: tuple[float, float],
+    material_index: int,
+    segments: int,
+    seed: int,
+) -> None:
+    base = len(vertices)
+    vertices.append(tuple(center))
+    for index in range(segments):
+        angle = (math.tau * index) / segments
+        jitter = 1.0 + 0.080 * math.sin(index * 1.77 + seed * 0.47) + 0.035 * math.sin(index * 3.51 + seed)
+        point = center + Vector((0.0, math.cos(angle) * radius[0] * jitter, math.sin(angle) * radius[1] * jitter))
         vertices.append(tuple(point))
     for index in range(segments):
         next_index = 1 + ((index + 1) % segments)
@@ -4564,6 +6466,13 @@ def setup_preview_scene() -> None:
     face.name = "EX_preview_face_catch_light"
     face.data.color = (0.78, 0.90, 0.92)
     face.data.energy = 60
+
+    bpy.ops.object.light_add(type="AREA", location=(center.x + 0.8, center.y + 2.6, center.z + 1.9))
+    rear = bpy.context.object
+    rear.name = "EX_preview_rear_read_light"
+    rear.data.color = (0.92, 0.78, 0.66)
+    rear.data.energy = 220
+    rear.data.size = 3.6
 
     bpy.ops.object.camera_add(location=(center.x, center.y - 4, center.z + 1.2))
     camera = bpy.context.object
