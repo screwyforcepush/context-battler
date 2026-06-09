@@ -1105,11 +1105,11 @@ def fit_reallusion_head_to_carrier(objects: list[bpy.types.Object], target_bound
     target_min = Vector(target_bounds["min"])
     target_max = Vector(target_bounds["max"])
     target_center = Vector(target_bounds["center"])
-    target_lower_z = 1.455
+    target_lower_z = 1.421
     source_height = max(source_max.z - source_min.z, 0.001)
     target_height = max(target_max.z - target_lower_z, 0.001)
     scale = max(0.92, min(1.08, target_height / source_height))
-    target_center.x -= 0.012
+    target_center.x += 0.012
     target_center.y -= 0.010
     target_anchor = Vector((target_center.x, target_center.y, target_lower_z))
     source_anchor = Vector((source_center.x, source_center.y, source_min.z))
@@ -1234,6 +1234,7 @@ def body_torso_mask_channels(center: Vector) -> tuple[float, float, float, float
     shoulder_field = shoulder_collar_machine_wound_field(center)
     joint_field = industrial_joint_wound_field(center)
     hardware_seam = embedded_hardware_seam_field(center)
+    limb_puncture = embedded_limb_puncture_field(center)
     if not (
         front_region
         or rear_field > 0.01
@@ -1244,6 +1245,7 @@ def body_torso_mask_channels(center: Vector) -> tuple[float, float, float, float
         or shoulder_field > 0.01
         or joint_field > 0.01
         or hardware_seam > 0.01
+        or limb_puncture > 0.01
     ):
         return (0.0, 0.0, 0.0, 1.0)
 
@@ -1296,6 +1298,7 @@ def body_torso_mask_channels(center: Vector) -> tuple[float, float, float, float
             shoulder_field * 0.70,
             joint_field * 0.50,
             hardware_seam * 0.64,
+            limb_puncture * 0.58,
         )
     )
     if field <= 0.01:
@@ -1314,6 +1317,7 @@ def body_torso_mask_channels(center: Vector) -> tuple[float, float, float, float
         shoulder_collar_machine_wound_rim(center) * 0.62,
         industrial_joint_wound_rim(center) * 0.44,
         embedded_hardware_seam_rim(center) * 0.58,
+        embedded_limb_puncture_rim(center) * 0.56,
     )
     breakup = 0.5 + 0.5 * organic_breakup(center, 91)
     coarse_islands = 0.5 + 0.5 * organic_breakup(center, 157)
@@ -1354,6 +1358,11 @@ def body_torso_mask_channels(center: Vector) -> tuple[float, float, float, float
         damage = clamp01(damage + hardware_seam * (0.16 + 0.16 * seam_noise))
         wetness = clamp01(wetness + hardware_seam * 0.10)
         exposed_bone = clamp01(exposed_bone + embedded_hardware_bone_hint(center) * 0.16)
+    if limb_puncture > 0.01:
+        puncture_noise = 0.5 + 0.5 * organic_breakup(center, 491)
+        damage = clamp01(damage + limb_puncture * (0.30 + 0.22 * puncture_noise))
+        wetness = clamp01(wetness + limb_puncture * 0.17 + embedded_limb_puncture_rim(center) * 0.08)
+        exposed_bone = clamp01(exposed_bone + embedded_limb_bone_hint(center) * 0.24 + embedded_limb_machine_strand(center) * 0.10)
     if rear_machine > 0.01:
         rear_noise = 0.5 + 0.5 * organic_breakup(center, 467)
         damage = clamp01(damage + rear_machine * (0.18 + 0.14 * rear_noise))
@@ -2193,6 +2202,116 @@ def primary_joint_gore_flap(center: Vector) -> float:
     return clamp01(max(elbow_pull, elbow_under * 0.82, knee_pull * 0.72, hip_pull * 0.44, focused_grip * 0.96) * breakup)
 
 
+def embedded_limb_puncture_field(center: Vector) -> float:
+    arm_zone = 0.150 < abs(center.x) < 0.365 and 0.775 < center.z < 1.390 and -0.120 < center.y < 0.078
+    leg_zone = 0.050 < abs(center.x) < 0.176 and 0.430 < center.z < 1.085 and -0.118 < center.y < 0.066
+    if not (arm_zone or leg_zone):
+        return 0.0
+    side = -1.0 if center.x < 0.0 else 1.0
+    surface_gate = max(
+        1.0 - smoothstep(0.036, 0.132, abs(center.y + 0.014)),
+        0.76 * (1.0 - smoothstep(0.048, 0.150, abs(center.y - 0.004))),
+        0.58 * (1.0 - smoothstep(0.060, 0.168, abs(center.y))),
+    )
+    if surface_gate <= 0.0:
+        return 0.0
+
+    if arm_zone:
+        shoulder_socket = 1.0 - smoothstep(
+            0.54,
+            1.14,
+            ellipsoid(center, (side * (0.242 if side < 0.0 else 0.222), -0.010, 1.312), (0.070, 0.078, 0.084)),
+        )
+        elbow_socket = 1.0 - smoothstep(
+            0.50,
+            1.14,
+            ellipsoid(center, (side * (0.288 if side < 0.0 else 0.272), -0.010, 1.062), (0.070, 0.074, 0.104)),
+        )
+        upper_rip = diagonal_band_xz_value(center, (side * 0.214, 1.336), (side * 0.318, 1.154), 0.020, 0.052)
+        forearm_rip = diagonal_band_xz_value(center, (side * 0.306, 1.062), (side * 0.230, 0.812), 0.018, 0.046)
+        tendon_grab = diagonal_band_xz_value(center, (side * 0.208, 1.142), (side * 0.334, 1.012), 0.014, 0.038)
+        side_weight = 1.08 if side < 0.0 else 0.90
+        value = max(
+            shoulder_socket * 0.94,
+            elbow_socket * (1.22 if side < 0.0 else 1.02),
+            upper_rip * 1.06,
+            forearm_rip * side_weight * 1.10,
+            tendon_grab * 0.94,
+        )
+    else:
+        hip_gouge = 1.0 - smoothstep(
+            0.58,
+            1.14,
+            ellipsoid(center, (side * (0.096 if side < 0.0 else 0.122), -0.010, 1.010), (0.050, 0.066, 0.082)),
+        )
+        knee_socket = 1.0 - smoothstep(
+            0.52,
+            1.14,
+            ellipsoid(center, (side * (0.076 if side < 0.0 else 0.112), -0.010, 0.640), (0.052, 0.066, 0.088)),
+        )
+        thigh_rip = diagonal_band_xz_value(center, (side * 0.118, 0.982), (side * 0.066, 0.742), 0.016, 0.040)
+        knee_flap = diagonal_band_xz_value(center, (side * 0.062, 0.742), (side * 0.146, 0.618), 0.016, 0.040)
+        shin_rip = diagonal_band_xz_value(center, (side * 0.126, 0.694), (side * 0.068, 0.460), 0.014, 0.034)
+        value = max(
+            hip_gouge * (0.28 if side > 0.0 else 0.22),
+            knee_socket * (0.90 if side > 0.0 else 0.68),
+            thigh_rip * 0.48,
+            knee_flap * (0.80 if side > 0.0 else 0.58),
+            shin_rip * 0.44,
+        )
+    breakup = 0.78 + 0.18 * organic_breakup(center, 489) + 0.08 * math.sin(center.x * 149.0 - center.z * 83.0)
+    return clamp01(value * surface_gate * breakup)
+
+
+def embedded_limb_puncture_rim(center: Vector) -> float:
+    field = embedded_limb_puncture_field(center)
+    if field <= 0.0:
+        return 0.0
+    side = -1.0 if center.x < 0.0 else 1.0
+    shoulder_lip = diagonal_band_xz_value(center, (side * 0.214, 1.336), (side * 0.318, 1.154), 0.008, 0.024)
+    forearm_lip = diagonal_band_xz_value(center, (side * 0.306, 1.062), (side * 0.230, 0.812), 0.008, 0.022)
+    elbow_shell = max(
+        0.0,
+        1.0
+        - abs(ellipsoid(center, (side * (0.288 if side < 0.0 else 0.272), -0.010, 1.062), (0.072, 0.076, 0.106)) - 0.88)
+        / 0.24,
+    )
+    knee_lip = diagonal_band_xz_value(center, (side * 0.062, 0.742), (side * 0.146, 0.618), 0.007, 0.022)
+    shin_lip = diagonal_band_xz_value(center, (side * 0.126, 0.694), (side * 0.068, 0.460), 0.007, 0.020)
+    knee_shell = max(
+        0.0,
+        1.0
+        - abs(ellipsoid(center, (side * (0.076 if side < 0.0 else 0.112), -0.010, 0.640), (0.054, 0.068, 0.090)) - 0.88)
+        / 0.24,
+    )
+    return clamp01(max(shoulder_lip * 0.70, forearm_lip * 0.72, elbow_shell * 0.58, knee_lip * 0.46, shin_lip * 0.32, knee_shell * 0.36, field * 0.30))
+
+
+def embedded_limb_machine_strand(center: Vector) -> bool:
+    if embedded_limb_puncture_field(center) <= 0.18:
+        return False
+    side = -1.0 if center.x < 0.0 else 1.0
+    arm_strand = (
+        diagonal_band_xz(center, (side * 0.224, 1.306), (side * 0.326, 1.064), 0.006)
+        or diagonal_band_xz(center, (side * 0.320, 1.082), (side * 0.236, 0.838), 0.006)
+    )
+    leg_strand = (
+        diagonal_band_xz(center, (side * 0.120, 0.962), (side * 0.070, 0.720), 0.005)
+        or diagonal_band_xz(center, (side * 0.064, 0.736), (side * 0.142, 0.622), 0.005)
+    )
+    return arm_strand or leg_strand
+
+
+def embedded_limb_bone_hint(center: Vector) -> bool:
+    if embedded_limb_puncture_field(center) <= 0.24:
+        return False
+    side = -1.0 if center.x < 0.0 else 1.0
+    elbow_chip = diagonal_band_xz(center, (side * 0.284, 1.100), (side * 0.238, 0.980), 0.005)
+    knee_chip = diagonal_band_xz(center, (side * 0.070, 0.726), (side * 0.134, 0.626), 0.005)
+    shoulder_chip = diagonal_band_xz(center, (side * 0.222, 1.338), (side * 0.300, 1.196), 0.005)
+    return (elbow_chip or knee_chip or shoulder_chip) and sparse_cell(center, 6)
+
+
 def focused_limb_machine_embedding_field(center: Vector) -> float:
     side = -1.0 if center.x < 0.0 else 1.0
     front_side_gate = 1.0 - smoothstep(0.040, 0.118, abs(center.y + 0.010))
@@ -2372,6 +2491,8 @@ def assign_body_material_regions(carrier_mesh: bpy.types.Object, mats: dict[str,
         joint_machine_rim = industrial_joint_wound_rim(center)
         hardware_seam = embedded_hardware_seam_field(center)
         hardware_seam_rim = embedded_hardware_seam_rim(center)
+        limb_puncture = embedded_limb_puncture_field(center)
+        limb_puncture_rim = embedded_limb_puncture_rim(center)
         telefrag_core_value = ellipsoid(center, (0.023, -0.064, 1.402), (0.078, 0.046, 0.100))
         telefrag_outer = front and ragged_value(telefrag_core_value, center, 0.88, 1.20, 0.035, 41)
         telefrag_edge = front and ragged_value(telefrag_core_value, center, 0.60, 0.88, 0.030, 42)
@@ -2525,6 +2646,8 @@ def assign_body_material_regions(carrier_mesh: bpy.types.Object, mats: dict[str,
             poly.material_index = polished_industrial_joint_material(center, slots, poly.material_index)
         if hardware_seam > 0.08 or hardware_seam_rim > 0.16:
             poly.material_index = polished_embedded_hardware_seam_material(center, slots, poly.material_index)
+        if limb_puncture > 0.08 or limb_puncture_rim > 0.16:
+            poly.material_index = polished_embedded_limb_puncture_material(center, slots, poly.material_index)
         if front and 1.315 < center.z < 1.535 and abs(center.x) < 0.160:
             protected_core = throat_socket or ellipsoid(center, (0.023, -0.064, 1.402), (0.052, 0.040, 0.076)) < 1.0
             if poly.material_index == slots["phase_skin"] and sparse_cell(center, 2):
@@ -2910,6 +3033,50 @@ def polished_shoulder_collar_machine_material(center: Vector, slots: dict[str, i
         return slots["scar"] if not wet_highlight_cell(center) else slots["muscle_gloss"]
     if fallback in {slots["carrier"], slots["shadow"]} and sparse_cell(center, 4):
         return slots["torso_blend"] if center.x > 0.0 else slots["metal_edge"]
+    return fallback
+
+
+def polished_embedded_limb_puncture_material(center: Vector, slots: dict[str, int], fallback: int) -> int:
+    field = embedded_limb_puncture_field(center)
+    rim = embedded_limb_puncture_rim(center)
+    if field <= 0.08 and rim <= 0.16:
+        return fallback
+
+    side = -1.0 if center.x < 0.0 else 1.0
+    arm_zone = 0.150 < abs(center.x) < 0.365 and 0.775 < center.z < 1.390
+    leg_zone = 0.050 < abs(center.x) < 0.176 and 0.430 < center.z < 1.085
+    lower_joint = leg_zone or center.z < 0.820
+    machine_strand = embedded_limb_machine_strand(center)
+    bone_hint = embedded_limb_bone_hint(center)
+    flesh_bias = side > 0.0
+    wet = wet_highlight_cell(center)
+
+    if bone_hint and (field > 0.24 or rim > 0.28):
+        return slots["bone"] if not sparse_cell(center, 5) else slots["tendon"]
+    if machine_strand and (field > 0.14 or rim > 0.18):
+        if flesh_bias and sparse_cell(center, 4):
+            return slots["tendon"]
+        if lower_joint and flesh_bias and sparse_cell(center, 5):
+            return slots["muscle_gloss"] if wet else slots["clot"]
+        return slots["metal_edge"] if not sparse_cell(center, 7) else slots["cyber"]
+    if field > 0.48:
+        if flesh_bias:
+            if sparse_cell(center, 5):
+                return slots["tendon"]
+            return slots["muscle_gloss"] if wet else slots["clot"]
+        return slots["cyber"] if sparse_cell(center, 4) else slots["metal_edge"]
+    if field > 0.24:
+        if flesh_bias and (lower_joint or sparse_cell(center, 3)):
+            return slots["scar"] if not wet else slots["muscle_gloss"]
+        if arm_zone and side < 0.0 and sparse_cell(center, 6):
+            return slots["copper"]
+        return slots["metal_edge"] if not flesh_bias else slots["muscle"]
+    if rim > 0.18:
+        if flesh_bias:
+            return slots["scar"] if not wet else slots["muscle_gloss"]
+        return slots["metal_edge"] if not sparse_cell(center, 8) else slots["copper"]
+    if fallback in {slots["carrier"], slots["shadow"]} and sparse_cell(center, 5):
+        return slots["scar"] if flesh_bias else slots["metal_edge"]
     return fallback
 
 
@@ -4302,6 +4469,20 @@ def sculpt_body_glitch_offsets(carrier_mesh: bpy.types.Object) -> None:
             local.y += 0.0064 * rim_mix - 0.0066 * carve + 0.0022 * gore_grip
             local.z += 0.0028 * math.sin(local.x * 102.0 + local.z * 67.0) * carve
             local.z += 0.0016 * rim_mix * math.sin(local.x * 121.0 + local.y * 45.0)
+        limb_puncture = embedded_limb_puncture_field(local)
+        if limb_puncture > 0.05:
+            rim = embedded_limb_puncture_rim(local)
+            strand = 1.0 if embedded_limb_machine_strand(local) else 0.0
+            side = -1.0 if local.x < 0.0 else 1.0
+            lower_joint = local.z < 0.820
+            carve_scale = 0.78 if lower_joint else 1.0
+            local.y -= 0.0080 * limb_puncture * carve_scale
+            local.y += 0.0066 * rim
+            local.x += side * (0.0048 * rim - 0.0030 * limb_puncture + 0.0016 * strand)
+            local.z += 0.0032 * math.sin(local.x * 137.0 - local.z * 91.0) * limb_puncture
+            if strand > 0.0:
+                local.y += 0.0028 * rim
+                local.x += side * 0.0014 * math.sin(local.z * 118.0)
         hardware_seam = embedded_hardware_seam_field(local)
         if hardware_seam > 0.04:
             rim = embedded_hardware_seam_rim(local)
