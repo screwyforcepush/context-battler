@@ -944,14 +944,32 @@ func _tick_experiment_skin_flicker(delta: float) -> void:
 		var base_color: Color = state.get("color", material.albedo_color)
 		var phase := float(state.get("phase", 0.0))
 		var min_alpha := float(state.get("min_alpha", 0.72))
-		var slow_gate := sin(experiment_skin_flicker_time * 0.62 + phase)
-		var snap_gate := sin(experiment_skin_flicker_time * 8.7 + phase * 1.83)
-		var micro_gate := sin(experiment_skin_flicker_time * 39.0 + phase * 0.41)
-		var flicker_active := slow_gate > 0.985 or snap_gate > 0.992
+		var period := float(state.get("period", 36.0))
+		var duration := float(state.get("duration", 1.4))
+		var micro_frequency := float(state.get("micro_frequency", 16.0))
+		var flicker_depth := float(state.get("depth", 1.0))
+		var burst_count := int(state.get("burst_count", 1))
+		var burst_gap := float(state.get("burst_gap", 0.34))
+		var burst_short_duration := float(state.get("burst_short_duration", 0.18))
+		var local_time := fposmod(experiment_skin_flicker_time + phase, period)
+		var burst_effect := 0.0
 		var alpha := 1.0
-		if flicker_active:
-			var pulse := maxf(0.0, micro_gate)
-			alpha = lerpf(1.0, min_alpha, 0.38 + pulse * 0.62)
+		if local_time < duration:
+			var progress := clampf(local_time / maxf(duration, 0.001), 0.0, 1.0)
+			var envelope := sin(progress * PI)
+			var micro_gate := maxf(0.0, sin(experiment_skin_flicker_time * micro_frequency + phase * 0.41))
+			burst_effect = maxf(burst_effect, (0.26 + envelope * 0.66 + micro_gate * 0.08) * flicker_depth)
+		for burst_index in range(burst_count):
+			var burst_start := duration + burst_gap * float(burst_index + 1)
+			var burst_time := local_time - burst_start
+			if burst_time < 0.0 or burst_time > burst_short_duration:
+				continue
+			var burst_progress := clampf(burst_time / maxf(burst_short_duration, 0.001), 0.0, 1.0)
+			var burst_envelope := sin(burst_progress * PI)
+			var burst_micro := maxf(0.0, sin(experiment_skin_flicker_time * (micro_frequency * 1.85) + phase * 0.73))
+			burst_effect = maxf(burst_effect, (0.42 + burst_envelope * 0.50 + burst_micro * 0.08) * flicker_depth)
+		if burst_effect > 0.0:
+			alpha = lerpf(1.0, min_alpha, clampf(burst_effect, 0.0, 1.0))
 		base_color.a = alpha
 		material.albedo_color = base_color
 		if alpha < 0.985:
@@ -963,7 +981,9 @@ func _tick_experiment_skin_flicker(delta: float) -> void:
 
 
 func _register_experiment_skin_flicker_material(material: StandardMaterial3D, config: Dictionary, key: String) -> void:
-	if not _material_key_uses_skin_flicker(key):
+	var skin_flicker := _material_key_uses_skin_flicker(key)
+	var gore_flicker := _material_key_uses_gore_flicker(key)
+	if not skin_flicker and not gore_flicker:
 		return
 	var base_color := material.albedo_color
 	base_color.a = 1.0
@@ -973,15 +993,44 @@ func _register_experiment_skin_flicker_material(material: StandardMaterial3D, co
 	var seed := int(config.get("seed", 0))
 	var phase_hash := _stable_string_hash("%s:%s" % [str(config.get("id", "variant")), key])
 	var phase := float((seed ^ phase_hash) & 0x7fffffff) * 0.00037
+	var period := 34.0 + float((phase_hash >> 5) & 1023) / 1023.0 * 24.0
+	var duration := 1.15 + float((phase_hash >> 17) & 255) / 255.0 * 0.75
+	var micro_frequency := 16.0
+	var flicker_depth := 1.0
+	var burst_count := 1 + int(abs(phase_hash >> 27) % 3)
+	var burst_gap := 0.30 + float((phase_hash >> 9) & 127) / 127.0 * 0.26
+	var burst_short_duration := 0.13 + float((phase_hash >> 21) & 127) / 127.0 * 0.14
 	var min_alpha := 0.70
-	if key.contains("phase") or key.contains("transient"):
+	if gore_flicker:
+		phase += 19.0 + float((phase_hash >> 11) & 255) / 255.0 * 17.0
+		period = 46.0 + float((phase_hash >> 3) & 1023) / 1023.0 * 36.0
+		duration = 2.15 + float((phase_hash >> 19) & 255) / 255.0 * 1.15
+		micro_frequency = 7.5 + float((phase_hash >> 23) & 127) / 127.0 * 4.5
+		flicker_depth = 0.82
+		burst_gap *= 1.35
+		burst_short_duration *= 1.22
+		min_alpha = 0.66
+		if key.contains("blood") or key.contains("clotted"):
+			min_alpha = 0.58
+		elif key.contains("tendon"):
+			min_alpha = 0.72
+	elif key.contains("phase") or key.contains("transient"):
 		min_alpha = 0.54
+		period *= 0.82
+		duration *= 1.12
 	elif key.contains("body_burnished") or key.contains("gunmetal"):
 		min_alpha = 0.78
 	experiment_skin_flicker_materials.append({
 		"material": material,
 		"color": base_color,
 		"phase": phase,
+		"period": period,
+		"duration": duration,
+		"micro_frequency": micro_frequency,
+		"depth": flicker_depth,
+		"burst_count": burst_count,
+		"burst_gap": burst_gap,
+		"burst_short_duration": burst_short_duration,
 		"min_alpha": min_alpha,
 	})
 
@@ -1173,7 +1222,6 @@ func _apply_experiment_seeded_variant(root: Node, variant_id: String) -> void:
 	if config.is_empty():
 		return
 	_apply_experiment_seeded_variant_recursive(root, config)
-	_apply_experiment_seeded_patches(root, config)
 
 
 func _apply_experiment_seeded_variant_recursive(node: Node, config: Dictionary) -> void:
@@ -1181,76 +1229,6 @@ func _apply_experiment_seeded_variant_recursive(node: Node, config: Dictionary) 
 		_apply_experiment_seeded_variant_to_mesh(node as MeshInstance3D, config)
 	for child in node.get_children():
 		_apply_experiment_seeded_variant_recursive(child, config)
-
-
-func _apply_experiment_seeded_patches(root: Node, config: Dictionary) -> void:
-	var skeleton := _first_descendant_of_class(root, "Skeleton3D") as Skeleton3D
-	if skeleton == null:
-		return
-	var patches = config.get("patches", [])
-	if typeof(patches) != TYPE_ARRAY:
-		return
-	var variant_id := str(config.get("id", "variant"))
-	var patch_index := 0
-	for patch_value in (patches as Array):
-		if typeof(patch_value) != TYPE_DICTIONARY:
-			continue
-		_spawn_experiment_seeded_patch(skeleton, patch_value as Dictionary, variant_id, patch_index)
-		patch_index += 1
-
-
-func _spawn_experiment_seeded_patch(skeleton: Skeleton3D, patch: Dictionary, variant_id: String, patch_index: int) -> void:
-	var bone_name := str(patch.get("bone", ""))
-	if bone_name.is_empty() or skeleton.find_bone(bone_name) < 0:
-		return
-	var attachment := BoneAttachment3D.new()
-	attachment.name = "seeded_%s_patch_%02d_%s" % [variant_id, patch_index, bone_name]
-	attachment.bone_name = bone_name
-	skeleton.add_child(attachment)
-	var pivot := Node3D.new()
-	pivot.name = "patch_offset"
-	pivot.position = _variant_vector3_from_value(patch.get("offset", []), Vector3.ZERO)
-	pivot.rotation_degrees = _variant_vector3_from_value(patch.get("rotation", []), Vector3.ZERO)
-	attachment.add_child(pivot)
-	var mesh_node := MeshInstance3D.new()
-	var kind := str(patch.get("kind", "blood_clot"))
-	mesh_node.name = "seeded_%s_%s" % [variant_id, kind]
-	mesh_node.mesh = _experiment_seeded_patch_mesh(kind)
-	mesh_node.scale = _variant_vector3_from_value(patch.get("scale", []), Vector3(0.05, 0.01, 0.03))
-	mesh_node.material_override = _experiment_seeded_patch_material(kind, patch, variant_id)
-	pivot.add_child(mesh_node)
-
-
-func _experiment_seeded_patch_mesh(kind: String) -> PrimitiveMesh:
-	if kind == "blood_clot" or kind == "bone_chip":
-		var sphere := SphereMesh.new()
-		sphere.radial_segments = 8
-		sphere.rings = 4
-		sphere.radius = 0.5
-		sphere.height = 1.0
-		return sphere
-	var box := BoxMesh.new()
-	box.size = Vector3.ONE
-	return box
-
-
-func _experiment_seeded_patch_material(kind: String, patch: Dictionary, variant_id: String) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.resource_name = "seeded_%s_%s_material" % [variant_id, kind]
-	material.albedo_color = _variant_color_from_value(patch.get("color", []), Color(0.22, 0.012, 0.006, 1.0))
-	material.metallic = clampf(float(patch.get("metallic", 0.0)), 0.0, 1.0)
-	material.roughness = clampf(float(patch.get("roughness", 0.34)), 0.02, 1.0)
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	if kind == "blood_clot" or kind == "blood_smear":
-		material.clearcoat_enabled = true
-		material.clearcoat = 0.55
-		material.clearcoat_roughness = 0.10
-	var emission_energy := float(patch.get("emissionEnergy", 0.0))
-	if emission_energy > 0.0:
-		material.emission_enabled = true
-		material.emission = _variant_color_from_value(patch.get("emission", []), Color(0.0, 0.75, 0.48, 1.0))
-		material.emission_energy_multiplier = emission_energy
-	return material
 
 
 func _apply_experiment_seeded_variant_to_mesh(mesh_node: MeshInstance3D, config: Dictionary) -> void:
@@ -1279,7 +1257,9 @@ func _tune_experiment_seeded_material(material: StandardMaterial3D, config: Dict
 	var gore_wetness_jitter := float(config.get("goreWetnessJitter", 1.0))
 	var phase_skin_jitter := float(config.get("phaseSkinJitter", 1.0))
 	var skin_flicker_material := _material_key_uses_skin_flicker(key)
-	var surface_alpha := 1.0 if skin_flicker_material else _variant_surface_alpha_for_key(config, key)
+	var gore_flicker_material := _material_key_uses_gore_flicker(key)
+	var opacity_flicker_material := skin_flicker_material or gore_flicker_material
+	var surface_alpha := 1.0 if opacity_flicker_material else _variant_surface_alpha_for_key(config, key)
 	var uv_drift := _variant_dictionary(config, "uvDrift")
 	if not uv_drift.is_empty():
 		material.uv1_offset = Vector3(float(uv_drift.get("x", 0.0)), float(uv_drift.get("y", 0.0)), 0.0)
@@ -1313,7 +1293,7 @@ func _tune_experiment_seeded_material(material: StandardMaterial3D, config: Dict
 		material.albedo_color = alpha_color
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	if skin_flicker_material:
+	if opacity_flicker_material:
 		_register_experiment_skin_flicker_material(material, config, key)
 	material.resource_name = "%s_%s" % [material.resource_name, str(config.get("id", "variant"))]
 
@@ -1347,6 +1327,17 @@ func _material_key_uses_skin_flicker(key: String) -> bool:
 		or key.contains("head_pallid")
 		or key.contains("phase_skin")
 		or key.contains("transient_human")
+	)
+
+
+func _material_key_uses_gore_flicker(key: String) -> bool:
+	return (
+		_material_key_is_gore(key)
+		or key.contains("bone")
+		or key.contains("clot")
+		or key.contains("clotted")
+		or key.contains("gore_flesh")
+		or key.contains("subdermal")
 	)
 
 

@@ -27,7 +27,6 @@ const personas = [
     greenBoost: 0.38,
     wetnessBoost: 1.18,
     patternBias: { blood: 1.0, muscle: 0.70, tendon: 0.88, metal: 0.72, patina: 0.58, phase: 0.46, fissure: 0.28 },
-    patchBias: ["blood_clot", "tendon_wire", "machine_spike", "blood_clot", "bone_chip"],
   },
   {
     id: "duelist",
@@ -42,7 +41,6 @@ const personas = [
     greenBoost: 0.54,
     wetnessBoost: 0.86,
     patternBias: { blood: 0.42, muscle: 0.54, tendon: 0.46, metal: 1.0, patina: 0.64, phase: 0.38, fissure: 0.38 },
-    patchBias: ["machine_plate", "machine_spike", "green_fissure", "machine_plate", "tendon_wire"],
   },
   {
     id: "trader",
@@ -57,7 +55,6 @@ const personas = [
     greenBoost: 0.68,
     wetnessBoost: 0.98,
     patternBias: { blood: 0.54, muscle: 0.66, tendon: 0.58, metal: 0.78, patina: 1.0, phase: 0.42, fissure: 0.48 },
-    patchBias: ["machine_plate", "copper_plate", "bone_chip", "tendon_wire", "green_fissure"],
   },
   {
     id: "opportunist",
@@ -72,7 +69,6 @@ const personas = [
     greenBoost: 0.48,
     wetnessBoost: 1.26,
     patternBias: { blood: 0.92, muscle: 1.0, tendon: 0.74, metal: 0.62, patina: 0.42, phase: 0.54, fissure: 0.36 },
-    patchBias: ["blood_clot", "blood_smear", "tendon_wire", "machine_spike", "blood_clot"],
   },
   {
     id: "paranoid",
@@ -87,7 +83,6 @@ const personas = [
     greenBoost: 1.56,
     wetnessBoost: 1.08,
     patternBias: { blood: 0.46, muscle: 0.52, tendon: 0.62, metal: 0.66, patina: 0.48, phase: 0.92, fissure: 1.0 },
-    patchBias: ["green_fissure", "machine_spike", "green_fissure", "tendon_wire", "bone_chip"],
   },
   {
     id: "camper",
@@ -102,7 +97,6 @@ const personas = [
     greenBoost: 0.42,
     wetnessBoost: 1.40,
     patternBias: { blood: 0.78, muscle: 0.88, tendon: 1.0, metal: 0.56, patina: 0.44, phase: 0.50, fissure: 0.30 },
-    patchBias: ["tendon_wire", "blood_smear", "blood_clot", "bone_chip", "tendon_wire"],
   },
   {
     id: "sprinter",
@@ -117,7 +111,6 @@ const personas = [
     greenBoost: 0.76,
     wetnessBoost: 0.92,
     patternBias: { blood: 0.62, muscle: 0.64, tendon: 0.54, metal: 0.92, patina: 0.52, phase: 0.68, fissure: 0.62 },
-    patchBias: ["machine_spike", "green_fissure", "machine_plate", "blood_smear", "machine_spike"],
   },
   {
     id: "vulture",
@@ -132,7 +125,6 @@ const personas = [
     greenBoost: 0.62,
     wetnessBoost: 0.78,
     patternBias: { blood: 0.36, muscle: 0.48, tendon: 0.70, metal: 0.70, patina: 0.66, phase: 0.34, fissure: 0.46 },
-    patchBias: ["bone_chip", "machine_plate", "tendon_wire", "copper_plate", "bone_chip"],
   },
 ];
 
@@ -360,7 +352,6 @@ function buildVariantConfig(persona, index) {
       scaleX: roundNumber(jitter(rng, 0.18)),
       scaleY: roundNumber(jitter(rng, 0.18)),
     },
-    patches: buildPatchConfig(persona, rng),
   };
 }
 
@@ -418,7 +409,7 @@ async function main() {
   console.log(`PASS build-experiment-persona-variants variants=${variants.length}`);
   for (const variant of variants) {
     console.log(
-      `PASS ${variant.id} seed=${variant.seed} metal=${variant.metalBrightness} gore=${variant.goreBrightness} green=${variant.greenBoost} patches=${variant.patches.length}`,
+      `PASS ${variant.id} seed=${variant.seed} metal=${variant.metalBrightness} gore=${variant.goreBrightness} green=${variant.greenBoost}`,
     );
   }
   console.log(`runtime=${path.relative(appRoot, runtimeConfigPath)}`);
