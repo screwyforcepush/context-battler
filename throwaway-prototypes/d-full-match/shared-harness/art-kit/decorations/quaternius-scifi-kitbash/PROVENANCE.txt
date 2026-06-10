@@ -1,0 +1,5 @@
+Source: Quaternius Modular Sci-Fi MegaKit, Godot Asset Store
+URL: https://store.godotengine.org/asset/quaternius/modular-sci-fi-megakit/
+License: CC0 1.0 Universal / Public Domain
+Downloaded archive: /tmp/context-battler-assets/Modular_SciFi_MegaKitStandard.zip
+Notes: Selected FBX props, columns, rails, vents, lights, cable pieces, and alien forms are staged here for character decoration RNG only. They are not weapon or armour equipment picks.

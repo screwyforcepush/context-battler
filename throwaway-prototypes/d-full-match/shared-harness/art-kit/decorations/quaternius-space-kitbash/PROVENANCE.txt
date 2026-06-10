@@ -1,0 +1,5 @@
+Source: Quaternius Ultimate Space Kit GLB archive
+License: CC0 1.0 Universal
+Original cache: /tmp/context-battler-assets/ultimate_space_kit-glb.zip
+Usage: curated compact pieces for seeded per-character embedded decoration RNG only.
+Notes: runtime materials are overridden by the experiment decoration shader pass; these are not weapon or armour equipment picks.

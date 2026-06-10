@@ -3019,6 +3019,346 @@
       ]
     },
     {
+      "id": "weapon.crowbar",
+      "category": "weapon",
+      "weaponName": "crowbar",
+      "file": "weapons/boqsc-cc0-melee/crowbar.glb",
+      "sourcePack": "BoQsc-3dmodelscc0-MeleeWeapons-GLB-CC0",
+      "tier": 2,
+      "dpsBucket": "mid",
+      "attachBone": "right_hand",
+      "pivotYOffset": 0,
+      "handOffset": {
+        "position": [
+          0.055,
+          0.02,
+          -0.035
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          -18
+        ],
+        "scale": 0.046
+      },
+      "source": {
+        "title": "Free CC0 Melee Weapons Pack - Crowbar GLB conversion",
+        "creator": "3dmodelscc0 / BoQsc conversion",
+        "repository": "GitHub",
+        "pageUrl": "https://github.com/BoQsc/cc0-melee-weapons-pack-glb",
+        "downloadUrl": "https://github.com/BoQsc/cc0-melee-weapons-pack-glb/releases/download/0/MeleeWeaponsPack_glb.zip",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "BoQsc repository ships LICENSE as CC0-1.0 and converts the 3dmodelscc0 melee pack to GLB."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/MeleeWeaponsPack_glb.zip",
+        "sourceArchivePath": "MeleeWeaponsPack_glb/Crowbar/Crowbar.glb",
+        "selectedOnly": true
+      },
+      "notes": "Downloaded CC0 industrial melee weapon for per-experiment-card RNG weapon variety.",
+      "sizeBytes": 6462936,
+      "sha256": "aab7f67ab86d3d11237cbba25a944e59f173489bca9a0a325ee0df54b690a512",
+      "adherenceApproach": "bone_attached",
+      "attachModes": [
+        {
+          "mode": "dynamic_hand_bone",
+          "adherenceApproach": "bone_attached",
+          "attachBone": "right_hand",
+          "handOffset": {
+            "position": [
+              0.055,
+              0.02,
+              -0.035
+            ],
+            "rotationDeg": [
+              0,
+              0,
+              -18
+            ],
+            "scale": 0.046
+          }
+        }
+      ]
+    },
+    {
+      "id": "weapon.fire_axe",
+      "category": "weapon",
+      "weaponName": "fire_axe",
+      "file": "weapons/boqsc-cc0-melee/fire_axe.glb",
+      "sourcePack": "BoQsc-3dmodelscc0-MeleeWeapons-GLB-CC0",
+      "tier": 2,
+      "dpsBucket": "mid",
+      "attachBone": "right_hand",
+      "pivotYOffset": 0,
+      "handOffset": {
+        "position": [
+          0.070,
+          0.025,
+          -0.040
+        ],
+        "rotationDeg": [
+          0,
+          90,
+          -24
+        ],
+        "scale": 0.045
+      },
+      "source": {
+        "title": "Free CC0 Melee Weapons Pack - Fire Axe GLB conversion",
+        "creator": "3dmodelscc0 / BoQsc conversion",
+        "repository": "GitHub",
+        "pageUrl": "https://github.com/BoQsc/cc0-melee-weapons-pack-glb",
+        "downloadUrl": "https://github.com/BoQsc/cc0-melee-weapons-pack-glb/releases/download/0/MeleeWeaponsPack_glb.zip",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "BoQsc repository ships LICENSE as CC0-1.0 and converts the 3dmodelscc0 melee pack to GLB."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/MeleeWeaponsPack_glb.zip",
+        "sourceArchivePath": "MeleeWeaponsPack_glb/FireAxe/FireAxe.glb",
+        "selectedOnly": true
+      },
+      "notes": "Downloaded CC0 industrial axe silhouette for per-experiment-card RNG weapon variety.",
+      "sizeBytes": 9326128,
+      "sha256": "c23eefcff12108816328f1da18ea10df2c464ed66c1370b937b18b8a237a0399",
+      "adherenceApproach": "bone_attached",
+      "attachModes": [
+        {
+          "mode": "dynamic_hand_bone",
+          "adherenceApproach": "bone_attached",
+          "attachBone": "right_hand",
+          "handOffset": {
+            "position": [
+              0.070,
+              0.025,
+              -0.040
+            ],
+            "rotationDeg": [
+              0,
+              90,
+              -24
+            ],
+            "scale": 0.045
+          }
+        }
+      ]
+    },
+    {
+      "id": "weapon.nail_bat",
+      "category": "weapon",
+      "weaponName": "nail_bat",
+      "file": "weapons/boqsc-cc0-melee/nail_bat.glb",
+      "sourcePack": "BoQsc-3dmodelscc0-MeleeWeapons-GLB-CC0",
+      "tier": 3,
+      "dpsBucket": "high",
+      "attachBone": "right_hand",
+      "pivotYOffset": 0,
+      "handOffset": {
+        "position": [
+          0.085,
+          0.030,
+          -0.045
+        ],
+        "rotationDeg": [
+          0,
+          90,
+          -18
+        ],
+        "scale": 0.042
+      },
+      "source": {
+        "title": "Free CC0 Melee Weapons Pack - Nail Bat GLB conversion",
+        "creator": "3dmodelscc0 / BoQsc conversion",
+        "repository": "GitHub",
+        "pageUrl": "https://github.com/BoQsc/cc0-melee-weapons-pack-glb",
+        "downloadUrl": "https://github.com/BoQsc/cc0-melee-weapons-pack-glb/releases/download/0/MeleeWeaponsPack_glb.zip",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "BoQsc repository ships LICENSE as CC0-1.0 and converts the 3dmodelscc0 melee pack to GLB."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/MeleeWeaponsPack_glb.zip",
+        "sourceArchivePath": "MeleeWeaponsPack_glb/NailBat/NailBat.glb",
+        "selectedOnly": true
+      },
+      "notes": "Downloaded CC0 spiked bat for heavy horror-melee variation.",
+      "sizeBytes": 12557692,
+      "sha256": "ba3012710dd0c38725e95efc0af6a79f0b1405049d06e33b93bc9659300d0911",
+      "adherenceApproach": "bone_attached",
+      "attachModes": [
+        {
+          "mode": "dynamic_hand_bone",
+          "adherenceApproach": "bone_attached",
+          "attachBone": "right_hand",
+          "handOffset": {
+            "position": [
+              0.085,
+              0.030,
+              -0.045
+            ],
+            "rotationDeg": [
+              0,
+              90,
+              -18
+            ],
+            "scale": 0.042
+          }
+        }
+      ]
+    },
+    {
+      "id": "weapon.rusty_pipe",
+      "category": "weapon",
+      "weaponName": "rusty_pipe",
+      "file": "weapons/boqsc-cc0-melee/rusty_pipe.glb",
+      "sourcePack": "BoQsc-3dmodelscc0-MeleeWeapons-GLB-CC0",
+      "tier": 2,
+      "dpsBucket": "mid",
+      "attachBone": "right_hand",
+      "pivotYOffset": 0,
+      "handOffset": {
+        "position": [
+          0.065,
+          0.020,
+          -0.040
+        ],
+        "rotationDeg": [
+          0,
+          90,
+          -16
+        ],
+        "scale": 0.048
+      },
+      "source": {
+        "title": "Free CC0 Melee Weapons Pack - Rusty Pipe GLB conversion",
+        "creator": "3dmodelscc0 / BoQsc conversion",
+        "repository": "GitHub",
+        "pageUrl": "https://github.com/BoQsc/cc0-melee-weapons-pack-glb",
+        "downloadUrl": "https://github.com/BoQsc/cc0-melee-weapons-pack-glb/releases/download/0/MeleeWeaponsPack_glb.zip",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "BoQsc repository ships LICENSE as CC0-1.0 and converts the 3dmodelscc0 melee pack to GLB."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/MeleeWeaponsPack_glb.zip",
+        "sourceArchivePath": "MeleeWeaponsPack_glb/Rusty_pipe/RustyPipe.glb",
+        "selectedOnly": true
+      },
+      "notes": "Downloaded CC0 rusty pipe for industrial improvised weapon variation.",
+      "sizeBytes": 11942856,
+      "sha256": "41ff2450d8c7a050850d013fe44b4b30d6f3f688a3ed2d99b985bdacd4fcb714",
+      "adherenceApproach": "bone_attached",
+      "attachModes": [
+        {
+          "mode": "dynamic_hand_bone",
+          "adherenceApproach": "bone_attached",
+          "attachBone": "right_hand",
+          "handOffset": {
+            "position": [
+              0.065,
+              0.020,
+              -0.040
+            ],
+            "rotationDeg": [
+              0,
+              90,
+              -16
+            ],
+            "scale": 0.048
+          }
+        }
+      ]
+    },
+    {
+      "id": "weapon.tire_iron",
+      "category": "weapon",
+      "weaponName": "tire_iron",
+      "file": "weapons/boqsc-cc0-melee/tire_iron.glb",
+      "sourcePack": "BoQsc-3dmodelscc0-MeleeWeapons-GLB-CC0",
+      "tier": 1,
+      "dpsBucket": "low",
+      "attachBone": "right_hand",
+      "pivotYOffset": 0,
+      "handOffset": {
+        "position": [
+          0.052,
+          0.015,
+          -0.032
+        ],
+        "rotationDeg": [
+          0,
+          90,
+          -12
+        ],
+        "scale": 0.058
+      },
+      "source": {
+        "title": "Free CC0 Melee Weapons Pack - Tire Iron GLB conversion",
+        "creator": "3dmodelscc0 / BoQsc conversion",
+        "repository": "GitHub",
+        "pageUrl": "https://github.com/BoQsc/cc0-melee-weapons-pack-glb",
+        "downloadUrl": "https://github.com/BoQsc/cc0-melee-weapons-pack-glb/releases/download/0/MeleeWeaponsPack_glb.zip",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "BoQsc repository ships LICENSE as CC0-1.0 and converts the 3dmodelscc0 melee pack to GLB."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/MeleeWeaponsPack_glb.zip",
+        "sourceArchivePath": "MeleeWeaponsPack_glb/TireIron/TireIron.glb",
+        "selectedOnly": true
+      },
+      "notes": "Downloaded CC0 tire iron for compact improvised weapon variation.",
+      "sizeBytes": 8042104,
+      "sha256": "d68b7bfbaac151682258c3468a384fd8a6c3e1f1ed809d4971976fdf307832b8",
+      "adherenceApproach": "bone_attached",
+      "attachModes": [
+        {
+          "mode": "dynamic_hand_bone",
+          "adherenceApproach": "bone_attached",
+          "attachBone": "right_hand",
+          "handOffset": {
+            "position": [
+              0.052,
+              0.015,
+              -0.032
+            ],
+            "rotationDeg": [
+              0,
+              90,
+              -12
+            ],
+            "scale": 0.058
+          }
+        }
+      ]
+    },
+    {
       "id": "armour.cloth",
       "category": "armour",
       "armourName": "cloth",
@@ -3659,6 +3999,234 @@
         0,
         -0.58,
         -0.03
+      ]
+    },
+    {
+      "id": "armour_prop.scifi.access_point_chest",
+      "name": "Quaternius Sci-Fi Access Point Chest",
+      "slot": "chest",
+      "approach": "modular_submesh_prop",
+      "adherenceApproach": "bone_attached",
+      "file": "armour/quaternius-scifi-kitbash/prop_access_point.fbx",
+      "bindBone": "spine_03",
+      "sha256": "74b629f5d5f2ec22b98b5a30c68a4412d108ae0073b35fe93743aca5513c40c4",
+      "sourcePack": "Quaternius-ModularSciFiMegaKit-Standard-CC0",
+      "source": {
+        "title": "Modular Sci-Fi MegaKit - Prop_AccessPoint",
+        "creator": "Quaternius",
+        "repository": "Godot Asset Store",
+        "pageUrl": "https://store.godotengine.org/asset/quaternius/modular-sci-fi-megakit/",
+        "downloadUrl": "https://asset-store-test.nbg1.your-objectstorage.com/assets/42/Modular_SciFi_MegaKitStandard.zip",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Godot Asset Store listing marks the Modular Sci-Fi MegaKit as CC0 1.0 Universal."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/Modular_SciFi_MegaKitStandard.zip",
+        "sourceArchivePath": "Modular SciFi MegaKit[Standard]/FBX/Props/Prop_AccessPoint.fbx",
+        "selectedOnly": true
+      },
+      "rationale": "Small hard-surface access panel used as an embedded chest machine module for experiment variants.",
+      "fitScale": 0.12,
+      "propOffset": [
+        0,
+        0.015,
+        0.105
+      ]
+    },
+    {
+      "id": "armour_prop.scifi.vent_big_groin",
+      "name": "Quaternius Sci-Fi Big Vent Groin",
+      "slot": "groin",
+      "approach": "modular_submesh_prop",
+      "adherenceApproach": "bone_attached",
+      "file": "armour/quaternius-scifi-kitbash/prop_vent_big.fbx",
+      "bindBone": "spine_01",
+      "sha256": "25e93f1e294dae06d7c1d2055d25dcaed33e6ed6eb6e08cf1ab1813054d78b45",
+      "sourcePack": "Quaternius-ModularSciFiMegaKit-Standard-CC0",
+      "source": {
+        "title": "Modular Sci-Fi MegaKit - Prop_Vent_Big",
+        "creator": "Quaternius",
+        "repository": "Godot Asset Store",
+        "pageUrl": "https://store.godotengine.org/asset/quaternius/modular-sci-fi-megakit/",
+        "downloadUrl": "https://asset-store-test.nbg1.your-objectstorage.com/assets/42/Modular_SciFi_MegaKitStandard.zip",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Godot Asset Store listing marks the Modular Sci-Fi MegaKit as CC0 1.0 Universal."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/Modular_SciFi_MegaKitStandard.zip",
+        "sourceArchivePath": "Modular SciFi MegaKit[Standard]/FBX/Props/Prop_Vent_Big.fbx",
+        "selectedOnly": true
+      },
+      "rationale": "Small vent module used as a funny but still body-anchored groin/hip implant variant.",
+      "fitScale": 0.14,
+      "propOffset": [
+        0,
+        -0.16,
+        0.12
+      ]
+    },
+    {
+      "id": "armour_prop.scifi.fan_left_shoulder",
+      "name": "Quaternius Sci-Fi Shoulder Fan",
+      "slot": "shoulder",
+      "approach": "modular_submesh_prop",
+      "adherenceApproach": "bone_attached",
+      "file": "armour/quaternius-scifi-kitbash/prop_fan_small.fbx",
+      "bindBone": "upperarm_l",
+      "sha256": "e3a47955483c59ae620755264e7b3df9da837a2fd847cf6ebf414caece263c44",
+      "sourcePack": "Quaternius-ModularSciFiMegaKit-Standard-CC0",
+      "source": {
+        "title": "Modular Sci-Fi MegaKit - Prop_Fan_Small",
+        "creator": "Quaternius",
+        "repository": "Godot Asset Store",
+        "pageUrl": "https://store.godotengine.org/asset/quaternius/modular-sci-fi-megakit/",
+        "downloadUrl": "https://asset-store-test.nbg1.your-objectstorage.com/assets/42/Modular_SciFi_MegaKitStandard.zip",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Godot Asset Store listing marks the Modular Sci-Fi MegaKit as CC0 1.0 Universal."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/Modular_SciFi_MegaKitStandard.zip",
+        "sourceArchivePath": "Modular SciFi MegaKit[Standard]/FBX/Props/Prop_Fan_Small.fbx",
+        "selectedOnly": true
+      },
+      "rationale": "Small fan module used as a shoulder machinery implant instead of clean armour plating.",
+      "fitScale": 0.11,
+      "propOffset": [
+        0.035,
+        0.072,
+        0.08
+      ]
+    },
+    {
+      "id": "armour_prop.scifi.cable_spine",
+      "name": "Quaternius Sci-Fi Spine Cable",
+      "slot": "back",
+      "approach": "modular_submesh_prop",
+      "adherenceApproach": "bone_attached",
+      "file": "armour/quaternius-scifi-kitbash/prop_cable_1.fbx",
+      "bindBone": "spine_03",
+      "sha256": "dffe2cc8ed05f6eed44365e2bbc5ac9a9390a7631affbb91e807dea8b6a2afd6",
+      "sourcePack": "Quaternius-ModularSciFiMegaKit-Standard-CC0",
+      "source": {
+        "title": "Modular Sci-Fi MegaKit - Prop_Cable_1",
+        "creator": "Quaternius",
+        "repository": "Godot Asset Store",
+        "pageUrl": "https://store.godotengine.org/asset/quaternius/modular-sci-fi-megakit/",
+        "downloadUrl": "https://asset-store-test.nbg1.your-objectstorage.com/assets/42/Modular_SciFi_MegaKitStandard.zip",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Godot Asset Store listing marks the Modular Sci-Fi MegaKit as CC0 1.0 Universal."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/Modular_SciFi_MegaKitStandard.zip",
+        "sourceArchivePath": "Modular SciFi MegaKit[Standard]/FBX/Props/Prop_Cable_1.fbx",
+        "selectedOnly": true
+      },
+      "rationale": "Cable module used on the back/spine so per-card armour can read like machinery breaking through the body.",
+      "fitScale": 0.10,
+      "propOffset": [
+        0,
+        -0.03,
+        -0.14
+      ]
+    },
+    {
+      "id": "armour_prop.scifi.column_pipes_back",
+      "name": "Quaternius Sci-Fi Back Pipe Column",
+      "slot": "back",
+      "approach": "modular_submesh_prop",
+      "adherenceApproach": "bone_attached",
+      "file": "armour/quaternius-scifi-kitbash/column_pipes.fbx",
+      "bindBone": "spine_02",
+      "sha256": "c1fd5376f87b0ebeca3890b0319ca7e197c76cfe2253b68cc5acc3212d5b839d",
+      "sourcePack": "Quaternius-ModularSciFiMegaKit-Standard-CC0",
+      "source": {
+        "title": "Modular Sci-Fi MegaKit - Column_Pipes",
+        "creator": "Quaternius",
+        "repository": "Godot Asset Store",
+        "pageUrl": "https://store.godotengine.org/asset/quaternius/modular-sci-fi-megakit/",
+        "downloadUrl": "https://asset-store-test.nbg1.your-objectstorage.com/assets/42/Modular_SciFi_MegaKitStandard.zip",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Godot Asset Store listing marks the Modular Sci-Fi MegaKit as CC0 1.0 Universal."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/Modular_SciFi_MegaKitStandard.zip",
+        "sourceArchivePath": "Modular SciFi MegaKit[Standard]/FBX/Columns/Column_Pipes.fbx",
+        "selectedOnly": true
+      },
+      "rationale": "Pipe column is reduced into a small back module for machinery silhouette variety.",
+      "fitScale": 0.07,
+      "propOffset": [
+        0.035,
+        -0.02,
+        -0.145
+      ]
+    },
+    {
+      "id": "armour_prop.scifi.vent_small_forearm",
+      "name": "Quaternius Sci-Fi Forearm Vent",
+      "slot": "forearm",
+      "approach": "modular_submesh_prop",
+      "adherenceApproach": "bone_attached",
+      "file": "armour/quaternius-scifi-kitbash/prop_vent_small.fbx",
+      "bindBone": "lowerarm_r",
+      "sha256": "d0921cbf2a6367e3e44dec017224b4818b6c6a236148708429d33813d08aa8cb",
+      "sourcePack": "Quaternius-ModularSciFiMegaKit-Standard-CC0",
+      "source": {
+        "title": "Modular Sci-Fi MegaKit - Prop_Vent_Small",
+        "creator": "Quaternius",
+        "repository": "Godot Asset Store",
+        "pageUrl": "https://store.godotengine.org/asset/quaternius/modular-sci-fi-megakit/",
+        "downloadUrl": "https://asset-store-test.nbg1.your-objectstorage.com/assets/42/Modular_SciFi_MegaKitStandard.zip",
+        "upstreamLicenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "name": "CC0 1.0 Universal / Public Domain",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false,
+        "notes": "Godot Asset Store listing marks the Modular Sci-Fi MegaKit as CC0 1.0 Universal."
+      },
+      "extraction": {
+        "sourceArchive": "/tmp/context-battler-assets/Modular_SciFi_MegaKitStandard.zip",
+        "sourceArchivePath": "Modular SciFi MegaKit[Standard]/FBX/Props/Prop_Vent_Small.fbx",
+        "selectedOnly": true
+      },
+      "rationale": "Compact vent for a limb-mounted cybernetic detail in the per-card armour pool.",
+      "fitScale": 0.10,
+      "propOffset": [
+        -0.018,
+        -0.07,
+        0.07
       ]
     }
   ],

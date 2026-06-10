@@ -1,0 +1,34 @@
+{
+  "base_glb": "shared-harness/art-kit/characters/camper-mesh2motion-human-base.glb",
+  "experiment_glb": "shared-harness/art-kit/characters/generated/experiment.glb",
+  "generator_target_lower_z": 1.421,
+  "neck_band_half_height": 0.04,
+  "base_neck_band_center": [
+    2.9154445524426364e-09,
+    0.037131667137145996,
+    1.4253510236740112
+  ],
+  "experiment_neck_band_center": [
+    0.009869305416941643,
+    0.05219699442386627,
+    1.446995735168457
+  ],
+  "experiment_minus_base_delta": [
+    0.009869302622973919,
+    0.015065327286720276,
+    0.0216447114944458
+  ],
+  "render_outputs": {
+    "front": "head_neck_overlay_front.png",
+    "back": "head_neck_overlay_back.png",
+    "left": "head_neck_overlay_left.png",
+    "right": "head_neck_overlay_right.png"
+  },
+  "legend": {
+    "cyan": "original Mesh2Motion base head/neck reference",
+    "warm_red": "current experiment Reallusion replacement head/neck",
+    "gray": "current experiment upper torso/collar receiving geometry",
+    "dots": "neck-band center samples at generator target_lower_z",
+    "yellow_line": "delta from base neck-band center to experiment neck-band center"
+  }
+}

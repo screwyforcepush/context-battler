@@ -7,14 +7,14 @@ const EXPERIMENT_MODEL_PATH := "res://shared-harness/art-kit/characters/generate
 const EXPERIMENT_VARIANT_CONFIG_PATH := "res://shared-harness/art-kit/characters/generated/experiment_persona_variants.json"
 const GLITCH_REAPER_PROTOTYPE_SCALE := 0.93464883
 const GLITCH_REAPER_CLIP_FALLBACKS := {
-	"idle": ["Idle", "Idle_Loop", "Zombie_Idle"],
-	"walk": ["Walk", "Walk_Loop", "Zombie_Walk_Fwd"],
-	"run": ["Sprint", "Sprint_Loop", "Jog_Fwd"],
-	"attack_unarmed": ["Punch_Jab", "Melee_Hook", "Sword_Attack"],
-	"attack_armed": ["Sword_Attack", "Sword_Regular_A", "Melee_Hook"],
-	"loot": ["PickUp_Table", "Interact"],
-	"take_hit": ["Hit_Chest", "Hit_Head"],
-	"death": ["Death01"],
+	"idle": ["Idle", "Idle_Loop", "Idle_Loop_Armature", "Zombie_Idle", "Zombie_Idle_Loop", "Zombie_Idle_Loop_Armature"],
+	"walk": ["Walk", "Walk_Loop", "Walk_Loop_Armature", "Zombie_Walk_Fwd", "Zombie_Walk_Fwd_Loop", "Zombie_Walk_Fwd_Loop_Armature"],
+	"run": ["Sprint", "Sprint_Loop", "Sprint_Loop_Armature", "Jog_Fwd", "Jog_Fwd_Loop", "Jog_Fwd_Loop_Armature"],
+	"attack_unarmed": ["Punch_Jab", "Punch_Jab_Armature", "Melee_Hook", "Melee_Hook_Armature", "Sword_Attack", "Sword_Attack_Armature"],
+	"attack_armed": ["Sword_Attack", "Sword_Attack_Armature", "Sword_Regular_A", "Sword_Regular_A_Armature", "Melee_Hook", "Melee_Hook_Armature"],
+	"loot": ["PickUp_Table", "PickUp_Table_Armature", "Interact", "Interact_Armature"],
+	"take_hit": ["Hit_Chest", "Hit_Chest_Armature", "Hit_Head", "Hit_Head_Armature"],
+	"death": ["Death01", "Death01_Armature"],
 }
 const SHOW_MANIFEST_PERSONAS := false
 const SHOW_EXPERIMENT_PERSONA_VARIANTS := true
@@ -65,8 +65,10 @@ var current_weapon_tier := 0
 var current_armour_tier := 0
 var current_armour_render_mode := ARMOUR_RENDER_PROP
 var current_armour_prop_selection := ARMOUR_PROP_ALL
+var current_weapon_selection := ""
 var weapon_by_tier := {0: "", 1: "", 2: "", 3: ""}
 var armour_by_tier := {0: "", 1: "", 2: "", 3: ""}
+var weapon_asset_options := []
 var armour_prop_options := []
 var clip_labels: Dictionary = {}
 var standalone_animation_players: Dictionary = {}
@@ -76,6 +78,8 @@ var glitch_reaper_phase_time := 0.0
 var glitch_reaper_phase_nodes: Array[Dictionary] = []
 var experiment_skin_flicker_time := 0.0
 var experiment_skin_flicker_materials: Array[Dictionary] = []
+var experiment_embedded_decoration_time := 0.0
+var experiment_embedded_decoration_nodes: Array[Dictionary] = []
 var cover_visible := false
 var active_station_count := 0
 var experiment_variant_configs: Dictionary = {}
@@ -83,10 +87,11 @@ var selected_tier_buttons: Dictionary = {}
 var layer_enabled := {
 	LAYER_SKIN: true,
 	LAYER_GORE: false,
-	LAYER_WEAPONS: false,
-	LAYER_ARMOUR: false,
+	LAYER_WEAPONS: true,
+	LAYER_ARMOUR: true,
 }
 var fallback_material: StandardMaterial3D
+var weapon_asset_selector: OptionButton
 var armour_asset_selector: OptionButton
 
 @onready var scene_builder: Node3D = %SceneBuilder
@@ -103,6 +108,7 @@ func _ready() -> void:
 	_apply_model_review_render_profile()
 	_apply_cover_visibility()
 	_build_tier_maps()
+	_build_weapon_asset_options()
 	_build_armour_prop_options()
 	_spawn_persona_row()
 	_configure_camera()
@@ -118,6 +124,7 @@ func _process(delta: float) -> void:
 		equipment_attachment.tick(delta)
 	_tick_glitch_reaper_phase_driver(delta)
 	_tick_experiment_skin_flicker(delta)
+	_tick_experiment_embedded_decorations(delta)
 	_update_clip_labels()
 
 
@@ -294,6 +301,8 @@ func _spawn_standalone_model_row() -> void:
 	glitch_reaper_phase_nodes.clear()
 	experiment_skin_flicker_time = 0.0
 	experiment_skin_flicker_materials.clear()
+	experiment_embedded_decoration_time = 0.0
+	experiment_embedded_decoration_nodes.clear()
 	var total_stations := STANDALONE_SHOWROOM_MODELS.size()
 	active_station_count = total_stations
 	var offset := float(total_stations - 1) * STATION_SPACING * 0.5
@@ -315,6 +324,8 @@ func _spawn_experiment_persona_variant_row() -> void:
 	glitch_reaper_phase_nodes.clear()
 	experiment_skin_flicker_time = 0.0
 	experiment_skin_flicker_materials.clear()
+	experiment_embedded_decoration_time = 0.0
+	experiment_embedded_decoration_nodes.clear()
 	active_station_count = PERSONAS.size()
 	var offset := float(active_station_count - 1) * STATION_SPACING * 0.5
 	for i in range(PERSONAS.size()):
@@ -330,6 +341,7 @@ func _spawn_experiment_persona_variant_row() -> void:
 			"path": EXPERIMENT_MODEL_PATH,
 			"variant_id": persona,
 			"phase_driver": false,
+			"register_equipment": true,
 			"scale": GLITCH_REAPER_PROTOTYPE_SCALE,
 			"show_source_label": false,
 			"show_clip_label": false,
@@ -370,11 +382,13 @@ func _spawn_standalone_model_station(station: Node3D, config: Dictionary) -> voi
 			visual.name = "visual"
 			visual.scale = Vector3.ONE * float(config.get("scale", GLITCH_REAPER_PROTOTYPE_SCALE))
 			_apply_standalone_material_review_lift(visual, model_id)
+			station.add_child(visual)
 			var variant_id := str(config.get("variant_id", ""))
 			if not variant_id.is_empty():
 				_apply_experiment_seeded_variant(visual, variant_id)
-			station.add_child(visual)
-			standalone_animation_players[model_id] = _first_descendant_of_class(visual, "AnimationPlayer") as AnimationPlayer
+			if bool(config.get("register_equipment", false)) and not variant_id.is_empty():
+				_register_experiment_variant_equipment(station, visual, variant_id)
+			standalone_animation_players[model_id] = _standalone_character_animation_player(visual)
 			if bool(config.get("phase_driver", false)):
 				_configure_glitch_reaper_phase_driver(visual)
 	else:
@@ -392,6 +406,22 @@ func _spawn_standalone_model_station(station: Node3D, config: Dictionary) -> voi
 	station.add_child(clip_label)
 	standalone_clip_labels[model_id] = clip_label
 	standalone_current_clips[model_id] = "(idle/none)"
+
+
+func _register_experiment_variant_equipment(station: Node3D, visual: Node3D, variant_id: String) -> void:
+	if equipment_attachment == null or not equipment_attachment.has_method("register_external_character"):
+		push_warning("EquipmentMeshAttachment lacks external registration; experiment equipment disabled for %s" % variant_id)
+		return
+	var asset_override := _experiment_equipment_asset_for_variant(variant_id)
+	equipment_attachment.call("register_external_character", _showroom_id(variant_id), station, variant_id, visual, asset_override)
+
+
+func _experiment_equipment_asset_for_variant(variant_id: String) -> Dictionary:
+	return {
+		"attachBone": "hand_r",
+		"animation": {},
+		"armorOverlay": {},
+	}
 
 
 func _make_label(label_name: String, label_text: String, label_position: Vector3, pixel_size: float, font_size: int) -> Label3D:
@@ -489,6 +519,7 @@ func _make_ui() -> void:
 	tier_box.add_theme_constant_override("separation", 4)
 	root.add_child(tier_box)
 	_make_tier_row(tier_box, "Weapon", "weapon")
+	_make_weapon_asset_row(tier_box)
 	_make_tier_row(tier_box, "Armour", "armour")
 	_make_armour_asset_row(tier_box)
 
@@ -537,6 +568,30 @@ func _make_tier_row(parent: Node, label_text: String, slot: String) -> void:
 		selected_tier_buttons["%s:%d" % [slot, tier]] = button
 
 
+func _make_weapon_asset_row(parent: Node) -> void:
+	var row := HBoxContainer.new()
+	row.name = "WeaponAssetBar"
+	row.add_theme_constant_override("separation", 6)
+	parent.add_child(row)
+	var label := Label.new()
+	label.text = "Weapon Asset:"
+	label.custom_minimum_size = Vector2(104, 0)
+	row.add_child(label)
+	weapon_asset_selector = OptionButton.new()
+	weapon_asset_selector.name = "WeaponAssetSelector"
+	weapon_asset_selector.custom_minimum_size = Vector2(360, 0)
+	for i in range(weapon_asset_options.size()):
+		var option := weapon_asset_options[i] as Dictionary
+		var option_label := str(option.get("label", ""))
+		var weapon_name := str(option.get("name", ""))
+		weapon_asset_selector.add_item(option_label, i)
+		weapon_asset_selector.set_item_metadata(i, weapon_name)
+		if weapon_name == current_weapon_selection:
+			weapon_asset_selector.select(i)
+	weapon_asset_selector.item_selected.connect(_set_weapon_asset_selection)
+	row.add_child(weapon_asset_selector)
+
+
 func _make_armour_asset_row(parent: Node) -> void:
 	var row := HBoxContainer.new()
 	row.name = "ArmourAssetBar"
@@ -572,6 +627,8 @@ func _trigger_animation(kind: String) -> void:
 func _set_equipment_tier(slot: String, tier: int) -> void:
 	if slot == "weapon":
 		current_weapon_tier = tier
+		if tier > 0:
+			_select_weapon_name(str(weapon_by_tier.get(tier, current_weapon_selection)))
 	else:
 		current_armour_tier = tier
 	_update_tier_buttons(slot, tier)
@@ -592,6 +649,22 @@ func _set_cover_visible(enabled: bool) -> void:
 	_apply_cover_visibility()
 
 
+func _set_weapon_asset_selection(index: int) -> void:
+	if weapon_asset_selector == null:
+		return
+	if index < 0 or index >= weapon_asset_selector.get_item_count():
+		return
+	var weapon_name := str(weapon_asset_selector.get_item_metadata(index))
+	_select_weapon_name(weapon_name)
+	var assets = equipment_attachment.get("weapon_assets_by_name")
+	if typeof(assets) == TYPE_DICTIONARY and (assets as Dictionary).has(weapon_name):
+		var asset = (assets as Dictionary).get(weapon_name, {})
+		if typeof(asset) == TYPE_DICTIONARY:
+			current_weapon_tier = max(1, int((asset as Dictionary).get("tier", current_weapon_tier)))
+			_update_tier_buttons("weapon", current_weapon_tier)
+	_reapply_showroom_layers()
+
+
 func _set_armour_prop_selection(index: int) -> void:
 	if armour_asset_selector == null:
 		return
@@ -603,6 +676,8 @@ func _set_armour_prop_selection(index: int) -> void:
 	if current_armour_prop_selection == prop_id:
 		return
 	current_armour_prop_selection = prop_id
+	current_armour_tier = 0 if current_armour_prop_selection == ARMOUR_PROP_ALL else max(1, current_armour_tier)
+	_update_tier_buttons("armour", current_armour_tier)
 	if equipment_attachment.has_method("set_armour_prop_selection"):
 		equipment_attachment.call("set_armour_prop_selection", current_armour_prop_selection)
 	else:
@@ -624,10 +699,10 @@ func _apply_runtime_modes() -> void:
 
 
 func _apply_equipment_layers() -> void:
-	var weapon_name := str(weapon_by_tier.get(current_weapon_tier, "")) if _layer_is_enabled(LAYER_WEAPONS) else ""
+	var weapon_name := current_weapon_selection if _layer_is_enabled(LAYER_WEAPONS) and current_weapon_tier > 0 else ""
 	var armour_name := str(armour_by_tier.get(current_armour_tier, "")) if _layer_is_enabled(LAYER_ARMOUR) else ""
 	var equipped := {}
-	for persona in _visible_personas():
+	for persona in _equipment_personas():
 		equipped[_showroom_id(str(persona))] = {
 			"weapon": {"name": weapon_name},
 			"armour": {"name": armour_name},
@@ -636,6 +711,8 @@ func _apply_equipment_layers() -> void:
 
 
 func _apply_surface_layers() -> void:
+	if SHOW_EXPERIMENT_PERSONA_VARIANTS:
+		return
 	var armour_tier := _surface_armour_tier()
 	for persona in _visible_personas():
 		var showroom_id := _showroom_id(str(persona))
@@ -672,13 +749,38 @@ func _build_tier_maps() -> void:
 	armour_by_tier = _armour_visual_tier_map()
 	current_weapon_tier = 0
 	current_armour_tier = 0
+	current_weapon_selection = str(weapon_by_tier.get(_default_visible_tier(weapon_by_tier), ""))
+
+
+func _build_weapon_asset_options() -> void:
+	weapon_asset_options = []
+	var assets = equipment_attachment.get("weapon_assets_by_name")
+	if typeof(assets) != TYPE_DICTIONARY:
+		return
+	var asset_dict := assets as Dictionary
+	var names := []
+	for asset_name in asset_dict.keys():
+		names.append(str(asset_name))
+	names.sort()
+	for weapon_name in names:
+		var asset = asset_dict.get(weapon_name, {})
+		if typeof(asset) != TYPE_DICTIONARY:
+			continue
+		var tier := int((asset as Dictionary).get("tier", 0))
+		var label := "%s (tier %d)" % [str(weapon_name).replace("_", " "), tier]
+		weapon_asset_options.append({
+			"name": str(weapon_name),
+			"label": label,
+		})
+	if current_weapon_selection.is_empty() and not weapon_asset_options.is_empty():
+		current_weapon_selection = str((weapon_asset_options[0] as Dictionary).get("name", ""))
 
 
 func _build_armour_prop_options() -> void:
 	armour_prop_options = [
 		{
 			"id": ARMOUR_PROP_ALL,
-			"label": "All (per-persona)",
+			"label": "None / default",
 		},
 	]
 	var seen := {ARMOUR_PROP_ALL: true}
@@ -705,6 +807,7 @@ func _build_armour_prop_options() -> void:
 			"id": prop_id,
 			"label": label,
 		})
+	current_armour_prop_selection = ARMOUR_PROP_ALL
 
 
 func _numeric_tier_map_for_assets(property_name: String) -> Dictionary:
@@ -755,6 +858,18 @@ func _asset_for_slot_tier(slot: String, tier: int) -> String:
 	if slot == "weapon":
 		return str(weapon_by_tier.get(tier, ""))
 	return str(armour_by_tier.get(tier, ""))
+
+
+func _select_weapon_name(weapon_name: String) -> void:
+	if weapon_name.is_empty():
+		return
+	current_weapon_selection = weapon_name
+	if weapon_asset_selector == null:
+		return
+	for i in range(weapon_asset_selector.get_item_count()):
+		if str(weapon_asset_selector.get_item_metadata(i)) == weapon_name:
+			weapon_asset_selector.select(i)
+			return
 
 
 func _current_tier_for_slot(slot: String) -> int:
@@ -831,6 +946,12 @@ func _visible_personas() -> Array:
 	return PERSONAS if SHOW_MANIFEST_PERSONAS else []
 
 
+func _equipment_personas() -> Array:
+	if SHOW_EXPERIMENT_PERSONA_VARIANTS:
+		return PERSONAS
+	return _visible_personas()
+
+
 func _play_standalone_model_animation(kind: String) -> void:
 	for model_id_value in standalone_animation_players.keys():
 		var model_id := str(model_id_value)
@@ -844,6 +965,23 @@ func _play_standalone_model_animation(kind: String) -> void:
 			continue
 		player.play(clip)
 		standalone_current_clips[model_id] = clip
+
+
+func _standalone_character_animation_player(root: Node3D) -> AnimationPlayer:
+	var direct := root.get_node_or_null("AnimationPlayer") as AnimationPlayer
+	if direct != null:
+		return direct
+	return _largest_clip_count_animation_player(root, null)
+
+
+func _largest_clip_count_animation_player(node: Node, best: AnimationPlayer) -> AnimationPlayer:
+	if node is AnimationPlayer:
+		var player := node as AnimationPlayer
+		if best == null or player.get_animation_list().size() > best.get_animation_list().size():
+			best = player
+	for child in node.get_children():
+		best = _largest_clip_count_animation_player(child, best)
+	return best
 
 
 func _first_standalone_model_clip(player: AnimationPlayer, kind: String) -> String:
@@ -1222,6 +1360,7 @@ func _apply_experiment_seeded_variant(root: Node, variant_id: String) -> void:
 	if config.is_empty():
 		return
 	_apply_experiment_seeded_variant_recursive(root, config)
+	_apply_experiment_embedded_decorations(root, config)
 
 
 func _apply_experiment_seeded_variant_recursive(node: Node, config: Dictionary) -> void:
@@ -1243,6 +1382,376 @@ func _apply_experiment_seeded_variant_to_mesh(mesh_node: MeshInstance3D, config:
 			var tuned := (material as StandardMaterial3D).duplicate() as StandardMaterial3D
 			_tune_experiment_seeded_material(tuned, config)
 			mesh_node.set_surface_override_material(surface_index, tuned)
+
+
+func _apply_experiment_embedded_decorations(root: Node, config: Dictionary) -> void:
+	_clear_experiment_embedded_decorations(root)
+	var skeleton := _first_descendant_of_class(root, "Skeleton3D") as Skeleton3D
+	if skeleton == null:
+		push_warning("Experiment embedded decorations found no skeleton for %s" % str(config.get("id", "")))
+		return
+	var decorations = config.get("decorations", [])
+	if typeof(decorations) != TYPE_ARRAY:
+		return
+	var index := 0
+	for value in (decorations as Array):
+		if typeof(value) != TYPE_DICTIONARY:
+			continue
+		_spawn_experiment_embedded_decoration(skeleton, value as Dictionary, str(config.get("id", "")), index)
+		index += 1
+
+
+func _clear_experiment_embedded_decorations(root: Node) -> void:
+	var skeleton := _first_descendant_of_class(root, "Skeleton3D") as Skeleton3D
+	if skeleton == null:
+		return
+	for child in skeleton.get_children():
+		if str(child.name).begins_with("embedded_deco_"):
+			child.queue_free()
+
+
+func _spawn_experiment_embedded_decoration(skeleton: Skeleton3D, deco: Dictionary, variant_id: String, index: int) -> void:
+	var bone := str(deco.get("bone", ""))
+	if bone.is_empty() or skeleton.find_bone(bone) < 0:
+		return
+	var kind := str(deco.get("kind", "gear"))
+	var attachment := BoneAttachment3D.new()
+	attachment.name = _experiment_unique_child_name(skeleton, "embedded_deco_%s_%02d_%s" % [variant_id, index, kind])
+	attachment.bone_name = bone
+	skeleton.add_child(attachment)
+	var pivot := Node3D.new()
+	pivot.name = "embedded_%s" % kind
+	var embedded_sink := clampf(float(deco.get("embeddedSink", 0.044)), 0.0, 0.085)
+	pivot.position = _variant_vector3_from_value(deco.get("offset", []), Vector3.ZERO) + Vector3(0.0, 0.0, -embedded_sink)
+	pivot.rotation_degrees = _variant_vector3_from_value(deco.get("rotation", []), Vector3.ZERO)
+	pivot.scale = Vector3.ONE * clampf(float(deco.get("scale", 1.0)), 0.32, 1.78)
+	attachment.add_child(pivot)
+	_add_experiment_decoration_socket(pivot, deco)
+	if not str(deco.get("assetFile", "")).is_empty() and _add_experiment_decoration_asset(pivot, deco):
+		return
+	match kind:
+		"skull_cog", "gear", "valve_wheel", "saw_blade", "coil", "rusted_hinge":
+			_add_experiment_decoration_gear(pivot, deco)
+		"cyborg_eye", "processor_chip", "red_status_led", "neural_jack", "servo_eye_cluster":
+			_add_experiment_decoration_eye(pivot, deco)
+		"vent", "circuit_board", "ram_stick", "spinal_port", "black_box", "mangled_socket":
+			_add_experiment_decoration_vent(pivot, deco)
+		"wiring", "cable_bundle", "bio_tube", "copper_tendon", "wet_sinew_cable":
+			_add_experiment_decoration_wiring(pivot, deco)
+		"intestines", "clotted_gore_pin":
+			_add_experiment_decoration_intestines(pivot, deco)
+		"bone_splinter", "meat_hook", "razor_fin", "bone_rivet":
+			_add_experiment_decoration_bone_splinter(pivot, deco)
+		"green_fuse", "exhaust_tube", "injector":
+			_add_experiment_decoration_green_fuse(pivot, deco)
+		"needle_bundle", "piston", "femur_brace":
+			_add_experiment_decoration_needle_bundle(pivot, deco)
+		"jaw_plate", "bolt_cluster", "clamp", "rib_spreader", "iron_staple":
+			_add_experiment_decoration_jaw_plate(pivot, deco)
+		_:
+			_add_experiment_decoration_gear(pivot, deco)
+
+
+func _add_experiment_decoration_socket(parent: Node3D, deco: Dictionary) -> void:
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.060
+	mesh.height = 0.026
+	var material := _experiment_decoration_socket_material(deco)
+	var socket := _add_experiment_decoration_mesh(parent, "embedded_socket", mesh, Vector3(0.0, 0.0, -0.020), Vector3.ZERO, material)
+	if socket != null:
+		socket.scale = Vector3(1.38, 0.62, 0.48)
+
+
+func _add_experiment_decoration_gear(parent: Node3D, deco: Dictionary) -> void:
+	var material := _experiment_decoration_material(deco)
+	var disk := CylinderMesh.new()
+	disk.top_radius = 0.046
+	disk.bottom_radius = 0.046
+	disk.height = 0.016
+	var hub := _add_experiment_decoration_mesh(parent, "gear_disk", disk, Vector3(0.0, 0.0, -0.002), Vector3(90.0, 0.0, 0.0), material)
+	_track_experiment_decoration_motion(hub, float(deco.get("spin", 0.0)), bool(deco.get("pulse", false)), float(deco.get("emissionEnergy", 0.0)))
+	for i in range(8):
+		var angle := float(i) * TAU / 8.0
+		var tooth := BoxMesh.new()
+		tooth.size = Vector3(0.018, 0.028, 0.014)
+		var pos := Vector3(cos(angle) * 0.058, sin(angle) * 0.058, 0.000)
+		_add_experiment_decoration_mesh(parent, "gear_tooth_%02d" % i, tooth, pos, Vector3(0.0, 0.0, rad_to_deg(angle)), material)
+	var core := SphereMesh.new()
+	core.radius = 0.016
+	core.height = 0.028
+	_add_experiment_decoration_mesh(parent, "gear_core", core, Vector3(0.0, 0.0, 0.010), Vector3.ZERO, material)
+
+
+func _add_experiment_decoration_eye(parent: Node3D, deco: Dictionary) -> void:
+	var metal := _experiment_decoration_material(deco)
+	var ring := CylinderMesh.new()
+	ring.top_radius = 0.042
+	ring.bottom_radius = 0.042
+	ring.height = 0.014
+	_add_experiment_decoration_mesh(parent, "optic_ring", ring, Vector3(0.0, 0.0, -0.004), Vector3(90.0, 0.0, 0.0), metal)
+	var eye := SphereMesh.new()
+	eye.radius = 0.026
+	eye.height = 0.040
+	var optic := _add_experiment_decoration_mesh(parent, "optic_lens", eye, Vector3(0.0, 0.0, 0.014), Vector3.ZERO, _experiment_decoration_emissive_material(deco))
+	_track_experiment_decoration_motion(optic, 0.0, true, float(deco.get("emissionEnergy", 0.8)))
+
+
+func _add_experiment_decoration_vent(parent: Node3D, deco: Dictionary) -> void:
+	var material := _experiment_decoration_material(deco)
+	var body := BoxMesh.new()
+	body.size = Vector3(0.102, 0.060, 0.024)
+	_add_experiment_decoration_mesh(parent, "vent_body", body, Vector3(0.0, 0.0, -0.008), Vector3.ZERO, material)
+	for i in range(4):
+		var slat := BoxMesh.new()
+		slat.size = Vector3(0.086, 0.007, 0.012)
+		_add_experiment_decoration_mesh(parent, "vent_slat_%02d" % i, slat, Vector3(0.0, -0.024 + float(i) * 0.016, 0.008), Vector3(0.0, 0.0, -8.0), material)
+
+
+func _add_experiment_decoration_wiring(parent: Node3D, deco: Dictionary) -> void:
+	var material := _experiment_decoration_material(deco)
+	var glow := _experiment_decoration_emissive_material(deco)
+	for i in range(4):
+		var wire := CylinderMesh.new()
+		wire.top_radius = 0.006
+		wire.bottom_radius = 0.006
+		wire.height = 0.152 + float(i % 2) * 0.044
+		var x := (float(i) - 1.5) * 0.016
+		var mesh := _add_experiment_decoration_mesh(parent, "wire_%02d" % i, wire, Vector3(x, 0.006 * sin(float(i)), 0.006 + float(i % 2) * 0.004), Vector3(18.0 + float(i) * 8.0, 0.0, -28.0 + float(i) * 18.0), material if i % 2 != 0 else glow)
+		_track_experiment_decoration_motion(mesh, 0.0, i % 2 == 0, float(deco.get("emissionEnergy", 0.22)))
+
+
+func _add_experiment_decoration_intestines(parent: Node3D, deco: Dictionary) -> void:
+	var material := _experiment_decoration_material(deco)
+	for i in range(7):
+		var bead := SphereMesh.new()
+		bead.radius = 0.018 + float(i % 3) * 0.003
+		bead.height = 0.028
+		var pos := Vector3((float(i) - 3.0) * 0.016, sin(float(i) * 1.3) * 0.022, 0.006 + cos(float(i)) * 0.004)
+		var mesh := _add_experiment_decoration_mesh(parent, "viscera_loop_%02d" % i, bead, pos, Vector3.ZERO, material)
+		if mesh != null:
+			mesh.scale = Vector3(1.25, 0.72, 0.82)
+
+
+func _add_experiment_decoration_bone_splinter(parent: Node3D, deco: Dictionary) -> void:
+	var material := _experiment_decoration_material(deco)
+	for i in range(2):
+		var splinter := CylinderMesh.new()
+		splinter.top_radius = 0.0
+		splinter.bottom_radius = 0.012 + float(i) * 0.004
+		splinter.height = 0.108 + float(i) * 0.032
+		_add_experiment_decoration_mesh(parent, "bone_splinter_%02d" % i, splinter, Vector3((float(i) - 0.5) * 0.020, 0.0, 0.026), Vector3(88.0, 0.0, -10.0 + float(i) * 20.0), material)
+
+
+func _add_experiment_decoration_green_fuse(parent: Node3D, deco: Dictionary) -> void:
+	var material := _experiment_decoration_emissive_material(deco)
+	var shard := BoxMesh.new()
+	shard.size = Vector3(0.034, 0.110, 0.018)
+	var mesh := _add_experiment_decoration_mesh(parent, "glitch_fuse", shard, Vector3(0.0, 0.0, 0.016), Vector3(18.0, 0.0, -32.0), material)
+	_track_experiment_decoration_motion(mesh, 0.0, true, float(deco.get("emissionEnergy", 0.7)))
+	var cap := BoxMesh.new()
+	cap.size = Vector3(0.052, 0.014, 0.014)
+	_add_experiment_decoration_mesh(parent, "glitch_fuse_cap", cap, Vector3(0.0, -0.056, 0.008), Vector3(0.0, 0.0, -32.0), _experiment_decoration_material(deco))
+
+
+func _add_experiment_decoration_needle_bundle(parent: Node3D, deco: Dictionary) -> void:
+	var material := _experiment_decoration_material(deco)
+	for i in range(4):
+		var needle := CylinderMesh.new()
+		needle.top_radius = 0.0
+		needle.bottom_radius = 0.006
+		needle.height = 0.118 + float(i % 2) * 0.036
+		_add_experiment_decoration_mesh(parent, "needle_%02d" % i, needle, Vector3((float(i) - 1.5) * 0.013, 0.002 * float(i % 2), 0.022), Vector3(86.0, 0.0, -18.0 + float(i) * 12.0), material)
+
+
+func _add_experiment_decoration_jaw_plate(parent: Node3D, deco: Dictionary) -> void:
+	var material := _experiment_decoration_material(deco)
+	var plate := BoxMesh.new()
+	plate.size = Vector3(0.106, 0.038, 0.018)
+	_add_experiment_decoration_mesh(parent, "jaw_plate", plate, Vector3(0.0, 0.0, 0.006), Vector3(0.0, 0.0, -8.0), material)
+	for x in [-0.040, 0.040]:
+		var rivet := SphereMesh.new()
+		rivet.radius = 0.008
+		rivet.height = 0.012
+		_add_experiment_decoration_mesh(parent, "jaw_plate_rivet", rivet, Vector3(float(x), 0.0, 0.016), Vector3.ZERO, material)
+
+
+func _add_experiment_decoration_asset(parent: Node3D, deco: Dictionary) -> bool:
+	var asset_file := str(deco.get("assetFile", ""))
+	if asset_file.is_empty():
+		return false
+	var resource_path := "res://shared-harness/art-kit/%s" % asset_file
+	var scene = load(resource_path)
+	if not scene is PackedScene:
+		push_warning("Experiment decoration asset did not load: %s" % resource_path)
+		return false
+	var instance = (scene as PackedScene).instantiate()
+	if not instance is Node3D:
+		if instance != null:
+			instance.queue_free()
+		push_warning("Experiment decoration asset is not Node3D: %s" % resource_path)
+		return false
+	var visual := instance as Node3D
+	visual.name = _experiment_unique_child_name(parent, "asset_%s" % str(deco.get("kind", "prop")))
+	visual.position = Vector3(0.0, 0.0, clampf(float(deco.get("assetLift", 0.016)), 0.004, 0.040))
+	visual.rotation_degrees = _variant_vector3_from_value(deco.get("assetRotation", []), Vector3.ZERO)
+	visual.scale = Vector3.ONE
+	parent.add_child(visual)
+	var raw_scale := clampf(float(deco.get("assetScale", 0.05)), 0.001, 0.22)
+	var fit_scale := raw_scale
+	var asset_bounds := _combined_visual_local_aabb(visual)
+	var max_dimension := maxf(asset_bounds.size.x, maxf(asset_bounds.size.y, asset_bounds.size.z))
+	if max_dimension > 0.0001:
+		var target_size := clampf(float(deco.get("assetTargetSize", 0.090)), 0.035, 0.150)
+		fit_scale = minf(raw_scale, target_size / max_dimension)
+	visual.scale = Vector3.ONE * fit_scale
+	var material := _experiment_decoration_emissive_material(deco) if bool(deco.get("pulse", false)) else _experiment_decoration_material(deco)
+	_apply_experiment_decoration_material_recursive(visual, material)
+	var first_mesh := _first_descendant_of_class(visual, "MeshInstance3D") as MeshInstance3D
+	if first_mesh != null:
+		_track_experiment_decoration_motion(first_mesh, float(deco.get("spin", 0.0)), bool(deco.get("pulse", false)), float(deco.get("emissionEnergy", 0.0)))
+	return true
+
+
+func _combined_visual_local_aabb(root: Node3D) -> AABB:
+	var state := {
+		"has": false,
+		"aabb": AABB(Vector3.ZERO, Vector3.ZERO),
+	}
+	_accumulate_visual_local_aabb(root, root, state)
+	if not bool(state.get("has", false)):
+		return AABB(Vector3.ZERO, Vector3.ZERO)
+	return state.get("aabb", AABB(Vector3.ZERO, Vector3.ZERO)) as AABB
+
+
+func _accumulate_visual_local_aabb(root: Node3D, node: Node, state: Dictionary) -> void:
+	if node is MeshInstance3D:
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.mesh != null:
+			var local_transform := root.global_transform.affine_inverse() * mesh_instance.global_transform
+			var local_aabb := _transformed_aabb(mesh_instance.get_aabb(), local_transform)
+			if bool(state.get("has", false)):
+				state["aabb"] = (state.get("aabb", local_aabb) as AABB).merge(local_aabb)
+			else:
+				state["aabb"] = local_aabb
+				state["has"] = true
+	for child in node.get_children():
+		_accumulate_visual_local_aabb(root, child, state)
+
+
+func _transformed_aabb(source: AABB, transform: Transform3D) -> AABB:
+	var base := source.position
+	var size := source.size
+	var points := [
+		base,
+		base + Vector3(size.x, 0.0, 0.0),
+		base + Vector3(0.0, size.y, 0.0),
+		base + Vector3(0.0, 0.0, size.z),
+		base + Vector3(size.x, size.y, 0.0),
+		base + Vector3(size.x, 0.0, size.z),
+		base + Vector3(0.0, size.y, size.z),
+		base + size,
+	]
+	var result := AABB(transform * (points[0] as Vector3), Vector3.ZERO)
+	for point in points:
+		result = result.expand(transform * (point as Vector3))
+	return result
+
+
+func _apply_experiment_decoration_material_recursive(node: Node, material: Material) -> void:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).material_override = material
+	for child in node.get_children():
+		_apply_experiment_decoration_material_recursive(child, material)
+
+
+func _add_experiment_decoration_mesh(parent: Node3D, node_name: String, mesh: Mesh, position: Vector3, rotation_degrees: Vector3, material: Material) -> MeshInstance3D:
+	var mesh_instance := MeshInstance3D.new()
+	mesh_instance.name = _experiment_unique_child_name(parent, node_name)
+	mesh_instance.mesh = mesh
+	mesh_instance.position = position
+	mesh_instance.rotation_degrees = rotation_degrees
+	mesh_instance.material_override = material
+	parent.add_child(mesh_instance)
+	return mesh_instance
+
+
+func _experiment_decoration_material(deco: Dictionary) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.resource_name = "experiment_embedded_%s" % str(deco.get("kind", "deco"))
+	mat.albedo_color = _variant_color_from_value(deco.get("color", []), Color(0.18, 0.18, 0.16, 1.0))
+	mat.metallic = clampf(float(deco.get("metallic", 0.65)), 0.0, 1.0)
+	mat.roughness = clampf(float(deco.get("roughness", 0.34)), 0.04, 0.90)
+	mat.emission_enabled = false
+	return mat
+
+
+func _experiment_decoration_emissive_material(deco: Dictionary) -> StandardMaterial3D:
+	var mat := _experiment_decoration_material(deco)
+	var emission := _variant_color_from_value(deco.get("emission", []), Color(0.0, 0.55, 0.36, 1.0))
+	var energy := float(deco.get("emissionEnergy", 0.45))
+	mat.emission_enabled = energy > 0.0
+	mat.emission = emission
+	mat.emission_energy_multiplier = clampf(energy, 0.0, 1.8)
+	mat.resource_name = "%s_emissive" % mat.resource_name
+	return mat
+
+
+func _experiment_decoration_socket_material(deco: Dictionary) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.resource_name = "experiment_embedded_socket"
+	mat.albedo_color = _variant_color_from_value(deco.get("socketColor", []), Color(0.18, 0.018, 0.012, 1.0))
+	mat.metallic = 0.0
+	mat.roughness = 0.16
+	return mat
+
+
+func _track_experiment_decoration_motion(mesh_instance: MeshInstance3D, spin_speed: float, pulse: bool, base_energy: float) -> void:
+	if mesh_instance == null:
+		return
+	if absf(spin_speed) <= 0.001 and not pulse:
+		return
+	experiment_embedded_decoration_nodes.append({
+		"node": mesh_instance,
+		"base_rotation": mesh_instance.rotation_degrees,
+		"spin_speed": spin_speed,
+		"pulse": pulse,
+		"base_energy": base_energy,
+		"phase": float(experiment_embedded_decoration_nodes.size()) * 0.83,
+	})
+
+
+func _tick_experiment_embedded_decorations(delta: float) -> void:
+	if experiment_embedded_decoration_nodes.is_empty():
+		return
+	experiment_embedded_decoration_time += delta
+	for state in experiment_embedded_decoration_nodes:
+		var mesh_instance := state.get("node") as MeshInstance3D
+		if mesh_instance == null or not is_instance_valid(mesh_instance):
+			continue
+		var base_rotation: Vector3 = state.get("base_rotation", mesh_instance.rotation_degrees)
+		var spin_speed := float(state.get("spin_speed", 0.0))
+		var phase := float(state.get("phase", 0.0))
+		if absf(spin_speed) > 0.001:
+			mesh_instance.rotation_degrees = base_rotation + Vector3(0.0, 0.0, experiment_embedded_decoration_time * spin_speed)
+		if bool(state.get("pulse", false)):
+			var material := mesh_instance.material_override as StandardMaterial3D
+			if material != null and material.emission_enabled:
+				var base_energy := float(state.get("base_energy", material.emission_energy_multiplier))
+				var burst := maxf(0.0, sin(experiment_embedded_decoration_time * 7.0 + phase))
+				var stutter := 1.0 if sin(experiment_embedded_decoration_time * 31.0 + phase * 0.5) > 0.58 else 0.0
+				material.emission_energy_multiplier = base_energy * (0.62 + burst * 0.46 + stutter * 0.32)
+
+
+func _experiment_unique_child_name(parent: Node, desired_name: String) -> String:
+	var clean_name := desired_name.strip_edges()
+	if clean_name.is_empty():
+		clean_name = "experiment_embedded_deco"
+	var candidate := clean_name
+	var suffix := 2
+	while parent.get_node_or_null(candidate) != null:
+		candidate = "%s_%d" % [clean_name, suffix]
+		suffix += 1
+	return candidate
 
 
 func _tune_experiment_seeded_material(material: StandardMaterial3D, config: Dictionary) -> void:

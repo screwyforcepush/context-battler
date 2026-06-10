@@ -183,6 +183,22 @@ func register_character(character_id: String, character_node: Node3D, persona: S
 	_apply_hell_cyborg_design(character_id)
 
 
+func register_external_character(character_id: String, character_node: Node3D, persona: String, visual: Node3D, asset_override: Dictionary = {}) -> void:
+	if character_id.is_empty() or character_node == null or visual == null:
+		return
+	var asset := asset_override.duplicate(true)
+	if not asset.has("attachBone"):
+		asset["attachBone"] = DEFAULT_WEAPON_ATTACH_BONE
+	if not asset.has("animation"):
+		asset["animation"] = {}
+	var skeleton := _first_descendant_of_class(visual, "Skeleton3D") as Skeleton3D
+	var weapon_socket := _ensure_weapon_socket(character_node, skeleton, str(asset.get("attachBone", DEFAULT_WEAPON_ATTACH_BONE)))
+	_register_character_record(character_id, character_node, persona, asset, visual, weapon_socket, 0)
+	var character: Dictionary = registered_characters.get(character_id, {})
+	character["skinMode"] = "external"
+	registered_characters[character_id] = character
+
+
 func _register_character_record(character_id: String, character_node: Node3D, persona: String, asset: Dictionary, visual: Node3D, weapon_socket: Node3D, armour_tier: int) -> void:
 	var animation_player := _first_descendant_of_class(visual, "AnimationPlayer") as AnimationPlayer
 	var skeleton := _first_descendant_of_class(visual, "Skeleton3D") as Skeleton3D
@@ -305,6 +321,14 @@ func apply_neutral_body_material(character_id: String, material: Material, armou
 	character["armourPropSelection"] = currentArmourPropSelection
 	character["usesArmourPaint"] = false
 	character["skinMode"] = "neutral"
+	registered_characters[character_id] = character
+
+
+func preserve_external_body_skin(character_id: String) -> void:
+	if not registered_characters.has(character_id):
+		return
+	var character: Dictionary = registered_characters.get(character_id, {})
+	character["skinMode"] = "external"
 	registered_characters[character_id] = character
 
 
@@ -684,6 +708,8 @@ func _reapply_current_body_layer(character_id: String, armour_tier: int) -> void
 		"neutral":
 			var neutral_material := character.get("neutralMaterial") as Material
 			apply_neutral_body_material(character_id, neutral_material, armour_tier)
+		"external":
+			return
 		_:
 			_apply_persona_skin(character_id, armour_tier)
 
@@ -2814,12 +2840,12 @@ func _vector2_from_array(values, fallback: Vector2) -> Vector2:
 func _make_materials() -> void:
 	if mat_weapon_low != null:
 		return
-	mat_weapon_low = _mat(Color(0.45, 0.18, 0.11), Color(0.9, 0.20, 0.05), 0.35)
-	mat_weapon_mid = _mat(Color(0.08, 0.50, 0.62), Color(0.0, 0.95, 1.0), 0.75)
-	mat_weapon_high = _mat(Color(0.72, 0.03, 0.09), Color(1.0, 0.03, 0.12), 1.2)
-	mat_armour_low = _mat(Color(0.25, 0.16, 0.10), Color(0.20, 0.06, 0.02), 0.2)
-	mat_armour_mid = _mat(Color(0.24, 0.34, 0.38), Color(0.25, 0.88, 1.0), 0.55)
-	mat_armour_high = _mat(Color(0.52, 0.08, 0.12), Color(1.0, 0.05, 0.16), 0.95)
+	mat_weapon_low = _mat(Color(0.20, 0.16, 0.12), Color(0.34, 0.06, 0.025), 0.16)
+	mat_weapon_mid = _mat(Color(0.12, 0.15, 0.15), Color(0.02, 0.30, 0.18), 0.22)
+	mat_weapon_high = _mat(Color(0.28, 0.08, 0.055), Color(0.55, 0.03, 0.018), 0.28)
+	mat_armour_low = _mat(Color(0.13, 0.11, 0.085), Color(0.18, 0.04, 0.018), 0.10)
+	mat_armour_mid = _mat(Color(0.11, 0.14, 0.135), Color(0.03, 0.28, 0.17), 0.18)
+	mat_armour_high = _mat(Color(0.20, 0.075, 0.055), Color(0.45, 0.025, 0.018), 0.24)
 	mat_swap_flash = _mat(Color(0.0, 0.95, 1.0, 0.38), Color(0.2, 1.0, 1.0), 1.4)
 	mat_swap_flash.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 
@@ -2830,5 +2856,6 @@ func _mat(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
 	material.emission_enabled = true
 	material.emission = emission
 	material.emission_energy_multiplier = energy
-	material.roughness = 0.48
+	material.metallic = 0.72
+	material.roughness = 0.36
 	return material
