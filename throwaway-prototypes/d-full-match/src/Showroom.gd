@@ -4,6 +4,7 @@ const EntityRendererScript = preload("res://src/EntityRenderer.gd")
 const PERSONAS := ["rat", "duelist", "trader", "opportunist", "paranoid", "camper", "sprinter", "vulture"]
 const GLITCH_REAPER_PROTOTYPE_PATH := "res://shared-harness/art-kit/characters/generated/glitch_reaper.glb"
 const EXPERIMENT_MODEL_PATH := "res://shared-harness/art-kit/characters/generated/experiment.glb"
+const EXPERIMENT_VARIANT_CONFIG_PATH := "res://shared-harness/art-kit/characters/generated/experiment_persona_variants.json"
 const GLITCH_REAPER_PROTOTYPE_SCALE := 0.93464883
 const GLITCH_REAPER_CLIP_FALLBACKS := {
 	"idle": ["Idle", "Idle_Loop", "Zombie_Idle"],
@@ -16,6 +17,7 @@ const GLITCH_REAPER_CLIP_FALLBACKS := {
 	"death": ["Death01"],
 }
 const SHOW_MANIFEST_PERSONAS := false
+const SHOW_EXPERIMENT_PERSONA_VARIANTS := true
 const STANDALONE_SHOWROOM_MODELS := [
 	{
 		"id": "glitch_reaper",
@@ -73,6 +75,8 @@ var standalone_current_clips: Dictionary = {}
 var glitch_reaper_phase_time := 0.0
 var glitch_reaper_phase_nodes: Array[Dictionary] = []
 var cover_visible := false
+var active_station_count := 0
+var experiment_variant_configs: Dictionary = {}
 var selected_tier_buttons: Dictionary = {}
 var layer_enabled := {
 	LAYER_SKIN: true,
@@ -251,10 +255,14 @@ func _review_surface_material(material_name: String, albedo: Color, metallic: fl
 
 
 func _spawn_persona_row() -> void:
+	if SHOW_EXPERIMENT_PERSONA_VARIANTS:
+		_spawn_experiment_persona_variant_row()
+		return
 	if not SHOW_MANIFEST_PERSONAS:
 		_spawn_standalone_model_row()
 		return
 	var total_stations := PERSONAS.size() + 1
+	active_station_count = total_stations
 	var prototype_index := int(floor(float(total_stations) * 0.5))
 	var offset := float(total_stations - 1) * STATION_SPACING * 0.5
 	var persona_index := 0
@@ -282,6 +290,7 @@ func _spawn_standalone_model_row() -> void:
 	glitch_reaper_phase_time = 0.0
 	glitch_reaper_phase_nodes.clear()
 	var total_stations := STANDALONE_SHOWROOM_MODELS.size()
+	active_station_count = total_stations
 	var offset := float(total_stations - 1) * STATION_SPACING * 0.5
 	for i in range(total_stations):
 		var config := STANDALONE_SHOWROOM_MODELS[i] as Dictionary
@@ -290,6 +299,36 @@ func _spawn_standalone_model_row() -> void:
 		station.name = "Station_%s" % model_id
 		station.position = Vector3(float(i) * STATION_SPACING - offset, 0.0, 0.0)
 		persona_stations.add_child(station)
+		_spawn_standalone_model_station(station, config)
+
+
+func _spawn_experiment_persona_variant_row() -> void:
+	standalone_animation_players.clear()
+	standalone_clip_labels.clear()
+	standalone_current_clips.clear()
+	glitch_reaper_phase_time = 0.0
+	glitch_reaper_phase_nodes.clear()
+	active_station_count = PERSONAS.size()
+	var offset := float(active_station_count - 1) * STATION_SPACING * 0.5
+	for i in range(PERSONAS.size()):
+		var persona := str(PERSONAS[i])
+		var station := Node3D.new()
+		station.name = "Station_experiment_%s" % persona
+		station.position = Vector3(float(i) * STATION_SPACING - offset, 0.0, 0.0)
+		persona_stations.add_child(station)
+		var config := {
+			"id": "experiment_%s" % persona,
+			"label": persona,
+			"source": "seeded experiment",
+			"path": EXPERIMENT_MODEL_PATH,
+			"variant_id": persona,
+			"phase_driver": false,
+			"scale": GLITCH_REAPER_PROTOTYPE_SCALE,
+			"show_source_label": false,
+			"show_clip_label": false,
+			"name_label_height": 2.04,
+			"clip_label_height": 1.82,
+		}
 		_spawn_standalone_model_station(station, config)
 
 
@@ -322,17 +361,27 @@ func _spawn_standalone_model_station(station: Node3D, config: Dictionary) -> voi
 		if instance is Node3D:
 			var visual := instance as Node3D
 			visual.name = "visual"
-			visual.scale = Vector3.ONE * GLITCH_REAPER_PROTOTYPE_SCALE
+			visual.scale = Vector3.ONE * float(config.get("scale", GLITCH_REAPER_PROTOTYPE_SCALE))
 			_apply_standalone_material_review_lift(visual, model_id)
+			var variant_id := str(config.get("variant_id", ""))
+			if not variant_id.is_empty():
+				_apply_experiment_seeded_variant(visual, variant_id)
 			station.add_child(visual)
 			standalone_animation_players[model_id] = _first_descendant_of_class(visual, "AnimationPlayer") as AnimationPlayer
 			if bool(config.get("phase_driver", false)):
 				_configure_glitch_reaper_phase_driver(visual)
 	else:
 		push_warning("Standalone showroom asset did not load: %s" % model_path)
-	var name_label := _make_label("NameLabel", "%s\n%s" % [display_label, source_label], Vector3(0.0, GLITCH_REAPER_NAME_LABEL_HEIGHT, 0.0), 0.0048, 18)
+	var show_source_label := bool(config.get("show_source_label", true))
+	var name_label_text := display_label
+	if show_source_label and not source_label.is_empty():
+		name_label_text = "%s\n%s" % [display_label, source_label]
+	var name_label_height := float(config.get("name_label_height", GLITCH_REAPER_NAME_LABEL_HEIGHT))
+	var clip_label_height := float(config.get("clip_label_height", GLITCH_REAPER_CLIP_LABEL_HEIGHT))
+	var name_label := _make_label("NameLabel", name_label_text, Vector3(0.0, name_label_height, 0.0), 0.0048, 18)
 	station.add_child(name_label)
-	var clip_label := _make_label("ClipLabel", "(idle/none)", Vector3(0.0, GLITCH_REAPER_CLIP_LABEL_HEIGHT, 0.0), 0.0040, 12)
+	var clip_label := _make_label("ClipLabel", "(idle/none)", Vector3(0.0, clip_label_height, 0.0), 0.0040, 12)
+	clip_label.visible = bool(config.get("show_clip_label", true))
 	station.add_child(clip_label)
 	standalone_clip_labels[model_id] = clip_label
 	standalone_current_clips[model_id] = "(idle/none)"
@@ -358,10 +407,12 @@ func _configure_camera() -> void:
 	camera_rig.configure({"characters": []}, null, scene_builder, null)
 	camera_rig.lock_free_mode = true
 	camera_rig.mode = camera_rig.MODE_FREE
+	var row_width: float = maxf(1.0, float(maxi(active_station_count - 1, 1)) * STATION_SPACING)
+	var review_radius: float = maxf(4.55, row_width * 0.86)
 	camera_rig.yaw = 0.0
 	camera_rig.pitch = -0.34
-	camera_rig.director_radius = 4.55
-	camera_rig.radius = 4.55
+	camera_rig.director_radius = review_radius
+	camera_rig.radius = review_radius
 	camera_rig.free_anchor = Vector3(0.0, 0.86, -0.02)
 	camera_rig.smooth_anchor = camera_rig.free_anchor
 
@@ -1047,6 +1098,286 @@ func _review_palette(albedo: Color, metallic: float, roughness: float, emission 
 		palette["emission"] = emission
 		palette["emission_energy"] = emission_energy
 	return palette
+
+
+func _apply_experiment_seeded_variant(root: Node, variant_id: String) -> void:
+	var config := _experiment_variant_config(variant_id)
+	if config.is_empty():
+		return
+	_apply_experiment_seeded_variant_recursive(root, config)
+	_apply_experiment_seeded_patches(root, config)
+
+
+func _apply_experiment_seeded_variant_recursive(node: Node, config: Dictionary) -> void:
+	if node is MeshInstance3D:
+		_apply_experiment_seeded_variant_to_mesh(node as MeshInstance3D, config)
+	for child in node.get_children():
+		_apply_experiment_seeded_variant_recursive(child, config)
+
+
+func _apply_experiment_seeded_patches(root: Node, config: Dictionary) -> void:
+	var skeleton := _first_descendant_of_class(root, "Skeleton3D") as Skeleton3D
+	if skeleton == null:
+		return
+	var patches = config.get("patches", [])
+	if typeof(patches) != TYPE_ARRAY:
+		return
+	var variant_id := str(config.get("id", "variant"))
+	var patch_index := 0
+	for patch_value in (patches as Array):
+		if typeof(patch_value) != TYPE_DICTIONARY:
+			continue
+		_spawn_experiment_seeded_patch(skeleton, patch_value as Dictionary, variant_id, patch_index)
+		patch_index += 1
+
+
+func _spawn_experiment_seeded_patch(skeleton: Skeleton3D, patch: Dictionary, variant_id: String, patch_index: int) -> void:
+	var bone_name := str(patch.get("bone", ""))
+	if bone_name.is_empty() or skeleton.find_bone(bone_name) < 0:
+		return
+	var attachment := BoneAttachment3D.new()
+	attachment.name = "seeded_%s_patch_%02d_%s" % [variant_id, patch_index, bone_name]
+	attachment.bone_name = bone_name
+	skeleton.add_child(attachment)
+	var pivot := Node3D.new()
+	pivot.name = "patch_offset"
+	pivot.position = _variant_vector3_from_value(patch.get("offset", []), Vector3.ZERO)
+	pivot.rotation_degrees = _variant_vector3_from_value(patch.get("rotation", []), Vector3.ZERO)
+	attachment.add_child(pivot)
+	var mesh_node := MeshInstance3D.new()
+	var kind := str(patch.get("kind", "blood_clot"))
+	mesh_node.name = "seeded_%s_%s" % [variant_id, kind]
+	mesh_node.mesh = _experiment_seeded_patch_mesh(kind)
+	mesh_node.scale = _variant_vector3_from_value(patch.get("scale", []), Vector3(0.05, 0.01, 0.03))
+	mesh_node.material_override = _experiment_seeded_patch_material(kind, patch, variant_id)
+	pivot.add_child(mesh_node)
+
+
+func _experiment_seeded_patch_mesh(kind: String) -> PrimitiveMesh:
+	if kind == "blood_clot" or kind == "bone_chip":
+		var sphere := SphereMesh.new()
+		sphere.radial_segments = 8
+		sphere.rings = 4
+		sphere.radius = 0.5
+		sphere.height = 1.0
+		return sphere
+	var box := BoxMesh.new()
+	box.size = Vector3.ONE
+	return box
+
+
+func _experiment_seeded_patch_material(kind: String, patch: Dictionary, variant_id: String) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.resource_name = "seeded_%s_%s_material" % [variant_id, kind]
+	material.albedo_color = _variant_color_from_value(patch.get("color", []), Color(0.22, 0.012, 0.006, 1.0))
+	material.metallic = clampf(float(patch.get("metallic", 0.0)), 0.0, 1.0)
+	material.roughness = clampf(float(patch.get("roughness", 0.34)), 0.02, 1.0)
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	if kind == "blood_clot" or kind == "blood_smear":
+		material.clearcoat_enabled = true
+		material.clearcoat = 0.55
+		material.clearcoat_roughness = 0.10
+	var emission_energy := float(patch.get("emissionEnergy", 0.0))
+	if emission_energy > 0.0:
+		material.emission_enabled = true
+		material.emission = _variant_color_from_value(patch.get("emission", []), Color(0.0, 0.75, 0.48, 1.0))
+		material.emission_energy_multiplier = emission_energy
+	return material
+
+
+func _apply_experiment_seeded_variant_to_mesh(mesh_node: MeshInstance3D, config: Dictionary) -> void:
+	var mesh := mesh_node.mesh
+	if mesh == null:
+		return
+	for surface_index in range(mesh.get_surface_count()):
+		var material := mesh_node.get_surface_override_material(surface_index)
+		if material == null:
+			material = mesh.surface_get_material(surface_index)
+		if material is StandardMaterial3D:
+			var tuned := (material as StandardMaterial3D).duplicate() as StandardMaterial3D
+			_tune_experiment_seeded_material(tuned, config)
+			mesh_node.set_surface_override_material(surface_index, tuned)
+
+
+func _tune_experiment_seeded_material(material: StandardMaterial3D, config: Dictionary) -> void:
+	var key := str(material.resource_name).to_lower()
+	var metal_brightness := float(config.get("metalBrightness", 1.0))
+	var gore_brightness := float(config.get("goreBrightness", 1.0))
+	var skin_brightness := float(config.get("skinBrightness", 1.0))
+	var blood_boost := float(config.get("bloodBoost", 1.0))
+	var green_boost := float(config.get("greenBoost", 1.0))
+	var wetness_boost := float(config.get("wetnessBoost", 1.0))
+	var metal_roughness_jitter := float(config.get("metalRoughnessJitter", 1.0))
+	var gore_wetness_jitter := float(config.get("goreWetnessJitter", 1.0))
+	var phase_skin_jitter := float(config.get("phaseSkinJitter", 1.0))
+	var surface_alpha := _variant_surface_alpha_for_key(config, key)
+	var uv_drift := _variant_dictionary(config, "uvDrift")
+	if not uv_drift.is_empty():
+		material.uv1_offset = Vector3(float(uv_drift.get("x", 0.0)), float(uv_drift.get("y", 0.0)), 0.0)
+		material.uv1_scale = Vector3(float(uv_drift.get("scaleX", 1.0)), float(uv_drift.get("scaleY", 1.0)), 1.0)
+	if _material_key_is_metal(key):
+		material.albedo_color = _variant_tinted_color(material.albedo_color, config, "metalTint", metal_brightness)
+		material.metallic = clampf(material.metallic * 1.08, 0.0, 0.92)
+		material.roughness = clampf(material.roughness * metal_roughness_jitter, 0.18, 0.76)
+	if _material_key_is_gore(key):
+		var effective_gore_brightness := gore_brightness * (blood_boost if key.contains("blood") or key.contains("clotted") else 1.0)
+		material.albedo_color = _variant_tinted_color(material.albedo_color, config, "goreTint", effective_gore_brightness)
+		var wetness := maxf(0.24, wetness_boost * gore_wetness_jitter)
+		material.roughness = clampf(material.roughness / wetness, 0.05, 0.62)
+	if key.contains("bone"):
+		material.albedo_color = _variant_tinted_color(material.albedo_color, config, "skinTint", skin_brightness * 1.04)
+		material.roughness = clampf(material.roughness * 1.08, 0.36, 0.82)
+	if key.contains("skin") or key.contains("phase"):
+		var effective_skin_brightness := skin_brightness * (phase_skin_jitter if key.contains("phase") else 1.0)
+		material.albedo_color = _variant_tinted_color(material.albedo_color, config, "skinTint", effective_skin_brightness)
+	if key.contains("green") or key.contains("fissure"):
+		material.albedo_color = _variant_tinted_color(material.albedo_color, config, "skinTint", maxf(0.42, green_boost))
+		material.emission_enabled = true
+		material.emission = _variant_emission_color(material.emission, green_boost)
+		material.emission_energy_multiplier = clampf(maxf(material.emission_energy_multiplier, 0.18) * green_boost * 1.35, 0.02, 2.8)
+	if key.contains("eye") or key.contains("optic"):
+		material.emission_enabled = true
+		material.emission_energy_multiplier = clampf(maxf(material.emission_energy_multiplier, 0.08) * maxf(0.55, green_boost), 0.02, 1.8)
+	if surface_alpha < 0.985:
+		var alpha_color := material.albedo_color
+		alpha_color.a = clampf(alpha_color.a * surface_alpha, 0.08, 1.0)
+		material.albedo_color = alpha_color
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.resource_name = "%s_%s" % [material.resource_name, str(config.get("id", "variant"))]
+
+
+func _material_key_is_metal(key: String) -> bool:
+	return (
+		key.contains("cyber")
+		or key.contains("gunmetal")
+		or key.contains("metal")
+		or key.contains("joint_shadow")
+		or key.contains("copper")
+		or key.contains("patina")
+	)
+
+
+func _material_key_is_gore(key: String) -> bool:
+	return (
+		key.contains("muscle")
+		or key.contains("blood")
+		or key.contains("tendon")
+		or key.contains("wound")
+		or key.contains("torn")
+		or key.contains("neck")
+		or key.contains("livid")
+	)
+
+
+func _variant_surface_alpha_for_key(config: Dictionary, key: String) -> float:
+	var surface_alpha := _variant_dictionary(config, "surfaceAlpha")
+	if surface_alpha.is_empty():
+		return 1.0
+	if key.contains("clotted") or key.contains("blood"):
+		return float(surface_alpha.get("blood", 1.0))
+	if key.contains("subdermal") or key.contains("muscle"):
+		return float(surface_alpha.get("muscle", 1.0))
+	if key.contains("tendon"):
+		return float(surface_alpha.get("tendon", 1.0))
+	if key.contains("bone"):
+		return float(surface_alpha.get("bone", 1.0))
+	if key.contains("copper") or key.contains("patina"):
+		return float(surface_alpha.get("patina", 1.0))
+	if key.contains("green") or key.contains("fissure"):
+		return float(surface_alpha.get("fissure", 1.0))
+	if key.contains("phase") or key.contains("transient"):
+		return float(surface_alpha.get("phase", 1.0))
+	if key.contains("neck") or key.contains("livid") or key.contains("torn") or key.contains("wound"):
+		return float(surface_alpha.get("skinTear", 1.0))
+	if _material_key_is_metal(key):
+		return float(surface_alpha.get("metal", 1.0))
+	return 1.0
+
+
+func _variant_dictionary(config: Dictionary, key: String) -> Dictionary:
+	var value = config.get(key, {})
+	if typeof(value) != TYPE_DICTIONARY:
+		return {}
+	return value as Dictionary
+
+
+func _variant_tinted_color(color: Color, config: Dictionary, tint_key: String, brightness: float) -> Color:
+	var tint := _variant_float_array(config, tint_key, [1.0, 1.0, 1.0])
+	return Color(
+		clampf(color.r * float(tint[0]) * brightness, 0.0, 1.0),
+		clampf(color.g * float(tint[1]) * brightness, 0.0, 1.0),
+		clampf(color.b * float(tint[2]) * brightness, 0.0, 1.0),
+		color.a
+	)
+
+
+func _variant_emission_color(color: Color, green_boost: float) -> Color:
+	return Color(
+		clampf(maxf(color.r, 0.012) * maxf(0.35, green_boost * 0.62), 0.0, 1.0),
+		clampf(maxf(color.g, 0.20) * maxf(0.55, green_boost), 0.0, 1.0),
+		clampf(maxf(color.b, 0.10) * maxf(0.40, green_boost * 0.82), 0.0, 1.0),
+		1.0
+	)
+
+
+func _variant_float_array(config: Dictionary, key: String, fallback: Array) -> Array:
+	var value = config.get(key, fallback)
+	if typeof(value) != TYPE_ARRAY:
+		return fallback
+	var array := value as Array
+	if array.size() < fallback.size():
+		return fallback
+	return array
+
+
+func _variant_vector3_from_value(value, fallback: Vector3) -> Vector3:
+	if typeof(value) != TYPE_ARRAY:
+		return fallback
+	var array := value as Array
+	if array.size() < 3:
+		return fallback
+	return Vector3(float(array[0]), float(array[1]), float(array[2]))
+
+
+func _variant_color_from_value(value, fallback: Color) -> Color:
+	if typeof(value) != TYPE_ARRAY:
+		return fallback
+	var array := value as Array
+	if array.size() < 3:
+		return fallback
+	var alpha := fallback.a
+	if array.size() >= 4:
+		alpha = float(array[3])
+	return Color(float(array[0]), float(array[1]), float(array[2]), alpha)
+
+
+func _experiment_variant_config(variant_id: String) -> Dictionary:
+	_load_experiment_variant_configs()
+	return experiment_variant_configs.get(variant_id, {})
+
+
+func _load_experiment_variant_configs() -> void:
+	if not experiment_variant_configs.is_empty():
+		return
+	var text := FileAccess.get_file_as_string(EXPERIMENT_VARIANT_CONFIG_PATH)
+	if text.is_empty():
+		push_warning("Experiment persona variant config missing: %s" % EXPERIMENT_VARIANT_CONFIG_PATH)
+		return
+	var parsed = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_warning("Experiment persona variant config did not parse as a dictionary")
+		return
+	var variants = (parsed as Dictionary).get("variants", [])
+	if typeof(variants) != TYPE_ARRAY:
+		return
+	for variant_value in (variants as Array):
+		if typeof(variant_value) != TYPE_DICTIONARY:
+			continue
+		var variant := variant_value as Dictionary
+		var variant_id := str(variant.get("id", ""))
+		if not variant_id.is_empty():
+			experiment_variant_configs[variant_id] = variant
 
 
 func _make_materials() -> void:
