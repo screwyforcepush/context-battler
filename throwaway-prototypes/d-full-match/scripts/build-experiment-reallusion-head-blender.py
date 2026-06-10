@@ -1105,7 +1105,7 @@ def fit_reallusion_head_to_carrier(objects: list[bpy.types.Object], target_bound
     target_min = Vector(target_bounds["min"])
     target_max = Vector(target_bounds["max"])
     target_center = Vector(target_bounds["center"])
-    target_lower_z = 1.421
+    target_lower_z = 1.445
     source_height = max(source_max.z - source_min.z, 0.001)
     target_height = max(target_max.z - target_lower_z, 0.001)
     scale = max(0.92, min(1.08, target_height / source_height))

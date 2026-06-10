@@ -74,6 +74,8 @@ var standalone_clip_labels: Dictionary = {}
 var standalone_current_clips: Dictionary = {}
 var glitch_reaper_phase_time := 0.0
 var glitch_reaper_phase_nodes: Array[Dictionary] = []
+var experiment_skin_flicker_time := 0.0
+var experiment_skin_flicker_materials: Array[Dictionary] = []
 var cover_visible := false
 var active_station_count := 0
 var experiment_variant_configs: Dictionary = {}
@@ -115,6 +117,7 @@ func _process(delta: float) -> void:
 	if equipment_attachment != null and equipment_attachment.has_method("tick"):
 		equipment_attachment.tick(delta)
 	_tick_glitch_reaper_phase_driver(delta)
+	_tick_experiment_skin_flicker(delta)
 	_update_clip_labels()
 
 
@@ -289,6 +292,8 @@ func _spawn_standalone_model_row() -> void:
 	standalone_current_clips.clear()
 	glitch_reaper_phase_time = 0.0
 	glitch_reaper_phase_nodes.clear()
+	experiment_skin_flicker_time = 0.0
+	experiment_skin_flicker_materials.clear()
 	var total_stations := STANDALONE_SHOWROOM_MODELS.size()
 	active_station_count = total_stations
 	var offset := float(total_stations - 1) * STATION_SPACING * 0.5
@@ -308,6 +313,8 @@ func _spawn_experiment_persona_variant_row() -> void:
 	standalone_current_clips.clear()
 	glitch_reaper_phase_time = 0.0
 	glitch_reaper_phase_nodes.clear()
+	experiment_skin_flicker_time = 0.0
+	experiment_skin_flicker_materials.clear()
 	active_station_count = PERSONAS.size()
 	var offset := float(active_station_count - 1) * STATION_SPACING * 0.5
 	for i in range(PERSONAS.size()):
@@ -926,6 +933,67 @@ func _tick_glitch_reaper_phase_driver(delta: float) -> void:
 		node.scale = base_scale * scale_amount
 
 
+func _tick_experiment_skin_flicker(delta: float) -> void:
+	if experiment_skin_flicker_materials.is_empty():
+		return
+	experiment_skin_flicker_time += delta
+	for state in experiment_skin_flicker_materials:
+		var material := state.get("material") as StandardMaterial3D
+		if material == null:
+			continue
+		var base_color: Color = state.get("color", material.albedo_color)
+		var phase := float(state.get("phase", 0.0))
+		var min_alpha := float(state.get("min_alpha", 0.72))
+		var slow_gate := sin(experiment_skin_flicker_time * 0.62 + phase)
+		var snap_gate := sin(experiment_skin_flicker_time * 8.7 + phase * 1.83)
+		var micro_gate := sin(experiment_skin_flicker_time * 39.0 + phase * 0.41)
+		var flicker_active := slow_gate > 0.985 or snap_gate > 0.992
+		var alpha := 1.0
+		if flicker_active:
+			var pulse := maxf(0.0, micro_gate)
+			alpha = lerpf(1.0, min_alpha, 0.38 + pulse * 0.62)
+		base_color.a = alpha
+		material.albedo_color = base_color
+		if alpha < 0.985:
+			material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		else:
+			material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+			material.cull_mode = BaseMaterial3D.CULL_BACK
+
+
+func _register_experiment_skin_flicker_material(material: StandardMaterial3D, config: Dictionary, key: String) -> void:
+	if not _material_key_uses_skin_flicker(key):
+		return
+	var base_color := material.albedo_color
+	base_color.a = 1.0
+	material.albedo_color = base_color
+	material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+	material.cull_mode = BaseMaterial3D.CULL_BACK
+	var seed := int(config.get("seed", 0))
+	var phase_hash := _stable_string_hash("%s:%s" % [str(config.get("id", "variant")), key])
+	var phase := float((seed ^ phase_hash) & 0x7fffffff) * 0.00037
+	var min_alpha := 0.70
+	if key.contains("phase") or key.contains("transient"):
+		min_alpha = 0.54
+	elif key.contains("body_burnished") or key.contains("gunmetal"):
+		min_alpha = 0.78
+	experiment_skin_flicker_materials.append({
+		"material": material,
+		"color": base_color,
+		"phase": phase,
+		"min_alpha": min_alpha,
+	})
+
+
+func _stable_string_hash(text: String) -> int:
+	var hash := 2166136261
+	for i in range(text.length()):
+		hash = int((hash ^ text.unicode_at(i)) & 0xffffffff)
+		hash = int((hash * 16777619) & 0xffffffff)
+	return hash
+
+
 func _first_descendant_of_class(node: Node, target_class: String) -> Node:
 	if node == null:
 		return null
@@ -1210,7 +1278,8 @@ func _tune_experiment_seeded_material(material: StandardMaterial3D, config: Dict
 	var metal_roughness_jitter := float(config.get("metalRoughnessJitter", 1.0))
 	var gore_wetness_jitter := float(config.get("goreWetnessJitter", 1.0))
 	var phase_skin_jitter := float(config.get("phaseSkinJitter", 1.0))
-	var surface_alpha := _variant_surface_alpha_for_key(config, key)
+	var skin_flicker_material := _material_key_uses_skin_flicker(key)
+	var surface_alpha := 1.0 if skin_flicker_material else _variant_surface_alpha_for_key(config, key)
 	var uv_drift := _variant_dictionary(config, "uvDrift")
 	if not uv_drift.is_empty():
 		material.uv1_offset = Vector3(float(uv_drift.get("x", 0.0)), float(uv_drift.get("y", 0.0)), 0.0)
@@ -1244,6 +1313,8 @@ func _tune_experiment_seeded_material(material: StandardMaterial3D, config: Dict
 		material.albedo_color = alpha_color
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	if skin_flicker_material:
+		_register_experiment_skin_flicker_material(material, config, key)
 	material.resource_name = "%s_%s" % [material.resource_name, str(config.get("id", "variant"))]
 
 
@@ -1270,6 +1341,15 @@ func _material_key_is_gore(key: String) -> bool:
 	)
 
 
+func _material_key_uses_skin_flicker(key: String) -> bool:
+	return (
+		key.contains("body_burnished_gunmetal")
+		or key.contains("head_pallid")
+		or key.contains("phase_skin")
+		or key.contains("transient_human")
+	)
+
+
 func _variant_surface_alpha_for_key(config: Dictionary, key: String) -> float:
 	var surface_alpha := _variant_dictionary(config, "surfaceAlpha")
 	if surface_alpha.is_empty():
@@ -1291,7 +1371,7 @@ func _variant_surface_alpha_for_key(config: Dictionary, key: String) -> float:
 	if key.contains("neck") or key.contains("livid") or key.contains("torn") or key.contains("wound"):
 		return float(surface_alpha.get("skinTear", 1.0))
 	if _material_key_is_metal(key):
-		return float(surface_alpha.get("metal", 1.0))
+		return 1.0
 	return 1.0
 
 
