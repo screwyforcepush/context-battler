@@ -10,6 +10,7 @@
     "build:experiment:blank": "blender -b --python scripts/build-experiment-blank-blender.py --",
     "build:experiment:reallusion-head": "blender -b --python scripts/build-experiment-reallusion-head-blender.py --",
     "build:experiment:variants": "node scripts/build-experiment-persona-variants.mjs",
+    "capture:weapon-equipped": "if [ -z \"$GODOT_BIN\" ]; then echo \"Weapon equipped capture requires GODOT_BIN\" >&2; exit 1; fi && xvfb-run -a \"$GODOT_BIN\" --path . --script res://scripts/capture-equipped-weapons.gd",
     "validate:experiment": "python3 scripts/validate-experiment-asset.py",
     "validate:experiment:variants": "node scripts/build-experiment-persona-variants.mjs",
     "verify:asset-toolkit": "node scripts/verify-asset-toolkit.mjs",

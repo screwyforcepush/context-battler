@@ -587,9 +587,13 @@ func _swap_weapon(character_id: String, weapon_name: String) -> void:
 		_record_weapon_state(character_id, weapon_name)
 		return
 	var asset: Dictionary = weapon_assets_by_name.get(weapon_name, {})
-	var visual := _instance_asset_or_fallback(asset, "weapon", weapon_name)
+	var visual := Node3D.new()
 	visual.name = "weapon_visual"
 	_apply_attachment_transform(visual, asset, "weapon", WEAPON_ATTACH_DYNAMIC)
+	var mesh_visual := _instance_asset_or_fallback(asset, "weapon", weapon_name)
+	mesh_visual.name = "weapon_mesh"
+	_apply_weapon_grip_transform(mesh_visual, asset)
+	visual.add_child(mesh_visual)
 	_apply_tier_material(visual, int(asset.get("tier", 1)), "weapon")
 	socket.add_child(visual)
 	_record_weapon_state(character_id, weapon_name)
@@ -1574,12 +1578,15 @@ func _ensure_weapon_socket(character_node: Node3D, skeleton: Skeleton3D, attach_
 func _ensure_dynamic_weapon_socket(character_node: Node3D, skeleton: Skeleton3D, attach_bone: String) -> Node3D:
 	var resolved_bone := _resolved_weapon_attach_bone(skeleton, attach_bone)
 	if skeleton != null and not resolved_bone.is_empty():
+		var grip_offset := _weapon_socket_local_grip_offset(skeleton, resolved_bone)
 		var existing := skeleton.get_node_or_null(WEAPON_SOCKET_NAME) as BoneAttachment3D
 		if existing != null and existing.bone_name == resolved_bone:
+			existing.position = grip_offset
 			return existing
 		var bone_socket := BoneAttachment3D.new()
 		bone_socket.name = WEAPON_SOCKET_NAME
 		bone_socket.bone_name = resolved_bone
+		bone_socket.position = grip_offset
 		skeleton.add_child(bone_socket)
 		return bone_socket
 	push_warning("dynamic weapon attach could not resolve a hand bone; using internal static root socket fallback")
@@ -1669,6 +1676,38 @@ func _resolved_weapon_attach_bone(skeleton: Skeleton3D, attach_bone: String) -> 
 	return ""
 
 
+func _weapon_socket_local_grip_offset(skeleton: Skeleton3D, hand_bone: String) -> Vector3:
+	var hand_index := skeleton.find_bone(hand_bone)
+	if hand_index < 0:
+		return Vector3.ZERO
+	var side := ""
+	if hand_bone.ends_with("_r") or hand_bone.to_lower().contains("right"):
+		side = "r"
+	elif hand_bone.ends_with("_l") or hand_bone.to_lower().contains("left"):
+		side = "l"
+	if side.is_empty():
+		return Vector3.ZERO
+	var candidates := [
+		"index_01_%s" % side,
+		"middle_01_%s" % side,
+		"ring_01_%s" % side,
+		"pinky_01_%s" % side,
+		"thumb_01_%s" % side,
+	]
+	var total := Vector3.ZERO
+	var count := 0
+	for candidate in candidates:
+		var bone_index := skeleton.find_bone(candidate)
+		if bone_index < 0:
+			continue
+		total += skeleton.get_bone_global_rest(bone_index).origin
+		count += 1
+	if count == 0:
+		return Vector3.ZERO
+	var palm_global := total / float(count)
+	return skeleton.get_bone_global_rest(hand_index).affine_inverse() * palm_global
+
+
 func _weapon_socket_kind(socket: Node3D) -> String:
 	if socket is BoneAttachment3D:
 		return WEAPON_ATTACH_DYNAMIC
@@ -1718,6 +1757,7 @@ func _ensure_socket(character_node: Node3D, socket_name: String, fallback_positi
 func _clear_visual(socket: Node3D, visual_name: String) -> void:
 	var existing := socket.get_node_or_null(visual_name)
 	if existing != null:
+		socket.remove_child(existing)
 		existing.queue_free()
 
 
@@ -1751,6 +1791,16 @@ func _apply_attachment_transform(visual: Node3D, asset: Dictionary, slot: String
 	visual.rotation_degrees = _vector3_from_array(offset.get("rotationDeg", []), Vector3.ZERO)
 	var scale_value := float(offset.get("scale", 1.0))
 	visual.scale = Vector3.ONE * scale_value * WEAPON_ATTACHMENT_SCALE
+
+
+func _apply_weapon_grip_transform(visual: Node3D, asset: Dictionary) -> void:
+	var grip_value = asset.get("weaponGrip", {})
+	if typeof(grip_value) != TYPE_DICTIONARY:
+		return
+	var grip := grip_value as Dictionary
+	visual.rotation_degrees = -_vector3_from_array(grip.get("rotationDeg", []), Vector3.ZERO)
+	var grip_position := _vector3_from_array(grip.get("position", []), Vector3.ZERO)
+	visual.position = -(visual.transform.basis * grip_position)
 
 
 func _attachment_offset_for_mode(asset: Dictionary, attach_mode: String) -> Dictionary:

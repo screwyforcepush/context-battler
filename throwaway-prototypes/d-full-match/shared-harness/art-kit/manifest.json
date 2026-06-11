@@ -2616,9 +2616,9 @@
       "pivotYOffset": 0,
       "handOffset": {
         "position": [
-          0.05,
-          0.02,
-          -0.02
+          0,
+          0,
+          0
         ],
         "rotationDeg": [
           0,
@@ -2626,6 +2626,18 @@
           -18
         ],
         "scale": 1
+      },
+      "weaponGrip": {
+        "position": [
+          0,
+          -0.12,
+          0
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          0
+        ]
       },
       "source": {
         "title": "Ultimate RPG Items Bundle",
@@ -2660,9 +2672,9 @@
           "attachBone": "right_hand",
           "handOffset": {
             "position": [
-              0.05,
-              0.02,
-              -0.02
+              0,
+              0,
+              0
             ],
             "rotationDeg": [
               0,
@@ -2685,9 +2697,9 @@
       "pivotYOffset": 0,
       "handOffset": {
         "position": [
-          0.04,
-          0.01,
-          -0.02
+          0,
+          0,
+          0
         ],
         "rotationDeg": [
           0,
@@ -2695,6 +2707,18 @@
           -10
         ],
         "scale": 0.9
+      },
+      "weaponGrip": {
+        "position": [
+          0,
+          -0.12,
+          0
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          0
+        ]
       },
       "source": {
         "title": "Ultimate RPG Items Bundle",
@@ -2729,9 +2753,9 @@
           "attachBone": "right_hand",
           "handOffset": {
             "position": [
-              0.04,
-              0.01,
-              -0.02
+              0,
+              0,
+              0
             ],
             "rotationDeg": [
               0,
@@ -2755,16 +2779,28 @@
       "pivotYOffset": 0,
       "handOffset": {
         "position": [
-          0.06,
-          0.03,
-          -0.03
+          0,
+          0,
+          0
         ],
         "rotationDeg": [
           0,
           0,
-          -14
+          -32
         ],
-        "scale": 1
+        "scale": 0.55
+      },
+      "weaponGrip": {
+        "position": [
+          -1.13,
+          1.68,
+          -2.04
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          0
+        ]
       },
       "source": {
         "title": "Animated Low Poly Hero with Sword and Shield",
@@ -2797,16 +2833,16 @@
           "attachBone": "right_hand",
           "handOffset": {
             "position": [
-              0.06,
-              0.03,
-              -0.03
+              0,
+              0,
+              0
             ],
             "rotationDeg": [
               0,
               0,
-              -14
+              -32
             ],
-            "scale": 1
+            "scale": 0.55
           }
         }
       ]
@@ -2822,9 +2858,9 @@
       "pivotYOffset": 0,
       "handOffset": {
         "position": [
-          0.08,
-          0.04,
-          -0.04
+          0,
+          0,
+          0
         ],
         "rotationDeg": [
           0,
@@ -2832,6 +2868,18 @@
           -24
         ],
         "scale": 1
+      },
+      "weaponGrip": {
+        "position": [
+          0,
+          -0.18,
+          0
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          0
+        ]
       },
       "source": {
         "title": "Ultimate RPG Items Bundle",
@@ -2866,9 +2914,9 @@
           "attachBone": "right_hand",
           "handOffset": {
             "position": [
-              0.08,
-              0.04,
-              -0.04
+              0,
+              0,
+              0
             ],
             "rotationDeg": [
               0,
@@ -2891,9 +2939,9 @@
       "pivotYOffset": 0,
       "handOffset": {
         "position": [
-          0.09,
-          0.06,
-          -0.05
+          0,
+          0,
+          0
         ],
         "rotationDeg": [
           0,
@@ -2901,6 +2949,18 @@
           -20
         ],
         "scale": 1.12
+      },
+      "weaponGrip": {
+        "position": [
+          0,
+          0.2,
+          0
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          0
+        ]
       },
       "source": {
         "title": "Ultimate RPG Items Bundle",
@@ -2935,9 +2995,9 @@
           "attachBone": "right_hand",
           "handOffset": {
             "position": [
-              0.09,
-              0.06,
-              -0.05
+              0,
+              0,
+              0
             ],
             "rotationDeg": [
               0,
@@ -2960,9 +3020,9 @@
       "pivotYOffset": 0,
       "handOffset": {
         "position": [
-          0.1,
-          0.04,
-          -0.05
+          0,
+          0,
+          0
         ],
         "rotationDeg": [
           0,
@@ -2970,6 +3030,18 @@
           -30
         ],
         "scale": 1.08
+      },
+      "weaponGrip": {
+        "position": [
+          0,
+          0.42,
+          0
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          0
+        ]
       },
       "source": {
         "title": "Ultimate RPG Items Bundle",
@@ -3004,9 +3076,9 @@
           "attachBone": "right_hand",
           "handOffset": {
             "position": [
-              0.1,
-              0.04,
-              -0.05
+              0,
+              0,
+              0
             ],
             "rotationDeg": [
               0,
@@ -3030,16 +3102,28 @@
       "pivotYOffset": 0,
       "handOffset": {
         "position": [
-          0.055,
-          0.02,
-          -0.035
+          0,
+          0,
+          0
+        ],
+        "rotationDeg": [
+          0,
+          45,
+          -12
+        ],
+        "scale": 3.2
+      },
+      "weaponGrip": {
+        "position": [
+          0,
+          0,
+          0
         ],
         "rotationDeg": [
           0,
           0,
-          -18
-        ],
-        "scale": 0.046
+          0
+        ]
       },
       "source": {
         "title": "Free CC0 Melee Weapons Pack - Crowbar GLB conversion",
@@ -3072,16 +3156,16 @@
           "attachBone": "right_hand",
           "handOffset": {
             "position": [
-              0.055,
-              0.02,
-              -0.035
+              0,
+              0,
+              0
             ],
             "rotationDeg": [
               0,
-              0,
-              -18
+              45,
+              -12
             ],
-            "scale": 0.046
+            "scale": 3.2
           }
         }
       ]
@@ -3098,16 +3182,28 @@
       "pivotYOffset": 0,
       "handOffset": {
         "position": [
-          0.070,
-          0.025,
-          -0.040
+          0,
+          0,
+          0
         ],
         "rotationDeg": [
           0,
-          90,
-          -24
+          72,
+          -18
         ],
-        "scale": 0.045
+        "scale": 3.1
+      },
+      "weaponGrip": {
+        "position": [
+          0,
+          -0.26,
+          0
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          0
+        ]
       },
       "source": {
         "title": "Free CC0 Melee Weapons Pack - Fire Axe GLB conversion",
@@ -3140,16 +3236,16 @@
           "attachBone": "right_hand",
           "handOffset": {
             "position": [
-              0.070,
-              0.025,
-              -0.040
+              0,
+              0,
+              0
             ],
             "rotationDeg": [
               0,
-              90,
-              -24
+              72,
+              -18
             ],
-            "scale": 0.045
+            "scale": 3.1
           }
         }
       ]
@@ -3166,16 +3262,28 @@
       "pivotYOffset": 0,
       "handOffset": {
         "position": [
-          0.085,
-          0.030,
-          -0.045
+          0,
+          0,
+          0
         ],
         "rotationDeg": [
           0,
           90,
-          -18
+          -12
         ],
-        "scale": 0.042
+        "scale": 2.6
+      },
+      "weaponGrip": {
+        "position": [
+          0,
+          0.12,
+          0
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          0
+        ]
       },
       "source": {
         "title": "Free CC0 Melee Weapons Pack - Nail Bat GLB conversion",
@@ -3208,16 +3316,16 @@
           "attachBone": "right_hand",
           "handOffset": {
             "position": [
-              0.085,
-              0.030,
-              -0.045
+              0,
+              0,
+              0
             ],
             "rotationDeg": [
               0,
               90,
-              -18
+              -12
             ],
-            "scale": 0.042
+            "scale": 2.6
           }
         }
       ]
@@ -3234,16 +3342,28 @@
       "pivotYOffset": 0,
       "handOffset": {
         "position": [
-          0.065,
-          0.020,
-          -0.040
+          0,
+          0,
+          0
         ],
         "rotationDeg": [
           0,
           90,
-          -16
+          -10
         ],
-        "scale": 0.048
+        "scale": 4.0
+      },
+      "weaponGrip": {
+        "position": [
+          0,
+          0.1,
+          0
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          0
+        ]
       },
       "source": {
         "title": "Free CC0 Melee Weapons Pack - Rusty Pipe GLB conversion",
@@ -3276,16 +3396,16 @@
           "attachBone": "right_hand",
           "handOffset": {
             "position": [
-              0.065,
-              0.020,
-              -0.040
+              0,
+              0,
+              0
             ],
             "rotationDeg": [
               0,
               90,
-              -16
+              -10
             ],
-            "scale": 0.048
+            "scale": 4.0
           }
         }
       ]
@@ -3302,16 +3422,28 @@
       "pivotYOffset": 0,
       "handOffset": {
         "position": [
-          0.052,
-          0.015,
-          -0.032
+          0,
+          0,
+          0
         ],
         "rotationDeg": [
           0,
           90,
-          -12
+          -8
         ],
-        "scale": 0.058
+        "scale": 4.3
+      },
+      "weaponGrip": {
+        "position": [
+          0,
+          0.03,
+          0
+        ],
+        "rotationDeg": [
+          0,
+          0,
+          0
+        ]
       },
       "source": {
         "title": "Free CC0 Melee Weapons Pack - Tire Iron GLB conversion",
@@ -3344,16 +3476,16 @@
           "attachBone": "right_hand",
           "handOffset": {
             "position": [
-              0.052,
-              0.015,
-              -0.032
+              0,
+              0,
+              0
             ],
             "rotationDeg": [
               0,
               90,
-              -12
+              -8
             ],
-            "scale": 0.058
+            "scale": 4.3
           }
         }
       ]

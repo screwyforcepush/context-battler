@@ -518,9 +518,7 @@ func _make_ui() -> void:
 	tier_box.name = "EquipmentTierBar"
 	tier_box.add_theme_constant_override("separation", 4)
 	root.add_child(tier_box)
-	_make_tier_row(tier_box, "Weapon", "weapon")
 	_make_weapon_asset_row(tier_box)
-	_make_tier_row(tier_box, "Armour", "armour")
 	_make_armour_asset_row(tier_box)
 
 
@@ -656,6 +654,10 @@ func _set_weapon_asset_selection(index: int) -> void:
 		return
 	var weapon_name := str(weapon_asset_selector.get_item_metadata(index))
 	_select_weapon_name(weapon_name)
+	if weapon_name.is_empty():
+		current_weapon_tier = 0
+		_reapply_showroom_layers()
+		return
 	var assets = equipment_attachment.get("weapon_assets_by_name")
 	if typeof(assets) == TYPE_DICTIONARY and (assets as Dictionary).has(weapon_name):
 		var asset = (assets as Dictionary).get(weapon_name, {})
@@ -699,7 +701,7 @@ func _apply_runtime_modes() -> void:
 
 
 func _apply_equipment_layers() -> void:
-	var weapon_name := current_weapon_selection if _layer_is_enabled(LAYER_WEAPONS) and current_weapon_tier > 0 else ""
+	var weapon_name := current_weapon_selection if _layer_is_enabled(LAYER_WEAPONS) else ""
 	var armour_name := str(armour_by_tier.get(current_armour_tier, "")) if _layer_is_enabled(LAYER_ARMOUR) else ""
 	var equipped := {}
 	for persona in _equipment_personas():
@@ -749,11 +751,16 @@ func _build_tier_maps() -> void:
 	armour_by_tier = _armour_visual_tier_map()
 	current_weapon_tier = 0
 	current_armour_tier = 0
-	current_weapon_selection = str(weapon_by_tier.get(_default_visible_tier(weapon_by_tier), ""))
+	current_weapon_selection = ""
 
 
 func _build_weapon_asset_options() -> void:
-	weapon_asset_options = []
+	weapon_asset_options = [
+		{
+			"name": "",
+			"label": "None",
+		},
+	]
 	var assets = equipment_attachment.get("weapon_assets_by_name")
 	if typeof(assets) != TYPE_DICTIONARY:
 		return
@@ -772,8 +779,6 @@ func _build_weapon_asset_options() -> void:
 			"name": str(weapon_name),
 			"label": label,
 		})
-	if current_weapon_selection.is_empty() and not weapon_asset_options.is_empty():
-		current_weapon_selection = str((weapon_asset_options[0] as Dictionary).get("name", ""))
 
 
 func _build_armour_prop_options() -> void:
@@ -861,8 +866,6 @@ func _asset_for_slot_tier(slot: String, tier: int) -> String:
 
 
 func _select_weapon_name(weapon_name: String) -> void:
-	if weapon_name.is_empty():
-		return
 	current_weapon_selection = weapon_name
 	if weapon_asset_selector == null:
 		return
